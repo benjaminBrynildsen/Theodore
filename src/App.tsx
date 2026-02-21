@@ -1,0 +1,54 @@
+import { useStore } from './store';
+import { useCanonStore } from './store/canon';
+import { TopBar } from './components/layout/TopBar';
+import { LeftSidebar } from './components/layout/LeftSidebar';
+import { RightSidebar } from './components/layout/RightSidebar';
+import { Home } from './components/views/Home';
+import { ProjectView } from './components/views/ProjectView';
+import { CanonDetailPanel } from './components/canon/CanonDetailPanel';
+import { UpgradeModal } from './components/credits/UpgradeModal';
+import { SettingsModal } from './components/credits/SettingsModal';
+import { ImpactPanel } from './components/validation/ImpactPanel';
+import { SettingsView } from './components/views/SettingsView';
+import { useSettingsStore } from './store/settings';
+
+export default function App() {
+  const { currentView } = useStore();
+  const { showSettingsView } = useSettingsStore();
+  const { activeEntryId, getEntry, setActiveEntry } = useCanonStore();
+  const activeCanonEntry = activeEntryId ? getEntry(activeEntryId) : undefined;
+
+  return (
+    <div className="h-screen flex flex-col bg-bg">
+      <TopBar />
+      <div className="flex-1 flex overflow-hidden">
+        {!showSettingsView && <LeftSidebar />}
+        <main className="flex-1 flex overflow-hidden">
+          {showSettingsView ? (
+            <SettingsView />
+          ) : (
+            <>
+              {currentView === 'home' && <Home />}
+              {(currentView === 'project' || currentView === 'chapter') && <ProjectView />}
+            </>
+          )}
+        </main>
+        
+        {!showSettingsView && activeCanonEntry && (
+          <div className="w-[420px] flex-shrink-0">
+            <CanonDetailPanel
+              entry={activeCanonEntry}
+              onClose={() => setActiveEntry(null)}
+            />
+          </div>
+        )}
+        
+        {!showSettingsView && !activeCanonEntry && <RightSidebar />}
+      </div>
+      
+      <UpgradeModal />
+      <SettingsModal />
+      <ImpactPanel />
+    </div>
+  );
+}
