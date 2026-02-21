@@ -3,6 +3,8 @@ import { X, User, MapPin, Cog, Gem, Scale, Milestone, Plus, Trash2, Heart, Brain
 import { useCanonStore } from '../../store/canon';
 import { cn } from '../../lib/utils';
 import { autoFillCharacter, autoFillLocation } from '../../lib/ai-autofill';
+import { buildAutoFillPrompt, buildValidationPrompt } from '../../lib/prompt-builder';
+import { useSettingsStore } from '../../store/settings';
 import { detectChanges, generateValidationIssues } from '../../lib/validation-engine';
 import { useValidationStore } from '../../store/validation';
 import { useStore } from '../../store';
@@ -635,6 +637,18 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
     if (changes.length === 0) return;
 
     const chapters = getProjectChapters(currentEntry.projectId);
+    
+    // Build validation prompt for AI-powered continuity checking
+    const { getActiveProject } = useStore.getState();
+    const project = getActiveProject();
+    if (project) {
+      const validationPrompt = buildValidationPrompt(currentEntry, changes, chapters, project);
+      console.log('=== VALIDATION PROMPT ===');
+      console.log(validationPrompt);
+      console.log('=== END PROMPT ===');
+    }
+
+    // For now, use structural validation — will be replaced with AI validation
     const issues = generateValidationIssues(currentEntry, changes, chapters.length);
     
     if (issues.length > 0) {
@@ -662,7 +676,20 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
 
   const handleAutoFill = async () => {
     setIsAutoFilling(true);
-    // Simulate AI delay — in production this calls the actual API
+    
+    // Build context-aware prompt using project settings
+    const { getActiveProject } = useStore.getState();
+    const { settings } = useSettingsStore.getState();
+    const project = getActiveProject();
+    
+    if (project) {
+      const prompt = buildAutoFillPrompt(entry, project, settings);
+      console.log('=== AUTO-FILL PROMPT ===');
+      console.log(prompt);
+      console.log('=== END PROMPT ===');
+    }
+
+    // Simulate AI delay — will be replaced with actual API call using the prompt above
     await new Promise(r => setTimeout(r, 1500));
     
     if (entry.type === 'character') {

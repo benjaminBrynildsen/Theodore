@@ -2,10 +2,12 @@ import { useState, useCallback } from 'react';
 import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, Sparkles, BookOpen, Settings2, MessageSquare, Swords, Wand2, Clock, Loader2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
+import { useSettingsStore } from '../../store/settings';
 import { CreditCostTag } from '../credits/CreditCostTag';
 import { cn } from '../../lib/utils';
+import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import type { CanonType } from '../../types/canon';
-import type { WritingMode } from '../../types';
+import type { WritingMode, GenerationType } from '../../types';
 
 const canonSections: { type: CanonType; label: string; icon: React.ElementType }[] = [
   { type: 'character', label: 'Characters', icon: Users },
@@ -266,15 +268,55 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
                     disabled={generating !== null}
                     onClick={() => {
                       setGenerating(action);
-                      // Simulate generation — will connect to real AI API
+                      
+                      // Build the full prompt using all settings, canon, and context
+                      const { settings } = useSettingsStore.getState();
+                      const { entries } = useCanonStore.getState();
+                      const { getActiveProject, getProjectChapters } = useStore.getState();
+                      const project = getActiveProject();
+                      if (!project || !chapter) { setGenerating(null); return; }
+                      
+                      const allChapters = getProjectChapters(project.id);
+                      const projectCanon = entries.filter(e => e.projectId === project.id);
+                      const prevChapter = allChapters.find(c => c.number === chapter.number - 1);
+                      
+                      const genTypeMap: Record<string, GenerationType> = {
+                        'generate-chapter-full': 'full-chapter',
+                        'generate-chapter-outline': 'scene-outline',
+                        'generate-dialogue': 'dialogue-first',
+                        'generate-action-skeleton': 'action-skeleton',
+                      };
+
+                      const prompt = buildGenerationPrompt({
+                        project,
+                        chapter,
+                        allChapters,
+                        canonEntries: projectCanon,
+                        settings,
+                        writingMode,
+                        generationType: genTypeMap[action] || 'full-chapter',
+                        previousChapterProse: prevChapter?.prose || undefined,
+                      });
+
+                      // Log the prompt (dev only — will be replaced with actual API call)
+                      console.log('=== GENERATION PROMPT ===');
+                      console.log(prompt);
+                      console.log('=== END PROMPT ===');
+                      console.log(`Model: ${settings.ai.preferredModel}, Temperature: ${settings.ai.temperature}`);
+
+                      // Simulate generation delay — replace with real API call
                       setTimeout(() => {
-                        if (action === 'generate-chapter-full' && chapter) {
-                          updateChapter(chapter.id, {
-                            prose: `[AI-generated ${label.toLowerCase()} would appear here]\n\nThis will connect to your preferred AI model to generate prose based on the premise, canon entries, and narrative controls.\n\nMode: ${writingMode}`,
-                            status: 'draft-generated',
-                            updatedAt: new Date().toISOString(),
-                          });
-                        }
+                        updateChapter(chapter.id, {
+                          prose: `[Generation pending — API integration required]\n\nPrompt built with:\n• Writing style: ${settings.writingStyle.emDashEnabled ? 'em dashes ON' : 'no em dashes'}, ${settings.writingStyle.oxfordComma ? 'Oxford comma' : 'no Oxford comma'}, ${settings.writingStyle.paragraphLength} paragraphs\n• Tone: light/dark ${project.narrativeControls.toneMood.lightDark}%, pacing: ${project.narrativeControls.pacing}\n• Mode: ${writingMode}\n• Canon: ${projectCanon.length} entries included\n• Model: ${settings.ai.preferredModel}, temp: ${settings.ai.temperature}\n• Type: ${label}`,
+                          status: 'draft-generated',
+                          aiIntentMetadata: {
+                            model: settings.ai.preferredModel,
+                            role: 'architect',
+                            prompt: prompt.slice(0, 500) + '...', // Store truncated prompt for reference
+                            generatedAt: new Date().toISOString(),
+                          },
+                          updatedAt: new Date().toISOString(),
+                        });
                         setGenerating(null);
                       }, 2000);
                     }}

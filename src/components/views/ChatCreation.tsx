@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Send, Sparkles, Check, ChevronDown, Settings2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
+import { useSettingsStore } from '../../store/settings';
 import { generateId, cn } from '../../lib/utils';
 import { Slider } from '../ui/Slider';
 import { autoFillCharacter, autoFillLocation } from '../../lib/ai-autofill';
