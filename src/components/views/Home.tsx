@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Plus, BookOpen, Clock, ChevronRight, MessageSquare, Settings2 } from 'lucide-react';
+import { Plus, BookOpen, Clock, ChevronRight, MessageSquare, Settings2, Upload } from 'lucide-react';
 import { useStore } from '../../store';
 import { NewProjectModal } from '../modals/NewProjectModal';
+import { ImportProjectModal } from '../modals/ImportProjectModal';
 import { ChatCreation } from './ChatCreation';
 import { cn } from '../../lib/utils';
 
 export function Home() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [showChatCreation, setShowChatCreation] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const { projects, setActiveProject, setCurrentView } = useStore();
 
   return (
@@ -31,6 +33,18 @@ export function Home() {
           <div className="text-center">
             <div className="font-medium text-sm">Plan with AI</div>
             <div className="text-xs text-text-tertiary mt-0.5">Describe your idea, Theodore builds the blueprint</div>
+          </div>
+        </button>
+
+        {/* Import existing */}
+        <button
+          onClick={() => setShowImport(true)}
+          className="glass px-8 py-5 rounded-2xl flex flex-col items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-56"
+        >
+          <Upload size={24} />
+          <div className="text-center">
+            <div className="font-medium text-sm">Import Existing</div>
+            <div className="text-xs text-text-tertiary mt-0.5">Bring your manuscript, outline, and notes</div>
           </div>
         </button>
 
@@ -92,6 +106,7 @@ export function Home() {
       )}
 
       {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
+      {showImport && <ImportProjectModal onClose={() => setShowImport(false)} />}
       {showChatCreation && <ChatCreation onClose={() => setShowChatCreation(false)} />}
     </div>
   );
