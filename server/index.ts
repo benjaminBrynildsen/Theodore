@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -169,6 +170,157 @@ app.post('/api/transactions', async (req, res) => {
       }
     }
     res.json(tx);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ========== AI Generation ==========
+import { generate, generateStream, tokensToCredits } from './ai.js';
+
+// Non-streaming generation (auto-fill, validation, etc.)
+app.post('/api/generate', async (req, res) => {
+  try {
+    const { prompt, systemPrompt, model, maxTokens, temperature, userId, projectId, chapterId, action } = req.body;
+    
+    if (!userId || !prompt) {
+      return res.status(400).json({ error: 'Missing userId or prompt' });
+    }
+
+    // Check credits (skip for BYOK users)
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    const isByok = user.plan === 'byok' && user.byokKey;
+    if (!isByok && user.creditsRemaining <= 0) {
+      return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
+    }
+
+    const result = await generate({
+      prompt, systemPrompt, model, maxTokens, temperature,
+      userId, projectId, chapterId, action,
+    });
+
+    // Log transaction and deduct credits (skip for BYOK)
+    if (!isByok) {
+      await db.insert(creditTransactions).values({
+        userId,
+        action: action || 'generate',
+        creditsUsed: result.creditsUsed,
+        model: result.model,
+        chapterId,
+        metadata: {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          projectId,
+        },
+      });
+
+      await db.update(users).set({
+        creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
+        updatedAt: new Date(),
+      }).where(eq(users.id, userId));
+    }
+
+    res.json({
+      text: result.text,
+      model: result.model,
+      usage: {
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        creditsUsed: result.creditsUsed,
+        creditsRemaining: isByok ? null : Math.max(0, user.creditsRemaining - result.creditsUsed),
+      },
+    });
+  } catch (e: any) {
+    console.error('Generate error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Streaming generation (chapter writing)
+app.post('/api/generate/stream', async (req, res) => {
+  try {
+    const { prompt, systemPrompt, model, maxTokens, temperature, userId, projectId, chapterId, action } = req.body;
+    
+    if (!userId || !prompt) {
+      return res.status(400).json({ error: 'Missing userId or prompt' });
+    }
+
+    // Check credits
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    const isByok = user.plan === 'byok' && user.byokKey;
+    if (!isByok && user.creditsRemaining <= 0) {
+      return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
+    }
+
+    // SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+
+    const result = await generateStream(
+      { prompt, systemPrompt, model, maxTokens, temperature, userId, projectId, chapterId, action },
+      res
+    );
+
+    // Log transaction
+    if (!isByok) {
+      await db.insert(creditTransactions).values({
+        userId,
+        action: action || 'generate-stream',
+        creditsUsed: result.creditsUsed,
+        model: result.model,
+        chapterId,
+        metadata: {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          projectId,
+        },
+      });
+
+      await db.update(users).set({
+        creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
+        updatedAt: new Date(),
+      }).where(eq(users.id, userId));
+    }
+
+    // Final event with usage stats
+    res.write(`data: ${JSON.stringify({
+      type: 'done',
+      usage: {
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        creditsUsed: result.creditsUsed,
+        creditsRemaining: isByok ? null : Math.max(0, user.creditsRemaining - result.creditsUsed),
+      },
+    })}\n\n`);
+
+    res.end();
+  } catch (e: any) {
+    console.error('Stream error:', e.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: e.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
+// Get user credit balance
+app.get('/api/users/:id/credits', async (req, res) => {
+  try {
+    const [user] = await db.select().from(users).where(eq(users.id, req.params.id));
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      plan: user.plan,
+      creditsRemaining: user.creditsRemaining,
+      creditsTotal: user.creditsTotal,
+      isByok: user.plan === 'byok' && !!user.byokKey,
+    });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 

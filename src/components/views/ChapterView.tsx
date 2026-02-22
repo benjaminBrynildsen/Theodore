@@ -1,14 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2 } from 'lucide-react';
 import { useStore } from '../../store';
+import { useCanonStore } from '../../store/canon';
+import { useSettingsStore } from '../../store/settings';
 import { Badge } from '../ui/Badge';
 import { VersionTimeline } from '../features/VersionTimeline';
 import { TokenBudget } from '../credits/TokenBudget';
 import { DictationMode } from '../features/DictationMode';
 import { ProseXRay } from '../features/ProseXRay';
 import { SmartResearch } from '../features/SmartResearch';
+import { generateStream } from '../../lib/generate';
+import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { cn } from '../../lib/utils';
-import type { Chapter } from '../../types';
+import type { Chapter, WritingMode, GenerationType } from '../../types';
 
 interface Props {
   chapter: Chapter;
@@ -23,7 +27,75 @@ export function ChapterView({ chapter }: Props) {
   const [showXRay, setShowXRay] = useState(false);
   const [showResearch, setShowResearch] = useState(false);
   const [wordCount, setWordCount] = useState(0);
+  const [generating, setGenerating] = useState(false);
+  const [generatedText, setGeneratedText] = useState('');
   const editorRef = useRef<HTMLTextAreaElement>(null);
+
+  const { getActiveProject, getProjectChapters, chapters: allChapters } = useStore();
+  const { getProjectEntries } = useCanonStore();
+  const { settings } = useSettingsStore();
+  const project = getActiveProject();
+
+  // AI Generation handler
+  const handleGenerate = async () => {
+    if (!project) return;
+    setGenerating(true);
+    setGeneratedText('');
+
+    const projectChapters = getProjectChapters(project.id);
+    const canonEntries = getProjectEntries(project.id);
+    const prevChapter = projectChapters.find(c => c.number === chapter.number - 1);
+
+    const prompt = buildGenerationPrompt({
+      project,
+      chapter,
+      allChapters: projectChapters,
+      canonEntries,
+      settings,
+      writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
+      generationType: 'full-chapter' as GenerationType,
+      previousChapterProse: prevChapter?.prose,
+    });
+
+    let accumulated = '';
+    await generateStream(
+      {
+        prompt,
+        model: settings.ai?.preferredModel || 'claude-opus-4-6',
+        maxTokens: 4096,
+        action: 'generate-chapter',
+        projectId: project.id,
+        chapterId: chapter.id,
+      },
+      (text) => {
+        accumulated += text;
+        setGeneratedText(accumulated);
+      },
+      (usage) => {
+        // Generation complete — save to chapter
+        updateChapter(chapter.id, {
+          prose: accumulated,
+          status: 'draft-generated',
+          aiIntentMetadata: {
+            model: usage.creditsUsed ? settings.ai?.preferredModel || 'claude-opus-4-6' : 'unknown',
+            generatedAt: new Date().toISOString(),
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            creditsUsed: usage.creditsUsed,
+          },
+        });
+        setGenerating(false);
+        setGeneratedText('');
+      },
+      (error) => {
+        console.error('Generation error:', error);
+        setGenerating(false);
+        if (error === 'INSUFFICIENT_CREDITS') {
+          alert('Not enough credits. Upgrade your plan to continue generating.');
+        }
+      },
+    );
+  };
 
   // Calculate word count
   useEffect(() => {
@@ -169,7 +241,12 @@ export function ChapterView({ chapter }: Props) {
               </p>
               
               {/* Generate with budget */}
-              {!showBudget ? (
+              {generating ? (
+                <div className="mb-6 flex items-center gap-2 text-sm text-text-secondary justify-center">
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Generating...</span>
+                </div>
+              ) : !showBudget ? (
                 <button
                   onClick={() => setShowBudget(true)}
                   className="mb-6 px-5 py-2.5 rounded-xl bg-text-primary text-text-inverse text-sm font-medium flex items-center gap-2 mx-auto hover:shadow-lg transition-all"
@@ -183,30 +260,40 @@ export function ChapterView({ chapter }: Props) {
                     action="generate-chapter-full"
                     onConfirm={() => {
                       setShowBudget(false);
-                      // TODO: trigger actual generation
+                      handleGenerate();
                     }}
                     onCancel={() => setShowBudget(false)}
                   />
                 </div>
               )}
               
+              {/* Streaming preview while generating */}
+              {generating && generatedText && (
+                <div className="font-serif text-lg leading-[2] text-text-primary whitespace-pre-wrap animate-fade-in">
+                  {generatedText}
+                  <span className="inline-block w-0.5 h-5 bg-black animate-pulse ml-0.5" />
+                </div>
+              )}
+
               {/* Quick-start writing area */}
-              <textarea
-                ref={editorRef}
-                value={chapter.prose}
-                onChange={(e) => updateChapter(chapter.id, { 
-                  prose: e.target.value, 
-                  status: e.target.value.trim() ? 'human-edited' : 'premise-only',
-                  updatedAt: new Date().toISOString(),
-                })}
-                placeholder="Begin your chapter here..."
-                className={cn(
-                  'w-full bg-transparent border-none outline-none resize-none',
-                  'font-serif text-lg leading-[2] text-text-primary',
-                  'placeholder:text-text-tertiary/50 placeholder:italic',
-                  'min-h-[200px]'
-                )}
-              />
+              {!generating && (
+                <textarea
+                  ref={editorRef}
+                  value={chapter.prose}
+                  onChange={(e) => updateChapter(chapter.id, { 
+                    prose: e.target.value, 
+                    status: e.target.value.trim() ? 'human-edited' : 'premise-only',
+                    updatedAt: new Date().toISOString(),
+                  })}
+                  placeholder="Begin your chapter here..."
+                  className={cn(
+                    'w-full bg-transparent border-none outline-none resize-none',
+                    'font-serif text-lg leading-[2] text-text-primary',
+                    'placeholder:text-text-tertiary/50 placeholder:italic',
+                    'min-h-[200px]'
+                  )}
+                />
+              )}
             </div>
           )}
 
