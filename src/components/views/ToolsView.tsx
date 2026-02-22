@@ -2,7 +2,8 @@ import { useState } from 'react';
 import {
   ChevronLeft, TrendingUp, BookOpen, BookCopy, FileSignature,
   LayoutGrid, Barcode, Library, Mic, Rocket, Users,
-  Activity, MessageSquareQuote, Waves, Globe
+  Activity, MessageSquareQuote, Waves, Globe, Image,
+  Highlighter, Timer, Search, ScrollText
 } from 'lucide-react';
 import { StoryArcVisualizer } from '../features/StoryArcVisualizer';
 import { FirstReaderAI } from '../features/FirstReaderAI';
@@ -17,12 +18,18 @@ import { DialogueAnalyzer } from '../features/DialogueAnalyzer';
 import { PacingHeartbeat } from '../features/PacingHeartbeat';
 import { ToneDriftDetector } from '../features/ToneDriftDetector';
 import { PreOrderPage } from '../features/PreOrderPage';
+import { ProseXRay } from '../features/ProseXRay';
+import { ChapterRecapGenerator } from '../features/ChapterRecapGenerator';
+import { AICoverDesigner } from '../features/AICoverDesigner';
+import { SmartResearch } from '../features/SmartResearch';
+import { WritingSprintMode } from '../features/WritingSprintMode';
 import { cn } from '../../lib/utils';
 
 type Tool =
   | 'arc' | 'reader' | 'comps' | 'query'
   | 'beats' | 'isbn' | 'series' | 'launch'
-  | 'relationships' | 'dialogue' | 'pacing' | 'tone' | 'preorder';
+  | 'relationships' | 'dialogue' | 'pacing' | 'tone' | 'preorder'
+  | 'xray' | 'recap' | 'cover' | 'research' | 'sprint';
 
 const TOOLS: { id: Tool; label: string; icon: typeof TrendingUp; description: string; phase: string }[] = [
   { id: 'series', label: 'Series Bible', icon: Library, description: 'Multi-book continuity and open thread tracking', phase: 'Planning' },
@@ -30,12 +37,17 @@ const TOOLS: { id: Tool; label: string; icon: typeof TrendingUp; description: st
   { id: 'arc', label: 'Story Arc', icon: TrendingUp, description: 'Visualize and reshape your narrative arc', phase: 'Writing' },
   { id: 'beats', label: 'Scene Beats', icon: LayoutGrid, description: 'Drag beats between chapters to rebalance structure', phase: 'Writing' },
   { id: 'pacing', label: 'Pacing Heartbeat', icon: Activity, description: 'Tempo waveform — see rhythm across chapters', phase: 'Writing' },
+  { id: 'sprint', label: 'Writing Sprint', icon: Timer, description: 'Timed sessions with word count tracking', phase: 'Writing' },
+  { id: 'recap', label: 'Chapter Recap', icon: ScrollText, description: '"Previously on..." summaries for continuity', phase: 'Writing' },
   { id: 'reader', label: 'First Reader', icon: BookOpen, description: 'AI beta reader — engagement, clarity, pacing feedback', phase: 'Editing' },
+  { id: 'xray', label: 'Prose X-Ray', icon: Highlighter, description: 'Heatmap overlay — dialogue ratio, adverbs, pacing', phase: 'Editing' },
   { id: 'dialogue', label: 'Dialogue Analyzer', icon: MessageSquareQuote, description: 'Voice profiles and character similarity detection', phase: 'Editing' },
   { id: 'tone', label: 'Tone Drift', icon: Waves, description: 'Detect unintentional tone shifts across chapters', phase: 'Editing' },
+  { id: 'research', label: 'Smart Research', icon: Search, description: 'Inline factual accuracy checking and verification', phase: 'Editing' },
   { id: 'comps', label: 'Comp Titles', icon: BookCopy, description: 'Find comparable books for marketing and queries', phase: 'Publishing' },
   { id: 'query', label: 'Query & Blurb', icon: FileSignature, description: 'Generate query letters, back covers, Amazon descriptions', phase: 'Publishing' },
   { id: 'isbn', label: 'ISBN & Copyright', icon: Barcode, description: 'Step-by-step publishing paperwork', phase: 'Publishing' },
+  { id: 'cover', label: 'Cover Designer', icon: Image, description: 'AI-generated covers at KDP-ready specs', phase: 'Publishing' },
   { id: 'preorder', label: 'Pre-Order Page', icon: Globe, description: 'Landing page with countdown and email capture', phase: 'Publishing' },
   { id: 'launch', label: 'Launch Dashboard', icon: Rocket, description: 'Sales, reviews, and rankings post-publish', phase: 'Post-Launch' },
 ];
@@ -133,6 +145,11 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
           {activeTool === 'pacing' && <PacingHeartbeat />}
           {activeTool === 'tone' && <ToneDriftDetector />}
           {activeTool === 'preorder' && <PreOrderPage />}
+          {activeTool === 'xray' && <ProseXRay chapterId="ch-1" />}
+          {activeTool === 'recap' && <ChapterRecapGenerator />}
+          {activeTool === 'cover' && <AICoverDesigner />}
+          {activeTool === 'research' && <SmartResearch chapterId="ch-1" />}
+          {activeTool === 'sprint' && <WritingSprintMode />}
         </div>
       </div>
     </div>
