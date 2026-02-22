@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2, History, BookMarked } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2, History, BookMarked, Mic } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge } from '../ui/Badge';
 import { VersionTimeline } from '../features/VersionTimeline';
 import { TokenBudget } from '../credits/TokenBudget';
+import { DictationMode } from '../features/DictationMode';
 import { cn } from '../../lib/utils';
 import type { Chapter } from '../../types';
 
@@ -16,6 +17,7 @@ export function ChapterView({ chapter }: Props) {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
+  const [showDictation, setShowDictation] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
@@ -72,6 +74,15 @@ export function ChapterView({ chapter }: Props) {
               <History size={15} />
             </button>
           )}
+
+          {/* Dictation */}
+          <button
+            onClick={() => setShowDictation(!showDictation)}
+            className={cn('p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showDictation && 'bg-white/40 text-red-500')}
+            title="Dictation mode"
+          >
+            <Mic size={15} />
+          </button>
 
           {/* Reading mode */}
           <button
@@ -198,6 +209,9 @@ export function ChapterView({ chapter }: Props) {
           )}
         </div>
       </div>
+
+      {/* Dictation Mode */}
+      {showDictation && <DictationMode chapterId={chapter.id} />}
 
       {/* Version Timeline */}
       {showHistory && chapter.prose && (

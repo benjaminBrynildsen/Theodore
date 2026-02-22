@@ -39,6 +39,8 @@ interface AppState {
   setShowReadingMode: (show: boolean) => void;
   showAudiobook: boolean;
   setShowAudiobook: (show: boolean) => void;
+  showToolsView: boolean;
+  setShowToolsView: (show: boolean) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -174,4 +176,6 @@ export const useStore = create<AppState>((set, get) => ({
   setShowReadingMode: (show) => set({ showReadingMode: show }),
   showAudiobook: false,
   setShowAudiobook: (show) => set({ showAudiobook: show }),
+  showToolsView: false,
+  setShowToolsView: (show) => set({ showToolsView: show }),
 }));

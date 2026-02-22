@@ -11,10 +11,11 @@ import { SettingsModal } from './components/credits/SettingsModal';
 import { ImpactPanel } from './components/validation/ImpactPanel';
 import { SettingsView } from './components/views/SettingsView';
 import { ReadingMode } from './components/views/ReadingMode';
+import { ToolsView } from './components/views/ToolsView';
 import { useSettingsStore } from './store/settings';
 
 export default function App() {
-  const { currentView, showReadingMode, setShowReadingMode } = useStore();
+  const { currentView, showReadingMode, setShowReadingMode, showToolsView, setShowToolsView } = useStore();
   const { showSettingsView } = useSettingsStore();
   const { activeEntryId, getEntry, setActiveEntry } = useCanonStore();
   const activeCanonEntry = activeEntryId ? getEntry(activeEntryId) : undefined;
@@ -23,9 +24,11 @@ export default function App() {
     <div className="h-screen flex flex-col bg-bg">
       <TopBar />
       <div className="flex-1 flex overflow-hidden">
-        {!showSettingsView && <LeftSidebar />}
+        {!showSettingsView && !showToolsView && <LeftSidebar />}
         <main className="flex-1 flex overflow-hidden">
-          {showSettingsView ? (
+          {showToolsView ? (
+            <ToolsView onClose={() => setShowToolsView(false)} />
+          ) : showSettingsView ? (
             <SettingsView />
           ) : (
             <>
@@ -35,7 +38,7 @@ export default function App() {
           )}
         </main>
         
-        {!showSettingsView && activeCanonEntry && (
+        {!showSettingsView && !showToolsView && activeCanonEntry && (
           <div className="w-[420px] flex-shrink-0">
             <CanonDetailPanel
               entry={activeCanonEntry}
@@ -44,13 +47,14 @@ export default function App() {
           </div>
         )}
         
-        {!showSettingsView && !activeCanonEntry && <RightSidebar />}
+        {!showSettingsView && !showToolsView && !activeCanonEntry && <RightSidebar />}
       </div>
       
       <UpgradeModal />
       <SettingsModal />
       <ImpactPanel />
       {showReadingMode && <ReadingMode onClose={() => setShowReadingMode(false)} />}
+{/* tools view handled inline */}
     </div>
   );
 }

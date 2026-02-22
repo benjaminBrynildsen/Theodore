@@ -1,4 +1,4 @@
-import { BookOpen, PanelLeft, PanelRight, ChevronLeft, Settings, BookMarked } from 'lucide-react';
+import { BookOpen, PanelLeft, PanelRight, ChevronLeft, Settings, BookMarked, Wrench } from 'lucide-react';
 import { useStore } from '../../store';
 import { useSettingsStore } from '../../store/settings';
 import { CreditsBadge } from '../credits/CreditsBadge';
@@ -53,6 +53,17 @@ export function TopBar() {
           </div>
         )}
       </div>
+
+      {/* Tools */}
+      {project && (
+        <button
+          onClick={() => useStore.getState().setShowToolsView(true)}
+          className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200"
+          title="Tools"
+        >
+          <Wrench size={18} />
+        </button>
+      )}
 
       {/* Reading Mode */}
       {project && (
