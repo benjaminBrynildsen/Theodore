@@ -1,12 +1,73 @@
 import { create } from 'zustand';
 import { generateId } from '../lib/utils';
+import { api } from '../lib/api';
 import type { AnyCanonEntry, CanonType, CharacterEntry, LocationEntry, SystemEntry, ArtifactEntry, RuleEntry, EventEntry } from '../types/canon';
+
+// Debounce helper
+const debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+function debounceSave(key: string, fn: () => Promise<void>, ms = 500) {
+  if (debounceTimers[key]) clearTimeout(debounceTimers[key]);
+  debounceTimers[key] = setTimeout(() => { fn().catch(console.error); }, ms);
+}
+
+// Map DB canon entry (flat data JSONB) to frontend canon entry (typed sub-objects)
+function fromDb(row: any): AnyCanonEntry {
+  const base = {
+    id: row.id,
+    projectId: row.projectId || row.project_id,
+    type: row.type as CanonType,
+    name: row.name,
+    description: row.description || '',
+    imageUrl: row.imageUrl || row.image_url,
+    tags: row.tags || [],
+    notes: row.notes || '',
+    version: row.version || 1,
+    linkedCanonIds: row.linkedCanonIds || row.linked_canon_ids || [],
+    createdAt: row.createdAt || row.created_at,
+    updatedAt: row.updatedAt || row.updated_at,
+  };
+  const data = row.data || {};
+  
+  // Attach type-specific data
+  switch (row.type) {
+    case 'character':
+      return { ...base, character: data } as CharacterEntry;
+    case 'location':
+      return { ...base, location: data } as LocationEntry;
+    case 'system':
+      return { ...base, system: data } as SystemEntry;
+    case 'artifact':
+      return { ...base, artifact: data } as ArtifactEntry;
+    case 'rule':
+      return { ...base, rule: data } as RuleEntry;
+    case 'event':
+      return { ...base, event: data } as EventEntry;
+    default:
+      return base as AnyCanonEntry;
+  }
+}
+
+// Map frontend canon entry back to DB format
+function toDb(entry: AnyCanonEntry): any {
+  const { id, projectId, type, name, description, imageUrl, tags, notes, version, linkedCanonIds } = entry;
+  let data: any = {};
+  
+  if ('character' in entry) data = (entry as CharacterEntry).character;
+  else if ('location' in entry) data = (entry as LocationEntry).location;
+  else if ('system' in entry) data = (entry as SystemEntry).system;
+  else if ('artifact' in entry) data = (entry as ArtifactEntry).artifact;
+  else if ('rule' in entry) data = (entry as RuleEntry).rule;
+  else if ('event' in entry) data = (entry as EventEntry).event;
+
+  return { id, projectId, type, name, description, imageUrl, tags, notes, version, linkedCanonIds, data };
+}
 
 interface CanonState {
   entries: AnyCanonEntry[];
   activeEntryId: string | null;
   editingEntryId: string | null;
 
+  loadEntries: (projectId: string) => Promise<void>;
   addEntry: (entry: AnyCanonEntry) => void;
   updateEntry: (id: string, updates: Partial<AnyCanonEntry>) => void;
   deleteEntry: (id: string) => void;
@@ -16,7 +77,6 @@ interface CanonState {
   getEntriesByType: (projectId: string, type: CanonType) => AnyCanonEntry[];
   getEntry: (id: string) => AnyCanonEntry | undefined;
   
-  // Factory methods for creating blank entries
   createCharacter: (projectId: string, name: string) => CharacterEntry;
   createLocation: (projectId: string, name: string) => LocationEntry;
   createSystem: (projectId: string, name: string) => SystemEntry;
@@ -32,14 +92,44 @@ export const useCanonStore = create<CanonState>((set, get) => ({
   activeEntryId: null,
   editingEntryId: null,
 
-  addEntry: (entry) => set((s) => ({ entries: [...s.entries, entry] })),
-  updateEntry: (id, updates) => set((s) => ({
-    entries: s.entries.map((e) => e.id === id ? { ...e, ...updates, updatedAt: now() } as AnyCanonEntry : e),
-  })),
-  deleteEntry: (id) => set((s) => ({
-    entries: s.entries.filter((e) => e.id !== id),
-    activeEntryId: s.activeEntryId === id ? null : s.activeEntryId,
-  })),
+  loadEntries: async (projectId: string) => {
+    try {
+      const rows = await api.listCanon(projectId);
+      const mapped = rows.map(fromDb);
+      // Merge: replace entries for this project, keep others
+      const otherEntries = get().entries.filter(e => e.projectId !== projectId);
+      set({ entries: [...otherEntries, ...mapped] });
+    } catch (e) {
+      console.error('Failed to load canon:', e);
+    }
+  },
+
+  addEntry: (entry) => {
+    set((s) => ({ entries: [...s.entries, entry] }));
+    api.createCanon(toDb(entry)).catch(e => console.error('Failed to save canon entry:', e));
+  },
+
+  updateEntry: (id, updates) => {
+    set((s) => ({
+      entries: s.entries.map((e) => e.id === id ? { ...e, ...updates, updatedAt: now() } as AnyCanonEntry : e),
+    }));
+    debounceSave(`canon-${id}`, async () => {
+      const entry = get().entries.find(e => e.id === id);
+      if (entry) {
+        const dbData = toDb(entry);
+        await api.updateCanon(id, dbData);
+      }
+    });
+  },
+
+  deleteEntry: (id) => {
+    set((s) => ({
+      entries: s.entries.filter((e) => e.id !== id),
+      activeEntryId: s.activeEntryId === id ? null : s.activeEntryId,
+    }));
+    api.deleteCanon(id).catch(e => console.error('Failed to delete canon entry:', e));
+  },
+
   setActiveEntry: (id) => set({ activeEntryId: id }),
   setEditingEntry: (id) => set({ editingEntryId: id }),
   getProjectEntries: (projectId) => get().entries.filter((e) => e.projectId === projectId),

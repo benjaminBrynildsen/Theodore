@@ -173,10 +173,15 @@ app.post('/api/transactions', async (req, res) => {
 });
 
 // ========== Serve static in production ==========
-const distPath = path.join(__dirname, '..', 'dist');
+const distPath = path.resolve(process.cwd(), 'dist');
 app.use(express.static(distPath));
 app.get('/{*path}', (_req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
+  const indexFile = path.join(distPath, 'index.html');
+  if (require('fs').existsSync(indexFile)) {
+    res.sendFile(indexFile);
+  } else {
+    res.status(404).json({ error: 'Frontend not built. Run: npx vite build' });
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {

@@ -6,8 +6,11 @@
   "scripts": {
     "dev": "vite",
     "dev:server": "tsx watch server/index.ts",
+    "dev:all": "concurrently \"npx vite --host\" \"npx tsx watch server/index.ts\"",
     "build": "vite build",
     "server": "tsx server/index.ts",
+    "seed": "tsx server/seed.ts",
+    "start": "npx vite build && npx tsx server/index.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "lint": "eslint .",

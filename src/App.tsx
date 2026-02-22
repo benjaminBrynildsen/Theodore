@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useStore } from './store';
 import { useCanonStore } from './store/canon';
 import { TopBar } from './components/layout/TopBar';
@@ -15,10 +16,23 @@ import { ToolsView } from './components/views/ToolsView';
 import { useSettingsStore } from './store/settings';
 
 export default function App() {
-  const { currentView, showReadingMode, setShowReadingMode, showToolsView, setShowToolsView } = useStore();
+  const { currentView, showReadingMode, setShowReadingMode, showToolsView, setShowToolsView, loading, activeProjectId, loadProjects } = useStore();
   const { showSettingsView } = useSettingsStore();
-  const { activeEntryId, getEntry, setActiveEntry } = useCanonStore();
+  const { activeEntryId, getEntry, setActiveEntry, loadEntries } = useCanonStore();
   const activeCanonEntry = activeEntryId ? getEntry(activeEntryId) : undefined;
+
+  // Load data from API on mount
+  useEffect(() => {
+    loadProjects();
+  }, []);
+
+  // Load chapters and canon when active project changes
+  useEffect(() => {
+    if (activeProjectId) {
+      useStore.getState().loadChapters(activeProjectId);
+      loadEntries(activeProjectId);
+    }
+  }, [activeProjectId]);
 
   return (
     <div className="h-screen flex flex-col bg-bg">
