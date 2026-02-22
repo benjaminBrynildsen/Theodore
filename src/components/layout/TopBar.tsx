@@ -80,6 +80,7 @@ export function TopBar() {
       <button
         onClick={() => useSettingsStore.getState().setShowSettingsView(true)}
         className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200"
+        title="Settings"
       >
         <Settings size={18} />
       </button>
