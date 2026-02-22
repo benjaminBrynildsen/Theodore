@@ -10,10 +10,11 @@ import { UpgradeModal } from './components/credits/UpgradeModal';
 import { SettingsModal } from './components/credits/SettingsModal';
 import { ImpactPanel } from './components/validation/ImpactPanel';
 import { SettingsView } from './components/views/SettingsView';
+import { ReadingMode } from './components/views/ReadingMode';
 import { useSettingsStore } from './store/settings';
 
 export default function App() {
-  const { currentView } = useStore();
+  const { currentView, showReadingMode, setShowReadingMode } = useStore();
   const { showSettingsView } = useSettingsStore();
   const { activeEntryId, getEntry, setActiveEntry } = useCanonStore();
   const activeCanonEntry = activeEntryId ? getEntry(activeEntryId) : undefined;
@@ -49,6 +50,7 @@ export default function App() {
       <UpgradeModal />
       <SettingsModal />
       <ImpactPanel />
+      {showReadingMode && <ReadingMode onClose={() => setShowReadingMode(false)} />}
     </div>
   );
 }

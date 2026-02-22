@@ -1,8 +1,13 @@
 import { useState } from 'react';
-import { Shield, GitBranch, Sparkles, AlertTriangle, MessageSquare, Feather, Swords } from 'lucide-react';
+import { Shield, GitBranch, Sparkles, AlertTriangle, MessageSquare, Feather, Swords, Headphones, Target, Image, Download, FileOutput, Sliders } from 'lucide-react';
 import { useStore } from '../../store';
 import { useSettingsStore } from '../../store/settings';
 import { Slider } from '../ui/Slider';
+import { WordCountGoals } from '../features/WordCountGoals';
+import { MoodBoard } from '../features/MoodBoard';
+import { StoryBibleExport } from '../features/StoryBibleExport';
+import { ManuscriptFormatter } from '../features/ManuscriptFormatter';
+import { AudiobookPanel } from '../features/AudiobookPanel';
 import { cn } from '../../lib/utils';
 
 const AI_AGENTS = [
@@ -14,15 +19,26 @@ const AI_AGENTS = [
   { id: 'redteam', label: 'Red Team', desc: 'Plot holes & weak points', icon: AlertTriangle },
 ];
 
+type SidebarTab = 'controls' | 'progress' | 'mood' | 'audio' | 'export';
+
 export function RightSidebar() {
   const { rightSidebarOpen, getActiveProject, updateProject } = useStore();
   const { settings } = useSettingsStore();
+  const [activeTab, setActiveTab] = useState<SidebarTab>('controls');
   const [agentStates, setAgentStates] = useState<Record<string, boolean>>({
     architect: true, lorekeeper: true, continuity: true, dialogue: false, prose: false, redteam: settings.ai.redTeamEnabled,
   });
   const project = getActiveProject();
   
   if (!rightSidebarOpen || !project) return null;
+
+  const tabs = [
+    { id: 'controls' as const, icon: Sliders, label: 'Controls' },
+    { id: 'progress' as const, icon: Target, label: 'Progress' },
+    { id: 'mood' as const, icon: Image, label: 'Mood' },
+    { id: 'audio' as const, icon: Headphones, label: 'Audio' },
+    { id: 'export' as const, icon: FileOutput, label: 'Export' },
+  ];
 
   const updateNarrative = (path: string, value: any) => {
     const nc = { ...project.narrativeControls };
@@ -41,6 +57,43 @@ export function RightSidebar() {
 
   return (
     <aside className="w-72 glass-subtle flex flex-col animate-slide-in-right border-l-0">
+      {/* Tab bar */}
+      <div className="flex border-b border-white/20 px-1 pt-1">
+        {tabs.map(({ id, icon: Icon, label }) => (
+          <button
+            key={id}
+            onClick={() => setActiveTab(id)}
+            className={cn(
+              'flex-1 flex flex-col items-center gap-0.5 py-2 rounded-t-lg text-[9px] transition-all',
+              activeTab === id ? 'text-text-primary bg-white/20' : 'text-text-tertiary hover:text-text-secondary'
+            )}
+          >
+            <Icon size={14} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {activeTab !== 'controls' && activeTab === 'progress' && (
+        <div className="flex-1 overflow-y-auto"><WordCountGoals /></div>
+      )}
+      {activeTab === 'mood' && (
+        <div className="flex-1 overflow-y-auto"><MoodBoard projectId={project.id} /></div>
+      )}
+      {activeTab === 'audio' && (
+        <div className="flex-1 overflow-y-auto"><AudiobookPanel /></div>
+      )}
+      {activeTab === 'export' && (
+        <div className="flex-1 overflow-y-auto">
+          <div className="border-b border-white/20">
+            <StoryBibleExport />
+          </div>
+          <ManuscriptFormatter />
+        </div>
+      )}
+
+      {activeTab !== 'controls' ? null : <>
       {/* Validation */}
       <div className="p-4 border-b border-white/20">
         <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Validation</h3>
@@ -140,6 +193,7 @@ export function RightSidebar() {
           ))}
         </div>
       </div>
+      </>}
     </aside>
   );
 }

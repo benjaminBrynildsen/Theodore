@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 import { autoFillCharacter, autoFillLocation } from '../../lib/ai-autofill';
 import { buildAutoFillPrompt, buildValidationPrompt } from '../../lib/prompt-builder';
 import { useSettingsStore } from '../../store/settings';
+import { VoicePreview } from '../features/VoicePreview';
 import { detectChanges, generateValidationIssues } from '../../lib/validation-engine';
 import { useValidationStore } from '../../store/validation';
 import { useStore } from '../../store';
@@ -764,7 +765,12 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto">
-        {entry.type === 'character' && <CharacterDetail entry={entry as CharacterEntry} onUpdate={handleUpdate} />}
+        {entry.type === 'character' && (
+          <>
+            <CharacterDetail entry={entry as CharacterEntry} onUpdate={handleUpdate} />
+            <VoicePreview character={entry as CharacterEntry} />
+          </>
+        )}
         {entry.type === 'location' && <LocationDetail entry={entry as LocationEntry} onUpdate={handleUpdate} />}
         {entry.type === 'system' && <SystemDetail entry={entry as SystemEntry} onUpdate={handleUpdate} />}
         {entry.type === 'artifact' && <ArtifactDetail entry={entry as ArtifactEntry} onUpdate={handleUpdate} />}

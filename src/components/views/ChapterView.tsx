@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2 } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2, History, BookMarked } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge } from '../ui/Badge';
+import { VersionTimeline } from '../features/VersionTimeline';
 import { cn } from '../../lib/utils';
 import type { Chapter } from '../../types';
 
@@ -10,8 +11,9 @@ interface Props {
 }
 
 export function ChapterView({ chapter }: Props) {
-  const { setActiveChapter, updateChapter } = useStore();
+  const { setActiveChapter, updateChapter, setShowReadingMode } = useStore();
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
@@ -57,6 +59,26 @@ export function ChapterView({ chapter }: Props) {
           <span className="text-xs text-text-tertiary font-mono">
             {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
           </span>
+
+          {/* Version history */}
+          {chapter.prose && (
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className={cn('p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showHistory && 'bg-white/40 text-text-primary')}
+              title="Version history"
+            >
+              <History size={15} />
+            </button>
+          )}
+
+          {/* Reading mode */}
+          <button
+            onClick={() => setShowReadingMode(true)}
+            className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
+            title="Reading mode"
+          >
+            <BookMarked size={15} />
+          </button>
 
           {/* Focus mode toggle */}
           <button
@@ -152,6 +174,18 @@ export function ChapterView({ chapter }: Props) {
           )}
         </div>
       </div>
+
+      {/* Version Timeline */}
+      {showHistory && chapter.prose && (
+        <VersionTimeline
+          chapterId={chapter.id}
+          currentProse={chapter.prose}
+          onRestore={(prose) => {
+            updateChapter(chapter.id, { prose, status: 'human-edited', updatedAt: new Date().toISOString() });
+            setShowHistory(false);
+          }}
+        />
+      )}
 
       {/* Bottom status bar — subtle */}
       <div className={cn(

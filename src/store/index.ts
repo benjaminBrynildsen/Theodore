@@ -35,6 +35,10 @@ interface AppState {
   // View
   currentView: 'home' | 'project' | 'chapter';
   setCurrentView: (view: 'home' | 'project' | 'chapter') => void;
+  showReadingMode: boolean;
+  setShowReadingMode: (show: boolean) => void;
+  showAudiobook: boolean;
+  setShowAudiobook: (show: boolean) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -166,4 +170,8 @@ export const useStore = create<AppState>((set, get) => ({
   // View
   currentView: 'home',
   setCurrentView: (view) => set({ currentView: view }),
+  showReadingMode: false,
+  setShowReadingMode: (show) => set({ showReadingMode: show }),
+  showAudiobook: false,
+  setShowAudiobook: (show) => set({ showAudiobook: show }),
 }));

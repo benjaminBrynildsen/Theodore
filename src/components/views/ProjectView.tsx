@@ -1,4 +1,5 @@
-import { Plus, FileText, Lock, AlertTriangle, Edit3 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge } from '../ui/Badge';
 import { ChapterView } from './ChapterView';
@@ -14,7 +15,10 @@ const statusIcons: Record<ChapterStatus, React.ElementType> = {
 };
 
 export function ProjectView() {
-  const { getActiveProject, getProjectChapters, setActiveChapter, activeChapterId, addChapter } = useStore();
+  const { getActiveProject, getProjectChapters, setActiveChapter, activeChapterId, addChapter, updateChapter } = useStore();
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [reorderWarning, setReorderWarning] = useState<string | null>(null);
   const project = getActiveProject();
   
   if (!project) return null;
@@ -54,22 +58,62 @@ export function ProjectView() {
         </p>
       </div>
 
+      {/* Reorder warning */}
+      {reorderWarning && (
+        <div className="max-w-3xl mx-auto px-8">
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-warning/10 text-warning text-sm animate-fade-in mb-4">
+            <AlertCircle size={16} />
+            {reorderWarning}
+          </div>
+        </div>
+      )}
+
       {/* Chapter List */}
       <div className="max-w-3xl mx-auto px-8 pb-16">
         <div className="space-y-3">
           {chapters.map((chapter, index) => {
             const StatusIcon = statusIcons[chapter.status];
             return (
-              <button
+              <div
                 key={chapter.id}
-                onClick={() => setActiveChapter(chapter.id)}
-                className="w-full text-left group animate-scale-in"
+                draggable
+                onDragStart={() => setDragIdx(index)}
+                onDragOver={(e) => { e.preventDefault(); setDragOverIdx(index); }}
+                onDragEnd={() => {
+                  if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+                    // Reorder chapters
+                    const reordered = [...chapters];
+                    const [moved] = reordered.splice(dragIdx, 1);
+                    reordered.splice(dragOverIdx, 0, moved);
+                    reordered.forEach((ch, i) => {
+                      updateChapter(ch.id, { number: i + 1, timelinePosition: i + 1 });
+                    });
+                    // Check for continuity issues
+                    if (moved.prose) {
+                      setReorderWarning(`Moved "${moved.title}" — check continuity for referenced characters and events.`);
+                      setTimeout(() => setReorderWarning(null), 5000);
+                    }
+                  }
+                  setDragIdx(null);
+                  setDragOverIdx(null);
+                }}
+                className={cn(
+                  'w-full text-left group animate-scale-in',
+                  dragOverIdx === index && dragIdx !== index && 'border-t-2 border-text-primary'
+                )}
                 style={{ animationDelay: `${index * 30}ms` }}
               >
+                <button
+                  onClick={() => setActiveChapter(chapter.id)}
+                  className="w-full text-left"
+                >
                 <div className="flex items-start gap-4 p-5 rounded-2xl glass hover:bg-white/70 active:scale-[0.995] transition-all duration-200">
-                  {/* Chapter Number */}
-                  <div className="w-10 h-10 rounded-xl glass-pill flex items-center justify-center text-sm font-mono text-text-tertiary group-hover:bg-text-primary group-hover:text-text-inverse transition-all duration-200 flex-shrink-0">
-                    {chapter.number}
+                  {/* Drag handle + Chapter Number */}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <GripVertical size={14} className="text-text-tertiary/30 opacity-0 group-hover:opacity-100 cursor-grab transition-opacity" />
+                    <div className="w-10 h-10 rounded-xl glass-pill flex items-center justify-center text-sm font-mono text-text-tertiary group-hover:bg-text-primary group-hover:text-text-inverse transition-all duration-200">
+                      {chapter.number}
+                    </div>
                   </div>
                   
                   {/* Content */}
@@ -87,7 +131,8 @@ export function ProjectView() {
 
                   <StatusIcon size={16} className="text-text-tertiary mt-1 flex-shrink-0" />
                 </div>
-              </button>
+                </button>
+              </div>
             );
           })}
 
