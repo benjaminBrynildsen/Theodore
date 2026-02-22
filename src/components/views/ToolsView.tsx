@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import {
   ChevronLeft, TrendingUp, BookOpen, BookCopy, FileSignature,
-  LayoutGrid, Barcode, Library, Mic, Rocket
+  LayoutGrid, Barcode, Library, Mic, Rocket, Users,
+  Activity, MessageSquareQuote, Waves, Globe
 } from 'lucide-react';
 import { StoryArcVisualizer } from '../features/StoryArcVisualizer';
 import { FirstReaderAI } from '../features/FirstReaderAI';
@@ -11,20 +12,31 @@ import { SceneBeatBoard } from '../features/SceneBeatBoard';
 import { ISBNAssistant } from '../features/ISBNAssistant';
 import { SeriesBible } from '../features/SeriesBible';
 import { LaunchDashboard } from '../features/LaunchDashboard';
+import { CharacterRelationshipMap } from '../features/CharacterRelationshipMap';
+import { DialogueAnalyzer } from '../features/DialogueAnalyzer';
+import { PacingHeartbeat } from '../features/PacingHeartbeat';
+import { ToneDriftDetector } from '../features/ToneDriftDetector';
+import { PreOrderPage } from '../features/PreOrderPage';
 import { cn } from '../../lib/utils';
 
 type Tool =
   | 'arc' | 'reader' | 'comps' | 'query'
-  | 'beats' | 'isbn' | 'series' | 'launch';
+  | 'beats' | 'isbn' | 'series' | 'launch'
+  | 'relationships' | 'dialogue' | 'pacing' | 'tone' | 'preorder';
 
 const TOOLS: { id: Tool; label: string; icon: typeof TrendingUp; description: string; phase: string }[] = [
+  { id: 'series', label: 'Series Bible', icon: Library, description: 'Multi-book continuity and open thread tracking', phase: 'Planning' },
+  { id: 'relationships', label: 'Relationships', icon: Users, description: 'Character relationship map with connection types', phase: 'Planning' },
   { id: 'arc', label: 'Story Arc', icon: TrendingUp, description: 'Visualize and reshape your narrative arc', phase: 'Writing' },
   { id: 'beats', label: 'Scene Beats', icon: LayoutGrid, description: 'Drag beats between chapters to rebalance structure', phase: 'Writing' },
+  { id: 'pacing', label: 'Pacing Heartbeat', icon: Activity, description: 'Tempo waveform — see rhythm across chapters', phase: 'Writing' },
   { id: 'reader', label: 'First Reader', icon: BookOpen, description: 'AI beta reader — engagement, clarity, pacing feedback', phase: 'Editing' },
+  { id: 'dialogue', label: 'Dialogue Analyzer', icon: MessageSquareQuote, description: 'Voice profiles and character similarity detection', phase: 'Editing' },
+  { id: 'tone', label: 'Tone Drift', icon: Waves, description: 'Detect unintentional tone shifts across chapters', phase: 'Editing' },
   { id: 'comps', label: 'Comp Titles', icon: BookCopy, description: 'Find comparable books for marketing and queries', phase: 'Publishing' },
   { id: 'query', label: 'Query & Blurb', icon: FileSignature, description: 'Generate query letters, back covers, Amazon descriptions', phase: 'Publishing' },
   { id: 'isbn', label: 'ISBN & Copyright', icon: Barcode, description: 'Step-by-step publishing paperwork', phase: 'Publishing' },
-  { id: 'series', label: 'Series Bible', icon: Library, description: 'Multi-book continuity and open thread tracking', phase: 'Planning' },
+  { id: 'preorder', label: 'Pre-Order Page', icon: Globe, description: 'Landing page with countdown and email capture', phase: 'Publishing' },
   { id: 'launch', label: 'Launch Dashboard', icon: Rocket, description: 'Sales, reviews, and rankings post-publish', phase: 'Post-Launch' },
 ];
 
@@ -116,6 +128,11 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
           {activeTool === 'isbn' && <ISBNAssistant />}
           {activeTool === 'series' && <SeriesBible />}
           {activeTool === 'launch' && <LaunchDashboard />}
+          {activeTool === 'relationships' && <CharacterRelationshipMap />}
+          {activeTool === 'dialogue' && <DialogueAnalyzer />}
+          {activeTool === 'pacing' && <PacingHeartbeat />}
+          {activeTool === 'tone' && <ToneDriftDetector />}
+          {activeTool === 'preorder' && <PreOrderPage />}
         </div>
       </div>
     </div>

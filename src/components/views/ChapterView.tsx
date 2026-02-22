@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2, History, BookMarked, Mic } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge } from '../ui/Badge';
 import { VersionTimeline } from '../features/VersionTimeline';
 import { TokenBudget } from '../credits/TokenBudget';
 import { DictationMode } from '../features/DictationMode';
+import { ProseXRay } from '../features/ProseXRay';
+import { SmartResearch } from '../features/SmartResearch';
 import { cn } from '../../lib/utils';
 import type { Chapter } from '../../types';
 
@@ -18,6 +20,8 @@ export function ChapterView({ chapter }: Props) {
   const [showHistory, setShowHistory] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
   const [showDictation, setShowDictation] = useState(false);
+  const [showXRay, setShowXRay] = useState(false);
+  const [showResearch, setShowResearch] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
@@ -74,6 +78,26 @@ export function ChapterView({ chapter }: Props) {
               <History size={15} />
             </button>
           )}
+
+          {/* X-Ray */}
+          {chapter.prose && (
+            <button
+              onClick={() => setShowXRay(!showXRay)}
+              className={cn('p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showXRay && 'bg-white/40 text-text-primary')}
+              title="Prose X-Ray"
+            >
+              <Scan size={15} />
+            </button>
+          )}
+
+          {/* Research */}
+          <button
+            onClick={() => setShowResearch(!showResearch)}
+            className={cn('p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showResearch && 'bg-white/40 text-text-primary')}
+            title="Smart Research"
+          >
+            <Search size={15} />
+          </button>
 
           {/* Dictation */}
           <button
@@ -209,6 +233,12 @@ export function ChapterView({ chapter }: Props) {
           )}
         </div>
       </div>
+
+      {/* Prose X-Ray */}
+      {showXRay && chapter.prose && <ProseXRay chapterId={chapter.id} />}
+
+      {/* Smart Research */}
+      {showResearch && <SmartResearch chapterId={chapter.id} />}
 
       {/* Dictation Mode */}
       {showDictation && <DictationMode chapterId={chapter.id} />}
