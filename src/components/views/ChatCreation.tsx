@@ -50,8 +50,22 @@ function getAIResponse(messages: Message[]): { message: string; settings?: Propo
     };
   }
 
-  // After enough context, propose settings
-  const proposedTitle = userMessages[0]?.content.split('.')[0].slice(0, 60) || 'Untitled';
+  // After enough context, propose settings — extract a clean title
+  const firstMsg = userMessages[0]?.content || '';
+  let proposedTitle = 'Untitled';
+  const aboutMatch = firstMsg.match(/about\s+(?:a\s+)?(.{3,50}?)(?:\s+who|\s+that|\s+on|\s+in|\.|,)/i);
+  if (aboutMatch) {
+    // Capitalize each word for a title
+    proposedTitle = aboutMatch[1]
+      .replace(/^(a|an|the)\s+/i, '')
+      .split(/\s+/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+    const words = proposedTitle.split(/\s+/);
+    if (words.length > 5) proposedTitle = words.slice(0, 5).join(' ');
+  } else {
+    proposedTitle = firstMsg.split('.')[0].slice(0, 40);
+  }
   return {
     message: `Here's what I'm thinking for **"${proposedTitle}"**:\n\nI've drafted the full structure — chapter titles, premises, tone settings, everything. Take a look at the proposal below and adjust anything that doesn't feel right. When you're happy with it, hit **Create Project** and we'll dive in. ✨`,
     settings: {

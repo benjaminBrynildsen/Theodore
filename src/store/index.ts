@@ -141,7 +141,7 @@ export const useStore = create<AppState>((set, get) => ({
       updatedAt: '2026-02-20T10:15:00Z',
     },
   ],
-  activeChapterId: 'ch-1',
+  activeChapterId: null,
   addChapter: (chapter) => set((s) => ({ chapters: [...s.chapters, chapter] })),
   updateChapter: (id, updates) => set((s) => ({
     chapters: s.chapters.map((c) => c.id === id ? { ...c, ...updates } : c),
@@ -164,6 +164,6 @@ export const useStore = create<AppState>((set, get) => ({
   toggleRightSidebar: () => set((s) => ({ rightSidebarOpen: !s.rightSidebarOpen })),
   
   // View
-  currentView: 'chapter',
+  currentView: 'home',
   setCurrentView: (view) => set({ currentView: view }),
 }));
