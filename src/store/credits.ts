@@ -23,10 +23,11 @@ interface CreditsState {
 
 export const useCreditsStore = create<CreditsState>((set, get) => ({
   plan: {
-    tier: 'free',
-    creditsTotal: 500,
-    creditsUsed: 0,
-    creditsRemaining: 500,
+    tier: 'writer',
+    creditsTotal: 10000,
+    creditsUsed: 65,
+    creditsRemaining: 9935,
+    renewsAt: new Date(Date.now() + 22 * 86400000).toISOString(),
   },
   transactions: [],
   showUpgradeModal: false,

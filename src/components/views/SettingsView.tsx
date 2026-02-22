@@ -3,8 +3,9 @@ import {
   ChevronLeft, Pen, Monitor, Sparkles, Download, Bell,
   RotateCcw, Type, Quote, Minus, MoreHorizontal,
   Eye, Keyboard, Palette, Bot, Zap, Brain, Shield,
-  FileText, BookOpen, Mail
+  FileText, BookOpen, Mail, BarChart3
 } from 'lucide-react';
+import { UsageDashboard } from '../credits/UsageDashboard';
 import { useSettingsStore } from '../../store/settings';
 import { cn } from '../../lib/utils';
 import type {
@@ -12,7 +13,7 @@ import type {
   ExportSettings, NotificationSettings
 } from '../../types/settings';
 
-type Section = 'writing' | 'editor' | 'ai' | 'export' | 'notifications';
+type Section = 'writing' | 'editor' | 'ai' | 'export' | 'notifications' | 'usage';
 
 // ===== Reusable Components =====
 
@@ -504,6 +505,7 @@ const SECTIONS: { id: Section; label: string; icon: typeof Pen; description: str
   { id: 'editor', label: 'Editor', icon: Monitor, description: 'Font, theme, layout, behavior' },
   { id: 'ai', label: 'AI & Generation', icon: Sparkles, description: 'Models, agents, context' },
   { id: 'export', label: 'Export', icon: Download, description: 'Format, page size, content' },
+  { id: 'usage', label: 'Usage & Credits', icon: BarChart3, description: 'Token budget, spending, plan' },
   { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Alerts and reports' },
 ];
 
@@ -579,6 +581,7 @@ export function SettingsView() {
             {activeSection === 'editor' && <EditorSection />}
             {activeSection === 'ai' && <AISection />}
             {activeSection === 'export' && <ExportSection />}
+            {activeSection === 'usage' && <UsageDashboard />}
             {activeSection === 'notifications' && <NotificationsSection />}
           </div>
         </div>

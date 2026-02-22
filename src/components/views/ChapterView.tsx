@@ -3,6 +3,7 @@ import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2, History, 
 import { useStore } from '../../store';
 import { Badge } from '../ui/Badge';
 import { VersionTimeline } from '../features/VersionTimeline';
+import { TokenBudget } from '../credits/TokenBudget';
 import { cn } from '../../lib/utils';
 import type { Chapter } from '../../types';
 
@@ -14,6 +15,7 @@ export function ChapterView({ chapter }: Props) {
   const { setActiveChapter, updateChapter, setShowReadingMode } = useStore();
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showBudget, setShowBudget] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
@@ -127,9 +129,31 @@ export function ChapterView({ chapter }: Props) {
                 <Type size={28} className="text-text-tertiary" />
               </div>
               <p className="text-text-secondary mb-2 font-medium">Start writing</p>
-              <p className="text-sm text-text-tertiary max-w-xs mx-auto mb-6">
-                Type below to start writing, or use the <strong>Generate</strong> tab in the sidebar to have AI draft this chapter.
+              <p className="text-sm text-text-tertiary max-w-xs mx-auto mb-4">
+                Type below to start writing, or generate with AI.
               </p>
+              
+              {/* Generate with budget */}
+              {!showBudget ? (
+                <button
+                  onClick={() => setShowBudget(true)}
+                  className="mb-6 px-5 py-2.5 rounded-xl bg-text-primary text-text-inverse text-sm font-medium flex items-center gap-2 mx-auto hover:shadow-lg transition-all"
+                >
+                  <Sparkles size={15} /> Generate with AI
+                </button>
+              ) : (
+                <div className="max-w-sm mx-auto mb-6">
+                  <TokenBudget
+                    chapterId={chapter.id}
+                    action="generate-chapter-full"
+                    onConfirm={() => {
+                      setShowBudget(false);
+                      // TODO: trigger actual generation
+                    }}
+                    onCancel={() => setShowBudget(false)}
+                  />
+                </div>
+              )}
               
               {/* Quick-start writing area */}
               <textarea
