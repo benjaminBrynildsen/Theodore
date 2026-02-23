@@ -207,7 +207,7 @@ app.post('/api/generate', async (req, res) => {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    const isByok = user.plan === 'byok' && user.byokKey;
+    const isByok = !!user.byokKey;
     if (!isByok && user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
@@ -277,7 +277,7 @@ app.post('/api/generate/stream', async (req, res) => {
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user) return res.status(404).json({ error: 'User not found' });
     
-    const isByok = user.plan === 'byok' && user.byokKey;
+    const isByok = !!user.byokKey;
     if (!isByok && user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }

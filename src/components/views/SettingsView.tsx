@@ -520,6 +520,12 @@ export function SettingsView() {
   const [saveMessage, setSaveMessage] = useState('');
   const userId = 'user-ben';
 
+  const detectProviderFromKey = (key: string): 'anthropic' | 'openai' | 'openrouter' => {
+    if (key.startsWith('sk-ant-')) return 'anthropic';
+    if (key.startsWith('sk-or-v1-')) return 'openrouter';
+    return 'openai';
+  };
+
   useEffect(() => {
     setActiveSection(settingsViewSection);
   }, [settingsViewSection]);
@@ -675,17 +681,24 @@ export function SettingsView() {
                           setSaveState('saving');
                           setSaveMessage('');
                           try {
+                            const providerFromKey = detectProviderFromKey(key);
+                            const effectiveProvider = providerFromKey === 'anthropic'
+                              ? 'Anthropic'
+                              : providerFromKey === 'openrouter'
+                              ? 'OpenRouter'
+                              : 'OpenAI';
+                            setProvider(effectiveProvider);
                             await api.upsertUser({
                               id: userId,
                               email: 'ben@theodore.app',
                               name: 'Ben',
                               plan: 'byok',
                               byokKey: key,
-                              byokProvider: provider.toLowerCase(),
+                              byokProvider: providerFromKey,
                             });
                             setByokKey(key);
                             setSaveState('success');
-                            setSaveMessage('API key updated successfully.');
+                            setSaveMessage(`API key updated successfully (${effectiveProvider}).`);
                           } catch (e: any) {
                             setSaveState('error');
                             setSaveMessage(e?.message || 'Failed to save API key.');

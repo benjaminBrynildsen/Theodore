@@ -29,7 +29,13 @@ interface ProposedSettings {
 
 const DEFAULT_USER_ID = 'user-ben';
 
-function resolveModel(model: string): string {
+type ByokProvider = 'anthropic' | 'openai' | 'openrouter' | null;
+
+function resolveModel(model: string, provider: ByokProvider): string {
+  if (provider === 'openai') return 'gpt-4.1';
+  if (provider === 'openrouter') return 'openai/gpt-4o-mini';
+  if (provider === 'anthropic') return 'claude-sonnet-4-5';
+
   const map: Record<string, string> = {
     auto: 'claude-sonnet-4-5',
     'claude-opus': 'claude-opus-4-6',
@@ -76,6 +82,7 @@ export function ChatCreation({ onClose }: Props) {
   const [proposedSettings, setProposedSettings] = useState<ProposedSettings | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [editedSettings, setEditedSettings] = useState<ProposedSettings | null>(null);
+  const [byokProvider, setByokProvider] = useState<ByokProvider>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -88,6 +95,10 @@ export function ChatCreation({ onClose }: Props) {
       id: DEFAULT_USER_ID,
       email: 'ben@theodore.app',
       name: 'Ben',
+    }).then((user) => {
+      if (user?.plan === 'byok' && user?.byokProvider) {
+        setByokProvider(user.byokProvider as ByokProvider);
+      }
     }).catch(() => {});
   }, []);
 
@@ -111,11 +122,17 @@ export function ChatCreation({ onClose }: Props) {
     setIsTyping(true);
 
     try {
+      const user = await api.getUser(DEFAULT_USER_ID).catch(() => null);
+      const activeProvider =
+        user?.plan === 'byok' && user?.byokProvider
+          ? (user.byokProvider as ByokProvider)
+          : byokProvider;
+
       const conversation = newMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
       const result = await generateText({
         userId: DEFAULT_USER_ID,
         action: 'plan-project',
-        model: resolveModel(settings.ai.preferredModel),
+        model: resolveModel(settings.ai.preferredModel, activeProvider),
         temperature: settings.ai.temperature,
         maxTokens: 2200,
         systemPrompt: `You are Theodore, an expert story architect helping users shape new fiction projects.
