@@ -652,7 +652,7 @@ Rules:
                 </div>
 
                 {/* Create Button */}
-                <div className="px-5 pb-5 xl:hidden">
+                <div className="px-5 pb-5 lg:hidden">
                   <button
                     onClick={createProject}
                     disabled={creatingProject}
@@ -692,10 +692,10 @@ Rules:
           <div ref={messagesEndRef} />
           </div>
 
-          <aside className="hidden xl:block w-80 flex-shrink-0">
-            <div className="sticky top-20 glass rounded-2xl p-5 border border-black/5">
+          <aside className="hidden lg:block w-96 flex-shrink-0">
+            <div className="sticky top-20 glass rounded-3xl p-6 border border-black/10 shadow-xl">
               <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2">Ready</div>
-              <h3 className="font-serif text-xl font-semibold mb-2">Create Novel</h3>
+              <h3 className="font-serif text-2xl font-semibold mb-2">Create Novel</h3>
               <p className="text-xs text-text-tertiary mb-4">
                 Create project, chapters, and canon metadata from your current planning context.
               </p>
@@ -712,7 +712,7 @@ Rules:
               <button
                 onClick={selectedSettings ? createProject : forceBuildStarterPlan}
                 disabled={creatingProject || quickStructuring}
-                className="w-full py-4 rounded-xl bg-text-primary text-text-inverse text-base font-semibold shadow-lg hover:shadow-xl active:scale-[0.98] transition-all disabled:opacity-60"
+                className="w-full py-5 rounded-2xl bg-text-primary text-text-inverse text-lg font-semibold shadow-lg hover:shadow-2xl active:scale-[0.98] transition-all disabled:opacity-60"
               >
                 {creatingProject
                   ? 'Creating Novel...'

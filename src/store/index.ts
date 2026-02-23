@@ -124,8 +124,17 @@ export const useStore = create<AppState>()(persist((set, get) => ({
       if (mapped.length === 0 && existingForProject.length > 0) {
         return;
       }
-      // Merge with existing chapters (replace those with same projectId)
       const otherChapters = get().chapters.filter(ch => ch.projectId !== projectId);
+      // If backend is lagging and returns fewer records than local, keep local superset.
+      if (existingForProject.length > 0 && mapped.length < existingForProject.length) {
+        const byId = new Map(existingForProject.map((ch) => [ch.id, ch] as const));
+        for (const ch of mapped) {
+          byId.set(ch.id, { ...byId.get(ch.id), ...ch } as Chapter);
+        }
+        set({ chapters: [...otherChapters, ...Array.from(byId.values())] });
+        return;
+      }
+      // Replace project chapters when backend has an equal/greater set.
       set({ chapters: [...otherChapters, ...mapped] });
     } catch (e: any) {
       console.error('Failed to load chapters:', e);

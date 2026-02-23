@@ -102,8 +102,17 @@ export const useCanonStore = create<CanonState>()(persist((set, get) => ({
       if (mapped.length === 0 && existingForProject.length > 0) {
         return;
       }
-      // Merge: replace entries for this project, keep others
       const otherEntries = get().entries.filter(e => e.projectId !== projectId);
+      // If backend returns a partial set while writes are still landing, preserve local superset.
+      if (existingForProject.length > 0 && mapped.length < existingForProject.length) {
+        const byId = new Map(existingForProject.map((e) => [e.id, e] as const));
+        for (const entry of mapped) {
+          byId.set(entry.id, { ...byId.get(entry.id), ...entry } as AnyCanonEntry);
+        }
+        set({ entries: [...otherEntries, ...Array.from(byId.values())] });
+        return;
+      }
+      // Replace project entries when backend has an equal/greater set.
       set({ entries: [...otherEntries, ...mapped] });
     } catch (e) {
       console.error('Failed to load canon:', e);
