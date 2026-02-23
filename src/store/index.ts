@@ -116,6 +116,11 @@ export const useStore = create<AppState>((set, get) => ({
         createdAt: c.createdAt || c.created_at,
         updatedAt: c.updatedAt || c.updated_at,
       }));
+      const existingForProject = get().chapters.filter(ch => ch.projectId === projectId);
+      // Do not wipe optimistic/local chapters when backend returns empty.
+      if (mapped.length === 0 && existingForProject.length > 0) {
+        return;
+      }
       // Merge with existing chapters (replace those with same projectId)
       const otherChapters = get().chapters.filter(ch => ch.projectId !== projectId);
       set({ chapters: [...otherChapters, ...mapped] });

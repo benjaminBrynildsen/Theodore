@@ -175,6 +175,7 @@ export function ChatCreation({ onClose }: Props) {
   const [creatingProject, setCreatingProject] = useState(false);
   const [quickStructuring, setQuickStructuring] = useState(false);
   const [showMetadataPanel, setShowMetadataPanel] = useState(false);
+  const [creationMessage, setCreationMessage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -265,6 +266,7 @@ Rules for JSON:
 
   const createProjectFromSettings = async (settings: ProposedSettings) => {
     if (creatingProject) return;
+    setCreationMessage(null);
     setCreatingProject(true);
     try {
       const finalSettings = normalizeProposedSettings(settings);
@@ -340,14 +342,20 @@ Rules for JSON:
         persistedChapters = await api.listChapters(projectId).catch(() => []);
       }
 
-      if (!persistedChapters.length) {
+      const localChapters = useStore.getState().getProjectChapters(projectId);
+      if (!persistedChapters.length && !localChapters.length) {
         setMessages(prev => [...prev, {
           id: generateId(),
           role: 'assistant',
           content: 'Novel creation failed: chapter structure was not saved. Please try Create Novel again.',
           timestamp: new Date(),
         }]);
+        setCreationMessage('Create failed: could not save chapter structure.');
         return;
+      }
+
+      if (!persistedChapters.length && localChapters.length) {
+        setCreationMessage('Created locally. Sync to database is delayed, but your chapters are ready.');
       }
 
       // Auto-generate canon entries from the conversation
@@ -649,6 +657,9 @@ Rules:
                     <Check size={16} />
                     {creatingProject ? 'Creating Novel...' : 'Create Novel'}
                   </button>
+                  {creationMessage && (
+                    <div className="mt-2 text-xs text-text-tertiary">{creationMessage}</div>
+                  )}
                 </div>
               </div>
             </div>
