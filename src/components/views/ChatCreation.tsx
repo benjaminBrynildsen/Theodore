@@ -64,6 +64,43 @@ function parseProposedSettings(text: string): { message: string; settings?: Prop
   }
 }
 
+function getSuggestedPrompts(userMessageCount: number, hasSettings: boolean): string[] {
+  if (hasSettings) {
+    return [
+      'Tighten the pacing in the middle chapters',
+      'Make chapter 1 open with a stronger hook',
+      'Add a subplot that increases emotional stakes',
+      'Shift tone to darker and more suspenseful',
+      'Adjust for a shorter 8-chapter structure',
+    ];
+  }
+
+  if (userMessageCount <= 1) {
+    return [
+      'My story is about a woman who finds a hidden garden under a library',
+      'I want a dark fantasy with hopeful undertones',
+      'The main character is brilliant but emotionally guarded',
+      'I want this to feel literary but still page-turning',
+    ];
+  }
+
+  if (userMessageCount <= 3) {
+    return [
+      'The world is grounded but has one impossible magical system',
+      'Target audience is adults, around 90k words',
+      'I want high tension with quiet emotional moments',
+      'Give me a clear arc with escalating stakes',
+    ];
+  }
+
+  return [
+    'Build the full story structure now',
+    'Draft chapter-by-chapter premises',
+    'Increase character focus over worldbuilding',
+    'Make the ending bittersweet instead of fully happy',
+  ];
+}
+
 interface Props {
   onClose: () => void;
 }
@@ -247,6 +284,8 @@ Rules for JSON:
   };
 
   const selectedSettings = editedSettings || proposedSettings;
+  const userMessageCount = messages.filter((m) => m.role === 'user').length;
+  const suggestedPrompts = getSuggestedPrompts(userMessageCount, Boolean(selectedSettings));
 
   return (
     <div className="flex-1 flex flex-col bg-bg animate-fade-in overflow-hidden">
@@ -454,6 +493,20 @@ Rules for JSON:
 
         {/* Input */}
         <div className="px-4 pb-4 pt-2 max-w-2xl mx-auto w-full">
+          <div className="mb-2.5 flex flex-wrap gap-1.5">
+            {suggestedPrompts.map((prompt) => (
+              <button
+                key={prompt}
+                onClick={() => {
+                  setInput(prompt);
+                  inputRef.current?.focus();
+                }}
+                className="text-[11px] px-2.5 py-1.5 rounded-full glass-pill text-text-secondary hover:text-text-primary hover:bg-white/70 transition-all text-left"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
           <div className="flex items-end gap-2 glass rounded-2xl p-2">
             <textarea
               ref={inputRef}
