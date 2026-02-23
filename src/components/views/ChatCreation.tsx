@@ -83,6 +83,7 @@ export function ChatCreation({ onClose }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [editedSettings, setEditedSettings] = useState<ProposedSettings | null>(null);
   const [byokProvider, setByokProvider] = useState<ByokProvider>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -171,74 +172,78 @@ Rules for JSON:
     }
   };
 
-  const createProject = () => {
+  const createProject = async () => {
     const settings = editedSettings || proposedSettings;
-    if (!settings) return;
+    if (!settings || creatingProject) return;
+    setCreatingProject(true);
+    try {
+      const projectId = generateId();
+      const now = new Date().toISOString();
 
-    const projectId = generateId();
-    const now = new Date().toISOString();
-
-    const project: Project = {
-      id: projectId,
-      title: settings.title,
-      type: 'book',
-      subtype: settings.subtype,
-      targetLength: settings.targetLength,
-      toneBaseline: '',
-      assistanceLevel: settings.assistanceLevel,
-      narrativeControls: settings.narrativeControls,
-      status: 'active',
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    addProject(project);
-
-    for (const ch of settings.chapters) {
-      addChapter({
-        id: generateId(),
-        projectId,
-        number: ch.number,
-        title: ch.title,
-        timelinePosition: ch.number,
-        status: 'premise-only',
-        premise: {
-          purpose: ch.premise,
-          changes: '',
-          characters: [],
-          emotionalBeat: '',
-          setupPayoff: [],
-          constraints: [],
-        },
-        prose: '',
-        referencedCanonIds: [],
-        validationStatus: { isValid: true, checks: [] },
+      const project: Project = {
+        id: projectId,
+        title: settings.title,
+        type: 'book',
+        subtype: settings.subtype,
+        targetLength: settings.targetLength,
+        toneBaseline: '',
+        assistanceLevel: settings.assistanceLevel,
+        narrativeControls: settings.narrativeControls,
+        status: 'active',
         createdAt: now,
         updatedAt: now,
-      });
+      };
+
+      await addProject(project);
+
+      for (const ch of settings.chapters) {
+        await addChapter({
+          id: generateId(),
+          projectId,
+          number: ch.number,
+          title: ch.title,
+          timelinePosition: ch.number,
+          status: 'premise-only',
+          premise: {
+            purpose: ch.premise,
+            changes: '',
+            characters: [],
+            emotionalBeat: '',
+            setupPayoff: [],
+            constraints: [],
+          },
+          prose: '',
+          referencedCanonIds: [],
+          validationStatus: { isValid: true, checks: [] },
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      // Auto-generate canon entries from the conversation
+      // In production: AI analyzes all messages and extracts characters, locations, systems
+      // For now: create starter entries and auto-fill them
+      const userContent = messages.filter(m => m.role === 'user').map(m => m.content).join(' ');
+      
+      // Create a protagonist character with auto-filled metadata
+      const protagonist = createCharacter(projectId, 'Protagonist');
+      protagonist.description = 'The main character — update name and details from your story concept';
+      protagonist.character.role = 'protagonist';
+      protagonist.character = autoFillCharacter(protagonist);
+      addEntry(protagonist);
+
+      // Create the primary setting
+      const primaryLocation = createLocation(projectId, 'Primary Setting');
+      primaryLocation.description = 'The main location — update from your story concept';
+      primaryLocation.location = autoFillLocation(primaryLocation);
+      addEntry(primaryLocation);
+
+      setActiveProject(projectId);
+      setCurrentView('project');
+      onClose();
+    } finally {
+      setCreatingProject(false);
     }
-
-    // Auto-generate canon entries from the conversation
-    // In production: AI analyzes all messages and extracts characters, locations, systems
-    // For now: create starter entries and auto-fill them
-    const userContent = messages.filter(m => m.role === 'user').map(m => m.content).join(' ');
-    
-    // Create a protagonist character with auto-filled metadata
-    const protagonist = createCharacter(projectId, 'Protagonist');
-    protagonist.description = 'The main character — update name and details from your story concept';
-    protagonist.character.role = 'protagonist';
-    protagonist.character = autoFillCharacter(protagonist);
-    addEntry(protagonist);
-
-    // Create the primary setting
-    const primaryLocation = createLocation(projectId, 'Primary Setting');
-    primaryLocation.description = 'The main location — update from your story concept';
-    primaryLocation.location = autoFillLocation(primaryLocation);
-    addEntry(primaryLocation);
-
-    setActiveProject(projectId);
-    setCurrentView('project');
-    onClose();
   };
 
   const selectedSettings = editedSettings || proposedSettings;
@@ -432,10 +437,11 @@ Rules for JSON:
                 <div className="px-5 pb-5">
                   <button
                     onClick={createProject}
+                    disabled={creatingProject}
                     className="w-full py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-medium shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
                   >
                     <Check size={16} />
-                    Create Project
+                    {creatingProject ? 'Creating Project...' : 'Create Project'}
                   </button>
                 </div>
               </div>
