@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Project, Chapter } from '../types';
 import { api } from '../lib/api';
 
@@ -58,7 +59,7 @@ interface AppState {
   setShowToolsView: (show: boolean) => void;
 }
 
-export const useStore = create<AppState>((set, get) => ({
+export const useStore = create<AppState>()(persist((set, get) => ({
   projects: [],
   chapters: [],
   activeProjectId: null,
@@ -218,4 +219,15 @@ export const useStore = create<AppState>((set, get) => ({
   setShowAudiobook: (show) => set({ showAudiobook: show }),
   showToolsView: false,
   setShowToolsView: (show) => set({ showToolsView: show }),
+}), {
+  name: 'theodore-app-store',
+  storage: createJSONStorage(() => localStorage),
+  partialize: (state) => ({
+    projects: state.projects,
+    chapters: state.chapters,
+    activeProjectId: state.activeProjectId,
+    activeChapterId: state.activeChapterId,
+    currentView: state.currentView,
+    canonEntries: state.canonEntries,
+  }),
 }));

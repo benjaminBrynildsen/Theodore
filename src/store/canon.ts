@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { generateId } from '../lib/utils';
 import { api } from '../lib/api';
 import type { AnyCanonEntry, CanonType, CharacterEntry, LocationEntry, SystemEntry, ArtifactEntry, RuleEntry, EventEntry } from '../types/canon';
@@ -87,7 +88,7 @@ interface CanonState {
 
 const now = () => new Date().toISOString();
 
-export const useCanonStore = create<CanonState>((set, get) => ({
+export const useCanonStore = create<CanonState>()(persist((set, get) => ({
   entries: [],
   activeEntryId: null,
   editingEntryId: null,
@@ -225,4 +226,12 @@ export const useCanonStore = create<CanonState>((set, get) => ({
     };
     return entry;
   },
+}), {
+  name: 'theodore-canon-store',
+  storage: createJSONStorage(() => localStorage),
+  partialize: (state) => ({
+    entries: state.entries,
+    activeEntryId: state.activeEntryId,
+    editingEntryId: state.editingEntryId,
+  }),
 }));
