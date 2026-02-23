@@ -137,7 +137,6 @@ export function ChatCreation({ onClose }: Props) {
   const [byokProvider, setByokProvider] = useState<ByokProvider>(null);
   const [creatingProject, setCreatingProject] = useState(false);
   const [quickStructuring, setQuickStructuring] = useState(false);
-  const [showMetadataPanel, setShowMetadataPanel] = useState(false);
   const [creationMessage, setCreationMessage] = useState<string | null>(null);
   const [hasManualSettingsEdits, setHasManualSettingsEdits] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -488,7 +487,6 @@ Rules:
       }]);
       setHasManualSettingsEdits(false);
       applyProposedSettings(parsed.settings, false);
-      setShowMetadataPanel(true);
       return parsed.settings;
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -502,17 +500,6 @@ Rules:
     } finally {
       setQuickStructuring(false);
     }
-  };
-
-  const quickCreateFromCurrentContext = async () => {
-    if (creatingProject || quickStructuring) return;
-    const existing = editedSettings || proposedSettings;
-    if (existing) {
-      await createProjectFromSettings(existing);
-      return;
-    }
-    const built = await forceBuildStarterPlan();
-    if (built) await createProjectFromSettings(built);
   };
 
   const selectedSettings = editedSettings || proposedSettings;
@@ -542,9 +529,9 @@ Rules:
 
         {/* Messages */}
         <div className="flex-1 overflow-hidden px-4 sm:px-6 py-4">
-          <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-[minmax(0,60%)_minmax(0,30%)] gap-6 lg:gap-8 items-start">
+          <div className="max-w-7xl mx-auto w-full h-full grid grid-cols-1 lg:grid-cols-[minmax(0,60%)_minmax(0,30%)] gap-6 lg:gap-8 items-stretch">
           <div className="w-full">
-          <div className="rounded-[28px] border border-black/10 bg-white/75 shadow-2xl backdrop-blur-md overflow-hidden mx-auto flex flex-col min-h-[560px] lg:min-h-[calc(100vh-13rem)]">
+          <div className="rounded-[28px] border border-black/10 bg-white/75 shadow-2xl backdrop-blur-md overflow-hidden mx-auto flex flex-col h-full min-h-0">
             <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-black/10">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">Conversation</div>
               <div className="text-[11px] text-text-tertiary">{messages.length} messages</div>
@@ -591,178 +578,12 @@ Rules:
                 </div>
               )}
 
-              {/* Proposed Settings Card */}
-              {selectedSettings && !isTyping && (
-                <div className="animate-scale-in">
-                  <div className="bg-white/60 rounded-2xl border border-black/10 overflow-hidden">
-                  {/* Settings Header */}
-                  <button
-                    onClick={() => setShowSettings(!showSettings)}
-                    className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/40 transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Settings2 size={16} />
-                      <span className="text-sm font-medium">Proposed Settings</span>
-                    </div>
-                    <ChevronDown size={16} className={cn('transition-transform', showSettings && 'rotate-180')} />
-                  </button>
-
-                  {showSettings && (
-                    <div className="px-5 pb-5 space-y-4 border-t border-black/5 pt-4 animate-fade-in">
-                      {/* Title */}
-                      <div>
-                        <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Title</label>
-                        <input
-                          type="text"
-                          value={selectedSettings.title}
-                          onChange={(e) => updateEditedSettings((prev) => ({ ...prev, title: e.target.value }))}
-                          className="w-full mt-1 px-3 py-2 rounded-xl glass-input text-sm"
-                        />
-                      </div>
-
-                      {/* Length */}
-                      <div>
-                        <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Length</label>
-                        <div className="flex gap-2 mt-1">
-                          {(['short', 'medium', 'long', 'epic'] as const).map((len) => (
-                            <button
-                            key={len}
-                            onClick={() => updateEditedSettings((prev) => ({ ...prev, targetLength: len }))}
-                            className={cn(
-                              'flex-1 py-2 text-xs rounded-xl transition-all capitalize',
-                              selectedSettings.targetLength === len
-                                  ? 'bg-text-primary text-text-inverse shadow-md'
-                                  : 'glass-pill text-text-secondary hover:bg-white/60'
-                              )}
-                            >
-                              {len}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Tone */}
-                      <div>
-                        <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Tone</label>
-                        <div className="space-y-2 mt-2">
-                          <Slider
-                            value={selectedSettings.narrativeControls.toneMood.lightDark}
-                            onChange={(v) => updateEditedSettings((prev) => ({
-                              ...prev,
-                              narrativeControls: { ...prev.narrativeControls, toneMood: { ...prev.narrativeControls.toneMood, lightDark: v } }
-                            }))}
-                            leftLabel="Light"
-                            rightLabel="Dark"
-                          />
-                          <Slider
-                            value={selectedSettings.narrativeControls.toneMood.hopefulGrim}
-                            onChange={(v) => updateEditedSettings((prev) => ({
-                              ...prev,
-                              narrativeControls: { ...prev.narrativeControls, toneMood: { ...prev.narrativeControls.toneMood, hopefulGrim: v } }
-                            }))}
-                            leftLabel="Hopeful"
-                            rightLabel="Grim"
-                          />
-                          <Slider
-                            value={selectedSettings.narrativeControls.toneMood.whimsicalSerious}
-                            onChange={(v) => updateEditedSettings((prev) => ({
-                              ...prev,
-                              narrativeControls: { ...prev.narrativeControls, toneMood: { ...prev.narrativeControls.toneMood, whimsicalSerious: v } }
-                            }))}
-                            leftLabel="Whimsical"
-                            rightLabel="Serious"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Pacing */}
-                      <div>
-                        <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Pacing</label>
-                        <div className="flex gap-1 mt-1 glass-pill p-1 rounded-xl">
-                          {(['slow', 'balanced', 'fast'] as const).map((p) => (
-                            <button
-                            key={p}
-                            onClick={() => updateEditedSettings((prev) => ({
-                              ...prev,
-                              narrativeControls: { ...prev.narrativeControls, pacing: p }
-                            }))}
-                            className={cn(
-                              'flex-1 py-1.5 text-xs rounded-lg transition-all capitalize',
-                              selectedSettings.narrativeControls.pacing === p
-                                  ? 'bg-text-primary text-text-inverse shadow-sm'
-                                  : 'text-text-secondary'
-                              )}
-                            >
-                              {p}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Chapters Preview */}
-                  <div className="px-5 pb-4 border-t border-black/5 pt-4">
-                    <h4 className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-3">
-                      {selectedSettings.chapters.length} Chapters Planned
-                    </h4>
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
-                      {selectedSettings.chapters.map((ch) => (
-                        <div key={ch.number} className="flex gap-3 text-sm">
-                          <span className="text-text-tertiary font-mono text-xs mt-0.5 w-6 text-right flex-shrink-0">{ch.number}</span>
-                          <div className="min-w-0">
-                            <div className="font-medium text-sm">{ch.title}</div>
-                            <div className="text-xs text-text-secondary line-clamp-2">{ch.premise}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Create Button */}
-                  <div className="px-5 pb-5 lg:hidden">
-                    <button
-                      onClick={createProject}
-                      disabled={creatingProject}
-                      className="w-full py-4 rounded-xl bg-text-primary text-text-inverse text-base font-semibold shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-60"
-                    >
-                      <Check size={16} />
-                      {creatingProject ? 'Creating Novel...' : 'Create Novel'}
-                    </button>
-                    {creationMessage && (
-                      <div className="mt-2 text-xs text-text-tertiary">{creationMessage}</div>
-                    )}
-                  </div>
-                  </div>
-                </div>
-              )}
-
-              {showMetadataPanel && selectedSettings && (
-                <div className="bg-white/60 border border-black/10 rounded-2xl p-4 animate-fade-in">
-                  <div className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-2">Metadata Snapshot</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="glass-pill px-3 py-2 rounded-xl">Title: {selectedSettings.title}</div>
-                    <div className="glass-pill px-3 py-2 rounded-xl">Type: {selectedSettings.subtype}</div>
-                    <div className="glass-pill px-3 py-2 rounded-xl">Length: {selectedSettings.targetLength}</div>
-                    <div className="glass-pill px-3 py-2 rounded-xl">Assist Level: {selectedSettings.assistanceLevel}</div>
-                    <div className="glass-pill px-3 py-2 rounded-xl">Pacing: {selectedSettings.narrativeControls.pacing}</div>
-                    <div className="glass-pill px-3 py-2 rounded-xl">Dialogue: {selectedSettings.narrativeControls.dialogueWeight}</div>
-                    <div className="glass-pill px-3 py-2 rounded-xl col-span-2">
-                      Focus Mix: Character {selectedSettings.narrativeControls.focusMix.character}% / Plot {selectedSettings.narrativeControls.focusMix.plot}% / World {selectedSettings.narrativeControls.focusMix.world}%
-                    </div>
-                    <div className="glass-pill px-3 py-2 rounded-xl col-span-2">
-                      Chapters Ready: {selectedSettings.chapters.length}
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div ref={messagesEndRef} />
               </div>
             </div>
 
             <div className="border-t border-black/10 p-3 sm:p-4 bg-white/60">
-              <div className="flex items-end gap-3 rounded-2xl border border-black/10 bg-white/80 shadow-sm p-2.5">
+              <div className="flex items-center gap-3 rounded-2xl border border-black/10 bg-white/80 shadow-sm p-2.5">
                 <textarea
                   ref={inputRef}
                   value={input}
@@ -775,8 +596,7 @@ Rules:
                   }}
                   placeholder="Tell me about your story..."
                   rows={1}
-                  className="flex-1 bg-transparent border-none outline-none resize-none text-sm px-3 py-2 max-h-32 leading-relaxed"
-                  style={{ minHeight: '40px' }}
+                  className="flex-1 h-11 min-h-11 max-h-11 overflow-y-auto bg-transparent border-none outline-none resize-none text-sm px-3 py-2 leading-relaxed"
                 />
                 <button
                   onClick={sendMessage}
@@ -791,6 +611,15 @@ Rules:
                   <Send size={16} />
                 </button>
               </div>
+              {selectedSettings && (
+                <button
+                  onClick={createProject}
+                  disabled={creatingProject}
+                  className="mt-3 w-full lg:hidden py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold shadow-md hover:shadow-lg active:scale-[0.98] transition-all disabled:opacity-60"
+                >
+                  {creatingProject ? 'Creating Novel...' : 'Create Novel'}
+                </button>
+              )}
             </div>
           </div>
           </div>
@@ -848,6 +677,128 @@ Rules:
 
               {creationMessage && (
                 <div className="mt-2 text-xs text-text-tertiary">{creationMessage}</div>
+              )}
+
+              {selectedSettings && (
+                <div className="mt-5 bg-white/60 rounded-2xl border border-black/10 overflow-hidden">
+                  <button
+                    onClick={() => setShowSettings(!showSettings)}
+                    className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/40 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Settings2 size={16} />
+                      <span className="text-sm font-medium">Proposed Settings</span>
+                    </div>
+                    <ChevronDown size={16} className={cn('transition-transform', showSettings && 'rotate-180')} />
+                  </button>
+
+                  {showSettings && (
+                    <div className="px-5 pb-5 space-y-4 border-t border-black/5 pt-4 animate-fade-in">
+                      <div>
+                        <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Title</label>
+                        <input
+                          type="text"
+                          value={selectedSettings.title}
+                          onChange={(e) => updateEditedSettings((prev) => ({ ...prev, title: e.target.value }))}
+                          className="w-full mt-1 px-3 py-2 rounded-xl glass-input text-sm"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Length</label>
+                        <div className="flex gap-2 mt-1">
+                          {(['short', 'medium', 'long', 'epic'] as const).map((len) => (
+                            <button
+                              key={len}
+                              onClick={() => updateEditedSettings((prev) => ({ ...prev, targetLength: len }))}
+                              className={cn(
+                                'flex-1 py-2 text-xs rounded-xl transition-all capitalize',
+                                selectedSettings.targetLength === len
+                                  ? 'bg-text-primary text-text-inverse shadow-md'
+                                  : 'glass-pill text-text-secondary hover:bg-white/60'
+                              )}
+                            >
+                              {len}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Tone</label>
+                        <div className="space-y-2 mt-2">
+                          <Slider
+                            value={selectedSettings.narrativeControls.toneMood.lightDark}
+                            onChange={(v) => updateEditedSettings((prev) => ({
+                              ...prev,
+                              narrativeControls: { ...prev.narrativeControls, toneMood: { ...prev.narrativeControls.toneMood, lightDark: v } }
+                            }))}
+                            leftLabel="Light"
+                            rightLabel="Dark"
+                          />
+                          <Slider
+                            value={selectedSettings.narrativeControls.toneMood.hopefulGrim}
+                            onChange={(v) => updateEditedSettings((prev) => ({
+                              ...prev,
+                              narrativeControls: { ...prev.narrativeControls, toneMood: { ...prev.narrativeControls.toneMood, hopefulGrim: v } }
+                            }))}
+                            leftLabel="Hopeful"
+                            rightLabel="Grim"
+                          />
+                          <Slider
+                            value={selectedSettings.narrativeControls.toneMood.whimsicalSerious}
+                            onChange={(v) => updateEditedSettings((prev) => ({
+                              ...prev,
+                              narrativeControls: { ...prev.narrativeControls, toneMood: { ...prev.narrativeControls.toneMood, whimsicalSerious: v } }
+                            }))}
+                            leftLabel="Whimsical"
+                            rightLabel="Serious"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Pacing</label>
+                        <div className="flex gap-1 mt-1 glass-pill p-1 rounded-xl">
+                          {(['slow', 'balanced', 'fast'] as const).map((p) => (
+                            <button
+                              key={p}
+                              onClick={() => updateEditedSettings((prev) => ({
+                                ...prev,
+                                narrativeControls: { ...prev.narrativeControls, pacing: p }
+                              }))}
+                              className={cn(
+                                'flex-1 py-1.5 text-xs rounded-lg transition-all capitalize',
+                                selectedSettings.narrativeControls.pacing === p
+                                  ? 'bg-text-primary text-text-inverse shadow-sm'
+                                  : 'text-text-secondary'
+                              )}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="px-5 pb-4 border-t border-black/5 pt-4">
+                    <h4 className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-3">
+                      {selectedSettings.chapters.length} Chapters Planned
+                    </h4>
+                    <div className="space-y-2 max-h-52 overflow-y-auto">
+                      {selectedSettings.chapters.map((ch) => (
+                        <div key={ch.number} className="flex gap-3 text-sm">
+                          <span className="text-text-tertiary font-mono text-xs mt-0.5 w-6 text-right flex-shrink-0">{ch.number}</span>
+                          <div className="min-w-0">
+                            <div className="font-medium text-sm">{ch.title}</div>
+                            <div className="text-xs text-text-secondary line-clamp-2">{ch.premise}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           </aside>
