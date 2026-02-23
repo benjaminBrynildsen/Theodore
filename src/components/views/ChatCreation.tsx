@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, Check, ChevronDown, Settings2 } from 'lucide-react';
+import { Send, Sparkles, Check, ChevronDown, Settings2, ArrowLeft } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
@@ -232,23 +232,23 @@ export function ChatCreation({ onClose }: Props) {
   const settings = editedSettings || proposedSettings;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-white/70 backdrop-blur-2xl" onClick={onClose} />
-      
-      <div className="relative bg-white rounded-3xl shadow-2xl border border-black/5 w-full max-w-2xl mx-4 h-[80vh] flex flex-col animate-scale-in overflow-hidden">
+    <div className="flex-1 flex flex-col bg-bg animate-fade-in overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-black/5">
-          <div className="flex items-center gap-2">
-            <Sparkles size={18} className="text-text-primary" />
-            <h2 className="text-lg font-serif font-semibold">Plan Your Story</h2>
-          </div>
-          <button onClick={onClose} className="text-text-tertiary hover:text-text-primary text-sm transition-colors">
-            Cancel
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-black/5">
+          <button onClick={onClose} className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm transition-colors">
+            <ArrowLeft size={16} />
+            <span>Back</span>
           </button>
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} className="text-text-primary" />
+            <span className="text-sm font-medium">Plan Your Story</span>
+          </div>
+          <div className="w-12" /> {/* Spacer for centering */}
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+          <div className="max-w-2xl mx-auto space-y-4">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -431,10 +431,11 @@ export function ChatCreation({ onClose }: Props) {
           )}
 
           <div ref={messagesEndRef} />
+          </div>
         </div>
 
         {/* Input */}
-        <div className="px-4 pb-4 pt-2">
+        <div className="px-4 pb-4 pt-2 max-w-2xl mx-auto w-full">
           <div className="flex items-end gap-2 glass rounded-2xl p-2">
             <textarea
               ref={inputRef}
@@ -465,7 +466,6 @@ export function ChatCreation({ onClose }: Props) {
             </button>
           </div>
         </div>
-      </div>
     </div>
   );
 }

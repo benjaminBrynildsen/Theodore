@@ -1,17 +1,90 @@
 import { useState } from 'react';
-import { Plus, BookOpen, Clock, ChevronRight, MessageSquare, Settings2, Upload } from 'lucide-react';
+import { Plus, BookOpen, Clock, ChevronRight, MessageSquare, Settings2, Upload, ArrowLeft } from 'lucide-react';
 import { useStore } from '../../store';
 import { NewProjectModal } from '../modals/NewProjectModal';
 import { ImportProjectModal } from '../modals/ImportProjectModal';
 import { ChatCreation } from './ChatCreation';
 import { cn } from '../../lib/utils';
 
+type HomeScreen = 'main' | 'choose-method';
+
 export function Home() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [showChatCreation, setShowChatCreation] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [screen, setScreen] = useState<HomeScreen>('main');
   const { projects, setActiveProject, setCurrentView } = useStore();
 
+  // Full-screen chat creation
+  if (showChatCreation) {
+    return <ChatCreation onClose={() => setShowChatCreation(false)} />;
+  }
+
+  // Method selection screen
+  if (screen === 'choose-method') {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 animate-fade-in overflow-y-auto">
+        <button
+          onClick={() => setScreen('main')}
+          className="self-start flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm mb-8 ml-2 sm:ml-0 transition-colors"
+        >
+          <ArrowLeft size={16} />
+          <span>Back</span>
+        </button>
+
+        <div className="text-center mb-8 sm:mb-12 max-w-lg px-4">
+          <h2 className="text-2xl sm:text-3xl font-serif font-semibold tracking-tight mb-3">How would you like to start?</h2>
+          <p className="text-text-secondary text-sm sm:text-base">Choose how you want to set up your project</p>
+        </div>
+
+        <div className="flex flex-col gap-3 w-full max-w-md px-4">
+          <button
+            onClick={() => setShowChatCreation(true)}
+            className="glass px-6 py-5 rounded-2xl flex items-center gap-4 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-full"
+          >
+            <div className="w-10 h-10 rounded-xl glass-pill flex items-center justify-center flex-shrink-0">
+              <MessageSquare size={20} />
+            </div>
+            <div className="text-left">
+              <div className="font-medium">Plan with AI</div>
+              <div className="text-xs text-text-tertiary mt-0.5">Describe your idea, Theodore builds the blueprint</div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setShowImport(true)}
+            className="glass px-6 py-5 rounded-2xl flex items-center gap-4 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-full"
+          >
+            <div className="w-10 h-10 rounded-xl glass-pill flex items-center justify-center flex-shrink-0">
+              <Upload size={20} />
+            </div>
+            <div className="text-left">
+              <div className="font-medium">Import Existing Work</div>
+              <div className="text-xs text-text-tertiary mt-0.5">Bring your manuscript, outline, and notes</div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setShowNewProject(true)}
+            className="glass-pill px-6 py-5 rounded-2xl flex items-center gap-4 text-text-secondary hover:text-text-primary hover:bg-white/60 active:scale-[0.98] transition-all duration-200 w-full"
+          >
+            <div className="w-10 h-10 rounded-xl glass-pill flex items-center justify-center flex-shrink-0">
+              <Settings2 size={20} />
+            </div>
+            <div className="text-left">
+              <div className="font-medium">Manual Setup</div>
+              <div className="text-xs text-text-tertiary mt-0.5">Configure everything yourself</div>
+            </div>
+          </button>
+        </div>
+
+        {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
+        {showImport && <ImportProjectModal onClose={() => setShowImport(false)} />}
+      </div>
+    );
+  }
+
+  // Main home screen
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 animate-fade-in overflow-y-auto">
       {/* Hero */}
@@ -22,44 +95,14 @@ export function Home() {
         </p>
       </div>
 
-      {/* Creation Options */}
-      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-8 sm:mb-12 w-full sm:w-auto px-4 sm:px-0">
-        {/* Chat-based creation (primary) */}
-        <button
-          onClick={() => setShowChatCreation(true)}
-          className="glass px-6 sm:px-8 py-4 sm:py-5 rounded-2xl flex flex-row sm:flex-col items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-full sm:w-56"
-        >
-          <MessageSquare size={24} className="flex-shrink-0" />
-          <div className="text-left sm:text-center">
-            <div className="font-medium text-sm">Plan with AI</div>
-            <div className="text-xs text-text-tertiary mt-0.5">Describe your idea, Theodore builds the blueprint</div>
-          </div>
-        </button>
-
-        {/* Import existing */}
-        <button
-          onClick={() => setShowImport(true)}
-          className="glass px-6 sm:px-8 py-4 sm:py-5 rounded-2xl flex flex-row sm:flex-col items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-full sm:w-56"
-        >
-          <Upload size={24} className="flex-shrink-0" />
-          <div className="text-left sm:text-center">
-            <div className="font-medium text-sm">Import Existing</div>
-            <div className="text-xs text-text-tertiary mt-0.5">Bring your manuscript, outline, and notes</div>
-          </div>
-        </button>
-
-        {/* Manual creation */}
-        <button
-          onClick={() => setShowNewProject(true)}
-          className="glass-pill px-6 sm:px-8 py-4 sm:py-5 rounded-2xl flex flex-row sm:flex-col items-center gap-3 text-text-secondary hover:text-text-primary hover:bg-white/60 active:scale-[0.98] transition-all duration-200 w-full sm:w-56"
-        >
-          <Settings2 size={24} className="flex-shrink-0" />
-          <div className="text-left sm:text-center">
-            <div className="font-medium text-sm">Manual Setup</div>
-            <div className="text-xs text-text-tertiary mt-0.5">Configure everything yourself</div>
-          </div>
-        </button>
-      </div>
+      {/* Single CTA */}
+      <button
+        onClick={() => setScreen('choose-method')}
+        className="glass px-8 py-4 rounded-2xl flex items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 mb-8 sm:mb-12"
+      >
+        <Plus size={20} />
+        <span className="font-medium">Create New Project</span>
+      </button>
 
       {/* Existing Projects */}
       {projects.length > 0 && (
@@ -104,10 +147,6 @@ export function Home() {
           <p>No projects yet. Start by telling Theodore about your story.</p>
         </div>
       )}
-
-      {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
-      {showImport && <ImportProjectModal onClose={() => setShowImport(false)} />}
-      {showChatCreation && <ChatCreation onClose={() => setShowChatCreation(false)} />}
     </div>
   );
 }
