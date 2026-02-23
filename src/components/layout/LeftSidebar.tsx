@@ -44,14 +44,14 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   return (
     <>
       <div className="p-3 border-b border-white/20">
-        <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider px-1 mb-2">Canon & World</div>
+        <div className="text-xs font-semibold text-text-tertiary uppercase tracking-wider px-1 mb-2">Canon & World</div>
         <div className="flex items-center gap-2 glass-pill rounded-xl px-3 py-1.5">
           <Search size={13} className="text-text-tertiary" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search canon..."
-            className="flex-1 bg-transparent outline-none text-xs text-text-primary placeholder:text-text-tertiary"
+            className="flex-1 bg-transparent outline-none text-sm text-text-primary placeholder:text-text-tertiary"
           />
         </div>
       </div>
@@ -68,8 +68,8 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-text-secondary hover:text-text-primary hover:bg-white/40 transition-all duration-200 group"
               >
                 <Icon size={15} className="text-text-tertiary group-hover:text-text-primary transition-colors" />
-                <span className="flex-1 text-left text-xs font-medium">{label}</span>
-                <span className="text-[10px] text-text-tertiary">{typeEntries.length}</span>
+                <span className="flex-1 text-left text-sm font-medium">{label}</span>
+                <span className="text-xs text-text-tertiary">{typeEntries.length}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleAdd(type); }}
                   className="text-text-tertiary hover:text-text-primary transition-all p-0.5"
@@ -86,7 +86,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
                       key={entry.id}
                       onClick={() => setActiveEntry(entry.id)}
                       className={cn(
-                        'w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-all duration-150',
+                        'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-150',
                         activeEntryId === entry.id
                           ? 'bg-text-primary text-text-inverse'
                           : 'text-text-secondary hover:text-text-primary hover:bg-white/40'
@@ -102,7 +102,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
               {isExpanded && typeEntries.length === 0 && (
                 <button
                   onClick={() => handleAdd(type)}
-                  className="ml-3 w-[calc(100%-12px)] flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all"
+                  className="ml-3 w-[calc(100%-12px)] flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all"
                 >
                   <Plus size={12} />
                   <span>Add {type}</span>
@@ -114,7 +114,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
       </div>
 
       <div className="p-3 border-t border-white/20">
-        <div className="text-[10px] text-text-tertiary text-center">
+        <div className="text-xs text-text-tertiary text-center">
           {projectEntries.length} canon {projectEntries.length === 1 ? 'entry' : 'entries'}
         </div>
       </div>

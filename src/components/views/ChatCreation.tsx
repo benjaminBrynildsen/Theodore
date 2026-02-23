@@ -7,7 +7,7 @@ import { generateId, cn } from '../../lib/utils';
 import { generateText } from '../../lib/generate';
 import { api } from '../../lib/api';
 import { Slider } from '../ui/Slider';
-import { autoFillCharacter, autoFillLocation } from '../../lib/ai-autofill';
+import { autoFillCharacter, autoFillLocation, extractCanonFromConversation } from '../../lib/ai-autofill';
 import type { Project, NarrativeControls, BookSubtype } from '../../types';
 
 interface Message {
@@ -180,7 +180,7 @@ export function ChatCreation({ onClose }: Props) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const { addProject, setActiveProject, setCurrentView, addChapter } = useStore();
-  const { createCharacter, createLocation, addEntry } = useCanonStore();
+  const { createCharacter, createLocation, createSystem, createArtifact, createRule, createEvent, addEntry } = useCanonStore();
   const { settings } = useSettingsStore();
 
   useEffect(() => {
@@ -361,20 +361,54 @@ Rules for JSON:
       // Auto-generate canon entries from the conversation
       // In production: AI analyzes all messages and extracts characters, locations, systems
       // For now: create starter entries and auto-fill them
-      const userContent = messages.filter(m => m.role === 'user').map(m => m.content).join(' ');
-      
-      // Create a protagonist character with auto-filled metadata
-      const protagonist = createCharacter(projectId, 'Protagonist');
-      protagonist.description = 'The main character — update name and details from your story concept';
-      protagonist.character.role = 'protagonist';
-      protagonist.character = autoFillCharacter(protagonist);
-      addEntry(protagonist);
+      const userMessages = messages.filter((m) => m.role === 'user').map((m) => m.content);
+      const canon = extractCanonFromConversation(userMessages);
 
-      // Create the primary setting
-      const primaryLocation = createLocation(projectId, 'Primary Setting');
-      primaryLocation.description = 'The main location — update from your story concept';
-      primaryLocation.location = autoFillLocation(primaryLocation);
-      addEntry(primaryLocation);
+      const existingNames = new Set<string>();
+
+      canon.characters.forEach((c) => {
+        if (existingNames.has(c.name.toLowerCase())) return;
+        existingNames.add(c.name.toLowerCase());
+        const entry = createCharacter(projectId, c.name);
+        entry.description = c.description;
+        entry.character.role = c.role;
+        entry.character = autoFillCharacter(entry);
+        addEntry(entry);
+      });
+
+      canon.locations.forEach((l) => {
+        if (existingNames.has(l.name.toLowerCase())) return;
+        existingNames.add(l.name.toLowerCase());
+        const entry = createLocation(projectId, l.name);
+        entry.description = l.description;
+        entry.location = autoFillLocation(entry);
+        addEntry(entry);
+      });
+
+      canon.systems.forEach((s) => {
+        if (existingNames.has(s.name.toLowerCase())) return;
+        existingNames.add(s.name.toLowerCase());
+        const entry = createSystem(projectId, s.name);
+        entry.description = s.description;
+        addEntry(entry);
+      });
+
+      canon.artifacts.forEach((a) => {
+        if (existingNames.has(a.name.toLowerCase())) return;
+        existingNames.add(a.name.toLowerCase());
+        const entry = createArtifact(projectId, a.name);
+        entry.description = a.description;
+        addEntry(entry);
+      });
+
+      // Create one rule and one event scaffold so the canon has full coverage from the start.
+      const baseRule = createRule(projectId, 'Core Story Rule');
+      baseRule.description = 'Foundational rule inferred from planning context.';
+      addEntry(baseRule);
+
+      const baseEvent = createEvent(projectId, 'Inciting Event');
+      baseEvent.description = 'Initial event that launches the story arc.';
+      addEntry(baseEvent);
 
       setActiveProject(projectId);
       setCurrentView('project');

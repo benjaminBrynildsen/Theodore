@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, BookOpen, Type, Minus, Plus, Sun, Moon, Coffee, Maximize2, Minimize2, List } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { X, ChevronLeft, ChevronRight, BookOpen, Minus, Plus, Sun, Moon, Coffee, List } from 'lucide-react';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
 
@@ -8,26 +8,61 @@ interface Props {
 }
 
 type ReaderTheme = 'light' | 'sepia' | 'dark';
+type FlipDir = 'next' | 'prev' | null;
+
+function paginateProse(prose: string, fontSize: number): string[] {
+  const paragraphs = prose.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  if (!paragraphs.length) return [''];
+
+  const targetChars = Math.max(900, Math.round(2400 - (fontSize - 18) * 70));
+  const pages: string[] = [];
+  let current = '';
+
+  const pushCurrent = () => {
+    if (current.trim()) pages.push(current.trim());
+    current = '';
+  };
+
+  for (const para of paragraphs) {
+    const candidate = current ? `${current}\n\n${para}` : para;
+    if (candidate.length <= targetChars) {
+      current = candidate;
+      continue;
+    }
+
+    if (current) pushCurrent();
+
+    let remaining = para;
+    while (remaining.length > targetChars) {
+      let splitAt = remaining.lastIndexOf(' ', targetChars);
+      if (splitAt < Math.floor(targetChars * 0.6)) splitAt = targetChars;
+      pages.push(remaining.slice(0, splitAt).trim());
+      remaining = remaining.slice(splitAt).trim();
+    }
+    current = remaining;
+  }
+
+  pushCurrent();
+  return pages.length ? pages : [''];
+}
 
 export function ReadingMode({ onClose }: Props) {
   const { getActiveProject, getProjectChapters } = useStore();
   const project = getActiveProject();
-  const chapters = project ? getProjectChapters(project.id).filter(c => c.prose).sort((a, b) => a.number - b.number) : [];
+  const chapters = project ? getProjectChapters(project.id).filter((c) => c.prose).sort((a, b) => a.number - b.number) : [];
 
   const [currentChapterIdx, setCurrentChapterIdx] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
   const [fontSize, setFontSize] = useState(18);
   const [theme, setTheme] = useState<ReaderTheme>('light');
   const [showControls, setShowControls] = useState(true);
   const [showToc, setShowToc] = useState(false);
-  const [twoPage, setTwoPage] = useState(true);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const controlsTimeout = useRef<any>(null);
+  const [flipDir, setFlipDir] = useState<FlipDir>(null);
+  const [isFlipping, setIsFlipping] = useState(false);
+  const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const chapter = chapters[currentChapterIdx];
 
-  // Theme configs
   const themes: Record<ReaderTheme, { bg: string; text: string; accent: string; paper: string; border: string }> = {
     light: { bg: 'bg-[#f5f5f0]', text: 'text-[#2d2d2d]', accent: 'text-[#666]', paper: 'bg-white', border: 'border-[#e0e0da]' },
     sepia: { bg: 'bg-[#f4ecd8]', text: 'text-[#5b4636]', accent: 'text-[#8b7355]', paper: 'bg-[#faf4e8]', border: 'border-[#d4c5a9]' },
@@ -35,28 +70,19 @@ export function ReadingMode({ onClose }: Props) {
   };
   const t = themes[theme];
 
-  // Split prose into paragraphs
-  const paragraphs = chapter?.prose.split('\n').filter(p => p.trim()) || [];
+  const chapterPages = useMemo(() => {
+    if (!chapter?.prose) return [''];
+    return paginateProse(chapter.prose, fontSize);
+  }, [chapter?.prose, fontSize]);
 
-  // Calculate pages for two-page spread
-  const calculatePages = useCallback(() => {
-    if (!contentRef.current || !twoPage) {
-      setTotalPages(1);
-      setCurrentPage(0);
-      return;
-    }
-    // Estimate pages based on content height vs viewport
-    const contentHeight = contentRef.current.scrollHeight;
-    const pageHeight = window.innerHeight - 200; // Account for margins
-    const pages = Math.max(1, Math.ceil(contentHeight / pageHeight));
-    setTotalPages(pages);
-  }, [twoPage, chapter, fontSize]);
+  const totalPages = chapterPages.length;
+  const pageText = chapterPages[currentPage] || '';
 
-  useEffect(() => {
-    calculatePages();
-  }, [calculatePages]);
+  const globalProgress = chapters.length > 0 ? ((currentChapterIdx + 1) / chapters.length) * 100 : 0;
 
-  // Auto-hide controls
+  const canGoPrev = currentPage > 0 || currentChapterIdx > 0;
+  const canGoNext = currentPage < totalPages - 1 || currentChapterIdx < chapters.length - 1;
+
   const resetControlsTimer = () => {
     setShowControls(true);
     if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
@@ -68,13 +94,55 @@ export function ReadingMode({ onClose }: Props) {
     return () => { if (controlsTimeout.current) clearTimeout(controlsTimeout.current); };
   }, []);
 
-  // Keyboard navigation
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [currentChapterIdx, fontSize]);
+
+  const runFlip = (dir: Exclude<FlipDir, null>, action: () => void) => {
+    if (isFlipping) return;
+    setIsFlipping(true);
+    setFlipDir(dir);
+    setTimeout(() => {
+      action();
+      setFlipDir(null);
+    }, 120);
+    setTimeout(() => setIsFlipping(false), 260);
+  };
+
+  const goNext = () => {
+    if (!canGoNext) return;
+    runFlip('next', () => {
+      if (currentPage < totalPages - 1) {
+        setCurrentPage((p) => p + 1);
+      } else if (currentChapterIdx < chapters.length - 1) {
+        setCurrentChapterIdx((c) => c + 1);
+        setCurrentPage(0);
+      }
+    });
+  };
+
+  const goPrev = () => {
+    if (!canGoPrev) return;
+    runFlip('prev', () => {
+      if (currentPage > 0) {
+        setCurrentPage((p) => p - 1);
+      } else if (currentChapterIdx > 0) {
+        const prevChapterIdx = currentChapterIdx - 1;
+        const prevPages = paginateProse(chapters[prevChapterIdx].prose, fontSize);
+        setCurrentChapterIdx(prevChapterIdx);
+        setCurrentPage(Math.max(0, prevPages.length - 1));
+      }
+    });
+  };
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight' || e.key === ' ') {
-        if (currentChapterIdx < chapters.length - 1) setCurrentChapterIdx(i => i + 1);
+        e.preventDefault();
+        goNext();
       } else if (e.key === 'ArrowLeft') {
-        if (currentChapterIdx > 0) setCurrentChapterIdx(i => i - 1);
+        e.preventDefault();
+        goPrev();
       } else if (e.key === 'Escape') {
         onClose();
       }
@@ -82,13 +150,7 @@ export function ReadingMode({ onClose }: Props) {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [currentChapterIdx, chapters.length]);
-
-  // Reset page when chapter changes
-  useEffect(() => {
-    setCurrentPage(0);
-    if (contentRef.current) contentRef.current.scrollTop = 0;
-  }, [currentChapterIdx]);
+  });
 
   if (!project || chapters.length === 0) {
     return (
@@ -103,15 +165,12 @@ export function ReadingMode({ onClose }: Props) {
     );
   }
 
-  const progress = chapters.length > 0 ? ((currentChapterIdx + 1) / chapters.length) * 100 : 0;
-
   return (
     <div
       className={cn('fixed inset-0 z-50 transition-colors duration-500', t.bg)}
       onMouseMove={resetControlsTimer}
       onClick={resetControlsTimer}
     >
-      {/* Top controls — fade in/out */}
       <div className={cn(
         'absolute top-0 left-0 right-0 z-10 transition-all duration-500',
         showControls ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
@@ -122,28 +181,23 @@ export function ReadingMode({ onClose }: Props) {
             <span>Exit Reading Mode</span>
           </button>
 
-          <div className={cn('text-sm font-serif', t.accent)}>
-            {project.title}
-          </div>
+          <div className={cn('text-sm font-serif', t.accent)}>{project.title}</div>
 
           <div className="flex items-center gap-3">
-            {/* TOC */}
             <button onClick={() => setShowToc(!showToc)} className={cn('p-2 rounded-lg transition-colors', t.accent)}>
               <List size={18} />
             </button>
 
-            {/* Font size */}
             <div className="flex items-center gap-1">
-              <button onClick={() => setFontSize(s => Math.max(14, s - 2))} className={cn('p-1.5 rounded-lg transition-colors', t.accent)}>
+              <button onClick={() => setFontSize((s) => Math.max(14, s - 2))} className={cn('p-1.5 rounded-lg transition-colors', t.accent)}>
                 <Minus size={14} />
               </button>
               <span className={cn('text-xs font-mono w-8 text-center', t.accent)}>{fontSize}</span>
-              <button onClick={() => setFontSize(s => Math.min(28, s + 2))} className={cn('p-1.5 rounded-lg transition-colors', t.accent)}>
+              <button onClick={() => setFontSize((s) => Math.min(28, s + 2))} className={cn('p-1.5 rounded-lg transition-colors', t.accent)}>
                 <Plus size={14} />
               </button>
             </div>
 
-            {/* Theme */}
             <div className="flex items-center gap-1">
               <button onClick={() => setTheme('light')} className={cn('p-1.5 rounded-lg transition-colors', theme === 'light' ? t.text : t.accent)}>
                 <Sun size={16} />
@@ -155,23 +209,13 @@ export function ReadingMode({ onClose }: Props) {
                 <Moon size={16} />
               </button>
             </div>
-
-            {/* Two-page toggle */}
-            <button
-              onClick={() => setTwoPage(!twoPage)}
-              className={cn('p-1.5 rounded-lg transition-colors', twoPage ? t.text : t.accent)}
-              title={twoPage ? 'Single page' : 'Two-page spread'}
-            >
-              <BookOpen size={16} />
-            </button>
           </div>
         </div>
       </div>
 
-      {/* Table of Contents overlay */}
       {showToc && (
         <div className="absolute inset-0 z-20 flex items-center justify-center" onClick={() => setShowToc(false)}>
-          <div className={cn('w-80 max-h-[70vh] rounded-2xl shadow-2xl overflow-hidden', t.paper, t.border, 'border')} onClick={e => e.stopPropagation()}>
+          <div className={cn('w-80 max-h-[70vh] rounded-2xl shadow-2xl overflow-hidden', t.paper, t.border, 'border')} onClick={(e) => e.stopPropagation()}>
             <div className={cn('px-5 py-4 border-b', t.border)}>
               <h3 className={cn('font-serif font-semibold', t.text)}>Table of Contents</h3>
             </div>
@@ -179,7 +223,11 @@ export function ReadingMode({ onClose }: Props) {
               {chapters.map((ch, idx) => (
                 <button
                   key={ch.id}
-                  onClick={() => { setCurrentChapterIdx(idx); setShowToc(false); }}
+                  onClick={() => {
+                    setCurrentChapterIdx(idx);
+                    setCurrentPage(0);
+                    setShowToc(false);
+                  }}
                   className={cn(
                     'w-full text-left px-5 py-3 transition-colors border-b last:border-0',
                     t.border,
@@ -197,138 +245,43 @@ export function ReadingMode({ onClose }: Props) {
         </div>
       )}
 
-      {/* Main reading area */}
       <div className="absolute inset-0 flex items-stretch pt-16 pb-16 overflow-hidden">
-        {/* Left page turn zone */}
         <button
-          onClick={() => currentChapterIdx > 0 && setCurrentChapterIdx(i => i - 1)}
+          onClick={goPrev}
           className={cn(
             'w-16 flex-shrink-0 flex items-center justify-center transition-opacity',
-            currentChapterIdx > 0 ? 'opacity-30 hover:opacity-70 cursor-pointer' : 'opacity-0 cursor-default'
+            canGoPrev ? 'opacity-30 hover:opacity-70 cursor-pointer' : 'opacity-0 cursor-default'
           )}
         >
           <ChevronLeft size={24} className={t.accent} />
         </button>
 
-        {/* Book content */}
-        <div className="flex-1 flex justify-center gap-0 overflow-hidden">
-          {twoPage ? (
-            /* Two-page spread */
-            <div className="flex gap-0 max-w-[1100px] w-full">
-              {/* Left page */}
-              <div className={cn('flex-1 rounded-l-sm shadow-lg overflow-hidden', t.paper, t.border, 'border-r')}>
-                <div className="h-full overflow-y-auto px-12 py-10" ref={contentRef}>
-                  {/* Chapter heading on left page */}
-                  <div className="mb-10 text-center">
-                    <div className={cn('text-xs uppercase tracking-[0.3em] mb-3 font-sans', t.accent)}>
-                      Chapter {chapter.number}
-                    </div>
-                    <h1 className={cn('font-serif font-semibold mb-6', t.text)} style={{ fontSize: fontSize + 8 }}>
-                      {chapter.title}
-                    </h1>
-                    <div className={cn('w-12 h-px mx-auto', theme === 'dark' ? 'bg-white/20' : 'bg-black/15')} />
-                  </div>
-
-                  {/* First half of paragraphs */}
-                  <div className="columns-1">
-                    {paragraphs.slice(0, Math.ceil(paragraphs.length / 2)).map((para, i) => (
-                      <p
-                        key={i}
-                        className={cn('mb-5 leading-[1.9] font-serif', t.text)}
-                        style={{
-                          fontSize,
-                          textIndent: i === 0 ? 0 : '2em',
-                          textAlign: 'justify',
-                        }}
-                      >
-                        {i === 0 ? (
-                          <>
-                            <span className={cn('float-left text-[3.5em] leading-[0.8] mr-2 mt-1 font-serif font-bold', t.text)}>
-                              {para.charAt(0)}
-                            </span>
-                            {para.slice(1)}
-                          </>
-                        ) : para}
-                      </p>
-                    ))}
-                  </div>
-
-                  {/* Page number */}
-                  <div className={cn('text-center mt-8 text-xs font-mono', t.accent)}>
-                    {currentChapterIdx * 2 + 1}
-                  </div>
+        <div className="flex-1 flex justify-center overflow-hidden px-4">
+          <div
+            className={cn('max-w-[760px] w-full rounded-sm shadow-lg overflow-hidden border', t.paper, t.border)}
+            style={{
+              transform: flipDir === 'next'
+                ? 'perspective(1200px) rotateY(-12deg) scale(0.98)'
+                : flipDir === 'prev'
+                ? 'perspective(1200px) rotateY(12deg) scale(0.98)'
+                : 'perspective(1200px) rotateY(0deg) scale(1)',
+              opacity: flipDir ? 0.5 : 1,
+              transition: 'transform 180ms ease, opacity 180ms ease',
+            }}
+          >
+            <div className="h-full px-12 py-10 overflow-hidden">
+              <div className="mb-8 text-center">
+                <div className={cn('text-xs uppercase tracking-[0.3em] mb-3 font-sans', t.accent)}>
+                  Chapter {chapter.number}
                 </div>
+                <h1 className={cn('font-serif font-semibold mb-4', t.text)} style={{ fontSize: fontSize + 8 }}>
+                  {chapter.title}
+                </h1>
+                <div className={cn('w-12 h-px mx-auto', theme === 'dark' ? 'bg-white/20' : 'bg-black/15')} />
               </div>
 
-              {/* Spine shadow */}
-              <div className={cn('w-[2px] flex-shrink-0', theme === 'dark' ? 'bg-black/40' : 'bg-black/10')} />
-
-              {/* Right page */}
-              <div className={cn('flex-1 rounded-r-sm shadow-lg overflow-hidden', t.paper)}>
-                <div className="h-full overflow-y-auto px-12 py-10">
-                  {/* Second half of paragraphs */}
-                  <div>
-                    {paragraphs.slice(Math.ceil(paragraphs.length / 2)).map((para, i) => (
-                      <p
-                        key={i}
-                        className={cn('mb-5 leading-[1.9] font-serif', t.text)}
-                        style={{
-                          fontSize,
-                          textIndent: '2em',
-                          textAlign: 'justify',
-                        }}
-                      >
-                        {para}
-                      </p>
-                    ))}
-
-                    {/* End-of-chapter marker */}
-                    {paragraphs.length > 0 && (
-                      <div className={cn('text-center mt-12 mb-8', t.accent)}>
-                        <span className="text-lg tracking-[0.5em]">· · ·</span>
-                      </div>
-                    )}
-
-                    {/* Next chapter preview */}
-                    {currentChapterIdx < chapters.length - 1 && (
-                      <button
-                        onClick={() => setCurrentChapterIdx(i => i + 1)}
-                        className={cn('w-full text-center py-6 rounded-lg transition-colors', `hover:${t.paper}`)}
-                      >
-                        <div className={cn('text-[10px] uppercase tracking-[0.3em] mb-1', t.accent)}>Next Chapter</div>
-                        <div className={cn('font-serif text-sm', t.text)}>{chapters[currentChapterIdx + 1].title}</div>
-                      </button>
-                    )}
-
-                    {currentChapterIdx === chapters.length - 1 && (
-                      <div className={cn('text-center py-8', t.accent)}>
-                        <div className="text-sm font-serif italic">End of available chapters</div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Page number */}
-                  <div className={cn('text-center mt-8 text-xs font-mono', t.accent)}>
-                    {currentChapterIdx * 2 + 2}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* Single page / scroll mode */
-            <div className={cn('max-w-[600px] w-full rounded-sm shadow-lg overflow-hidden', t.paper)}>
-              <div className="h-full overflow-y-auto px-12 py-10" ref={contentRef}>
-                <div className="mb-10 text-center">
-                  <div className={cn('text-xs uppercase tracking-[0.3em] mb-3 font-sans', t.accent)}>
-                    Chapter {chapter.number}
-                  </div>
-                  <h1 className={cn('font-serif font-semibold mb-6', t.text)} style={{ fontSize: fontSize + 8 }}>
-                    {chapter.title}
-                  </h1>
-                  <div className={cn('w-12 h-px mx-auto', theme === 'dark' ? 'bg-white/20' : 'bg-black/15')} />
-                </div>
-
-                {paragraphs.map((para, i) => (
+              <div className="h-[calc(100%-120px)] overflow-hidden">
+                {pageText.split('\n\n').map((para, i) => (
                   <p
                     key={i}
                     className={cn('mb-5 leading-[1.9] font-serif', t.text)}
@@ -348,40 +301,26 @@ export function ReadingMode({ onClose }: Props) {
                     ) : para}
                   </p>
                 ))}
+              </div>
 
-                {paragraphs.length > 0 && (
-                  <div className={cn('text-center mt-12 mb-8', t.accent)}>
-                    <span className="text-lg tracking-[0.5em]">· · ·</span>
-                  </div>
-                )}
-
-                {currentChapterIdx < chapters.length - 1 && (
-                  <button
-                    onClick={() => setCurrentChapterIdx(i => i + 1)}
-                    className={cn('w-full text-center py-6 rounded-lg transition-colors mb-8')}
-                  >
-                    <div className={cn('text-[10px] uppercase tracking-[0.3em] mb-1', t.accent)}>Next Chapter</div>
-                    <div className={cn('font-serif text-sm', t.text)}>{chapters[currentChapterIdx + 1].title}</div>
-                  </button>
-                )}
+              <div className={cn('text-center mt-5 text-xs font-mono', t.accent)}>
+                Page {currentPage + 1} of {totalPages}
               </div>
             </div>
-          )}
+          </div>
         </div>
 
-        {/* Right page turn zone */}
         <button
-          onClick={() => currentChapterIdx < chapters.length - 1 && setCurrentChapterIdx(i => i + 1)}
+          onClick={goNext}
           className={cn(
             'w-16 flex-shrink-0 flex items-center justify-center transition-opacity',
-            currentChapterIdx < chapters.length - 1 ? 'opacity-30 hover:opacity-70 cursor-pointer' : 'opacity-0 cursor-default'
+            canGoNext ? 'opacity-30 hover:opacity-70 cursor-pointer' : 'opacity-0 cursor-default'
           )}
         >
           <ChevronRight size={24} className={t.accent} />
         </button>
       </div>
 
-      {/* Bottom progress bar */}
       <div className={cn(
         'absolute bottom-0 left-0 right-0 transition-all duration-500',
         showControls ? 'opacity-100' : 'opacity-0'
@@ -392,22 +331,23 @@ export function ReadingMode({ onClose }: Props) {
               Chapter {chapter.number} of {chapters.length}
             </span>
             <span className={cn('text-xs font-mono', t.accent)}>
-              {Math.round(progress)}% complete
+              {Math.round(globalProgress)}% complete
             </span>
           </div>
-          {/* Progress bar */}
           <div className={cn('w-full h-1 rounded-full', theme === 'dark' ? 'bg-white/10' : 'bg-black/10')}>
             <div
               className={cn('h-full rounded-full transition-all duration-500', theme === 'dark' ? 'bg-white/40' : 'bg-black/30')}
-              style={{ width: `${progress}%` }}
+              style={{ width: `${globalProgress}%` }}
             />
           </div>
-          {/* Chapter dots */}
           <div className="flex justify-center gap-1.5 mt-3">
             {chapters.map((_, idx) => (
               <button
                 key={idx}
-                onClick={() => setCurrentChapterIdx(idx)}
+                onClick={() => {
+                  setCurrentChapterIdx(idx);
+                  setCurrentPage(0);
+                }}
                 className={cn(
                   'w-2 h-2 rounded-full transition-all',
                   idx === currentChapterIdx
