@@ -1,5 +1,6 @@
 import { BookOpen, PanelLeft, PanelRight, ChevronLeft, Settings, BookMarked, Wrench, Menu } from 'lucide-react';
 import { useStore } from '../../store';
+import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { CreditsBadge } from '../credits/CreditsBadge';
 import { ValidationBadge } from '../validation/ValidationBadge';
@@ -10,6 +11,7 @@ export function TopBar() {
     toggleLeftSidebar, toggleRightSidebar, leftSidebarOpen, rightSidebarOpen,
     getActiveProject, currentView, setCurrentView, setActiveProject, setActiveChapter
   } = useStore();
+  const { activeEntryId, setActiveEntry } = useCanonStore();
   
   const project = getActiveProject();
 
@@ -105,7 +107,15 @@ export function TopBar() {
       {/* Right sidebar toggle — hidden on mobile */}
       {project && (
         <button
-          onClick={toggleRightSidebar}
+          onClick={() => {
+            // If canon detail is open, close it and reveal the right sidebar.
+            if (activeEntryId) {
+              setActiveEntry(null);
+              if (!rightSidebarOpen) toggleRightSidebar();
+              return;
+            }
+            toggleRightSidebar();
+          }}
           className={cn(
             'p-1.5 rounded-xl transition-all duration-200 hidden sm:block flex-shrink-0',
             rightSidebarOpen ? 'text-text-primary glass-pill' : 'text-text-tertiary hover:text-text-primary hover:bg-white/30'

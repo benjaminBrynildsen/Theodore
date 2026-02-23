@@ -46,7 +46,7 @@ export function Home() {
               <MessageSquare size={20} />
             </div>
             <div className="text-left">
-              <div className="font-medium">Plan with AI</div>
+              <div className="font-medium">Imagine</div>
               <div className="text-xs text-text-tertiary mt-0.5">Describe your idea, Theodore builds the blueprint</div>
             </div>
           </button>
@@ -60,7 +60,7 @@ export function Home() {
             </div>
             <div className="text-left">
               <div className="font-medium">Import Existing Work</div>
-              <div className="text-xs text-text-tertiary mt-0.5">Bring your manuscript, outline, and notes</div>
+              <div className="text-xs text-text-tertiary mt-0.5">Bring your unfinished or finished manuscript, notes and outlines etc</div>
             </div>
           </button>
 

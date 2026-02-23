@@ -1,6 +1,5 @@
 import { Coins } from 'lucide-react';
 import { useCreditsStore } from '../../store/credits';
-import { useSettingsStore } from '../../store/settings';
 import { cn } from '../../lib/utils';
 
 export function CreditsBadge() {
@@ -12,7 +11,7 @@ export function CreditsBadge() {
 
   return (
     <button
-      onClick={() => useSettingsStore.getState().setShowSettingsView(true)}
+      onClick={() => setShowSettingsModal(true)}
       className={cn(
         'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200',
         'glass-pill hover:bg-white/60',

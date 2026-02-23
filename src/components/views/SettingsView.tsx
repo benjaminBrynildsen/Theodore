@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { UsageDashboard } from '../credits/UsageDashboard';
 import { useSettingsStore } from '../../store/settings';
+import { useCreditsStore } from '../../store/credits';
 import { cn } from '../../lib/utils';
 import type {
   WritingStyleSettings, EditorSettings, AISettings,
@@ -518,6 +519,7 @@ export function SettingsView() {
     setMobileShowContent(true);
   };
   const { setShowSettingsView, resetAll } = useSettingsStore();
+  const { plan, setShowSettingsModal } = useCreditsStore();
 
   return (
     <div className="flex-1 flex overflow-hidden animate-fade-in">
@@ -600,7 +602,19 @@ export function SettingsView() {
             {activeSection === 'editor' && <EditorSection />}
             {activeSection === 'ai' && <AISection />}
             {activeSection === 'export' && <ExportSection />}
-            {activeSection === 'usage' && <UsageDashboard />}
+            {activeSection === 'usage' && (
+              <div className="animate-fade-in">
+                <UsageDashboard />
+                <div className="pt-4">
+                  <button
+                    onClick={() => setShowSettingsModal(true)}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-text-primary text-text-inverse text-sm font-medium hover:shadow-md transition-all active:scale-[0.98]"
+                  >
+                    {plan.byokApiKey ? 'Edit API Key' : 'Add API Key'}
+                  </button>
+                </div>
+              </div>
+            )}
             {activeSection === 'notifications' && <NotificationsSection />}
           </div>
         </div>

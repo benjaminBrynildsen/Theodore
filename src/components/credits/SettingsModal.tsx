@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Coins, Key, CreditCard, History, ChevronRight } from 'lucide-react';
 import { useCreditsStore } from '../../store/credits';
 import { PLAN_DETAILS, CREDIT_COSTS } from '../../types/credits';
@@ -8,6 +8,12 @@ export function SettingsModal() {
   const { showSettingsModal, setShowSettingsModal, setShowUpgradeModal, plan, transactions, setByokKey } = useCreditsStore();
   const [activeTab, setActiveTab] = useState<'overview' | 'usage' | 'api'>('overview');
   const [apiKeyInput, setApiKeyInput] = useState('');
+  const hasExistingKey = Boolean(plan.byokApiKey);
+
+  useEffect(() => {
+    if (!showSettingsModal) return;
+    setApiKeyInput(plan.byokApiKey || '');
+  }, [showSettingsModal, plan.byokApiKey]);
 
   if (!showSettingsModal) return null;
 
@@ -177,7 +183,6 @@ export function SettingsModal() {
                   onClick={() => {
                     if (apiKeyInput) {
                       setByokKey(apiKeyInput);
-                      setApiKeyInput('');
                     }
                   }}
                   disabled={!apiKeyInput}
@@ -188,7 +193,7 @@ export function SettingsModal() {
                       : 'bg-black/5 text-text-tertiary cursor-not-allowed'
                   )}
                 >
-                  Connect Key
+                  {hasExistingKey ? 'Update Key' : 'Connect Key'}
                 </button>
               </div>
             </div>

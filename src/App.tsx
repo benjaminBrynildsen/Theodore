@@ -16,7 +16,7 @@ import { ToolsView } from './components/views/ToolsView';
 import { useSettingsStore } from './store/settings';
 
 export default function App() {
-  const { currentView, showReadingMode, setShowReadingMode, showToolsView, setShowToolsView, loading, activeProjectId, loadProjects } = useStore();
+  const { currentView, showReadingMode, setShowReadingMode, showToolsView, setShowToolsView, loading, activeProjectId, loadProjects, rightSidebarOpen } = useStore();
   const { showSettingsView } = useSettingsStore();
   const { activeEntryId, getEntry, setActiveEntry, loadEntries } = useCanonStore();
   const activeCanonEntry = activeEntryId ? getEntry(activeEntryId) : undefined;
@@ -52,7 +52,7 @@ export default function App() {
           )}
         </main>
         
-        {!showSettingsView && !showToolsView && activeCanonEntry && (
+        {!showSettingsView && !showToolsView && activeCanonEntry && !rightSidebarOpen && (
           <div className="hidden md:block w-[420px] flex-shrink-0">
             <CanonDetailPanel
               entry={activeCanonEntry}
@@ -61,7 +61,7 @@ export default function App() {
           </div>
         )}
         
-        {!showSettingsView && !showToolsView && !activeCanonEntry && <div className="hidden sm:block"><RightSidebar /></div>}
+        {!showSettingsView && !showToolsView && <div className="hidden sm:block"><RightSidebar /></div>}
       </div>
       
       <UpgradeModal />
