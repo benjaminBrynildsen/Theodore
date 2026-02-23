@@ -482,9 +482,9 @@ Rules:
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
-          <div className="max-w-6xl mx-auto flex gap-6 items-start">
-          <div className="flex-1 max-w-2xl">
-          <div className="glass rounded-3xl border border-black/10 shadow-xl p-4 sm:p-5 space-y-4">
+          <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-[minmax(0,60%)_minmax(0,30%)] gap-6 lg:gap-8 items-start">
+          <div className="w-full">
+          <div className="glass rounded-3xl border border-black/10 shadow-xl p-4 sm:p-5 space-y-4 mx-auto">
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -694,8 +694,8 @@ Rules:
           </div>
           </div>
 
-          <aside className="hidden lg:block w-96 flex-shrink-0">
-            <div className="sticky top-20 glass rounded-3xl p-6 border border-black/10 shadow-xl">
+          <aside className="hidden lg:block w-full">
+            <div className="sticky top-20 glass rounded-3xl p-6 border border-black/10 shadow-xl w-full">
               <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2">Ready</div>
               <h3 className="font-serif text-2xl font-semibold mb-2">Create Novel</h3>
               <p className="text-xs text-text-tertiary mb-4">
@@ -735,7 +735,7 @@ Rules:
 
         {/* Input */}
         <div className="px-4 pb-4 pt-2">
-          <div className="max-w-6xl mx-auto lg:pr-[25rem]">
+          <div className="max-w-7xl mx-auto w-full lg:w-[60%] lg:mr-auto lg:ml-0">
           <div className="mb-2 flex flex-wrap gap-1.5">
             <button
               onClick={forceBuildStarterPlan}
