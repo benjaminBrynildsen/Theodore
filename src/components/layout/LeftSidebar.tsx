@@ -395,7 +395,7 @@ export function LeftSidebar() {
   if (!leftSidebarOpen || !project) return null;
 
   return (
-    <aside className="w-64 glass-subtle flex flex-col animate-fade-in border-r-0">
+    <aside className="w-72 h-full glass-subtle flex flex-col animate-fade-in border-r-0">
       {activeChapterId ? (
         <ChapterSidebar projectId={project.id} chapterId={activeChapterId} />
       ) : (

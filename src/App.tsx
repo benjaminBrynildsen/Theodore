@@ -37,7 +37,7 @@ export default function App() {
     <div className="h-screen flex flex-col bg-bg">
       <TopBar />
       <div className="flex-1 flex overflow-hidden">
-        {!showSettingsView && !showToolsView && <div className="hidden sm:block"><LeftSidebar /></div>}
+        {!showSettingsView && !showToolsView && <div className="hidden sm:block h-full"><LeftSidebar /></div>}
         <main className="flex-1 flex overflow-hidden min-w-0">
           {showToolsView ? (
             <ToolsView onClose={() => setShowToolsView(false)} />

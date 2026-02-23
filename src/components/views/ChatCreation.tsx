@@ -101,6 +101,58 @@ function getSuggestedPrompts(userMessageCount: number, hasSettings: boolean): st
   ];
 }
 
+function normalizeProposedSettings(raw: ProposedSettings): ProposedSettings {
+  const fallbackTone = { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 };
+  const fallbackFocus = { character: 40, plot: 40, world: 20 };
+
+  const normalizedChapters = (raw.chapters || [])
+    .filter((ch) => ch && typeof ch.number === 'number')
+    .map((ch, i) => ({
+      number: i + 1,
+      title: ch.title?.trim() || `Chapter ${i + 1}`,
+      premise: ch.premise?.trim() || 'Advance character, conflict, and stakes.',
+    }));
+
+  const targetCount = Math.max(
+    3,
+    raw.chapterCount || 0,
+    normalizedChapters.length,
+  );
+
+  while (normalizedChapters.length < targetCount) {
+    const n = normalizedChapters.length + 1;
+    normalizedChapters.push({
+      number: n,
+      title: `Chapter ${n}`,
+      premise: 'Advance character, conflict, and stakes.',
+    });
+  }
+
+  return {
+    title: raw.title?.trim() || 'Untitled Novel',
+    subtype: raw.subtype || 'novel',
+    targetLength: raw.targetLength || 'medium',
+    assistanceLevel: Number.isFinite(raw.assistanceLevel) ? raw.assistanceLevel : 3,
+    narrativeControls: {
+      toneMood: {
+        lightDark: raw.narrativeControls?.toneMood?.lightDark ?? fallbackTone.lightDark,
+        hopefulGrim: raw.narrativeControls?.toneMood?.hopefulGrim ?? fallbackTone.hopefulGrim,
+        whimsicalSerious: raw.narrativeControls?.toneMood?.whimsicalSerious ?? fallbackTone.whimsicalSerious,
+      },
+      pacing: raw.narrativeControls?.pacing || 'balanced',
+      dialogueWeight: raw.narrativeControls?.dialogueWeight || 'balanced',
+      focusMix: {
+        character: raw.narrativeControls?.focusMix?.character ?? fallbackFocus.character,
+        plot: raw.narrativeControls?.focusMix?.plot ?? fallbackFocus.plot,
+        world: raw.narrativeControls?.focusMix?.world ?? fallbackFocus.world,
+      },
+      genreEmphasis: raw.narrativeControls?.genreEmphasis || [],
+    },
+    chapterCount: targetCount,
+    chapters: normalizedChapters,
+  };
+}
+
 interface Props {
   onClose: () => void;
 }
@@ -215,18 +267,19 @@ Rules for JSON:
     if (creatingProject) return;
     setCreatingProject(true);
     try {
+      const finalSettings = normalizeProposedSettings(settings);
       const projectId = generateId();
       const now = new Date().toISOString();
 
       const project: Project = {
         id: projectId,
-        title: settings.title,
+        title: finalSettings.title,
         type: 'book',
-        subtype: settings.subtype,
-        targetLength: settings.targetLength,
+        subtype: finalSettings.subtype,
+        targetLength: finalSettings.targetLength,
         toneBaseline: '',
-        assistanceLevel: settings.assistanceLevel,
-        narrativeControls: settings.narrativeControls,
+        assistanceLevel: finalSettings.assistanceLevel,
+        narrativeControls: finalSettings.narrativeControls,
         status: 'active',
         createdAt: now,
         updatedAt: now,
@@ -234,7 +287,7 @@ Rules for JSON:
 
       await addProject(project);
 
-      for (const ch of settings.chapters) {
+      for (const ch of finalSettings.chapters) {
         await addChapter({
           id: generateId(),
           projectId,
@@ -256,6 +309,45 @@ Rules for JSON:
           createdAt: now,
           updatedAt: now,
         });
+      }
+
+      // Verify persistence; retry direct API writes if chapter rows were not saved.
+      let persistedChapters = await api.listChapters(projectId).catch(() => []);
+      if (!persistedChapters.length) {
+        for (const ch of finalSettings.chapters) {
+          await api.createChapter({
+            id: generateId(),
+            projectId,
+            number: ch.number,
+            title: ch.title,
+            timelinePosition: ch.number,
+            status: 'premise-only',
+            premise: {
+              purpose: ch.premise,
+              changes: '',
+              characters: [],
+              emotionalBeat: '',
+              setupPayoff: [],
+              constraints: [],
+            },
+            prose: '',
+            referencedCanonIds: [],
+            validationStatus: { isValid: true, checks: [] },
+            createdAt: now,
+            updatedAt: now,
+          }).catch(() => {});
+        }
+        persistedChapters = await api.listChapters(projectId).catch(() => []);
+      }
+
+      if (!persistedChapters.length) {
+        setMessages(prev => [...prev, {
+          id: generateId(),
+          role: 'assistant',
+          content: 'Novel creation failed: chapter structure was not saved. Please try Create Novel again.',
+          timestamp: new Date(),
+        }]);
+        return;
       }
 
       // Auto-generate canon entries from the conversation
@@ -552,10 +644,10 @@ Rules:
                   <button
                     onClick={createProject}
                     disabled={creatingProject}
-                    className="w-full py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-medium shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                    className="w-full py-4 rounded-xl bg-text-primary text-text-inverse text-base font-semibold shadow-lg hover:shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-60"
                   >
                     <Check size={16} />
-                    {creatingProject ? 'Creating Project...' : 'Create Project'}
+                    {creatingProject ? 'Creating Novel...' : 'Create Novel'}
                   </button>
                 </div>
               </div>
