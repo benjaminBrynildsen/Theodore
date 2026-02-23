@@ -97,6 +97,11 @@ export const useCanonStore = create<CanonState>()(persist((set, get) => ({
     try {
       const rows = await api.listCanon(projectId);
       const mapped = rows.map(fromDb);
+      const existingForProject = get().entries.filter(e => e.projectId === projectId);
+      // Do not wipe optimistic/local canon entries when backend returns empty.
+      if (mapped.length === 0 && existingForProject.length > 0) {
+        return;
+      }
       // Merge: replace entries for this project, keep others
       const otherEntries = get().entries.filter(e => e.projectId !== projectId);
       set({ entries: [...otherEntries, ...mapped] });

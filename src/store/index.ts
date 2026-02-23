@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Project, Chapter } from '../types';
 import { api } from '../lib/api';
+import { useCanonStore } from './canon';
+import { scanMetadataOccurrences } from '../lib/metadata-scan';
 
 const DEFAULT_USER_ID = 'user-ben';
 
@@ -178,11 +180,40 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   },
 
   updateChapter: (id, updates) => {
+    const current = get().chapters.find((c) => c.id === id);
+    let mergedUpdates: Partial<Chapter> = updates;
+    if (current && typeof updates.prose === 'string') {
+      const canonEntries = useCanonStore.getState().getProjectEntries(current.projectId);
+      const scan = scanMetadataOccurrences(updates.prose, canonEntries);
+      const existingAiMeta = (current.aiIntentMetadata || {}) as Record<string, any>;
+      const incomingAiMeta = (updates.aiIntentMetadata || {}) as Record<string, any>;
+      mergedUpdates = {
+        ...updates,
+        aiIntentMetadata: {
+          ...existingAiMeta,
+          ...incomingAiMeta,
+          metadataScan: scan,
+        } as any,
+      };
+    }
+
     set((s) => ({
-      chapters: s.chapters.map((c) => c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c),
+      chapters: s.chapters.map((c) => c.id === id ? { ...c, ...mergedUpdates, updatedAt: new Date().toISOString() } : c),
     }));
     debounceSave(`chapter-${id}`, async () => {
-      await api.updateChapter(id, updates);
+      if (typeof updates.prose === 'string' && current) {
+        const updated = get().chapters.find((c) => c.id === id);
+        const scan = (updated?.aiIntentMetadata as any)?.metadataScan;
+        if (scan) {
+          console.info('[MetadataScan]', {
+            chapterId: id,
+            existingMentions: scan.existingMentions?.slice(0, 8),
+            newCharacters: scan.newEntities?.characters,
+            newLocations: scan.newEntities?.locations,
+          });
+        }
+      }
+      await api.updateChapter(id, mergedUpdates);
     });
   },
 

@@ -64,43 +64,6 @@ function parseProposedSettings(text: string): { message: string; settings?: Prop
   }
 }
 
-function getSuggestedPrompts(userMessageCount: number, hasSettings: boolean): string[] {
-  if (hasSettings) {
-    return [
-      'Tighten the pacing in the middle chapters',
-      'Make chapter 1 open with a stronger hook',
-      'Add a subplot that increases emotional stakes',
-      'Shift tone to darker and more suspenseful',
-      'Adjust for a shorter 8-chapter structure',
-    ];
-  }
-
-  if (userMessageCount <= 1) {
-    return [
-      'My story is about a woman who finds a hidden garden under a library',
-      'I want a dark fantasy with hopeful undertones',
-      'The main character is brilliant but emotionally guarded',
-      'I want this to feel literary but still page-turning',
-    ];
-  }
-
-  if (userMessageCount <= 3) {
-    return [
-      'The world is grounded but has one impossible magical system',
-      'Target audience is adults, around 90k words',
-      'I want high tension with quiet emotional moments',
-      'Give me a clear arc with escalating stakes',
-    ];
-  }
-
-  return [
-    'Build the full story structure now',
-    'Draft chapter-by-chapter premises',
-    'Increase character focus over worldbuilding',
-    'Make the ending bittersweet instead of fully happy',
-  ];
-}
-
 function normalizeProposedSettings(raw: ProposedSettings): ProposedSettings {
   const fallbackTone = { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 };
   const fallbackFocus = { character: 40, plot: 40, world: 20 };
@@ -493,8 +456,14 @@ Rules:
   };
 
   const selectedSettings = editedSettings || proposedSettings;
-  const userMessageCount = messages.filter((m) => m.role === 'user').length;
-  const suggestedPrompts = getSuggestedPrompts(userMessageCount, Boolean(selectedSettings));
+  const planningInputs = messages.filter((m) => m.role === 'user').map((m) => m.content);
+  const seedPreview = extractCanonFromConversation(planningInputs);
+  const canonSeedCount =
+    seedPreview.characters.length +
+    seedPreview.locations.length +
+    seedPreview.systems.length +
+    seedPreview.artifacts.length +
+    2; // base rule + base event
 
   return (
     <div className="flex-1 flex flex-col bg-bg animate-fade-in overflow-hidden">
@@ -512,8 +481,9 @@ Rules:
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
-          <div className="max-w-2xl mx-auto space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+          <div className="max-w-6xl mx-auto flex gap-6 items-start">
+          <div className="flex-1 max-w-2xl space-y-4">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -682,7 +652,7 @@ Rules:
                 </div>
 
                 {/* Create Button */}
-                <div className="px-5 pb-5">
+                <div className="px-5 pb-5 xl:hidden">
                   <button
                     onClick={createProject}
                     disabled={creatingProject}
@@ -721,6 +691,44 @@ Rules:
 
           <div ref={messagesEndRef} />
           </div>
+
+          <aside className="hidden xl:block w-80 flex-shrink-0">
+            <div className="sticky top-20 glass rounded-2xl p-5 border border-black/5">
+              <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2">Ready</div>
+              <h3 className="font-serif text-xl font-semibold mb-2">Create Novel</h3>
+              <p className="text-xs text-text-tertiary mb-4">
+                Create project, chapters, and canon metadata from your current planning context.
+              </p>
+
+              <div className="grid grid-cols-2 gap-2 text-xs mb-4">
+                <div className="glass-pill px-3 py-2 rounded-xl">
+                  Chapters: {selectedSettings?.chapters.length || 0}
+                </div>
+                <div className="glass-pill px-3 py-2 rounded-xl">
+                  Canon Seeds: {canonSeedCount}
+                </div>
+              </div>
+
+              <button
+                onClick={selectedSettings ? createProject : forceBuildStarterPlan}
+                disabled={creatingProject || quickStructuring}
+                className="w-full py-4 rounded-xl bg-text-primary text-text-inverse text-base font-semibold shadow-lg hover:shadow-xl active:scale-[0.98] transition-all disabled:opacity-60"
+              >
+                {creatingProject
+                  ? 'Creating Novel...'
+                  : selectedSettings
+                  ? 'Create Novel'
+                  : quickStructuring
+                  ? 'Building Starter...'
+                  : 'Build Starter + Create'}
+              </button>
+
+              {creationMessage && (
+                <div className="mt-2 text-xs text-text-tertiary">{creationMessage}</div>
+              )}
+            </div>
+          </aside>
+          </div>
         </div>
 
         {/* Input */}
@@ -747,20 +755,6 @@ Rules:
             >
               {creatingProject ? 'Creating...' : 'I’m Ready -> Create Now'}
             </button>
-          </div>
-          <div className="mb-2.5 flex flex-wrap gap-1.5">
-            {suggestedPrompts.map((prompt) => (
-              <button
-                key={prompt}
-                onClick={() => {
-                  setInput(prompt);
-                  inputRef.current?.focus();
-                }}
-                className="text-[11px] px-2.5 py-1.5 rounded-full glass-pill text-text-secondary hover:text-text-primary hover:bg-white/70 transition-all text-left"
-              >
-                {prompt}
-              </button>
-            ))}
           </div>
           <div className="flex items-end gap-2 glass rounded-2xl p-2">
             <textarea
