@@ -13,6 +13,7 @@ interface CreditsState {
   canAfford: (amount: number) => boolean;
   setPlan: (tier: PlanTier, credits: number) => void;
   setByokKey: (key: string) => void;
+  clearByokKey: () => void;
   setShowUpgradeModal: (show: boolean) => void;
   setShowSettingsModal: (show: boolean) => void;
 
@@ -99,6 +100,15 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
   setByokKey: (key) => {
     set((s) => ({
       plan: { ...s.plan, tier: 'byok', byokApiKey: key },
+    }));
+  },
+  clearByokKey: () => {
+    set((s) => ({
+      plan: {
+        ...s.plan,
+        tier: s.plan.tier === 'byok' ? 'writer' : s.plan.tier,
+        byokApiKey: undefined,
+      },
     }));
   },
 

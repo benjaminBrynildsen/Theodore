@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ChevronLeft, Pen, Monitor, Sparkles, Download, Bell,
   RotateCcw, Type, Quote, Minus, MoreHorizontal,
@@ -6,15 +6,13 @@ import {
   FileText, BookOpen, Mail, BarChart3
 } from 'lucide-react';
 import { UsageDashboard } from '../credits/UsageDashboard';
-import { useSettingsStore } from '../../store/settings';
+import { useSettingsStore, type SettingsSection } from '../../store/settings';
 import { useCreditsStore } from '../../store/credits';
 import { cn } from '../../lib/utils';
 import type {
   WritingStyleSettings, EditorSettings, AISettings,
   ExportSettings, NotificationSettings
 } from '../../types/settings';
-
-type Section = 'writing' | 'editor' | 'ai' | 'export' | 'notifications' | 'usage';
 
 // ===== Reusable Components =====
 
@@ -501,7 +499,7 @@ function NotificationsSection() {
 
 // ===== Main Settings View =====
 
-const SECTIONS: { id: Section; label: string; icon: typeof Pen; description: string }[] = [
+const SECTIONS: { id: SettingsSection; label: string; icon: typeof Pen; description: string }[] = [
   { id: 'writing', label: 'Writing Style', icon: Pen, description: 'Punctuation, prose rules, formatting' },
   { id: 'editor', label: 'Editor', icon: Monitor, description: 'Font, theme, layout, behavior' },
   { id: 'ai', label: 'AI & Generation', icon: Sparkles, description: 'Models, agents, context' },
@@ -511,15 +509,26 @@ const SECTIONS: { id: Section; label: string; icon: typeof Pen; description: str
 ];
 
 export function SettingsView() {
-  const [activeSection, setActiveSection] = useState<Section>('writing');
+  const { settingsViewSection, setSettingsViewSection, setShowSettingsView, resetAll } = useSettingsStore();
+  const { plan, setByokKey, clearByokKey } = useCreditsStore();
+  const [activeSection, setActiveSection] = useState<SettingsSection>(settingsViewSection);
   const [mobileShowContent, setMobileShowContent] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState(plan.byokApiKey || '');
+  const [provider, setProvider] = useState<'Anthropic' | 'OpenAI' | 'OpenRouter'>('Anthropic');
 
-  const handleSectionClick = (id: Section) => {
+  useEffect(() => {
+    setActiveSection(settingsViewSection);
+  }, [settingsViewSection]);
+
+  useEffect(() => {
+    setApiKeyInput(plan.byokApiKey || '');
+  }, [plan.byokApiKey]);
+
+  const handleSectionClick = (id: SettingsSection) => {
     setActiveSection(id);
+    setSettingsViewSection(id);
     setMobileShowContent(true);
   };
-  const { setShowSettingsView, resetAll } = useSettingsStore();
-  const { plan, setShowSettingsModal } = useCreditsStore();
 
   return (
     <div className="flex-1 flex overflow-hidden animate-fade-in">
@@ -605,13 +614,69 @@ export function SettingsView() {
             {activeSection === 'usage' && (
               <div className="animate-fade-in">
                 <UsageDashboard />
-                <div className="pt-4">
-                  <button
-                    onClick={() => setShowSettingsModal(true)}
-                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-text-primary text-text-inverse text-sm font-medium hover:shadow-md transition-all active:scale-[0.98]"
-                  >
-                    {plan.byokApiKey ? 'Edit API Key' : 'Add API Key'}
-                  </button>
+                <div className="pt-5">
+                  <div className="rounded-2xl border border-black/5 p-4 space-y-3">
+                    <div>
+                      <h3 className="text-sm font-semibold">Bring Your Own API Key</h3>
+                      <p className="text-xs text-text-tertiary mt-1">
+                        Keep API management inside Settings. Add, update, or remove your key here.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">API Key</label>
+                      <input
+                        type="password"
+                        value={apiKeyInput}
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                        placeholder="sk-..."
+                        className="w-full mt-1 px-3 py-2.5 rounded-xl glass-input text-sm font-mono"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Provider</label>
+                      <div className="flex gap-2 mt-1">
+                        {(['Anthropic', 'OpenAI', 'OpenRouter'] as const).map((p) => (
+                          <button
+                            key={p}
+                            onClick={() => setProvider(p)}
+                            className={cn(
+                              'flex-1 py-2 text-xs rounded-xl transition-all',
+                              provider === p ? 'bg-text-primary text-text-inverse' : 'glass-pill text-text-secondary hover:bg-white/60'
+                            )}
+                          >
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (apiKeyInput.trim()) setByokKey(apiKeyInput.trim());
+                        }}
+                        disabled={!apiKeyInput.trim()}
+                        className={cn(
+                          'flex-1 py-2.5 rounded-xl text-sm font-medium transition-all',
+                          apiKeyInput.trim()
+                            ? 'bg-text-primary text-text-inverse shadow-md hover:shadow-lg active:scale-[0.98]'
+                            : 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                        )}
+                      >
+                        {plan.byokApiKey ? 'Update Key' : 'Connect Key'}
+                      </button>
+                      {plan.byokApiKey && (
+                        <button
+                          onClick={() => clearByokKey()}
+                          className="px-3 py-2.5 rounded-xl text-sm text-text-tertiary hover:text-text-primary hover:bg-black/[0.03] transition-all"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

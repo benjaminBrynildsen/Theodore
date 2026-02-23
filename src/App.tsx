@@ -8,7 +8,6 @@ import { Home } from './components/views/Home';
 import { ProjectView } from './components/views/ProjectView';
 import { CanonDetailPanel } from './components/canon/CanonDetailPanel';
 import { UpgradeModal } from './components/credits/UpgradeModal';
-import { SettingsModal } from './components/credits/SettingsModal';
 import { ImpactPanel } from './components/validation/ImpactPanel';
 import { SettingsView } from './components/views/SettingsView';
 import { ReadingMode } from './components/views/ReadingMode';
@@ -65,7 +64,6 @@ export default function App() {
       </div>
       
       <UpgradeModal />
-      <SettingsModal />
       <ImpactPanel />
       {showReadingMode && <ReadingMode onClose={() => setShowReadingMode(false)} />}
 {/* tools view handled inline */}

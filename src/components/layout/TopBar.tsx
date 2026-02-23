@@ -1,4 +1,4 @@
-import { BookOpen, PanelLeft, PanelRight, ChevronLeft, Settings, BookMarked, Wrench, Menu } from 'lucide-react';
+import { BookOpen, PanelLeft, PanelRight, BookMarked, Wrench, Settings, PenSquare } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
@@ -9,11 +9,13 @@ import { cn } from '../../lib/utils';
 export function TopBar() {
   const { 
     toggleLeftSidebar, toggleRightSidebar, leftSidebarOpen, rightSidebarOpen,
-    getActiveProject, currentView, setCurrentView, setActiveProject, setActiveChapter
+    getActiveProject, setCurrentView, setActiveProject, setActiveChapter, showToolsView, setShowToolsView
   } = useStore();
   const { activeEntryId, setActiveEntry } = useCanonStore();
+  const { showSettingsView, setShowSettingsView, setSettingsViewSection } = useSettingsStore();
   
   const project = getActiveProject();
+  const activeMode: 'write' | 'tools' | 'settings' = showSettingsView ? 'settings' : showToolsView ? 'tools' : 'write';
 
   return (
     <header className="h-14 glass-subtle flex items-center px-3 sm:px-4 gap-2 sm:gap-3 z-50 border-b-0 overflow-x-auto">
@@ -28,21 +30,6 @@ export function TopBar() {
         <PanelLeft size={18} />
       </button>
 
-      {/* Back to projects */}
-      {currentView !== 'home' && (
-        <button
-          onClick={() => {
-            setCurrentView('home');
-            setActiveProject(null);
-            setActiveChapter(null);
-          }}
-          className="flex items-center gap-1 text-text-tertiary hover:text-text-primary transition-colors text-sm flex-shrink-0"
-        >
-          <ChevronLeft size={16} />
-          <span className="hidden sm:inline">Projects</span>
-        </button>
-      )}
-
       {/* Center title */}
       <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3 min-w-0">
         {project ? (
@@ -50,6 +37,48 @@ export function TopBar() {
             <BookOpen size={16} className="text-text-primary flex-shrink-0 hidden sm:block" />
             <span className="text-sm font-medium truncate">{project.title}</span>
             <span className="text-xs text-text-tertiary capitalize glass-pill px-2 py-0.5 rounded-full hidden md:inline-block flex-shrink-0">{project.subtype || project.type}</span>
+            <div className="hidden md:flex items-center gap-1 p-1 rounded-xl bg-black/[0.04]">
+              <button
+                onClick={() => {
+                  setShowSettingsView(false);
+                  setShowToolsView(false);
+                }}
+                className={cn(
+                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1',
+                  activeMode === 'write' ? 'bg-white text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-primary'
+                )}
+              >
+                <PenSquare size={12} />
+                Write
+              </button>
+              <button
+                onClick={() => {
+                  setShowSettingsView(false);
+                  setShowToolsView(true);
+                }}
+                className={cn(
+                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1',
+                  activeMode === 'tools' ? 'bg-white text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-primary'
+                )}
+              >
+                <Wrench size={12} />
+                Tools
+              </button>
+              <button
+                onClick={() => {
+                  setShowToolsView(false);
+                  setSettingsViewSection('writing');
+                  setShowSettingsView(true);
+                }}
+                className={cn(
+                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all flex items-center gap-1',
+                  activeMode === 'settings' ? 'bg-white text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-primary'
+                )}
+              >
+                <Settings size={12} />
+                Settings
+              </button>
+            </div>
           </>
         ) : (
           <div className="flex items-center gap-2">
@@ -62,7 +91,10 @@ export function TopBar() {
       {/* Tools — icon only on mobile */}
       {project && (
         <button
-          onClick={() => useStore.getState().setShowToolsView(true)}
+          onClick={() => {
+            setShowSettingsView(false);
+            setShowToolsView(true);
+          }}
           className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0"
           title="Tools"
         >
@@ -83,7 +115,11 @@ export function TopBar() {
 
       {/* Settings */}
       <button
-        onClick={() => useSettingsStore.getState().setShowSettingsView(true)}
+        onClick={() => {
+          setShowToolsView(false);
+          setSettingsViewSection('writing');
+          setShowSettingsView(true);
+        }}
         className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0"
         title="Settings"
       >
@@ -122,6 +158,22 @@ export function TopBar() {
           )}
         >
           <PanelRight size={18} />
+        </button>
+      )}
+
+      {project && (
+        <button
+          onClick={() => {
+            setShowToolsView(false);
+            setShowSettingsView(false);
+            setCurrentView('home');
+            setActiveProject(null);
+            setActiveChapter(null);
+          }}
+          className="hidden sm:inline-flex px-2.5 py-1.5 rounded-xl text-xs text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all"
+          title="Projects"
+        >
+          Projects
         </button>
       )}
     </header>

@@ -1,9 +1,10 @@
 import { Coins } from 'lucide-react';
 import { useCreditsStore } from '../../store/credits';
+import { useSettingsStore } from '../../store/settings';
 import { cn } from '../../lib/utils';
 
 export function CreditsBadge() {
-  const { plan, setShowSettingsModal } = useCreditsStore();
+  const { plan } = useCreditsStore();
   
   const percentage = plan.creditsTotal > 0 ? (plan.creditsRemaining / plan.creditsTotal) * 100 : 100;
   const isLow = percentage < 20;
@@ -11,7 +12,11 @@ export function CreditsBadge() {
 
   return (
     <button
-      onClick={() => setShowSettingsModal(true)}
+      onClick={() => {
+        const settingsStore = useSettingsStore.getState();
+        settingsStore.setSettingsViewSection('usage');
+        settingsStore.setShowSettingsView(true);
+      }}
       className={cn(
         'flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200',
         'glass-pill hover:bg-white/60',
