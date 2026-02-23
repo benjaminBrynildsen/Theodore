@@ -484,7 +484,12 @@ Rules:
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
           <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-[minmax(0,60%)_minmax(0,30%)] gap-6 lg:gap-8 items-start">
           <div className="w-full">
-          <div className="glass rounded-3xl border border-black/10 shadow-xl p-4 sm:p-5 space-y-4 mx-auto">
+          <div className="rounded-[28px] border border-black/10 bg-white/75 shadow-2xl backdrop-blur-md p-4 sm:p-6 space-y-4 mx-auto">
+            <div className="flex items-center justify-between px-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">Conversation</div>
+              <div className="text-[11px] text-text-tertiary">{messages.length} messages</div>
+            </div>
+            <div className="rounded-2xl border border-black/8 bg-white/55 p-3 sm:p-4 space-y-4">
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -691,6 +696,7 @@ Rules:
             )}
 
             <div ref={messagesEndRef} />
+            </div>
           </div>
           </div>
 
@@ -736,29 +742,6 @@ Rules:
         {/* Input */}
         <div className="px-4 pb-4 pt-2">
           <div className="max-w-7xl mx-auto w-full lg:w-[60%] lg:mr-auto lg:ml-0">
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            <button
-              onClick={forceBuildStarterPlan}
-              disabled={quickStructuring || creatingProject}
-              className="text-[11px] px-2.5 py-1.5 rounded-full bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-60"
-            >
-              {quickStructuring ? 'Building 3-Chapter Starter...' : 'Use What We Have -> Build 3 Chapters'}
-            </button>
-            <button
-              onClick={() => setShowMetadataPanel(v => !v)}
-              disabled={!selectedSettings}
-              className="text-[11px] px-2.5 py-1.5 rounded-full glass-pill text-text-secondary hover:text-text-primary transition-all disabled:opacity-40"
-            >
-              {showMetadataPanel ? 'Hide Metadata' : 'Show Metadata'}
-            </button>
-            <button
-              onClick={quickCreateFromCurrentContext}
-              disabled={quickStructuring || creatingProject}
-              className="text-[11px] px-2.5 py-1.5 rounded-full glass-pill text-text-secondary hover:text-text-primary hover:bg-white/70 transition-all disabled:opacity-60"
-            >
-              {creatingProject ? 'Creating...' : 'I’m Ready -> Create Now'}
-            </button>
-          </div>
           <div className="flex items-end gap-3 glass rounded-3xl p-3 border border-black/10 shadow-xl">
             <textarea
               ref={inputRef}
