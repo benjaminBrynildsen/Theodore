@@ -511,28 +511,37 @@ const SECTIONS: { id: Section; label: string; icon: typeof Pen; description: str
 
 export function SettingsView() {
   const [activeSection, setActiveSection] = useState<Section>('writing');
+  const [mobileShowContent, setMobileShowContent] = useState(false);
+
+  const handleSectionClick = (id: Section) => {
+    setActiveSection(id);
+    setMobileShowContent(true);
+  };
   const { setShowSettingsView, resetAll } = useSettingsStore();
 
   return (
     <div className="flex-1 flex overflow-hidden animate-fade-in">
       {/* Left nav */}
-      <div className="w-64 flex-shrink-0 border-r border-black/5 p-6 overflow-y-auto">
+      <div className={cn(
+        'flex-shrink-0 border-r border-black/5 p-4 sm:p-6 overflow-y-auto',
+        mobileShowContent ? 'hidden sm:block w-64' : 'w-full sm:w-64'
+      )}>
         <button
           onClick={() => setShowSettingsView(false)}
-          className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm transition-colors mb-8"
+          className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm transition-colors mb-6 sm:mb-8"
         >
           <ChevronLeft size={16} />
           <span>Back</span>
         </button>
 
         <h1 className="text-2xl font-serif font-semibold mb-1">Settings</h1>
-        <p className="text-xs text-text-tertiary mb-8">Configure your writing environment</p>
+        <p className="text-xs text-text-tertiary mb-6 sm:mb-8">Configure your writing environment</p>
 
         <nav className="space-y-1">
           {SECTIONS.map(({ id, label, icon: Icon, description }) => (
             <button
               key={id}
-              onClick={() => setActiveSection(id)}
+              onClick={() => handleSectionClick(id)}
               className={cn(
                 'w-full text-left px-3 py-3 rounded-xl transition-all duration-200',
                 activeSection === id
@@ -568,8 +577,18 @@ export function SettingsView() {
       </div>
 
       {/* Right content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-xl mx-auto px-8 py-8">
+      <div className={cn('flex-1 overflow-y-auto', !mobileShowContent && 'hidden sm:block')}>
+        {/* Mobile back button */}
+        <div className="sm:hidden p-3 border-b border-black/5">
+          <button
+            onClick={() => setMobileShowContent(false)}
+            className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm"
+          >
+            <ChevronLeft size={16} />
+            <span>Settings</span>
+          </button>
+        </div>
+        <div className="max-w-xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
           <h2 className="text-xl font-serif font-semibold mb-1">
             {SECTIONS.find(s => s.id === activeSection)?.label}
           </h2>

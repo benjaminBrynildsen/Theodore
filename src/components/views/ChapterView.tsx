@@ -203,7 +203,7 @@ export function ChapterView({ chapter }: Props) {
       {/* THE WRITING SPACE */}
       <div className="flex-1 overflow-y-auto">
         <div className={cn(
-          'mx-auto px-8 pb-32 transition-all duration-500',
+          'mx-auto px-4 sm:px-8 pb-32 transition-all duration-500',
           isFocusMode ? 'max-w-2xl pt-16' : 'max-w-3xl pt-4'
         )}>
           {/* Chapter Title */}

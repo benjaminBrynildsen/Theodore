@@ -75,18 +75,21 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="flex-1 flex overflow-hidden animate-fade-in">
-      {/* Left nav */}
-      <div className="w-64 flex-shrink-0 border-r border-black/5 p-6 overflow-y-auto">
+      {/* Left nav — full width on mobile when no tool selected, hidden when tool active on mobile */}
+      <div className={cn(
+        'flex-shrink-0 border-r border-black/5 p-4 sm:p-6 overflow-y-auto',
+        activeTool ? 'hidden sm:block w-64' : 'w-full sm:w-64'
+      )}>
         <button
           onClick={onClose}
-          className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm transition-colors mb-8"
+          className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm transition-colors mb-6 sm:mb-8"
         >
           <ChevronLeft size={16} />
           <span>Back</span>
         </button>
 
         <h1 className="text-2xl font-serif font-semibold mb-1">Tools</h1>
-        <p className="text-xs text-text-tertiary mb-8">Everything from first draft to bestseller</p>
+        <p className="text-xs text-text-tertiary mb-6 sm:mb-8">Everything from first draft to bestseller</p>
 
         {/* Group by phase */}
         {['Planning', 'Writing', 'Editing', 'Publishing', 'Post-Launch'].map(phase => {
@@ -123,16 +126,28 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* Right content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className={cn('flex-1 overflow-y-auto', !activeTool && 'hidden sm:block')}>
+        {/* Mobile back button when tool is active */}
+        {activeTool && (
+          <div className="sm:hidden p-3 border-b border-black/5">
+            <button
+              onClick={() => setActiveTool(null)}
+              className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm"
+            >
+              <ChevronLeft size={16} />
+              <span>Tools</span>
+            </button>
+          </div>
+        )}
         <div className="max-w-2xl mx-auto">
           {!activeTool && (
-            <div className="px-8 py-16 text-center">
+            <div className="px-4 sm:px-8 py-8 sm:py-16 text-center">
               <div className="text-4xl mb-4">🧰</div>
               <h2 className="text-xl font-serif font-semibold mb-2">Theodore Tools</h2>
               <p className="text-sm text-text-tertiary max-w-md mx-auto mb-8">
                 From story structure to sales tracking — everything you need to go from idea to published author.
               </p>
-              <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
                 {TOOLS.map(({ id, label, icon: Icon, phase }) => (
                   <button
                     key={id}

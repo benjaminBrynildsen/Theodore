@@ -38,8 +38,8 @@ export default function App() {
     <div className="h-screen flex flex-col bg-bg">
       <TopBar />
       <div className="flex-1 flex overflow-hidden">
-        {!showSettingsView && !showToolsView && <LeftSidebar />}
-        <main className="flex-1 flex overflow-hidden">
+        {!showSettingsView && !showToolsView && <div className="hidden sm:block"><LeftSidebar /></div>}
+        <main className="flex-1 flex overflow-hidden min-w-0">
           {showToolsView ? (
             <ToolsView onClose={() => setShowToolsView(false)} />
           ) : showSettingsView ? (
@@ -53,7 +53,7 @@ export default function App() {
         </main>
         
         {!showSettingsView && !showToolsView && activeCanonEntry && (
-          <div className="w-[420px] flex-shrink-0">
+          <div className="hidden md:block w-[420px] flex-shrink-0">
             <CanonDetailPanel
               entry={activeCanonEntry}
               onClose={() => setActiveEntry(null)}
@@ -61,7 +61,7 @@ export default function App() {
           </div>
         )}
         
-        {!showSettingsView && !showToolsView && !activeCanonEntry && <RightSidebar />}
+        {!showSettingsView && !showToolsView && !activeCanonEntry && <div className="hidden sm:block"><RightSidebar /></div>}
       </div>
       
       <UpgradeModal />

@@ -13,24 +13,24 @@ export function Home() {
   const { projects, setActiveProject, setCurrentView } = useStore();
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-8 animate-fade-in">
+    <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 animate-fade-in overflow-y-auto">
       {/* Hero */}
-      <div className="text-center mb-12 max-w-lg">
-        <h1 className="text-5xl font-serif font-semibold tracking-tight mb-4">Theodore</h1>
-        <p className="text-text-secondary text-lg leading-relaxed">
+      <div className="text-center mb-8 sm:mb-12 max-w-lg px-4">
+        <h1 className="text-3xl sm:text-5xl font-serif font-semibold tracking-tight mb-3 sm:mb-4">Theodore</h1>
+        <p className="text-text-secondary text-base sm:text-lg leading-relaxed">
           A story engine for writers who think in systems, not documents.
         </p>
       </div>
 
       {/* Creation Options */}
-      <div className="flex gap-4 mb-12">
+      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-8 sm:mb-12 w-full sm:w-auto px-4 sm:px-0">
         {/* Chat-based creation (primary) */}
         <button
           onClick={() => setShowChatCreation(true)}
-          className="glass px-8 py-5 rounded-2xl flex flex-col items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-56"
+          className="glass px-6 sm:px-8 py-4 sm:py-5 rounded-2xl flex flex-row sm:flex-col items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-full sm:w-56"
         >
-          <MessageSquare size={24} />
-          <div className="text-center">
+          <MessageSquare size={24} className="flex-shrink-0" />
+          <div className="text-left sm:text-center">
             <div className="font-medium text-sm">Plan with AI</div>
             <div className="text-xs text-text-tertiary mt-0.5">Describe your idea, Theodore builds the blueprint</div>
           </div>
@@ -39,10 +39,10 @@ export function Home() {
         {/* Import existing */}
         <button
           onClick={() => setShowImport(true)}
-          className="glass px-8 py-5 rounded-2xl flex flex-col items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-56"
+          className="glass px-6 sm:px-8 py-4 sm:py-5 rounded-2xl flex flex-row sm:flex-col items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-full sm:w-56"
         >
-          <Upload size={24} />
-          <div className="text-center">
+          <Upload size={24} className="flex-shrink-0" />
+          <div className="text-left sm:text-center">
             <div className="font-medium text-sm">Import Existing</div>
             <div className="text-xs text-text-tertiary mt-0.5">Bring your manuscript, outline, and notes</div>
           </div>
@@ -51,10 +51,10 @@ export function Home() {
         {/* Manual creation */}
         <button
           onClick={() => setShowNewProject(true)}
-          className="glass-pill px-8 py-5 rounded-2xl flex flex-col items-center gap-3 text-text-secondary hover:text-text-primary hover:bg-white/60 active:scale-[0.98] transition-all duration-200 w-56"
+          className="glass-pill px-6 sm:px-8 py-4 sm:py-5 rounded-2xl flex flex-row sm:flex-col items-center gap-3 text-text-secondary hover:text-text-primary hover:bg-white/60 active:scale-[0.98] transition-all duration-200 w-full sm:w-56"
         >
-          <Settings2 size={24} />
-          <div className="text-center">
+          <Settings2 size={24} className="flex-shrink-0" />
+          <div className="text-left sm:text-center">
             <div className="font-medium text-sm">Manual Setup</div>
             <div className="text-xs text-text-tertiary mt-0.5">Configure everything yourself</div>
           </div>
@@ -63,7 +63,7 @@ export function Home() {
 
       {/* Existing Projects */}
       {projects.length > 0 && (
-        <div className="w-full max-w-2xl">
+        <div className="w-full max-w-2xl px-4 sm:px-0">
           <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-4 px-1">Your Projects</h2>
           <div className="space-y-3">
             {projects.map((project, i) => (

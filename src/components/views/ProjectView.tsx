@@ -51,7 +51,7 @@ export function ProjectView() {
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Project Header */}
-      <div className="max-w-3xl mx-auto px-8 pt-12 pb-8">
+      <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-12 pb-8">
         <h1 className="text-3xl font-serif font-semibold tracking-tight mb-2">{project.title}</h1>
         <p className="text-text-tertiary text-sm capitalize">
           {project.subtype?.replace('-', ' ') || project.type} · {chapters.length} chapters · {project.targetLength} length
@@ -60,7 +60,7 @@ export function ProjectView() {
 
       {/* Reorder warning */}
       {reorderWarning && (
-        <div className="max-w-3xl mx-auto px-8">
+        <div className="max-w-3xl mx-auto px-4 sm:px-8">
           <div className="flex items-center gap-2 p-3 rounded-xl bg-warning/10 text-warning text-sm animate-fade-in mb-4">
             <AlertCircle size={16} />
             {reorderWarning}
@@ -69,7 +69,7 @@ export function ProjectView() {
       )}
 
       {/* Chapter List */}
-      <div className="max-w-3xl mx-auto px-8 pb-16">
+      <div className="max-w-3xl mx-auto px-4 sm:px-8 pb-16">
         <div className="space-y-3">
           {chapters.map((chapter, index) => {
             const StatusIcon = statusIcons[chapter.status];
