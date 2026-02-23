@@ -516,8 +516,8 @@ Rules:
   };
 
   const selectedSettings = editedSettings || proposedSettings;
-  const planningInputs = messages.filter((m) => m.role === 'user').map((m) => m.content);
-  const seedPreview = extractCanonFromConversation(planningInputs);
+  const conversationInputs = messages.map((m) => m.content);
+  const seedPreview = extractCanonFromConversation(conversationInputs);
   const canonSeedCount =
     seedPreview.characters.length +
     seedPreview.locations.length +
@@ -541,7 +541,7 @@ Rules:
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+        <div className="flex-1 overflow-hidden px-4 sm:px-6 py-4">
           <div className="max-w-7xl mx-auto w-full grid grid-cols-1 lg:grid-cols-[minmax(0,60%)_minmax(0,30%)] gap-6 lg:gap-8 items-start">
           <div className="w-full">
           <div className="rounded-[28px] border border-black/10 bg-white/75 shadow-2xl backdrop-blur-md overflow-hidden mx-auto flex flex-col min-h-[560px] lg:min-h-[calc(100vh-13rem)]">
@@ -796,7 +796,7 @@ Rules:
           </div>
 
           <aside className="hidden lg:block w-full">
-            <div className="sticky top-20 glass rounded-3xl p-6 border border-black/10 shadow-xl w-full">
+            <div className="sticky top-20 glass rounded-3xl p-6 border border-black/10 shadow-xl w-full max-h-[calc(100vh-6.5rem)] overflow-y-auto">
               <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2">Ready</div>
               <h3 className="font-serif text-2xl font-semibold mb-2">Create Novel</h3>
               <p className="text-xs text-text-tertiary mb-4">
@@ -810,6 +810,26 @@ Rules:
                 <div className="glass-pill px-3 py-2 rounded-xl">
                   Canon Seeds: {canonSeedCount}
                 </div>
+              </div>
+
+              <div className="space-y-3 mb-5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Live Canon Draft</div>
+                <div className="glass-pill px-3 py-2 rounded-xl text-xs">
+                  Characters ({seedPreview.characters.length}): {seedPreview.characters.map((c) => c.name).slice(0, 5).join(', ')}
+                </div>
+                <div className="glass-pill px-3 py-2 rounded-xl text-xs">
+                  Places ({seedPreview.locations.length}): {seedPreview.locations.map((l) => l.name).slice(0, 5).join(', ')}
+                </div>
+                {seedPreview.systems.length > 0 && (
+                  <div className="glass-pill px-3 py-2 rounded-xl text-xs">
+                    Systems ({seedPreview.systems.length}): {seedPreview.systems.map((s) => s.name).slice(0, 4).join(', ')}
+                  </div>
+                )}
+                {seedPreview.artifacts.length > 0 && (
+                  <div className="glass-pill px-3 py-2 rounded-xl text-xs">
+                    Artifacts ({seedPreview.artifacts.length}): {seedPreview.artifacts.map((a) => a.name).slice(0, 4).join(', ')}
+                  </div>
+                )}
               </div>
 
               <button
