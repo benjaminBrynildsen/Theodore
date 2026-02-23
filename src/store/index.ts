@@ -90,11 +90,33 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         createdAt: p.createdAt || p.created_at,
         updatedAt: p.updatedAt || p.updated_at,
       }));
-      set({ projects: mapped, loading: false });
-      // Auto-select first project
-      if (mapped.length > 0 && !get().activeProjectId) {
-        set({ activeProjectId: mapped[0].id });
+      const currentActiveProjectId = get().activeProjectId;
+      const hasValidActiveProject = !!currentActiveProjectId && mapped.some((p) => p.id === currentActiveProjectId);
+
+      if (mapped.length === 0) {
+        set({
+          projects: [],
+          loading: false,
+          activeProjectId: null,
+          activeChapterId: null,
+          currentView: 'home',
+        });
+        return;
       }
+
+      if (!hasValidActiveProject) {
+        const currentView = get().currentView;
+        set({
+          projects: mapped,
+          loading: false,
+          activeProjectId: mapped[0].id,
+          activeChapterId: null,
+          currentView: currentView === 'home' ? 'home' : 'project',
+        });
+        return;
+      }
+
+      set({ projects: mapped, loading: false });
     } catch (e: any) {
       console.error('Failed to load projects:', e);
       set({ loading: false, error: e.message });

@@ -16,6 +16,13 @@ export function TopBar() {
   
   const project = getActiveProject();
   const activeMode: 'write' | 'tools' | 'settings' = showSettingsView ? 'settings' : showToolsView ? 'tools' : 'write';
+  const goHome = () => {
+    setShowToolsView(false);
+    setShowSettingsView(false);
+    setCurrentView('home');
+    setActiveProject(null);
+    setActiveChapter(null);
+  };
 
   return (
     <header className="h-14 glass-subtle flex items-center px-3 sm:px-4 gap-2 sm:gap-3 z-50 border-b-0 overflow-x-auto">
@@ -34,8 +41,14 @@ export function TopBar() {
       <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3 min-w-0">
         {project ? (
           <>
-            <BookOpen size={16} className="text-text-primary flex-shrink-0 hidden sm:block" />
-            <span className="text-sm font-medium truncate">{project.title}</span>
+            <button
+              onClick={goHome}
+              className="flex items-center gap-2 min-w-0 rounded-xl px-2 py-1 hover:bg-white/30 transition-colors"
+              title="Home"
+            >
+              <BookOpen size={16} className="text-text-primary flex-shrink-0 hidden sm:block" />
+              <span className="text-sm font-medium truncate">{project.title}</span>
+            </button>
             <span className="text-xs text-text-tertiary capitalize glass-pill px-2 py-0.5 rounded-full hidden md:inline-block flex-shrink-0">{project.subtype || project.type}</span>
             <div className="hidden md:flex items-center gap-1 p-1 rounded-xl bg-black/[0.04]">
               <button
@@ -81,10 +94,14 @@ export function TopBar() {
             </div>
           </>
         ) : (
-          <div className="flex items-center gap-2">
+          <button
+            onClick={goHome}
+            className="flex items-center gap-2 rounded-xl px-2 py-1 hover:bg-white/30 transition-colors"
+            title="Home"
+          >
             <span className="text-lg font-serif font-semibold tracking-tight">Theodore</span>
             <span className="text-xs text-text-tertiary hidden sm:inline">Story Engine</span>
-          </div>
+          </button>
         )}
       </div>
 
@@ -163,13 +180,7 @@ export function TopBar() {
 
       {project && (
         <button
-          onClick={() => {
-            setShowToolsView(false);
-            setShowSettingsView(false);
-            setCurrentView('home');
-            setActiveProject(null);
-            setActiveChapter(null);
-          }}
+          onClick={goHome}
           className="hidden sm:inline-flex px-2.5 py-1.5 rounded-xl text-xs text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all"
           title="Projects"
         >

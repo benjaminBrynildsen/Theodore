@@ -15,15 +15,27 @@ import { ToolsView } from './components/views/ToolsView';
 import { useSettingsStore } from './store/settings';
 
 export default function App() {
-  const { currentView, showReadingMode, setShowReadingMode, showToolsView, setShowToolsView, loading, activeProjectId, loadProjects, rightSidebarOpen } = useStore();
+  const {
+    currentView,
+    setCurrentView,
+    showReadingMode,
+    setShowReadingMode,
+    showToolsView,
+    setShowToolsView,
+    activeProjectId,
+    projects,
+    loadProjects,
+    rightSidebarOpen,
+  } = useStore();
   const { showSettingsView } = useSettingsStore();
   const { activeEntryId, getEntry, setActiveEntry, loadEntries } = useCanonStore();
   const activeCanonEntry = activeEntryId ? getEntry(activeEntryId) : undefined;
+  const hasActiveProject = !!activeProjectId && projects.some((p) => p.id === activeProjectId);
 
   // Load data from API on mount
   useEffect(() => {
     loadProjects();
-  }, []);
+  }, [loadProjects]);
 
   // Load chapters and canon when active project changes
   useEffect(() => {
@@ -31,7 +43,14 @@ export default function App() {
       useStore.getState().loadChapters(activeProjectId);
       loadEntries(activeProjectId);
     }
-  }, [activeProjectId]);
+  }, [activeProjectId, loadEntries]);
+
+  // Guard against stale persisted view/project ids that can produce a blank center pane.
+  useEffect(() => {
+    if ((currentView === 'project' || currentView === 'chapter') && !hasActiveProject) {
+      setCurrentView('home');
+    }
+  }, [currentView, hasActiveProject, setCurrentView]);
 
   return (
     <div className="h-screen flex flex-col bg-bg">
@@ -45,8 +64,8 @@ export default function App() {
             <SettingsView />
           ) : (
             <>
-              {currentView === 'home' && <Home />}
-              {(currentView === 'project' || currentView === 'chapter') && <ProjectView />}
+              {(currentView === 'home' || !hasActiveProject) && <Home />}
+              {(currentView === 'project' || currentView === 'chapter') && hasActiveProject && <ProjectView />}
             </>
           )}
         </main>
