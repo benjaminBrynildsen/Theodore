@@ -195,7 +195,9 @@ Return ONLY one line:
 THEODORE_SETTINGS_JSON:{"title":"...","subtype":"novel","targetLength":"medium","assistanceLevel":3,"narrativeControls":{"toneMood":{"lightDark":50,"hopefulGrim":50,"whimsicalSerious":50},"pacing":"balanced","dialogueWeight":"balanced","focusMix":{"character":40,"plot":40,"world":20},"genreEmphasis":[]},"chapterCount":3,"chapters":[{"number":1,"title":"...","premise":"..."},{"number":2,"title":"...","premise":"..."},{"number":3,"title":"...","premise":"..."}]}
 Rules:
 - Output only that single marker line. No extra text.
+- Assume even the first user message is enough to draft concrete story seeds.
 - Always return at least 3 chapters based on current context.
+- Infer at least 1 named protagonist and 1 named place immediately; include those names in chapter titles/premises.
 - Use best-guess defaults for missing fields.
 - Keep chapter titles and premises concise.`,
         prompt: `Conversation so far:\n${conversation}\n\nUpdate the live project settings.`,
@@ -243,13 +245,14 @@ Style requirements:
 - Default to under 120 words unless the user explicitly asks for detail.
 - Ask at most one focused follow-up question.
 - Avoid repeating what the user already said.
-If you have enough context to propose a full project setup, append one line:
+Always append one line:
 THEODORE_SETTINGS_JSON:{"title":"...","subtype":"novel","targetLength":"medium","assistanceLevel":3,"narrativeControls":{"toneMood":{"lightDark":50,"hopefulGrim":50,"whimsicalSerious":50},"pacing":"balanced","dialogueWeight":"balanced","focusMix":{"character":40,"plot":40,"world":20},"genreEmphasis":[]},"chapterCount":12,"chapters":[{"number":1,"title":"...","premise":"..."}]}
 Rules for JSON:
 - Must be valid JSON on a single line.
 - chapterCount must match chapters.length.
 - chapters must have at least 3 items.
-- If not enough context, do not include THEODORE_SETTINGS_JSON.`,
+- Use the first user message to infer concrete seeds immediately.
+- Include at least 1 named protagonist and 1 named place in chapter titles/premises.`,
         prompt: `Conversation so far:\n${conversation}\n\nRespond as Theodore to the latest user message.`,
       });
 
@@ -380,11 +383,13 @@ Rules for JSON:
         setCreationMessage('Created locally. Sync to database is delayed, but your chapters are ready.');
       }
 
-      // Auto-generate canon entries from the conversation
-      // In production: AI analyzes all messages and extracts characters, locations, systems
-      // For now: create starter entries and auto-fill them
-      const userMessages = messages.filter((m) => m.role === 'user').map((m) => m.content);
-      const canon = extractCanonFromConversation(userMessages);
+      // Auto-generate canon entries from full planning context, including generated settings.
+      const planningCorpus = [
+        ...messages.map((m) => m.content),
+        finalSettings.title,
+        ...finalSettings.chapters.map((ch) => `${ch.title}. ${ch.premise}`),
+      ];
+      const canon = extractCanonFromConversation(planningCorpus);
 
       const existingNames = new Set<string>();
 
@@ -466,6 +471,8 @@ THEODORE_SETTINGS_JSON:{"title":"...","subtype":"novel","targetLength":"medium",
 Rules:
 - Must be valid JSON on a single line.
 - Must include exactly 3 chapters.
+- Infer concrete names/places from even a single user message.
+- Include at least 1 named protagonist and 1 named place in chapter premises.
 - Fill missing details with plausible defaults and state assumptions in the assistant message.`,
         prompt: `Build a ready-to-create starter plan using only what we already know.\n\nConversation:\n${conversation}`,
       });
@@ -504,7 +511,10 @@ Rules:
 
   const selectedSettings = editedSettings || proposedSettings;
   const conversationInputs = messages.map((m) => m.content);
-  const seedPreview = extractCanonFromConversation(conversationInputs);
+  const settingsInputs = selectedSettings
+    ? [selectedSettings.title, ...selectedSettings.chapters.map((ch) => `${ch.title}. ${ch.premise}`)]
+    : [];
+  const seedPreview = extractCanonFromConversation([...conversationInputs, ...settingsInputs]);
   const canonSeedCount =
     seedPreview.characters.length +
     seedPreview.locations.length +
