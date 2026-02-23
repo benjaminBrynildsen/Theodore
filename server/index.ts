@@ -27,9 +27,27 @@ app.get('/api/health', async (_req, res) => {
 // ========== Users ==========
 app.post('/api/users', async (req, res) => {
   try {
+    const updates: Record<string, any> = { updatedAt: new Date() };
+    const allowed = [
+      'email',
+      'name',
+      'avatarUrl',
+      'plan',
+      'creditsRemaining',
+      'creditsTotal',
+      'stripeCustomerId',
+      'stripeSubscriptionId',
+      'byokKey',
+      'byokProvider',
+      'settings',
+    ] as const;
+    for (const key of allowed) {
+      if (key in req.body) updates[key] = req.body[key];
+    }
+
     const [user] = await db.insert(users).values(req.body).onConflictDoUpdate({
       target: users.id,
-      set: { name: req.body.name, updatedAt: new Date() },
+      set: updates,
     }).returning();
     res.json(user);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -174,7 +192,7 @@ app.post('/api/transactions', async (req, res) => {
 });
 
 // ========== AI Generation ==========
-import { generate, generateStream, tokensToCredits } from './ai.js';
+import { generate, generateStream, tokensToCredits, callWithUserKey, callWithUserKeyStream } from './ai.js';
 
 // Non-streaming generation (auto-fill, validation, etc.)
 app.post('/api/generate', async (req, res) => {
@@ -194,10 +212,20 @@ app.post('/api/generate', async (req, res) => {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
 
-    const result = await generate({
-      prompt, systemPrompt, model, maxTokens, temperature,
-      userId, projectId, chapterId, action,
-    });
+    const byokProvider =
+      (user.byokProvider as string | undefined) ||
+      ((String(model || '').startsWith('gpt') || String(model || '').startsWith('openai')) ? 'openai' : 'anthropic');
+
+    const result = isByok
+      ? await callWithUserKey(
+          { prompt, systemPrompt, model, maxTokens, temperature, userId, projectId, chapterId, action },
+          byokProvider,
+          user.byokKey as string,
+        )
+      : await generate({
+          prompt, systemPrompt, model, maxTokens, temperature,
+          userId, projectId, chapterId, action,
+        });
 
     // Log transaction and deduct credits (skip for BYOK)
     if (!isByok) {
@@ -261,10 +289,21 @@ app.post('/api/generate/stream', async (req, res) => {
       'Connection': 'keep-alive',
     });
 
-    const result = await generateStream(
-      { prompt, systemPrompt, model, maxTokens, temperature, userId, projectId, chapterId, action },
-      res
-    );
+    const byokProvider =
+      (user.byokProvider as string | undefined) ||
+      ((String(model || '').startsWith('gpt') || String(model || '').startsWith('openai')) ? 'openai' : 'anthropic');
+
+    const result = isByok
+      ? await callWithUserKeyStream(
+          { prompt, systemPrompt, model, maxTokens, temperature, userId, projectId, chapterId, action },
+          byokProvider,
+          user.byokKey as string,
+          res,
+        )
+      : await generateStream(
+          { prompt, systemPrompt, model, maxTokens, temperature, userId, projectId, chapterId, action },
+          res
+        );
 
     // Log transaction
     if (!isByok) {

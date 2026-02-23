@@ -8,6 +8,7 @@ import {
 import { UsageDashboard } from '../credits/UsageDashboard';
 import { useSettingsStore, type SettingsSection } from '../../store/settings';
 import { useCreditsStore } from '../../store/credits';
+import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 import type {
   WritingStyleSettings, EditorSettings, AISettings,
@@ -515,6 +516,9 @@ export function SettingsView() {
   const [mobileShowContent, setMobileShowContent] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState(plan.byokApiKey || '');
   const [provider, setProvider] = useState<'Anthropic' | 'OpenAI' | 'OpenRouter'>('Anthropic');
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [saveMessage, setSaveMessage] = useState('');
+  const userId = 'user-ben';
 
   useEffect(() => {
     setActiveSection(settingsViewSection);
@@ -523,6 +527,17 @@ export function SettingsView() {
   useEffect(() => {
     setApiKeyInput(plan.byokApiKey || '');
   }, [plan.byokApiKey]);
+
+  useEffect(() => {
+    api.getUser(userId).then((user) => {
+      if (user?.byokKey) {
+        setByokKey(user.byokKey);
+      }
+      if (user?.byokProvider === 'anthropic') setProvider('Anthropic');
+      if (user?.byokProvider === 'openai') setProvider('OpenAI');
+      if (user?.byokProvider === 'openrouter') setProvider('OpenRouter');
+    }).catch(() => {});
+  }, []);
 
   const handleSectionClick = (id: SettingsSection) => {
     setActiveSection(id);
@@ -654,10 +669,29 @@ export function SettingsView() {
 
                     <div className="flex gap-2">
                       <button
-                        onClick={() => {
-                          if (apiKeyInput.trim()) setByokKey(apiKeyInput.trim());
+                        onClick={async () => {
+                          const key = apiKeyInput.trim();
+                          if (!key) return;
+                          setSaveState('saving');
+                          setSaveMessage('');
+                          try {
+                            await api.upsertUser({
+                              id: userId,
+                              email: 'ben@theodore.app',
+                              name: 'Ben',
+                              plan: 'byok',
+                              byokKey: key,
+                              byokProvider: provider.toLowerCase(),
+                            });
+                            setByokKey(key);
+                            setSaveState('success');
+                            setSaveMessage('API key updated successfully.');
+                          } catch (e: any) {
+                            setSaveState('error');
+                            setSaveMessage(e?.message || 'Failed to save API key.');
+                          }
                         }}
-                        disabled={!apiKeyInput.trim()}
+                        disabled={!apiKeyInput.trim() || saveState === 'saving'}
                         className={cn(
                           'flex-1 py-2.5 rounded-xl text-sm font-medium transition-all',
                           apiKeyInput.trim()
@@ -669,13 +703,41 @@ export function SettingsView() {
                       </button>
                       {plan.byokApiKey && (
                         <button
-                          onClick={() => clearByokKey()}
+                          onClick={async () => {
+                            setSaveState('saving');
+                            setSaveMessage('');
+                            try {
+                              await api.updateUser(userId, {
+                                plan: 'writer',
+                                byokKey: null,
+                                byokProvider: null,
+                              });
+                              clearByokKey();
+                              setApiKeyInput('');
+                              setSaveState('success');
+                              setSaveMessage('API key removed.');
+                            } catch (e: any) {
+                              setSaveState('error');
+                              setSaveMessage(e?.message || 'Failed to remove API key.');
+                            }
+                          }}
+                          disabled={saveState === 'saving'}
                           className="px-3 py-2.5 rounded-xl text-sm text-text-tertiary hover:text-text-primary hover:bg-black/[0.03] transition-all"
                         >
                           Remove
                         </button>
                       )}
                     </div>
+                    {saveState !== 'idle' && (
+                      <div className={cn(
+                        'text-xs rounded-lg px-3 py-2',
+                        saveState === 'success' && 'bg-success/10 text-success',
+                        saveState === 'error' && 'bg-error/10 text-error',
+                        saveState === 'saving' && 'bg-black/5 text-text-tertiary'
+                      )}>
+                        {saveState === 'saving' ? 'Saving API key...' : saveMessage}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

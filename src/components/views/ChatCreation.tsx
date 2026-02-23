@@ -4,10 +4,11 @@ import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { generateId, cn } from '../../lib/utils';
+import { generateText } from '../../lib/generate';
+import { api } from '../../lib/api';
 import { Slider } from '../ui/Slider';
 import { autoFillCharacter, autoFillLocation } from '../../lib/ai-autofill';
 import type { Project, NarrativeControls, BookSubtype } from '../../types';
-import type { CharacterEntry, LocationEntry } from '../../types/canon';
 
 interface Message {
   id: string;
@@ -26,77 +27,35 @@ interface ProposedSettings {
   chapters: { number: number; title: string; premise: string }[];
 }
 
-// Simulated AI responses — will connect to real AI later
-function getAIResponse(messages: Message[]): { message: string; settings?: ProposedSettings } {
-  const userMessages = messages.filter(m => m.role === 'user');
-  const lastMsg = userMessages[userMessages.length - 1]?.content.toLowerCase() || '';
-  const count = userMessages.length;
+const DEFAULT_USER_ID = 'user-ben';
 
-  if (count === 1) {
-    return {
-      message: `That's a fascinating premise! I can already feel the shape of this story.\n\nLet me ask a few questions to understand your vision:\n\n**Who is this story really about?** Tell me about your main character — what drives them, what haunts them.`
-    };
-  }
-  
-  if (count === 2) {
-    return {
-      message: `Great character foundation. I can see them clearly.\n\n**What's the world like?** Is this grounded in reality, or are we building something fantastical? And what's the tone — should readers feel unsettled, hopeful, curious?`
-    };
-  }
-  
-  if (count === 3) {
-    return {
-      message: `I love that. The world and tone are coming together beautifully.\n\n**One more thing — how long are you thinking?** A tight, punchy novella? A sprawling epic? And is this for adults, young adults, or younger readers?\n\nAfter this I'll put together a complete proposal for you.`
-    };
-  }
-
-  // After enough context, propose settings — extract a clean title
-  const firstMsg = userMessages[0]?.content || '';
-  let proposedTitle = 'Untitled';
-  const aboutMatch = firstMsg.match(/about\s+(?:a\s+)?(.{3,50}?)(?:\s+who|\s+that|\s+on|\s+in|\.|,)/i);
-  if (aboutMatch) {
-    // Capitalize each word for a title
-    proposedTitle = aboutMatch[1]
-      .replace(/^(a|an|the)\s+/i, '')
-      .split(/\s+/)
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
-    const words = proposedTitle.split(/\s+/);
-    if (words.length > 5) proposedTitle = words.slice(0, 5).join(' ');
-  } else {
-    proposedTitle = firstMsg.split('.')[0].slice(0, 40);
-  }
-  return {
-    message: `Here's what I'm thinking for **"${proposedTitle}"**:\n\nI've drafted the full structure — chapter titles, premises, tone settings, everything. Take a look at the proposal below and adjust anything that doesn't feel right. When you're happy with it, hit **Create Project** and we'll dive in. ✨`,
-    settings: {
-      title: proposedTitle,
-      subtype: 'novel',
-      targetLength: 'medium',
-      assistanceLevel: 3,
-      narrativeControls: {
-        toneMood: { lightDark: 60, hopefulGrim: 40, whimsicalSerious: 65 },
-        pacing: 'balanced',
-        dialogueWeight: 'balanced',
-        focusMix: { character: 50, plot: 30, world: 20 },
-        genreEmphasis: [],
-      },
-      chapterCount: 12,
-      chapters: [
-        { number: 1, title: 'The Invitation', premise: 'Introduce the protagonist in their ordinary world. A disruption arrives — an invitation, a discovery, or an encounter that sets everything in motion.' },
-        { number: 2, title: 'Crossing the Threshold', premise: 'The protagonist makes a choice that can\'t be undone. The stakes become personal.' },
-        { number: 3, title: 'New Rules', premise: 'The protagonist discovers the rules of this new reality. Allies and enemies begin to emerge.' },
-        { number: 4, title: 'The First Test', premise: 'A challenge that reveals the protagonist\'s strengths and fatal flaw.' },
-        { number: 5, title: 'Deepening', premise: 'Relationships deepen. Subplots weave in. The world expands.' },
-        { number: 6, title: 'The Midpoint Turn', premise: 'Everything the protagonist believed is challenged. A revelation changes the game.' },
-        { number: 7, title: 'Fallout', premise: 'Consequences cascade. Trust fractures. The protagonist must adapt or break.' },
-        { number: 8, title: 'Gathering Storm', premise: 'Forces align against the protagonist. The path forward narrows.' },
-        { number: 9, title: 'The Dark Night', premise: 'The lowest point. Loss, doubt, or betrayal pushes the protagonist to their limit.' },
-        { number: 10, title: 'The Choice', premise: 'Armed with hard-won wisdom, the protagonist makes their defining decision.' },
-        { number: 11, title: 'The Climax', premise: 'The final confrontation. Everything built to this moment pays off.' },
-        { number: 12, title: 'Resolution', premise: 'The new equilibrium. The world has changed, and so has the protagonist.' },
-      ],
-    },
+function resolveModel(model: string): string {
+  const map: Record<string, string> = {
+    auto: 'claude-sonnet-4-5',
+    'claude-opus': 'claude-opus-4-6',
+    'claude-sonnet': 'claude-sonnet-4-5',
+    'gpt-4o': 'gpt-4.1',
   };
+  return map[model] || model;
+}
+
+function parseProposedSettings(text: string): { message: string; settings?: ProposedSettings } {
+  const marker = 'THEODORE_SETTINGS_JSON:';
+  const idx = text.indexOf(marker);
+  if (idx === -1) return { message: text.trim() };
+
+  const message = text.slice(0, idx).trim();
+  const jsonPart = text.slice(idx + marker.length).trim();
+
+  try {
+    const parsed = JSON.parse(jsonPart) as ProposedSettings;
+    if (!parsed.title || !Array.isArray(parsed.chapters) || parsed.chapters.length === 0) {
+      return { message };
+    }
+    return { message, settings: parsed };
+  } catch {
+    return { message };
+  }
 }
 
 interface Props {
@@ -122,12 +81,21 @@ export function ChatCreation({ onClose }: Props) {
 
   const { addProject, setActiveProject, setCurrentView, addChapter } = useStore();
   const { createCharacter, createLocation, addEntry } = useCanonStore();
+  const { settings } = useSettingsStore();
+
+  useEffect(() => {
+    api.upsertUser({
+      id: DEFAULT_USER_ID,
+      email: 'ben@theodore.app',
+      name: 'Ben',
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, proposedSettings]);
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!input.trim() || isTyping) return;
 
     const userMessage: Message = {
@@ -142,21 +110,48 @@ export function ChatCreation({ onClose }: Props) {
     setInput('');
     setIsTyping(true);
 
-    // Simulate AI thinking
-    setTimeout(() => {
-      const response = getAIResponse(newMessages);
+    try {
+      const conversation = newMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+      const result = await generateText({
+        userId: DEFAULT_USER_ID,
+        action: 'plan-project',
+        model: resolveModel(settings.ai.preferredModel),
+        temperature: settings.ai.temperature,
+        maxTokens: 2200,
+        systemPrompt: `You are Theodore, an expert story architect helping users shape new fiction projects.
+Keep responses conversational, specific, and useful.
+If you have enough context to propose a full project setup, append one line:
+THEODORE_SETTINGS_JSON:{"title":"...","subtype":"novel","targetLength":"medium","assistanceLevel":3,"narrativeControls":{"toneMood":{"lightDark":50,"hopefulGrim":50,"whimsicalSerious":50},"pacing":"balanced","dialogueWeight":"balanced","focusMix":{"character":40,"plot":40,"world":20},"genreEmphasis":[]},"chapterCount":12,"chapters":[{"number":1,"title":"...","premise":"..."}]}
+Rules for JSON:
+- Must be valid JSON on a single line.
+- chapterCount must match chapters.length.
+- chapters must have at least 3 items.
+- If not enough context, do not include THEODORE_SETTINGS_JSON.`,
+        prompt: `Conversation so far:\n${conversation}\n\nRespond as Theodore to the latest user message.`,
+      });
+
+      const parsed = parseProposedSettings(result.text || '');
       setMessages(prev => [...prev, {
         id: generateId(),
         role: 'assistant',
-        content: response.message,
+        content: parsed.message || "Let's keep building your story idea.",
         timestamp: new Date(),
       }]);
-      if (response.settings) {
-        setProposedSettings(response.settings);
-        setEditedSettings(response.settings);
+      if (parsed.settings) {
+        setProposedSettings(parsed.settings);
+        setEditedSettings(parsed.settings);
       }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      setMessages(prev => [...prev, {
+        id: generateId(),
+        role: 'assistant',
+        content: `I couldn't reach the model right now.\n\nError: ${msg}\n\nCheck Settings > Usage & Credits and confirm your key/provider match, then try again.`,
+        timestamp: new Date(),
+      }]);
+    } finally {
       setIsTyping(false);
-    }, 1200 + Math.random() * 800);
+    }
   };
 
   const createProject = () => {
@@ -229,7 +224,7 @@ export function ChatCreation({ onClose }: Props) {
     onClose();
   };
 
-  const settings = editedSettings || proposedSettings;
+  const selectedSettings = editedSettings || proposedSettings;
 
   return (
     <div className="flex-1 flex flex-col bg-bg animate-fade-in overflow-hidden">
@@ -289,7 +284,7 @@ export function ChatCreation({ onClose }: Props) {
           )}
 
           {/* Proposed Settings Card */}
-          {settings && !isTyping && (
+          {selectedSettings && !isTyping && (
             <div className="animate-scale-in">
               <div className="glass rounded-2xl overflow-hidden">
                 {/* Settings Header */}
@@ -311,7 +306,7 @@ export function ChatCreation({ onClose }: Props) {
                       <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Title</label>
                       <input
                         type="text"
-                        value={settings.title}
+                        value={selectedSettings.title}
                         onChange={(e) => setEditedSettings(prev => prev ? { ...prev, title: e.target.value } : prev)}
                         className="w-full mt-1 px-3 py-2 rounded-xl glass-input text-sm"
                       />
@@ -327,7 +322,7 @@ export function ChatCreation({ onClose }: Props) {
                             onClick={() => setEditedSettings(prev => prev ? { ...prev, targetLength: len } : prev)}
                             className={cn(
                               'flex-1 py-2 text-xs rounded-xl transition-all capitalize',
-                              settings.targetLength === len
+                              selectedSettings.targetLength === len
                                 ? 'bg-text-primary text-text-inverse shadow-md'
                                 : 'glass-pill text-text-secondary hover:bg-white/60'
                             )}
@@ -343,7 +338,7 @@ export function ChatCreation({ onClose }: Props) {
                       <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Tone</label>
                       <div className="space-y-2 mt-2">
                         <Slider
-                          value={settings.narrativeControls.toneMood.lightDark}
+                          value={selectedSettings.narrativeControls.toneMood.lightDark}
                           onChange={(v) => setEditedSettings(prev => prev ? {
                             ...prev,
                             narrativeControls: { ...prev.narrativeControls, toneMood: { ...prev.narrativeControls.toneMood, lightDark: v } }
@@ -352,7 +347,7 @@ export function ChatCreation({ onClose }: Props) {
                           rightLabel="Dark"
                         />
                         <Slider
-                          value={settings.narrativeControls.toneMood.hopefulGrim}
+                          value={selectedSettings.narrativeControls.toneMood.hopefulGrim}
                           onChange={(v) => setEditedSettings(prev => prev ? {
                             ...prev,
                             narrativeControls: { ...prev.narrativeControls, toneMood: { ...prev.narrativeControls.toneMood, hopefulGrim: v } }
@@ -361,7 +356,7 @@ export function ChatCreation({ onClose }: Props) {
                           rightLabel="Grim"
                         />
                         <Slider
-                          value={settings.narrativeControls.toneMood.whimsicalSerious}
+                          value={selectedSettings.narrativeControls.toneMood.whimsicalSerious}
                           onChange={(v) => setEditedSettings(prev => prev ? {
                             ...prev,
                             narrativeControls: { ...prev.narrativeControls, toneMood: { ...prev.narrativeControls.toneMood, whimsicalSerious: v } }
@@ -385,7 +380,7 @@ export function ChatCreation({ onClose }: Props) {
                             } : prev)}
                             className={cn(
                               'flex-1 py-1.5 text-xs rounded-lg transition-all capitalize',
-                              settings.narrativeControls.pacing === p
+                              selectedSettings.narrativeControls.pacing === p
                                 ? 'bg-text-primary text-text-inverse shadow-sm'
                                 : 'text-text-secondary'
                             )}
@@ -401,10 +396,10 @@ export function ChatCreation({ onClose }: Props) {
                 {/* Chapters Preview */}
                 <div className="px-5 pb-4 border-t border-black/5 pt-4">
                   <h4 className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-3">
-                    {settings.chapters.length} Chapters Planned
+                    {selectedSettings.chapters.length} Chapters Planned
                   </h4>
                   <div className="space-y-2 max-h-60 overflow-y-auto">
-                    {settings.chapters.map((ch) => (
+                    {selectedSettings.chapters.map((ch) => (
                       <div key={ch.number} className="flex gap-3 text-sm">
                         <span className="text-text-tertiary font-mono text-xs mt-0.5 w-6 text-right flex-shrink-0">{ch.number}</span>
                         <div className="min-w-0">
