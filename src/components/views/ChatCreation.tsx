@@ -121,6 +121,8 @@ export function ChatCreation({ onClose }: Props) {
   const [editedSettings, setEditedSettings] = useState<ProposedSettings | null>(null);
   const [byokProvider, setByokProvider] = useState<ByokProvider>(null);
   const [creatingProject, setCreatingProject] = useState(false);
+  const [quickStructuring, setQuickStructuring] = useState(false);
+  const [showMetadataPanel, setShowMetadataPanel] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -209,9 +211,8 @@ Rules for JSON:
     }
   };
 
-  const createProject = async () => {
-    const settings = editedSettings || proposedSettings;
-    if (!settings || creatingProject) return;
+  const createProjectFromSettings = async (settings: ProposedSettings) => {
+    if (creatingProject) return;
     setCreatingProject(true);
     try {
       const projectId = generateId();
@@ -281,6 +282,80 @@ Rules for JSON:
     } finally {
       setCreatingProject(false);
     }
+  };
+
+  const createProject = async () => {
+    const settings = editedSettings || proposedSettings;
+    if (!settings) return;
+    await createProjectFromSettings(settings);
+  };
+
+  const forceBuildStarterPlan = async (): Promise<ProposedSettings | null> => {
+    if (quickStructuring) return null;
+    setQuickStructuring(true);
+    try {
+      const conversation = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+      const result = await generateText({
+        userId: DEFAULT_USER_ID,
+        action: 'plan-project',
+        model: resolveModel(settings.ai.preferredModel, byokProvider),
+        temperature: 0.7,
+        maxTokens: 2200,
+        systemPrompt: `You are Theodore, an expert story architect.
+Generate a complete starter plan from the available conversation context, even if incomplete.
+Return two parts:
+1) A short assistant message explaining assumptions made.
+2) One line with:
+THEODORE_SETTINGS_JSON:{"title":"...","subtype":"novel","targetLength":"medium","assistanceLevel":3,"narrativeControls":{"toneMood":{"lightDark":50,"hopefulGrim":50,"whimsicalSerious":50},"pacing":"balanced","dialogueWeight":"balanced","focusMix":{"character":40,"plot":40,"world":20},"genreEmphasis":[]},"chapterCount":3,"chapters":[{"number":1,"title":"...","premise":"..."},{"number":2,"title":"...","premise":"..."},{"number":3,"title":"...","premise":"..."}]}
+Rules:
+- Must be valid JSON on a single line.
+- Must include exactly 3 chapters.
+- Fill missing details with plausible defaults and state assumptions in the assistant message.`,
+        prompt: `Build a ready-to-create starter plan using only what we already know.\n\nConversation:\n${conversation}`,
+      });
+      const parsed = parseProposedSettings(result.text || '');
+      if (!parsed.settings) {
+        setMessages(prev => [...prev, {
+          id: generateId(),
+          role: 'assistant',
+          content: 'I could not produce a valid 3-chapter starter yet. Try one more detail, then tap the button again.',
+          timestamp: new Date(),
+        }]);
+        return null;
+      }
+      setMessages(prev => [...prev, {
+        id: generateId(),
+        role: 'assistant',
+        content: parsed.message || 'Starter structure prepared from current context.',
+        timestamp: new Date(),
+      }]);
+      setProposedSettings(parsed.settings);
+      setEditedSettings(parsed.settings);
+      setShowMetadataPanel(true);
+      return parsed.settings;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      setMessages(prev => [...prev, {
+        id: generateId(),
+        role: 'assistant',
+        content: `Could not build a starter structure yet.\n\nError: ${msg}`,
+        timestamp: new Date(),
+      }]);
+      return null;
+    } finally {
+      setQuickStructuring(false);
+    }
+  };
+
+  const quickCreateFromCurrentContext = async () => {
+    if (creatingProject || quickStructuring) return;
+    const existing = editedSettings || proposedSettings;
+    if (existing) {
+      await createProjectFromSettings(existing);
+      return;
+    }
+    const built = await forceBuildStarterPlan();
+    if (built) await createProjectFromSettings(built);
   };
 
   const selectedSettings = editedSettings || proposedSettings;
@@ -487,12 +562,55 @@ Rules for JSON:
             </div>
           )}
 
+          {showMetadataPanel && selectedSettings && (
+            <div className="glass rounded-2xl p-4 animate-fade-in">
+              <div className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-2">Metadata Snapshot</div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="glass-pill px-3 py-2 rounded-xl">Title: {selectedSettings.title}</div>
+                <div className="glass-pill px-3 py-2 rounded-xl">Type: {selectedSettings.subtype}</div>
+                <div className="glass-pill px-3 py-2 rounded-xl">Length: {selectedSettings.targetLength}</div>
+                <div className="glass-pill px-3 py-2 rounded-xl">Assist Level: {selectedSettings.assistanceLevel}</div>
+                <div className="glass-pill px-3 py-2 rounded-xl">Pacing: {selectedSettings.narrativeControls.pacing}</div>
+                <div className="glass-pill px-3 py-2 rounded-xl">Dialogue: {selectedSettings.narrativeControls.dialogueWeight}</div>
+                <div className="glass-pill px-3 py-2 rounded-xl col-span-2">
+                  Focus Mix: Character {selectedSettings.narrativeControls.focusMix.character}% / Plot {selectedSettings.narrativeControls.focusMix.plot}% / World {selectedSettings.narrativeControls.focusMix.world}%
+                </div>
+                <div className="glass-pill px-3 py-2 rounded-xl col-span-2">
+                  Chapters Ready: {selectedSettings.chapters.length}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
           </div>
         </div>
 
         {/* Input */}
         <div className="px-4 pb-4 pt-2 max-w-2xl mx-auto w-full">
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            <button
+              onClick={forceBuildStarterPlan}
+              disabled={quickStructuring || creatingProject}
+              className="text-[11px] px-2.5 py-1.5 rounded-full bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-60"
+            >
+              {quickStructuring ? 'Building 3-Chapter Starter...' : 'Use What We Have -> Build 3 Chapters'}
+            </button>
+            <button
+              onClick={() => setShowMetadataPanel(v => !v)}
+              disabled={!selectedSettings}
+              className="text-[11px] px-2.5 py-1.5 rounded-full glass-pill text-text-secondary hover:text-text-primary transition-all disabled:opacity-40"
+            >
+              {showMetadataPanel ? 'Hide Metadata' : 'Show Metadata'}
+            </button>
+            <button
+              onClick={quickCreateFromCurrentContext}
+              disabled={quickStructuring || creatingProject}
+              className="text-[11px] px-2.5 py-1.5 rounded-full glass-pill text-text-secondary hover:text-text-primary hover:bg-white/70 transition-all disabled:opacity-60"
+            >
+              {creatingProject ? 'Creating...' : 'I’m Ready -> Create Now'}
+            </button>
+          </div>
           <div className="mb-2.5 flex flex-wrap gap-1.5">
             {suggestedPrompts.map((prompt) => (
               <button
