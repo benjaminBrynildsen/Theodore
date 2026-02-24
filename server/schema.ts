@@ -4,18 +4,38 @@ import { pgTable, text, integer, boolean, timestamp, jsonb, serial, varchar, rea
 export const users = pgTable('users', {
   id: text('id').primaryKey(),
   email: text('email').unique().notNull(),
+  passwordHash: text('password_hash'),
+  emailVerifiedAt: timestamp('email_verified_at'),
+  passwordResetTokenHash: text('password_reset_token_hash'),
+  passwordResetExpiresAt: timestamp('password_reset_expires_at'),
   name: text('name'),
   avatarUrl: text('avatar_url'),
-  plan: text('plan').notNull().default('free'), // free, writer, author, byok
+  plan: text('plan').notNull().default('free'), // free, writer, author, studio
   creditsRemaining: integer('credits_remaining').notNull().default(500),
   creditsTotal: integer('credits_total').notNull().default(500),
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
+  stripeSubscriptionStatus: text('stripe_subscription_status').default('inactive'),
+  stripeCurrentPeriodEnd: timestamp('stripe_current_period_end'),
+  stripeCancelAtPeriodEnd: boolean('stripe_cancel_at_period_end').default(false),
+  stripePriceTier: text('stripe_price_tier'),
   byokKey: text('byok_key'), // encrypted
   byokProvider: text('byok_provider'),
   settings: jsonb('settings').$type<Record<string, any>>().default({}),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ========== Auth Sessions ==========
+export const sessions = pgTable('sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  expiresAt: timestamp('expires_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastUsedAt: timestamp('last_used_at').defaultNow().notNull(),
 });
 
 // ========== Projects ==========

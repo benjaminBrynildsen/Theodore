@@ -10,23 +10,7 @@ export function UsageDashboard() {
   const { plan, transactions } = useCreditsStore();
   const [range, setRange] = useState<TimeRange>('30d');
 
-  // Mock some historical transactions for the demo
-  const allTransactions = useMemo(() => {
-    if (transactions.length > 0) return transactions;
-    // Seed demo data
-    const now = Date.now();
-    const day = 86400000;
-    return [
-      { id: '1', action: 'plan-project' as CreditAction, creditsUsed: 8, tokensInput: 5200, tokensOutput: 2800, model: 'claude-sonnet', projectId: 'demo-1', timestamp: new Date(now - 2 * day).toISOString() },
-      { id: '2', action: 'generate-premise' as CreditAction, creditsUsed: 3, tokensInput: 1800, tokensOutput: 1200, model: 'claude-sonnet', projectId: 'demo-1', chapterId: 'ch-1', timestamp: new Date(now - 2 * day + 300000).toISOString() },
-      { id: '3', action: 'generate-chapter-full' as CreditAction, creditsUsed: 22, tokensInput: 8500, tokensOutput: 13500, model: 'claude-sonnet', projectId: 'demo-1', chapterId: 'ch-1', timestamp: new Date(now - day).toISOString() },
-      { id: '4', action: 'canon-validation' as CreditAction, creditsUsed: 2, tokensInput: 1500, tokensOutput: 500, model: 'claude-sonnet', projectId: 'demo-1', timestamp: new Date(now - day + 60000).toISOString() },
-      { id: '5', action: 'generate-dialogue' as CreditAction, creditsUsed: 10, tokensInput: 4200, tokensOutput: 5800, model: 'claude-sonnet', projectId: 'demo-1', chapterId: 'ch-1', timestamp: new Date(now - day + 3600000).toISOString() },
-      { id: '6', action: 'polish-rewrite' as CreditAction, creditsUsed: 14, tokensInput: 6800, tokensOutput: 7200, model: 'claude-opus', projectId: 'demo-1', chapterId: 'ch-1', timestamp: new Date(now - 3600000).toISOString() },
-      { id: '7', action: 'chat-message' as CreditAction, creditsUsed: 2, tokensInput: 1200, tokensOutput: 800, model: 'claude-sonnet', projectId: 'demo-1', timestamp: new Date(now - 1800000).toISOString() },
-      { id: '8', action: 'red-team-review' as CreditAction, creditsUsed: 4, tokensInput: 2800, tokensOutput: 1200, model: 'claude-sonnet', projectId: 'demo-1', chapterId: 'ch-1', timestamp: new Date(now - 600000).toISOString() },
-    ];
-  }, [transactions]);
+  const allTransactions = useMemo(() => transactions, [transactions]);
 
   const filteredTx = allTransactions.filter(tx => {
     if (range === 'all') return true;
@@ -102,7 +86,7 @@ export function UsageDashboard() {
           <div>
             <div className="text-sm font-semibold capitalize">{plan.tier} Plan</div>
             <div className="text-xs text-text-tertiary">
-              {plan.tier === 'byok' ? 'Unlimited — using your API key' : `${plan.creditsRemaining.toLocaleString()} credits remaining`}
+              {`${plan.creditsRemaining.toLocaleString()} credits remaining`}
             </div>
           </div>
           {daysLeft !== null && (
@@ -113,32 +97,30 @@ export function UsageDashboard() {
           )}
         </div>
 
-        {plan.tier !== 'byok' && (
-          <>
-            {/* Usage bar */}
-            <div className="w-full h-3 bg-black/5 rounded-full overflow-hidden mb-2">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-all duration-500',
-                  usagePercent > 90 ? 'bg-error' : usagePercent > 70 ? 'bg-warning' : 'bg-text-primary'
-                )}
-                style={{ width: `${Math.min(100, usagePercent)}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[10px] text-text-tertiary">
-              <span>{plan.creditsUsed.toLocaleString()} used</span>
-              <span>{plan.creditsTotal.toLocaleString()} total</span>
-            </div>
+        <>
+          {/* Usage bar */}
+          <div className="w-full h-3 bg-black/5 rounded-full overflow-hidden mb-2">
+            <div
+              className={cn(
+                'h-full rounded-full transition-all duration-500',
+                usagePercent > 90 ? 'bg-error' : usagePercent > 70 ? 'bg-warning' : 'bg-text-primary'
+              )}
+              style={{ width: `${Math.min(100, usagePercent)}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px] text-text-tertiary">
+            <span>{plan.creditsUsed.toLocaleString()} used</span>
+            <span>{plan.creditsTotal.toLocaleString()} total</span>
+          </div>
 
-            {/* Projected usage alert */}
-            {usagePercent > 60 && daysLeft && daysLeft > 7 && (
-              <div className="mt-3 flex items-center gap-2 text-xs text-warning bg-warning/5 rounded-lg px-3 py-2">
-                <TrendingUp size={13} />
-                At current pace, you'll use your credits {daysLeft > 15 ? 'before renewal' : `in ~${Math.ceil(daysLeft * (100 / usagePercent))} days`}.
-              </div>
-            )}
-          </>
-        )}
+          {/* Projected usage alert */}
+          {usagePercent > 60 && daysLeft && daysLeft > 7 && (
+            <div className="mt-3 flex items-center gap-2 text-xs text-warning bg-warning/5 rounded-lg px-3 py-2">
+              <TrendingUp size={13} />
+              At current pace, you'll use your credits {daysLeft > 15 ? 'before renewal' : `in ~${Math.ceil(daysLeft * (100 / usagePercent))} days`}.
+            </div>
+          )}
+        </>
       </div>
 
       {/* Stats row */}

@@ -132,7 +132,7 @@ function IssueCard({ issue }: { issue: ValidationIssue }) {
 }
 
 export function ImpactPanel() {
-  const { issues, showImpactPanel, setShowImpactPanel, getUnresolvedCount } = useValidationStore();
+  const { issues, showImpactPanel, setShowImpactPanel, resolveIssue } = useValidationStore();
   const unresolvedIssues = issues.filter(i => !i.resolved && !i.overridden);
   const count = unresolvedIssues.length;
 
@@ -142,6 +142,7 @@ export function ImpactPanel() {
   const errorCount = unresolvedIssues.filter(i => i.severity === 'error').length;
   const warningCount = unresolvedIssues.filter(i => i.severity === 'warning').length;
   const infoCount = unresolvedIssues.filter(i => i.severity === 'info').length;
+  const unresolvedInfoIds = unresolvedIssues.filter(i => i.severity === 'info').map((i) => i.id);
 
   return (
     <div className="fixed bottom-4 right-4 z-40 w-[420px] max-h-[70vh] flex flex-col bg-white rounded-2xl shadow-2xl border border-black/5 animate-scale-in overflow-hidden">
@@ -182,8 +183,17 @@ export function ImpactPanel() {
 
       {/* Footer */}
       <div className="px-5 py-3 border-t border-black/5 text-center">
-        <button className="text-xs text-text-tertiary hover:text-text-primary transition-colors">
-          Resolve All Info Issues →
+        <button
+          onClick={() => unresolvedInfoIds.forEach((id) => resolveIssue(id))}
+          disabled={unresolvedInfoIds.length === 0}
+          className={cn(
+            'text-xs transition-colors',
+            unresolvedInfoIds.length > 0
+              ? 'text-text-tertiary hover:text-text-primary'
+              : 'text-text-tertiary/40 cursor-not-allowed',
+          )}
+        >
+          Resolve All Info Issues{unresolvedInfoIds.length > 0 ? ' →' : ''}
         </button>
       </div>
     </div>

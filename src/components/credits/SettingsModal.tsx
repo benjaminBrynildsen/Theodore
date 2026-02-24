@@ -1,19 +1,12 @@
-import { useEffect, useState } from 'react';
-import { X, Coins, Key, CreditCard, History, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import { X, Coins, History } from 'lucide-react';
 import { useCreditsStore } from '../../store/credits';
 import { PLAN_DETAILS, CREDIT_COSTS } from '../../types/credits';
 import { cn } from '../../lib/utils';
 
 export function SettingsModal() {
-  const { showSettingsModal, setShowSettingsModal, setShowUpgradeModal, plan, transactions, setByokKey } = useCreditsStore();
-  const [activeTab, setActiveTab] = useState<'overview' | 'usage' | 'api'>('overview');
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const hasExistingKey = Boolean(plan.byokApiKey);
-
-  useEffect(() => {
-    if (!showSettingsModal) return;
-    setApiKeyInput(plan.byokApiKey || '');
-  }, [showSettingsModal, plan.byokApiKey]);
+  const { showSettingsModal, setShowSettingsModal, setShowUpgradeModal, plan, transactions } = useCreditsStore();
+  const [activeTab, setActiveTab] = useState<'overview' | 'usage'>('overview');
 
   if (!showSettingsModal) return null;
 
@@ -37,7 +30,6 @@ export function SettingsModal() {
           {[
             { id: 'overview' as const, label: 'Plan', icon: Coins },
             { id: 'usage' as const, label: 'Usage', icon: History },
-            { id: 'api' as const, label: 'API Key', icon: Key },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -73,35 +65,25 @@ export function SettingsModal() {
                 </button>
               </div>
 
-              {plan.tier !== 'byok' && (
-                <>
-                  {/* Credits Bar */}
-                  <div className="mb-2">
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-text-secondary">{plan.creditsRemaining.toLocaleString()} remaining</span>
-                      <span className="text-text-tertiary">{plan.creditsTotal.toLocaleString()} total</span>
-                    </div>
-                    <div className="w-full h-2 bg-black/5 rounded-full overflow-hidden">
-                      <div
-                        className={cn(
-                          'h-full rounded-full transition-all duration-500',
-                          percentage < 20 ? 'bg-error' : percentage < 50 ? 'bg-warning' : 'bg-success'
-                        )}
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div className="text-xs text-text-tertiary">
-                    {plan.creditsUsed.toLocaleString()} credits used this period
-                  </div>
-                </>
-              )}
-
-              {plan.tier === 'byok' && (
-                <div className="text-xs text-text-secondary">
-                  Using your own API key — unlimited usage, you pay API costs directly.
+              {/* Credits Bar */}
+              <div className="mb-2">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-text-secondary">{plan.creditsRemaining.toLocaleString()} remaining</span>
+                  <span className="text-text-tertiary">{plan.creditsTotal.toLocaleString()} total</span>
                 </div>
-              )}
+                <div className="w-full h-2 bg-black/5 rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all duration-500',
+                      percentage < 20 ? 'bg-error' : percentage < 50 ? 'bg-warning' : 'bg-success'
+                    )}
+                    style={{ width: `${percentage}%` }}
+                  />
+                </div>
+              </div>
+              <div className="text-xs text-text-tertiary">
+                {plan.creditsUsed.toLocaleString()} credits used this period
+              </div>
             </div>
 
             {/* Credit Costs Reference */}
@@ -144,65 +126,6 @@ export function SettingsModal() {
           </div>
         )}
 
-        {/* API Key Tab */}
-        {activeTab === 'api' && (
-          <div className="px-6 pb-6 animate-fade-in">
-            <div className="glass rounded-2xl p-5 mb-4">
-              <h3 className="text-sm font-semibold mb-1">Bring Your Own Key</h3>
-              <p className="text-xs text-text-tertiary mb-4">
-                Connect your own API key for unlimited usage. You'll pay API costs directly to the provider. Platform fee: $5/mo.
-              </p>
-              
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">API Key</label>
-                  <input
-                    type="password"
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    placeholder="sk-..."
-                    className="w-full mt-1 px-3 py-2.5 rounded-xl glass-input text-sm font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Provider</label>
-                  <div className="flex gap-2 mt-1">
-                    {['Anthropic', 'OpenAI', 'OpenRouter'].map((provider) => (
-                      <button
-                        key={provider}
-                        className="flex-1 py-2 text-xs rounded-xl glass-pill text-text-secondary hover:bg-white/60 transition-all"
-                      >
-                        {provider}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => {
-                    if (apiKeyInput) {
-                      setByokKey(apiKeyInput);
-                    }
-                  }}
-                  disabled={!apiKeyInput}
-                  className={cn(
-                    'w-full py-2.5 rounded-xl text-sm font-medium transition-all',
-                    apiKeyInput
-                      ? 'bg-text-primary text-text-inverse shadow-md hover:shadow-lg active:scale-[0.98]'
-                      : 'bg-black/5 text-text-tertiary cursor-not-allowed'
-                  )}
-                >
-                  {hasExistingKey ? 'Update Key' : 'Connect Key'}
-                </button>
-              </div>
-            </div>
-
-            <div className="text-xs text-text-tertiary text-center glass-pill py-2 px-4 rounded-xl">
-              🔒 Keys are encrypted and never shared. Used only for your generations.
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Globe, Copy, Check, Eye, Sparkles, Loader2, Calendar, Mail, ExternalLink } from 'lucide-react';
+import { Globe, Copy, Check, Eye, Sparkles, Loader2 } from 'lucide-react';
 import { useStore } from '../../store';
-import { cn } from '../../lib/utils';
 
 export function PreOrderPage() {
   const { getActiveProject } = useStore();
@@ -10,6 +9,8 @@ export function PreOrderPage() {
   const [published, setPublished] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupMessage, setSignupMessage] = useState('');
 
   const [pageData, setPageData] = useState({
     title: project?.title || 'Untitled',
@@ -45,6 +46,28 @@ export function PreOrderPage() {
   };
 
   const preOrderUrl = `theodore.app/pre-order/${project?.id || 'demo'}`;
+  const preOrderShareUrl = `https://${preOrderUrl}`;
+  const shareText = encodeURIComponent(`Pre-order ${pageData.title} by ${pageData.author || 'the author'} on Theodore`);
+
+  const shareTo = (platform: 'twitter' | 'instagram' | 'facebook') => {
+    const encodedUrl = encodeURIComponent(preOrderShareUrl);
+    const links: Record<typeof platform, string> = {
+      twitter: `https://twitter.com/intent/tweet?text=${shareText}&url=${encodedUrl}`,
+      instagram: `https://www.instagram.com/`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+    };
+    window.open(links[platform], '_blank', 'noopener,noreferrer');
+  };
+
+  const handleNotifyMe = () => {
+    const email = signupEmail.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setSignupMessage('Enter a valid email address.');
+      return;
+    }
+    setSignupMessage('Saved. You will be notified at launch.');
+    setSignupEmail('');
+  };
 
   return (
     <div className="p-5">
@@ -147,9 +170,9 @@ export function PreOrderPage() {
               </div>
               <div className="flex gap-2 mt-2">
                 <span className="text-[10px] text-text-tertiary">Share:</span>
-                <button className="text-[10px] text-blue-500 hover:underline">Twitter</button>
-                <button className="text-[10px] text-pink-500 hover:underline">Instagram</button>
-                <button className="text-[10px] text-blue-700 hover:underline">Facebook</button>
+                <button onClick={() => shareTo('twitter')} className="text-[10px] text-blue-500 hover:underline">Twitter</button>
+                <button onClick={() => shareTo('instagram')} className="text-[10px] text-pink-500 hover:underline">Instagram</button>
+                <button onClick={() => shareTo('facebook')} className="text-[10px] text-blue-700 hover:underline">Facebook</button>
               </div>
             </div>
           )}
@@ -200,13 +223,24 @@ export function PreOrderPage() {
               {/* Email signup */}
               {pageData.emailSignup && (
                 <div className="flex gap-2 max-w-xs mx-auto">
-                  <input placeholder="your@email.com" className="flex-1 px-3 py-2 rounded-lg text-xs bg-white/10 border border-white/20 outline-none"
+                  <input
+                    value={signupEmail}
+                    onChange={(e) => setSignupEmail(e.target.value)}
+                    placeholder="your@email.com"
+                    className="flex-1 px-3 py-2 rounded-lg text-xs bg-white/10 border border-white/20 outline-none"
                     style={{ color: pageData.accentColor }} />
-                  <button className="px-4 py-2 rounded-lg text-xs font-medium"
+                  <button
+                    onClick={handleNotifyMe}
+                    className="px-4 py-2 rounded-lg text-xs font-medium"
                     style={{ backgroundColor: pageData.accentColor, color: pageData.coverColor }}>
                     Notify Me
                   </button>
                 </div>
+              )}
+              {pageData.emailSignup && signupMessage && (
+                <p className="mt-2 text-[10px]" style={{ color: pageData.accentColor }}>
+                  {signupMessage}
+                </p>
               )}
             </div>
           </div>

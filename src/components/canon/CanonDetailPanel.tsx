@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { X, User, MapPin, Cog, Gem, Scale, Milestone, Plus, Trash2, Heart, Brain, Sword, Eye, BookOpen, Clock, Sparkles, Loader2, Shield, AlertTriangle, GitBranch } from 'lucide-react';
 import { useCanonStore } from '../../store/canon';
 import { cn } from '../../lib/utils';
-import { autoFillCharacter, autoFillLocation } from '../../lib/ai-autofill';
+import { autoFillCharacter, autoFillLocation, autoFillSystem, autoFillArtifact } from '../../lib/ai-autofill';
 import { buildAutoFillPrompt, buildValidationPrompt } from '../../lib/prompt-builder';
 import { useSettingsStore } from '../../store/settings';
 import { VoicePreview } from '../features/VoicePreview';
@@ -677,30 +677,38 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
 
   const handleAutoFill = async () => {
     setIsAutoFilling(true);
-    
-    // Build context-aware prompt using project settings
-    const { getActiveProject } = useStore.getState();
-    const { settings } = useSettingsStore.getState();
-    const project = getActiveProject();
-    
-    if (project) {
-      const prompt = buildAutoFillPrompt(entry, project, settings);
-      console.log('=== AUTO-FILL PROMPT ===');
-      console.log(prompt);
-      console.log('=== END PROMPT ===');
-    }
+    try {
+      // Build context-aware prompt using project settings
+      const { getActiveProject } = useStore.getState();
+      const { settings } = useSettingsStore.getState();
+      const project = getActiveProject();
+      
+      if (project) {
+        const prompt = buildAutoFillPrompt(entry, project, settings);
+        console.log('=== AUTO-FILL PROMPT ===');
+        console.log(prompt);
+        console.log('=== END PROMPT ===');
+      }
 
-    // Simulate AI delay — will be replaced with actual API call using the prompt above
-    await new Promise(r => setTimeout(r, 1500));
-    
-    if (entry.type === 'character') {
-      const filled = autoFillCharacter(entry as CharacterEntry);
-      handleUpdate({ character: filled });
-    } else if (entry.type === 'location') {
-      const filled = autoFillLocation(entry as LocationEntry);
-      handleUpdate({ location: filled });
+      // Simulate AI delay — will be replaced with actual API call using the prompt above
+      await new Promise(r => setTimeout(r, 1500));
+      
+      if (entry.type === 'character') {
+        const filled = autoFillCharacter(entry as CharacterEntry);
+        handleUpdate({ character: filled });
+      } else if (entry.type === 'location') {
+        const filled = autoFillLocation(entry as LocationEntry);
+        handleUpdate({ location: filled });
+      } else if (entry.type === 'system') {
+        const filled = autoFillSystem(entry as SystemEntry);
+        handleUpdate({ system: filled });
+      } else if (entry.type === 'artifact') {
+        const filled = autoFillArtifact(entry as ArtifactEntry);
+        handleUpdate({ artifact: filled });
+      }
+    } finally {
+      setIsAutoFilling(false);
     }
-    setIsAutoFilling(false);
   };
 
   return (

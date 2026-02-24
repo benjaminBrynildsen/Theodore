@@ -1,16 +1,9 @@
 import { useState } from 'react';
-import { Image, Sparkles, Loader2, RotateCcw, Download, Maximize2, ChevronDown } from 'lucide-react';
+import { Image, Sparkles, Loader2, RotateCcw, Download } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useStore } from '../../store';
 
 type CoverView = 'front' | 'back' | 'spine' | 'full';
-
-interface CoverSpec {
-  width: number;
-  height: number;
-  spine: number;
-  bleed: number;
-}
 
 const TRIM_SIZES: { label: string; w: number; h: number }[] = [
   { label: '6" × 9"', w: 6, h: 9 },
@@ -68,6 +61,29 @@ export function AICoverDesigner() {
   };
 
   const coverAspect = trim.h / trim.w;
+  const downloadCoverPackage = () => {
+    const payload = [
+      `Title: ${title}`,
+      `Author: ${author}`,
+      `Genre: ${genre}`,
+      `Trim: ${trim.label}`,
+      `Page Count: ${pageCount}`,
+      `Spine Width (in): ${spineWidth.toFixed(3)}`,
+      `Style: ${style.label}`,
+      `View: ${view}`,
+      '',
+      'Prompt Direction:',
+      prompt || '(none)',
+    ].join('\n');
+
+    const blob = new Blob([payload], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/[^a-z0-9-_]+/gi, '-').toLowerCase() || 'cover'}-print-spec.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="flex-1 p-8 overflow-y-auto animate-fade-in">
@@ -173,7 +189,10 @@ export function AICoverDesigner() {
             </button>
 
             {generated && (
-              <button className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-black/10 rounded-xl text-sm hover:bg-black/[0.02] transition-colors">
+              <button
+                onClick={downloadCoverPackage}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-black/10 rounded-xl text-sm hover:bg-black/[0.02] transition-colors"
+              >
                 <Download size={14} />
                 Download Print-Ready PDF
               </button>

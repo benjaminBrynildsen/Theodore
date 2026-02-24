@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, Sparkles, Type, AlignLeft, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2 } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
@@ -28,17 +28,31 @@ export function ChapterView({ chapter }: Props) {
   const [showResearch, setShowResearch] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const [generating, setGenerating] = useState(false);
+  const [extending, setExtending] = useState(false);
   const [generatedText, setGeneratedText] = useState('');
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [chunkSize, setChunkSize] = useState<'short' | 'medium' | 'long'>('medium');
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
   const { getActiveProject, getProjectChapters, chapters: allChapters } = useStore();
   const { getProjectEntries } = useCanonStore();
   const { settings } = useSettingsStore();
   const project = getActiveProject();
+  const liked = Boolean((chapter.aiIntentMetadata as any)?.userFeedback?.liked);
+  const chunkProfiles: Record<'short' | 'medium' | 'long', { label: string; words: string; maxTokens: number }> = {
+    short: { label: 'Quick', words: '700-1,000', maxTokens: 1400 },
+    medium: { label: 'Standard', words: '1,000-1,500', maxTokens: 2200 },
+    long: { label: 'Long', words: '1,600-2,200', maxTokens: 3200 },
+  };
+  const chunkProfile = chunkProfiles[chunkSize];
 
   // AI Generation handler
   const handleGenerate = async () => {
-    if (!project) return;
+    if (!project) {
+      setGenerationError('No active project selected. Open a project and try again.');
+      return;
+    }
+    setGenerationError(null);
     setGenerating(true);
     setGeneratedText('');
 
@@ -55,14 +69,14 @@ export function ChapterView({ chapter }: Props) {
       writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
       generationType: 'full-chapter' as GenerationType,
       previousChapterProse: prevChapter?.prose,
-    });
+    }) + `\n\nWrite only the opening chunk of this chapter (${chunkProfile.words} words). End on a continuation beat so more chunks can be added.`;
 
     let accumulated = '';
     await generateStream(
       {
         prompt,
-        model: settings.ai?.preferredModel || 'claude-opus-4-6',
-        maxTokens: 4096,
+        model: settings.ai?.preferredModel || 'gpt-4.1',
+        maxTokens: chunkProfile.maxTokens,
         action: 'generate-chapter',
         projectId: project.id,
         chapterId: chapter.id,
@@ -77,11 +91,17 @@ export function ChapterView({ chapter }: Props) {
           prose: accumulated,
           status: 'draft-generated',
           aiIntentMetadata: {
-            model: usage.creditsUsed ? settings.ai?.preferredModel || 'claude-opus-4-6' : 'unknown',
+            model: usage.creditsUsed ? settings.ai?.preferredModel || 'gpt-4.1' : 'unknown',
             generatedAt: new Date().toISOString(),
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             creditsUsed: usage.creditsUsed,
+            historySource: 'ai-generated',
+            chunking: {
+              mode: 'start',
+              chunkSize,
+              targetWords: chunkProfile.words,
+            },
           },
         });
         setGenerating(false);
@@ -91,8 +111,99 @@ export function ChapterView({ chapter }: Props) {
         console.error('Generation error:', error);
         setGenerating(false);
         if (error === 'INSUFFICIENT_CREDITS') {
-          alert('Not enough credits. Upgrade your plan to continue generating.');
+          setGenerationError('Not enough credits. Upgrade your plan to continue generating.');
+          return;
         }
+        setGenerationError(`Generation failed: ${error}`);
+      },
+    );
+  };
+
+  const toggleLike = () => {
+    const currentMeta = ((chapter.aiIntentMetadata || {}) as Record<string, any>);
+    const currentFeedback = (currentMeta.userFeedback || {}) as Record<string, any>;
+    updateChapter(chapter.id, {
+      aiIntentMetadata: {
+        ...currentMeta,
+        userFeedback: {
+          ...currentFeedback,
+          liked: !liked,
+          updatedAt: new Date().toISOString(),
+        },
+      } as any,
+    });
+  };
+
+  const handleExtend = async () => {
+    if (!project) {
+      setGenerationError('No active project selected. Open a project and try again.');
+      return;
+    }
+    if (!chapter.prose.trim() || extending) return;
+    setGenerationError(null);
+    setExtending(true);
+
+    const projectChapters = getProjectChapters(project.id);
+    const canonEntries = getProjectEntries(project.id);
+    const prevChapter = projectChapters.find(c => c.number === chapter.number - 1);
+    const prompt = buildGenerationPrompt({
+      project,
+      chapter,
+      allChapters: projectChapters,
+      canonEntries,
+      settings,
+      writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
+      generationType: 'full-chapter' as GenerationType,
+      previousChapterProse: prevChapter?.prose,
+    }) + `\n\nContinue this chapter from the exact ending of the current draft. Add only the next ${chunkProfile.words} words. Do not restart scenes. End on a continuation beat.`;
+
+    let extension = '';
+    await generateStream(
+      {
+        prompt,
+        model: settings.ai?.preferredModel || 'gpt-4.1',
+        maxTokens: chunkProfile.maxTokens,
+        action: 'extend-chapter',
+        projectId: project.id,
+        chapterId: chapter.id,
+      },
+      (text) => {
+        extension += text;
+        setGeneratedText(extension);
+      },
+      () => {
+        const latest = useStore.getState().chapters.find((c) => c.id === chapter.id);
+        const baseProse = latest?.prose ?? chapter.prose;
+        const trimmed = extension.trim();
+        if (trimmed) {
+          const joiner = baseProse.endsWith('\n') ? '\n' : '\n\n';
+          updateChapter(chapter.id, {
+            prose: `${baseProse}${joiner}${trimmed}`,
+            status: 'human-edited',
+            aiIntentMetadata: {
+              ...((latest?.aiIntentMetadata || chapter.aiIntentMetadata || {}) as Record<string, any>),
+              lastExtendedAt: new Date().toISOString(),
+              historySource: 'ai-generated',
+              chunking: {
+                mode: 'continue',
+                chunkSize,
+                targetWords: chunkProfile.words,
+              },
+            } as any,
+          });
+        }
+        setGeneratedText('');
+        setExtending(false);
+      },
+      (error) => {
+        console.error('Extend error:', error);
+        setGeneratedText('');
+        setExtending(false);
+        if (error === 'INSUFFICIENT_CREDITS') {
+          setGenerationError('Not enough credits. Upgrade your plan to continue extending.');
+          return;
+        }
+        setGenerationError(`Generation failed: ${error}`);
       },
     );
   };
@@ -111,11 +222,30 @@ export function ChapterView({ chapter }: Props) {
     }
   }, [chapter.prose]);
 
+  useEffect(() => {
+    if (!isFocusMode) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsFocusMode(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isFocusMode]);
+
   return (
     <div className={cn(
       'flex-1 flex flex-col overflow-hidden animate-fade-in transition-all duration-500',
       isFocusMode && 'fixed inset-0 z-40 bg-white'
     )}>
+      {isFocusMode && (
+        <button
+          onClick={() => setIsFocusMode(false)}
+          className="fixed top-4 right-4 z-50 px-3 py-2 rounded-xl bg-black/80 text-white text-xs font-medium hover:bg-black transition-colors"
+          title="Exit focus mode"
+        >
+          Exit Focus
+        </button>
+      )}
+
       {/* Minimal top bar */}
       <div className={cn(
         'flex items-center justify-between px-6 py-3 transition-all duration-300',
@@ -139,6 +269,44 @@ export function ChapterView({ chapter }: Props) {
           <span className="text-xs text-text-tertiary font-mono">
             {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
           </span>
+
+          {/* Like */}
+          <button
+            onClick={toggleLike}
+            className={cn(
+              'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1',
+              liked
+                ? 'bg-rose-100 text-rose-700'
+                : 'text-text-tertiary hover:text-text-primary hover:bg-white/40',
+            )}
+            title={liked ? 'Unlike chapter' : 'Like chapter'}
+          >
+            <Heart size={13} className={liked ? 'fill-current' : ''} />
+            {liked ? 'Liked' : 'Like'}
+          </button>
+
+          {/* Extend */}
+          <button
+            onClick={() => setChunkSize((prev) => (prev === 'short' ? 'medium' : prev === 'medium' ? 'long' : 'short'))}
+            className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
+            title="Chunk size"
+          >
+            {chunkProfile.label}
+          </button>
+          <button
+            onClick={handleExtend}
+            disabled={!chapter.prose.trim() || extending || generating}
+            className={cn(
+              'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1',
+              !chapter.prose.trim() || extending || generating
+                ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                : 'bg-text-primary text-text-inverse hover:shadow-md',
+            )}
+            title="Extend chapter"
+          >
+            {extending ? <Loader2 size={13} className="animate-spin" /> : <Expand size={13} />}
+            {extending ? 'Extending...' : 'Extend'}
+          </button>
 
           {/* Version history */}
           {chapter.prose && (
@@ -237,10 +405,25 @@ export function ChapterView({ chapter }: Props) {
               </div>
               <p className="text-text-secondary mb-2 font-medium">Start writing</p>
               <p className="text-sm text-text-tertiary max-w-xs mx-auto mb-4">
-                Type below to start writing, or generate with AI.
+                Type below to start writing, or generate.
               </p>
               
               {/* Generate with budget */}
+              <div className="mb-4 mx-auto w-fit rounded-xl glass-pill p-1 flex gap-1">
+                {(['short', 'medium', 'long'] as const).map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setChunkSize(size)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-lg text-xs transition-all',
+                      chunkSize === size ? 'bg-text-primary text-text-inverse shadow-sm' : 'text-text-secondary',
+                    )}
+                  >
+                    {chunkProfiles[size].label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-text-tertiary mb-4">Chunk target: {chunkProfile.words} words</p>
               {generating ? (
                 <div className="mb-6 flex items-center gap-2 text-sm text-text-secondary justify-center">
                   <Loader2 size={16} className="animate-spin" />
@@ -248,10 +431,13 @@ export function ChapterView({ chapter }: Props) {
                 </div>
               ) : !showBudget ? (
                 <button
-                  onClick={() => setShowBudget(true)}
+                  onClick={() => {
+                    setShowBudget(false);
+                    handleGenerate();
+                  }}
                   className="mb-6 px-5 py-2.5 rounded-xl bg-text-primary text-text-inverse text-sm font-medium flex items-center gap-2 mx-auto hover:shadow-lg transition-all"
                 >
-                  <Sparkles size={15} /> Generate with AI
+                  <Sparkles size={15} /> Generate
                 </button>
               ) : (
                 <div className="max-w-sm mx-auto mb-6">
@@ -264,6 +450,19 @@ export function ChapterView({ chapter }: Props) {
                     }}
                     onCancel={() => setShowBudget(false)}
                   />
+                </div>
+              )}
+              {!generating && (
+                <button
+                  onClick={() => setShowBudget((v) => !v)}
+                  className="mb-3 text-xs text-text-tertiary hover:text-text-primary transition-colors"
+                >
+                  {showBudget ? 'Hide credit budget' : 'View credit budget'}
+                </button>
+              )}
+              {generationError && (
+                <div className="max-w-sm mx-auto mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {generationError}
                 </div>
               )}
               

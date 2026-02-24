@@ -1,7 +1,8 @@
-import { BookOpen, PanelLeft, PanelRight, BookMarked, Wrench, Settings, PenSquare } from 'lucide-react';
+import { BookOpen, PanelLeft, PanelRight, BookMarked, Wrench, Settings, PenSquare, LogOut } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
+import { useAuthStore } from '../../store/auth';
 import { CreditsBadge } from '../credits/CreditsBadge';
 import { ValidationBadge } from '../validation/ValidationBadge';
 import { cn } from '../../lib/utils';
@@ -13,6 +14,7 @@ export function TopBar() {
   } = useStore();
   const { activeEntryId, setActiveEntry } = useCanonStore();
   const { showSettingsView, setShowSettingsView, setSettingsViewSection } = useSettingsStore();
+  const { logout } = useAuthStore();
   
   const project = getActiveProject();
   const activeMode: 'write' | 'tools' | 'settings' = showSettingsView ? 'settings' : showToolsView ? 'tools' : 'write';
@@ -141,6 +143,14 @@ export function TopBar() {
         title="Settings"
       >
         <Settings size={18} />
+      </button>
+
+      <button
+        onClick={() => { void logout(); }}
+        className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0"
+        title="Sign out"
+      >
+        <LogOut size={18} />
       </button>
 
       {/* Credits Badge */}

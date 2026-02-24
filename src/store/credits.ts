@@ -12,10 +12,30 @@ interface CreditsState {
   spendCredits: (amount: number, action: CreditTransaction['action'], meta?: Partial<CreditTransaction>) => boolean;
   canAfford: (amount: number) => boolean;
   setPlan: (tier: PlanTier, credits: number) => void;
-  setByokKey: (key: string) => void;
-  clearByokKey: () => void;
   setShowUpgradeModal: (show: boolean) => void;
   setShowSettingsModal: (show: boolean) => void;
+  hydrateFromUser: (user: {
+    plan?: string | null;
+    creditsRemaining?: number | null;
+    creditsTotal?: number | null;
+    stripeCustomerId?: string | null;
+    stripeSubscriptionId?: string | null;
+    stripeSubscriptionStatus?: string | null;
+    stripeCurrentPeriodEnd?: string | null;
+    stripeCancelAtPeriodEnd?: boolean | null;
+    stripePriceTier?: string | null;
+  } | null) => void;
+  setTransactions: (transactions: CreditTransaction[]) => void;
+  recordUsage: (usage: {
+    action: CreditTransaction['action'];
+    creditsUsed: number;
+    tokensInput: number;
+    tokensOutput: number;
+    model: string;
+    projectId?: string;
+    chapterId?: string;
+    creditsRemaining?: number | null;
+  }) => void;
 
   // Stripe-ready hooks
   getStripeCheckoutData: () => { tier: PlanTier; customerId?: string };
@@ -24,11 +44,10 @@ interface CreditsState {
 
 export const useCreditsStore = create<CreditsState>((set, get) => ({
   plan: {
-    tier: 'writer',
-    creditsTotal: 10000,
-    creditsUsed: 65,
-    creditsRemaining: 9935,
-    renewsAt: new Date(Date.now() + 22 * 86400000).toISOString(),
+    tier: 'free',
+    creditsTotal: 500,
+    creditsUsed: 0,
+    creditsRemaining: 500,
   },
   transactions: [],
   showUpgradeModal: false,
@@ -36,24 +55,6 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
 
   spendCredits: (amount, action, meta = {}) => {
     const { plan } = get();
-    
-    // BYOK users don't spend credits
-    if (plan.tier === 'byok') {
-      set((s) => ({
-        transactions: [...s.transactions, {
-          id: generateId(),
-          action,
-          creditsUsed: 0,
-          tokensInput: meta.tokensInput || 0,
-          tokensOutput: meta.tokensOutput || 0,
-          model: meta.model || 'byok',
-          projectId: meta.projectId,
-          chapterId: meta.chapterId,
-          timestamp: new Date().toISOString(),
-        }],
-      }));
-      return true;
-    }
 
     if (plan.creditsRemaining < amount) {
       set({ showUpgradeModal: true });
@@ -83,7 +84,7 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
 
   canAfford: (amount) => {
     const { plan } = get();
-    return plan.tier === 'byok' || plan.creditsRemaining >= amount;
+    return plan.creditsRemaining >= amount;
   },
 
   setPlan: (tier, credits) => {
@@ -92,28 +93,88 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
         ...s.plan,
         tier,
         creditsTotal: credits,
-        creditsRemaining: credits - s.plan.creditsUsed,
-      },
-    }));
-  },
-
-  setByokKey: (key) => {
-    set((s) => ({
-      plan: { ...s.plan, tier: 'byok', byokApiKey: key },
-    }));
-  },
-  clearByokKey: () => {
-    set((s) => ({
-      plan: {
-        ...s.plan,
-        tier: s.plan.tier === 'byok' ? 'writer' : s.plan.tier,
-        byokApiKey: undefined,
+        creditsRemaining: Math.max(0, credits - s.plan.creditsUsed),
       },
     }));
   },
 
   setShowUpgradeModal: (show) => set({ showUpgradeModal: show }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
+
+  hydrateFromUser: (user) => {
+    if (!user) {
+      set({
+        plan: {
+          tier: 'free',
+          creditsTotal: 500,
+          creditsUsed: 0,
+          creditsRemaining: 500,
+          renewsAt: undefined,
+          stripeCustomerId: undefined,
+          stripeSubscriptionId: undefined,
+          stripeSubscriptionStatus: null,
+          stripeCurrentPeriodEnd: null,
+          stripeCancelAtPeriodEnd: false,
+          stripePriceTier: null,
+        },
+        transactions: [],
+      });
+      return;
+    }
+
+    const rawTier = String(user.plan || 'free');
+    const tier: PlanTier =
+      rawTier === 'writer' || rawTier === 'author' || rawTier === 'studio' || rawTier === 'free'
+        ? rawTier
+        : 'free';
+    const creditsTotal = Math.max(0, Number(user.creditsTotal ?? 500));
+    const creditsRemaining = Math.max(0, Number(user.creditsRemaining ?? creditsTotal));
+    set((s) => ({
+      plan: {
+        ...s.plan,
+        tier,
+        creditsTotal,
+        creditsRemaining,
+        creditsUsed: Math.max(0, creditsTotal - creditsRemaining),
+        renewsAt: user.stripeCurrentPeriodEnd || s.plan.renewsAt,
+        stripeCustomerId: user.stripeCustomerId || undefined,
+        stripeSubscriptionId: user.stripeSubscriptionId || undefined,
+        stripeSubscriptionStatus: user.stripeSubscriptionStatus ?? null,
+        stripeCurrentPeriodEnd: user.stripeCurrentPeriodEnd ?? null,
+        stripeCancelAtPeriodEnd: Boolean(user.stripeCancelAtPeriodEnd),
+        stripePriceTier: user.stripePriceTier ?? null,
+      },
+    }));
+  },
+
+  setTransactions: (transactions) => set({ transactions }),
+
+  recordUsage: (usage) => {
+    set((s) => {
+      const nextRemaining = usage.creditsRemaining == null
+        ? s.plan.creditsRemaining
+        : Math.max(0, usage.creditsRemaining);
+      const nextTotal = s.plan.creditsTotal;
+      return {
+        plan: {
+          ...s.plan,
+          creditsRemaining: nextRemaining,
+          creditsUsed: Math.max(0, nextTotal - nextRemaining),
+        },
+        transactions: [...s.transactions, {
+          id: generateId(),
+          action: usage.action,
+          creditsUsed: usage.creditsUsed,
+          tokensInput: usage.tokensInput,
+          tokensOutput: usage.tokensOutput,
+          model: usage.model,
+          projectId: usage.projectId,
+          chapterId: usage.chapterId,
+          timestamp: new Date().toISOString(),
+        }],
+      };
+    });
+  },
 
   // Stripe-ready: returns data needed for Stripe Checkout Session
   getStripeCheckoutData: () => {

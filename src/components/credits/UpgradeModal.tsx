@@ -1,19 +1,29 @@
+import { useState } from 'react';
 import { X, Check, Zap } from 'lucide-react';
 import { useCreditsStore } from '../../store/credits';
 import { PLAN_DETAILS, type PlanTier } from '../../types/credits';
 import { cn } from '../../lib/utils';
+import { api } from '../../lib/api';
 
 export function UpgradeModal() {
-  const { showUpgradeModal, setShowUpgradeModal, plan, setPlan } = useCreditsStore();
+  const { showUpgradeModal, setShowUpgradeModal, plan } = useCreditsStore();
+  const [busyTier, setBusyTier] = useState<PlanTier | null>(null);
+  const [error, setError] = useState('');
 
   if (!showUpgradeModal) return null;
 
-  const handleUpgrade = (tier: PlanTier) => {
-    // In production: create Stripe Checkout Session and redirect
-    // For now: simulate upgrade
-    const details = PLAN_DETAILS[tier];
-    setPlan(tier, details.credits);
-    setShowUpgradeModal(false);
+  const handleUpgrade = async (tier: PlanTier) => {
+    if (tier !== 'writer' && tier !== 'author' && tier !== 'studio') return;
+    setBusyTier(tier);
+    setError('');
+    try {
+      const checkout = await api.billingCheckout({ tier });
+      if (!checkout?.url) throw new Error('Stripe checkout URL was not returned.');
+      window.location.href = checkout.url;
+    } catch (e: any) {
+      setError(e?.message || 'Unable to start checkout.');
+      setBusyTier(null);
+    }
   };
 
   return (
@@ -31,8 +41,9 @@ export function UpgradeModal() {
           </button>
         </div>
 
-        <div className="p-6 grid grid-cols-4 gap-3">
-          {(Object.entries(PLAN_DETAILS) as [PlanTier, typeof PLAN_DETAILS[PlanTier]][]).map(([tier, details]) => {
+        <div className="p-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {(['writer', 'author', 'studio'] as PlanTier[]).map((tier) => {
+            const details = PLAN_DETAILS[tier];
             const isCurrent = plan.tier === tier;
             const isPopular = tier === 'writer';
             
@@ -74,18 +85,29 @@ export function UpgradeModal() {
                 ) : (
                   <button
                     onClick={() => handleUpgrade(tier)}
+                    disabled={busyTier !== null}
                     className={cn(
                       'w-full py-2.5 rounded-xl text-xs font-medium transition-all active:scale-[0.98]',
-                      'bg-text-primary text-text-inverse shadow-md hover:shadow-lg'
+                      busyTier !== null
+                        ? 'bg-black/10 text-text-tertiary cursor-not-allowed'
+                        : 'bg-text-primary text-text-inverse shadow-md hover:shadow-lg'
                     )}
                   >
-                    {tier === 'free' ? 'Downgrade' : 'Upgrade'}
+                    {busyTier === tier ? 'Redirecting...' : 'Choose Plan'}
                   </button>
                 )}
               </div>
             );
           })}
         </div>
+
+        {error && (
+          <div className="px-6 pb-2">
+            <div className="text-xs rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2">
+              {error}
+            </div>
+          </div>
+        )}
 
         {/* Stripe notice */}
         <div className="px-6 pb-5">

@@ -10,12 +10,9 @@ interface Props {
 }
 
 export function CreditCostTag({ action, className, showRange = false }: Props) {
-  const { canAfford, plan } = useCreditsStore();
+  const { canAfford } = useCreditsStore();
   const cost = CREDIT_COSTS[action];
   const affordable = canAfford(cost.typical);
-  const isByok = plan.tier === 'byok';
-
-  if (isByok) return null;
 
   return (
     <span

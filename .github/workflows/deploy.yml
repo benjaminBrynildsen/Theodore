@@ -1,0 +1,114 @@
+name: Deploy Theodore (Optional Hooks)
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  deploy-staging:
+    if: github.ref == 'refs/heads/develop'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Trigger staging deploy hook (if configured)
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_STAGING_DEPLOY_HOOK }}
+          RAILWAY_HOOK: ${{ secrets.RAILWAY_STAGING_DEPLOY_HOOK }}
+        run: |
+          DEPLOY_HOOK="$RENDER_HOOK"
+          if [ -z "$DEPLOY_HOOK" ]; then
+            DEPLOY_HOOK="$RAILWAY_HOOK"
+          fi
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "No staging deploy hook configured; skipping hook trigger."
+            exit 0
+          fi
+          curl -fsSL -X POST "$DEPLOY_HOOK"
+          echo "Staging deploy triggered."
+
+      - name: Staging health check (optional)
+        env:
+          HEALTH_URL: ${{ secrets.STAGING_HEALTHCHECK_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "No STAGING_HEALTHCHECK_URL configured; skipping health check."
+            exit 0
+          fi
+          for i in $(seq 1 40); do
+            if curl -fsS "$HEALTH_URL" > /dev/null; then
+              echo "Staging health check passed."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Staging health check failed."
+          exit 1
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Trigger production deploy hook (if configured)
+        env:
+          RENDER_HOOK: ${{ secrets.RENDER_PRODUCTION_DEPLOY_HOOK }}
+          RAILWAY_HOOK: ${{ secrets.RAILWAY_PRODUCTION_DEPLOY_HOOK }}
+        run: |
+          DEPLOY_HOOK="$RENDER_HOOK"
+          if [ -z "$DEPLOY_HOOK" ]; then
+            DEPLOY_HOOK="$RAILWAY_HOOK"
+          fi
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "No production deploy hook configured; skipping hook trigger."
+            exit 0
+          fi
+          curl -fsSL -X POST "$DEPLOY_HOOK"
+          echo "Production deploy triggered."
+
+      - name: Production health check (optional)
+        env:
+          HEALTH_URL: ${{ secrets.PRODUCTION_HEALTHCHECK_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "No PRODUCTION_HEALTHCHECK_URL configured; skipping health check."
+            exit 0
+          fi
+          for i in $(seq 1 40); do
+            if curl -fsS "$HEALTH_URL" > /dev/null; then
+              echo "Production health check passed."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Production health check failed."
+          exit 1

@@ -52,7 +52,7 @@ export function ReadingMode({ onClose }: Props) {
   const chapters = project ? getProjectChapters(project.id).filter((c) => c.prose).sort((a, b) => a.number - b.number) : [];
 
   const [currentChapterIdx, setCurrentChapterIdx] = useState(0);
-  const [currentPage, setCurrentPage] = useState(0);
+  const [spreadStart, setSpreadStart] = useState(0);
   const [fontSize, setFontSize] = useState(18);
   const [theme, setTheme] = useState<ReaderTheme>('light');
   const [showControls, setShowControls] = useState(true);
@@ -76,12 +76,13 @@ export function ReadingMode({ onClose }: Props) {
   }, [chapter?.prose, fontSize]);
 
   const totalPages = chapterPages.length;
-  const pageText = chapterPages[currentPage] || '';
+  const leftPageText = chapterPages[spreadStart] || '';
+  const rightPageText = chapterPages[spreadStart + 1] || '';
 
   const globalProgress = chapters.length > 0 ? ((currentChapterIdx + 1) / chapters.length) * 100 : 0;
 
-  const canGoPrev = currentPage > 0 || currentChapterIdx > 0;
-  const canGoNext = currentPage < totalPages - 1 || currentChapterIdx < chapters.length - 1;
+  const canGoPrev = spreadStart > 0 || currentChapterIdx > 0;
+  const canGoNext = spreadStart + 2 < totalPages || currentChapterIdx < chapters.length - 1;
 
   const resetControlsTimer = () => {
     setShowControls(true);
@@ -95,7 +96,7 @@ export function ReadingMode({ onClose }: Props) {
   }, []);
 
   useEffect(() => {
-    setCurrentPage(0);
+    setSpreadStart(0);
   }, [currentChapterIdx, fontSize]);
 
   const runFlip = (dir: Exclude<FlipDir, null>, action: () => void) => {
@@ -112,11 +113,11 @@ export function ReadingMode({ onClose }: Props) {
   const goNext = () => {
     if (!canGoNext) return;
     runFlip('next', () => {
-      if (currentPage < totalPages - 1) {
-        setCurrentPage((p) => p + 1);
+      if (spreadStart + 2 < totalPages) {
+        setSpreadStart((p) => p + 2);
       } else if (currentChapterIdx < chapters.length - 1) {
         setCurrentChapterIdx((c) => c + 1);
-        setCurrentPage(0);
+        setSpreadStart(0);
       }
     });
   };
@@ -124,13 +125,18 @@ export function ReadingMode({ onClose }: Props) {
   const goPrev = () => {
     if (!canGoPrev) return;
     runFlip('prev', () => {
-      if (currentPage > 0) {
-        setCurrentPage((p) => p - 1);
+      if (spreadStart > 0) {
+        setSpreadStart((p) => Math.max(0, p - 2));
       } else if (currentChapterIdx > 0) {
         const prevChapterIdx = currentChapterIdx - 1;
         const prevPages = paginateProse(chapters[prevChapterIdx].prose, fontSize);
+        const prevSpreadStart = prevPages.length <= 2
+          ? 0
+          : prevPages.length % 2 === 0
+          ? prevPages.length - 2
+          : prevPages.length - 1;
         setCurrentChapterIdx(prevChapterIdx);
-        setCurrentPage(Math.max(0, prevPages.length - 1));
+        setSpreadStart(prevSpreadStart);
       }
     });
   };
@@ -225,7 +231,7 @@ export function ReadingMode({ onClose }: Props) {
                   key={ch.id}
                   onClick={() => {
                     setCurrentChapterIdx(idx);
-                    setCurrentPage(0);
+                    setSpreadStart(0);
                     setShowToc(false);
                   }}
                   className={cn(
@@ -249,16 +255,22 @@ export function ReadingMode({ onClose }: Props) {
         <button
           onClick={goPrev}
           className={cn(
-            'w-16 flex-shrink-0 flex items-center justify-center transition-opacity',
-            canGoPrev ? 'opacity-30 hover:opacity-70 cursor-pointer' : 'opacity-0 cursor-default'
+            'w-20 flex-shrink-0 flex items-center justify-center transition-opacity',
+            canGoPrev ? 'opacity-90 hover:opacity-100 cursor-pointer' : 'opacity-0 cursor-default'
           )}
         >
-          <ChevronLeft size={24} className={t.accent} />
+          <span className={cn(
+            'w-11 h-11 rounded-full border flex items-center justify-center',
+            t.paper,
+            t.border
+          )}>
+            <ChevronLeft size={24} className={t.accent} />
+          </span>
         </button>
 
         <div className="flex-1 flex justify-center overflow-hidden px-4">
           <div
-            className={cn('max-w-[760px] w-full rounded-sm shadow-lg overflow-hidden border', t.paper, t.border)}
+            className={cn('max-w-[1100px] w-full rounded-sm shadow-lg overflow-hidden border', t.paper, t.border)}
             style={{
               transform: flipDir === 'next'
                 ? 'perspective(1200px) rotateY(-12deg) scale(0.98)'
@@ -269,42 +281,72 @@ export function ReadingMode({ onClose }: Props) {
               transition: 'transform 180ms ease, opacity 180ms ease',
             }}
           >
-            <div className="h-full px-12 py-10 overflow-hidden">
-              <div className="mb-8 text-center">
-                <div className={cn('text-xs uppercase tracking-[0.3em] mb-3 font-sans', t.accent)}>
-                  Chapter {chapter.number}
+            <div className="h-full grid grid-cols-2">
+              <div className={cn('px-10 py-10 border-r', t.border)}>
+                <div className="mb-7 text-center">
+                  <div className={cn('text-xs uppercase tracking-[0.3em] mb-2 font-sans', t.accent)}>
+                    Chapter {chapter.number}
+                  </div>
+                  <h1 className={cn('font-serif font-semibold mb-3', t.text)} style={{ fontSize: fontSize + 8 }}>
+                    {chapter.title}
+                  </h1>
+                  <div className={cn('w-12 h-px mx-auto', theme === 'dark' ? 'bg-white/20' : 'bg-black/15')} />
                 </div>
-                <h1 className={cn('font-serif font-semibold mb-4', t.text)} style={{ fontSize: fontSize + 8 }}>
-                  {chapter.title}
-                </h1>
-                <div className={cn('w-12 h-px mx-auto', theme === 'dark' ? 'bg-white/20' : 'bg-black/15')} />
+                <div className="h-[calc(100%-110px)] overflow-hidden">
+                  {leftPageText.split('\n\n').filter(Boolean).map((para, i) => (
+                    <p
+                      key={i}
+                      className={cn('mb-5 leading-[1.9] font-serif', t.text)}
+                      style={{
+                        fontSize,
+                        textIndent: i === 0 ? 0 : '2em',
+                        textAlign: 'justify',
+                      }}
+                    >
+                      {i === 0 ? (
+                        <>
+                          <span className={cn('float-left text-[3.5em] leading-[0.8] mr-2 mt-1 font-serif font-bold', t.text)}>
+                            {para.charAt(0)}
+                          </span>
+                          {para.slice(1)}
+                        </>
+                      ) : para}
+                    </p>
+                  ))}
+                </div>
+                <div className={cn('text-center mt-4 text-xs font-mono', t.accent)}>
+                  Page {spreadStart + 1} of {totalPages}
+                </div>
               </div>
 
-              <div className="h-[calc(100%-120px)] overflow-hidden">
-                {pageText.split('\n\n').map((para, i) => (
-                  <p
-                    key={i}
-                    className={cn('mb-5 leading-[1.9] font-serif', t.text)}
-                    style={{
-                      fontSize,
-                      textIndent: i === 0 ? 0 : '2em',
-                      textAlign: 'justify',
-                    }}
-                  >
-                    {i === 0 ? (
-                      <>
-                        <span className={cn('float-left text-[3.5em] leading-[0.8] mr-2 mt-1 font-serif font-bold', t.text)}>
-                          {para.charAt(0)}
-                        </span>
-                        {para.slice(1)}
-                      </>
-                    ) : para}
-                  </p>
-                ))}
-              </div>
-
-              <div className={cn('text-center mt-5 text-xs font-mono', t.accent)}>
-                Page {currentPage + 1} of {totalPages}
+              <div className="px-10 py-10">
+                <div className="h-[calc(100%-50px)] overflow-hidden">
+                  {rightPageText ? (
+                    rightPageText.split('\n\n').filter(Boolean).map((para, i) => (
+                      <p
+                        key={i}
+                        className={cn('mb-5 leading-[1.9] font-serif', t.text)}
+                        style={{
+                          fontSize,
+                          textIndent: i === 0 ? 0 : '2em',
+                          textAlign: 'justify',
+                        }}
+                      >
+                        {para}
+                      </p>
+                    ))
+                  ) : (
+                    <div className={cn('h-full flex items-center justify-center text-sm italic', t.accent)}>
+                      End of spread
+                    </div>
+                  )}
+                </div>
+                <div className={cn('text-center mt-4 text-xs font-mono', t.accent)}>
+                  Page {Math.min(totalPages, spreadStart + 2)} of {totalPages}
+                </div>
+                <div className={cn('text-center mt-2 text-[10px] font-sans', t.accent)}>
+                  Use left/right arrows to flip
+                </div>
               </div>
             </div>
           </div>
@@ -313,11 +355,17 @@ export function ReadingMode({ onClose }: Props) {
         <button
           onClick={goNext}
           className={cn(
-            'w-16 flex-shrink-0 flex items-center justify-center transition-opacity',
-            canGoNext ? 'opacity-30 hover:opacity-70 cursor-pointer' : 'opacity-0 cursor-default'
+            'w-20 flex-shrink-0 flex items-center justify-center transition-opacity',
+            canGoNext ? 'opacity-90 hover:opacity-100 cursor-pointer' : 'opacity-0 cursor-default'
           )}
         >
-          <ChevronRight size={24} className={t.accent} />
+          <span className={cn(
+            'w-11 h-11 rounded-full border flex items-center justify-center',
+            t.paper,
+            t.border
+          )}>
+            <ChevronRight size={24} className={t.accent} />
+          </span>
         </button>
       </div>
 
@@ -346,7 +394,7 @@ export function ReadingMode({ onClose }: Props) {
                 key={idx}
                 onClick={() => {
                   setCurrentChapterIdx(idx);
-                  setCurrentPage(0);
+                  setSpreadStart(0);
                 }}
                 className={cn(
                   'w-2 h-2 rounded-full transition-all',

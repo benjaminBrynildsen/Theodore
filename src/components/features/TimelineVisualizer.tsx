@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { Calendar, Plus, AlertTriangle, Sparkles, Loader2, X, GripVertical } from 'lucide-react';
-import { useStore } from '../../store';
+import { Calendar, Plus, AlertTriangle, Sparkles, Loader2 } from 'lucide-react';
 import { cn, generateId } from '../../lib/utils';
 
 interface TimelineEvent {
@@ -47,13 +46,26 @@ export function TimelineVisualizer() {
   const [filterType, setFilterType] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
 
-  const selected = events.find(e => e.id === selectedId);
   const filtered = filterType ? events.filter(e => e.type === filterType) : events;
   const conflicts = events.filter(e => e.conflict);
 
   const handleScanConflicts = () => {
     setScanning(true);
     setTimeout(() => setScanning(false), 2000);
+  };
+
+  const addEvent = () => {
+    const nextIndex = events.length + 1;
+    const entry: TimelineEvent = {
+      id: generateId(),
+      title: `New Event ${nextIndex}`,
+      date: 'TBD',
+      chapter: 'Draft',
+      description: 'Describe what happens and why it matters to continuity.',
+      type: 'plot',
+    };
+    setEvents((prev) => [...prev, entry]);
+    setSelectedId(entry.id);
   };
 
   return (
@@ -108,7 +120,7 @@ export function TimelineVisualizer() {
           <div className="absolute left-[120px] top-0 bottom-0 w-px bg-black/10" />
 
           <div className="space-y-1">
-            {filtered.map((event, i) => (
+            {filtered.map((event) => (
               <div key={event.id} className="flex items-start group">
                 {/* Date */}
                 <div className="w-[110px] flex-shrink-0 text-right pr-4 pt-3">
@@ -157,7 +169,10 @@ export function TimelineVisualizer() {
 
         {/* Add event */}
         <div className="mt-6 flex justify-center">
-          <button className="flex items-center gap-1.5 px-4 py-2 border border-dashed border-black/10 rounded-xl text-xs text-text-tertiary hover:border-black/20 hover:text-text-secondary transition-colors">
+          <button
+            onClick={addEvent}
+            className="flex items-center gap-1.5 px-4 py-2 border border-dashed border-black/10 rounded-xl text-xs text-text-tertiary hover:border-black/20 hover:text-text-secondary transition-colors"
+          >
             <Plus size={12} /> Add Event
           </button>
         </div>

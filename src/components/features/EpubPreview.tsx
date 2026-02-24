@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { BookOpen, ChevronLeft, ChevronRight, Type, Sun, Moon, Tablet, Smartphone, Monitor, Download } from 'lucide-react';
-import { useStore } from '../../store';
+import { BookOpen, ChevronLeft, ChevronRight, Tablet, Smartphone, Monitor, Download } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 type Device = 'kindle' | 'phone' | 'tablet';
@@ -64,6 +63,21 @@ export function EpubPreview() {
   const deviceSpec = DEVICE_SIZES[device];
   const themeStyle = THEME_STYLES[theme];
   const chapter = MOCK_CHAPTERS[currentChapter];
+  const exportEpubPreview = () => {
+    const content = [
+      '# EPUB PREVIEW EXPORT',
+      '',
+      ...MOCK_CHAPTERS.map((ch, idx) => `## ${idx + 1}. ${ch.title}\n\n${ch.content}`),
+    ].join('\n');
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'epub-preview.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="flex-1 p-8 overflow-y-auto animate-fade-in">
@@ -188,7 +202,10 @@ export function EpubPreview() {
               </div>
             </div>
 
-            <button className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-black/10 rounded-xl text-sm hover:bg-black/[0.02] transition-colors">
+            <button
+              onClick={exportEpubPreview}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-black/10 rounded-xl text-sm hover:bg-black/[0.02] transition-colors"
+            >
               <Download size={14} />
               Export ePub
             </button>

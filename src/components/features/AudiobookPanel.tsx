@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Headphones, Play, Pause, SkipForward, SkipBack, Volume2, Download, Loader2, Mic, User } from 'lucide-react';
+import { Headphones, Play, Pause, Download, Loader2, Mic, User } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { cn } from '../../lib/utils';
@@ -42,6 +42,7 @@ export function AudiobookPanel() {
   const [currentChapter, setCurrentChapter] = useState<string | null>(null);
   const [apiKeySet, setApiKeySet] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  const [exportFormat, setExportFormat] = useState<'mp3' | 'm4b' | 'wav'>('mp3');
 
   const assignVoice = (charId: string, charName: string, voiceId: string) => {
     const voice = ELEVENLABS_VOICES.find(v => v.id === voiceId);
@@ -59,12 +60,72 @@ export function AudiobookPanel() {
     setGenerating(null);
   };
 
+  const safeProjectName = (project?.title || 'audiobook').replace(/[^a-z0-9-_]+/gi, '-').toLowerCase();
+
+  const downloadTextFile = (name: string, content: string) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleChapterAction = (chapterId: string) => {
+    if (!generatedChapters.has(chapterId)) {
+      void generateChapter(chapterId);
+      return;
+    }
+    if (currentChapter !== chapterId) {
+      setCurrentChapter(chapterId);
+      setPlaying(true);
+      return;
+    }
+    setPlaying((prev) => !prev);
+  };
+
+  const downloadChapter = (chapterId: string) => {
+    const chapter = chapters.find((ch) => ch.id === chapterId);
+    if (!chapter || !generatedChapters.has(chapterId)) return;
+
+    const content = [
+      `Project: ${project?.title || 'Untitled Project'}`,
+      `Chapter: ${chapter.number} - ${chapter.title}`,
+      `Narrator Voice: ${ELEVENLABS_VOICES.find((v) => v.id === narratorVoice)?.name || narratorVoice}`,
+      `Character Voice Assignments: ${voiceAssignments.length}`,
+      '',
+      'This is a placeholder export file for the generated audiobook chapter.',
+      'Wire this action to your TTS output URL once ElevenLabs generation is fully integrated.',
+    ].join('\n');
+
+    downloadTextFile(`${safeProjectName}-ch-${chapter.number}.${exportFormat}.txt`, content);
+  };
+
   const generateAll = async () => {
     for (const ch of chapters) {
       if (!generatedChapters.has(ch.id)) {
         await generateChapter(ch.id);
       }
     }
+  };
+
+  const exportAll = () => {
+    const generated = chapters.filter((ch) => generatedChapters.has(ch.id));
+    if (!generated.length) return;
+
+    const content = [
+      `Project: ${project?.title || 'Untitled Project'}`,
+      `Format: ${exportFormat.toUpperCase()}`,
+      `Narrator Voice: ${ELEVENLABS_VOICES.find((v) => v.id === narratorVoice)?.name || narratorVoice}`,
+      '',
+      ...generated.map((ch) => `Chapter ${ch.number}: ${ch.title}`),
+      '',
+      'This is a placeholder bundle manifest for audiobook export.',
+      'Replace with binary packaging once audio generation endpoints are integrated.',
+    ].join('\n');
+
+    downloadTextFile(`${safeProjectName}-full-audiobook.${exportFormat}.txt`, content);
   };
 
   if (!project) return null;
@@ -180,7 +241,7 @@ export function AudiobookPanel() {
               return (
                 <div key={ch.id} className="flex items-center gap-3 p-3 rounded-xl glass-pill">
                   <button
-                    onClick={() => isGenerated ? setPlaying(!playing) : generateChapter(ch.id)}
+                    onClick={() => handleChapterAction(ch.id)}
                     disabled={isGenerating}
                     className={cn(
                       'w-8 h-8 rounded-full flex items-center justify-center transition-all flex-shrink-0',
@@ -198,7 +259,10 @@ export function AudiobookPanel() {
                     </div>
                   </div>
                   {isGenerated && (
-                    <button className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary">
+                    <button
+                      onClick={() => downloadChapter(ch.id)}
+                      className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary"
+                    >
                       <Download size={14} />
                     </button>
                   )}
@@ -210,14 +274,41 @@ export function AudiobookPanel() {
           {/* Export */}
           {generatedChapters.size > 0 && (
             <div className="mt-4 pt-4 border-t border-black/5">
-              <button className="w-full py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-medium flex items-center justify-center gap-2 hover:shadow-lg transition-all">
+              <button
+                onClick={exportAll}
+                className="w-full py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-medium flex items-center justify-center gap-2 hover:shadow-lg transition-all"
+              >
                 <Download size={16} />
                 Export Full Audiobook ({generatedChapters.size} chapters)
               </button>
               <div className="flex gap-2 mt-2">
-                <button className="flex-1 py-2 rounded-lg glass-pill text-xs text-text-secondary hover:bg-white/60">MP3</button>
-                <button className="flex-1 py-2 rounded-lg glass-pill text-xs text-text-secondary hover:bg-white/60">M4B (Audible)</button>
-                <button className="flex-1 py-2 rounded-lg glass-pill text-xs text-text-secondary hover:bg-white/60">WAV</button>
+                <button
+                  onClick={() => setExportFormat('mp3')}
+                  className={cn(
+                    'flex-1 py-2 rounded-lg text-xs transition-all',
+                    exportFormat === 'mp3' ? 'bg-text-primary text-text-inverse' : 'glass-pill text-text-secondary hover:bg-white/60',
+                  )}
+                >
+                  MP3
+                </button>
+                <button
+                  onClick={() => setExportFormat('m4b')}
+                  className={cn(
+                    'flex-1 py-2 rounded-lg text-xs transition-all',
+                    exportFormat === 'm4b' ? 'bg-text-primary text-text-inverse' : 'glass-pill text-text-secondary hover:bg-white/60',
+                  )}
+                >
+                  M4B (Audible)
+                </button>
+                <button
+                  onClick={() => setExportFormat('wav')}
+                  className={cn(
+                    'flex-1 py-2 rounded-lg text-xs transition-all',
+                    exportFormat === 'wav' ? 'bg-text-primary text-text-inverse' : 'glass-pill text-text-secondary hover:bg-white/60',
+                  )}
+                >
+                  WAV
+                </button>
               </div>
             </div>
           )}

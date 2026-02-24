@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { History, ChevronLeft, ChevronRight, RotateCcw, Eye, GitBranch } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { History, ChevronLeft, ChevronRight, RotateCcw, Eye } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useStore } from '../../store';
 
 interface Snapshot {
   id: string;
@@ -18,41 +19,56 @@ interface Props {
 }
 
 export function VersionTimeline({ chapterId, currentProse, onRestore }: Props) {
-  // In production, snapshots come from the database
-  // For now, generate mock history based on current prose
-  const [snapshots] = useState<Snapshot[]>(() => {
-    if (!currentProse) return [];
-    const now = Date.now();
-    return [
-      {
-        id: 'snap-current',
-        timestamp: new Date(now).toISOString(),
-        type: 'human-edit',
-        wordCount: currentProse.split(/\s+/).length,
-        preview: currentProse.slice(0, 200),
-        prose: currentProse,
-      },
-      {
-        id: 'snap-1',
-        timestamp: new Date(now - 3600000).toISOString(),
-        type: 'ai-generated',
-        wordCount: Math.floor(currentProse.split(/\s+/).length * 0.85),
-        preview: currentProse.slice(0, 180) + '...',
-        prose: currentProse.slice(0, -200),
-      },
-      {
-        id: 'snap-2',
-        timestamp: new Date(now - 7200000).toISOString(),
-        type: 'auto-save',
-        wordCount: Math.floor(currentProse.split(/\s+/).length * 0.6),
-        preview: currentProse.slice(0, 120) + '...',
-        prose: currentProse.slice(0, Math.floor(currentProse.length * 0.6)),
-      },
-    ];
-  });
+  const chapter = useStore((s) => s.chapters.find((c) => c.id === chapterId));
+  const snapshots = useMemo<Snapshot[]>(() => {
+    const rawHistory = Array.isArray((chapter?.aiIntentMetadata as any)?.versionHistory)
+      ? ((chapter?.aiIntentMetadata as any)?.versionHistory as Snapshot[])
+      : [];
+    const normalizedHistory = rawHistory
+      .filter((snap) => !!snap && typeof snap.prose === 'string' && snap.prose.trim().length > 0)
+      .map((snap) => ({
+        id: snap.id || `snap-${snap.timestamp || Date.now()}`,
+        timestamp: snap.timestamp || new Date().toISOString(),
+        type: snap.type || 'auto-save',
+        wordCount: snap.wordCount || (snap.prose.trim() ? snap.prose.trim().split(/\s+/).length : 0),
+        preview: snap.preview || snap.prose.slice(0, 220),
+        prose: snap.prose,
+      }));
+
+    const currentSnapshot: Snapshot | null = currentProse.trim()
+      ? {
+          id: 'snap-current-live',
+          timestamp: chapter?.updatedAt || new Date().toISOString(),
+          type: chapter?.status === 'draft-generated' ? 'ai-generated' : 'human-edit',
+          wordCount: currentProse.trim().split(/\s+/).length,
+          preview: currentProse.slice(0, 220),
+          prose: currentProse,
+        }
+      : null;
+
+    const combined = [...normalizedHistory];
+    const hasCurrent = combined.some((snap) => snap.prose === currentProse);
+    if (currentSnapshot && !hasCurrent) combined.push(currentSnapshot);
+
+    const deduped: Snapshot[] = [];
+    const seen = new Set<string>();
+    for (const snap of combined) {
+      const key = `${snap.timestamp}-${snap.prose.slice(0, 120)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(snap);
+    }
+
+    return deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [chapter?.aiIntentMetadata, chapter?.status, chapter?.updatedAt, currentProse]);
 
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [showDiff, setShowDiff] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+
+  useEffect(() => {
+    if (selectedIdx <= snapshots.length - 1) return;
+    setSelectedIdx(0);
+  }, [selectedIdx, snapshots.length]);
 
   if (snapshots.length === 0) {
     return (
@@ -63,9 +79,9 @@ export function VersionTimeline({ chapterId, currentProse, onRestore }: Props) {
     );
   }
 
-  const selected = snapshots[selectedIdx];
-  const typeLabels = { 'ai-generated': '✨ AI Generated', 'human-edit': '✏️ Edited', 'auto-save': '💾 Auto-saved' };
-  const typeColors = { 'ai-generated': 'bg-purple-100 text-purple-700', 'human-edit': 'bg-blue-100 text-blue-700', 'auto-save': 'bg-gray-100 text-gray-600' };
+  const selected = snapshots[selectedIdx] || snapshots[0];
+  const typeLabels = { 'ai-generated': 'AI Generated', 'human-edit': 'Edited', 'auto-save': 'Auto-saved' };
+  const typeColors = { 'ai-generated': 'bg-emerald-100 text-emerald-700', 'human-edit': 'bg-blue-100 text-blue-700', 'auto-save': 'bg-gray-100 text-gray-600' };
 
   return (
     <div className="border-t border-black/5">
@@ -127,10 +143,10 @@ export function VersionTimeline({ chapterId, currentProse, onRestore }: Props) {
           
           <div className="flex gap-2 mt-3">
             <button
-              onClick={() => setShowDiff(!showDiff)}
+              onClick={() => setShowPreview(!showPreview)}
               className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg glass-pill text-xs text-text-secondary hover:bg-white/60"
             >
-              <Eye size={12} /> {showDiff ? 'Hide' : 'Show'} Changes
+              <Eye size={12} /> {showPreview ? 'Hide' : 'Show'} Snapshot
             </button>
             {selectedIdx > 0 && (
               <button
@@ -141,6 +157,15 @@ export function VersionTimeline({ chapterId, currentProse, onRestore }: Props) {
               </button>
             )}
           </div>
+
+          {showPreview && (
+            <div className="mt-3 rounded-lg border border-black/10 bg-white/70 p-2.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary mb-1.5">Snapshot Preview</div>
+              <div className="text-xs leading-relaxed text-text-secondary max-h-28 overflow-y-auto whitespace-pre-wrap">
+                {selected.prose}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

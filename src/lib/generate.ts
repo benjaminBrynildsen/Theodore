@@ -1,6 +1,7 @@
 // Frontend generation client — calls server API with streaming support
 
-const DEFAULT_USER_ID = 'user-ben';
+import { useAuthStore } from '../store/auth';
+import { useCreditsStore } from '../store/credits';
 
 interface GenerateOptions {
   prompt: string;
@@ -27,10 +28,12 @@ interface GenerateResult {
 
 // Non-streaming generation
 export async function generateText(options: GenerateOptions): Promise<GenerateResult> {
+  const fallbackUserId = useAuthStore.getState().user?.id;
   const res = await fetch('/api/generate', {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...options, userId: options.userId || DEFAULT_USER_ID }),
+    body: JSON.stringify({ ...options, userId: options.userId || fallbackUserId }),
   });
 
   if (!res.ok) {
@@ -41,7 +44,18 @@ export async function generateText(options: GenerateOptions): Promise<GenerateRe
     throw new Error(err.error || `Generation failed: ${res.status}`);
   }
 
-  return res.json();
+  const data = await res.json() as GenerateResult;
+  useCreditsStore.getState().recordUsage({
+    action: options.action as any,
+    creditsUsed: data.usage.creditsUsed || 0,
+    tokensInput: data.usage.inputTokens || 0,
+    tokensOutput: data.usage.outputTokens || 0,
+    model: data.model,
+    projectId: options.projectId,
+    chapterId: options.chapterId,
+    creditsRemaining: data.usage.creditsRemaining,
+  });
+  return data;
 }
 
 // Streaming generation
@@ -51,10 +65,12 @@ export async function generateStream(
   onDone?: (usage: GenerateResult['usage']) => void,
   onError?: (error: string) => void,
 ): Promise<void> {
+  const fallbackUserId = useAuthStore.getState().user?.id;
   const res = await fetch('/api/generate/stream', {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...options, userId: options.userId || DEFAULT_USER_ID }),
+    body: JSON.stringify({ ...options, userId: options.userId || fallbackUserId }),
   });
 
   if (!res.ok) {
@@ -91,6 +107,16 @@ export async function generateStream(
         if (event.type === 'text') {
           onText(event.text);
         } else if (event.type === 'done') {
+          useCreditsStore.getState().recordUsage({
+            action: options.action as any,
+            creditsUsed: event.usage?.creditsUsed || 0,
+            tokensInput: event.usage?.inputTokens || 0,
+            tokensOutput: event.usage?.outputTokens || 0,
+            model: options.model || 'auto',
+            projectId: options.projectId,
+            chapterId: options.chapterId,
+            creditsRemaining: event.usage?.creditsRemaining,
+          });
           onDone?.(event.usage);
         } else if (event.type === 'error') {
           onError?.(event.error);

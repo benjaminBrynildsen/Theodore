@@ -8,6 +8,8 @@ import {
 import { UsageDashboard } from '../credits/UsageDashboard';
 import { useSettingsStore, type SettingsSection } from '../../store/settings';
 import { useCreditsStore } from '../../store/credits';
+import { useAuthStore } from '../../store/auth';
+import { PLAN_DETAILS, type PlanTier } from '../../types/credits';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 import type {
@@ -316,12 +318,11 @@ function AISection() {
         value={s.preferredModel}
         onChange={(v) => updateAI({ preferredModel: v })}
         label="Preferred Model"
-        description="Auto selects the best model for each task"
+        description="Select which OpenAI model to use for generation"
         options={[
           { value: 'auto', label: 'Auto' },
-          { value: 'claude-opus', label: 'Opus' },
-          { value: 'claude-sonnet', label: 'Sonnet' },
-          { value: 'gpt-4o', label: 'GPT-4o' },
+          { value: 'gpt-4.1', label: 'GPT-4.1' },
+          { value: 'gpt-5.2', label: 'GPT-5.2' },
         ]}
       />
       <SliderControl
@@ -511,39 +512,28 @@ const SECTIONS: { id: SettingsSection; label: string; icon: typeof Pen; descript
 
 export function SettingsView() {
   const { settingsViewSection, setSettingsViewSection, setShowSettingsView, resetAll } = useSettingsStore();
-  const { plan, setByokKey, clearByokKey } = useCreditsStore();
+  const { plan } = useCreditsStore();
   const [activeSection, setActiveSection] = useState<SettingsSection>(settingsViewSection);
   const [mobileShowContent, setMobileShowContent] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState(plan.byokApiKey || '');
-  const [provider, setProvider] = useState<'Anthropic' | 'OpenAI' | 'OpenRouter'>('Anthropic');
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
-  const [saveMessage, setSaveMessage] = useState('');
-  const userId = 'user-ben';
-
-  const detectProviderFromKey = (key: string): 'anthropic' | 'openai' | 'openrouter' => {
-    if (key.startsWith('sk-ant-')) return 'anthropic';
-    if (key.startsWith('sk-or-v1-')) return 'openrouter';
-    return 'openai';
-  };
+  const [billingState, setBillingState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [billingMessage, setBillingMessage] = useState('');
+  const bootstrapAuth = useAuthStore((s) => s.bootstrap);
+  const paidTiers: PlanTier[] = ['writer', 'author', 'studio'];
 
   useEffect(() => {
     setActiveSection(settingsViewSection);
   }, [settingsViewSection]);
 
   useEffect(() => {
-    setApiKeyInput(plan.byokApiKey || '');
-  }, [plan.byokApiKey]);
-
-  useEffect(() => {
-    api.getUser(userId).then((user) => {
-      if (user?.byokKey) {
-        setByokKey(user.byokKey);
-      }
-      if (user?.byokProvider === 'anthropic') setProvider('Anthropic');
-      if (user?.byokProvider === 'openai') setProvider('OpenAI');
-      if (user?.byokProvider === 'openrouter') setProvider('OpenRouter');
-    }).catch(() => {});
-  }, []);
+    const params = new URLSearchParams(window.location.search);
+    const billing = params.get('billing');
+    if (!billing) return;
+    params.delete('billing');
+    params.delete('session_id');
+    const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', next);
+    void bootstrapAuth();
+  }, [bootstrapAuth]);
 
   const handleSectionClick = (id: SettingsSection) => {
     setActiveSection(id);
@@ -636,122 +626,90 @@ export function SettingsView() {
               <div className="animate-fade-in">
                 <UsageDashboard />
                 <div className="pt-5">
-                  <div className="rounded-2xl border border-black/5 p-4 space-y-3">
+                  <div className="rounded-2xl border border-black/5 p-4 space-y-3 mb-4">
                     <div>
-                      <h3 className="text-sm font-semibold">Bring Your Own API Key</h3>
+                      <h3 className="text-sm font-semibold">Subscription</h3>
                       <p className="text-xs text-text-tertiary mt-1">
-                        Keep API management inside Settings. Add, update, or remove your key here.
+                        Plans are priced at 10x your estimated model cost for predictable margins.
                       </p>
                     </div>
 
-                    <div>
-                      <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">API Key</label>
-                      <input
-                        type="password"
-                        value={apiKeyInput}
-                        onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder="sk-..."
-                        className="w-full mt-1 px-3 py-2.5 rounded-xl glass-input text-sm font-mono"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Provider</label>
-                      <div className="flex gap-2 mt-1">
-                        {(['Anthropic', 'OpenAI', 'OpenRouter'] as const).map((p) => (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {paidTiers.map((tier) => {
+                        const details = PLAN_DETAILS[tier];
+                        const isCurrent = plan.tier === tier;
+                        return (
                           <button
-                            key={p}
-                            onClick={() => setProvider(p)}
+                            key={tier}
+                            onClick={async () => {
+                              if (isCurrent) return;
+                              setBillingState('loading');
+                              setBillingMessage('');
+                              try {
+                                const checkout = await api.billingCheckout({ tier: tier as 'writer' | 'author' | 'studio' });
+                                if (!checkout?.url) throw new Error('Stripe checkout URL missing.');
+                                window.location.href = checkout.url;
+                              } catch (e: any) {
+                                setBillingState('error');
+                                setBillingMessage(e?.message || 'Unable to start checkout.');
+                              }
+                            }}
+                            disabled={billingState === 'loading'}
                             className={cn(
-                              'flex-1 py-2 text-xs rounded-xl transition-all',
-                              provider === p ? 'bg-text-primary text-text-inverse' : 'glass-pill text-text-secondary hover:bg-white/60'
+                              'rounded-xl border px-3 py-3 text-left transition-all',
+                              isCurrent
+                                ? 'border-black/20 bg-black/5'
+                                : 'border-black/10 hover:border-black/20 hover:bg-black/[0.02]',
+                              billingState === 'loading' && 'cursor-not-allowed opacity-60'
                             )}
                           >
-                            {p}
+                            <div className="text-sm font-semibold">{details.name}</div>
+                            <div className="text-xs text-text-tertiary mt-0.5">{details.price}</div>
+                            <div className="text-[11px] text-text-tertiary mt-1">{details.credits.toLocaleString()} credits/mo</div>
+                            {isCurrent && <div className="text-[10px] text-text-primary mt-2">Current plan</div>}
                           </button>
-                        ))}
-                      </div>
+                        );
+                      })}
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         onClick={async () => {
-                          const key = apiKeyInput.trim();
-                          if (!key) return;
-                          setSaveState('saving');
-                          setSaveMessage('');
+                          setBillingState('loading');
+                          setBillingMessage('');
                           try {
-                            const providerFromKey = detectProviderFromKey(key);
-                            const effectiveProvider = providerFromKey === 'anthropic'
-                              ? 'Anthropic'
-                              : providerFromKey === 'openrouter'
-                              ? 'OpenRouter'
-                              : 'OpenAI';
-                            setProvider(effectiveProvider);
-                            await api.upsertUser({
-                              id: userId,
-                              email: 'ben@theodore.app',
-                              name: 'Ben',
-                              plan: 'byok',
-                              byokKey: key,
-                              byokProvider: providerFromKey,
-                            });
-                            setByokKey(key);
-                            setSaveState('success');
-                            setSaveMessage(`API key updated successfully (${effectiveProvider}).`);
+                            const portal = await api.billingPortal();
+                            if (!portal?.url) throw new Error('Billing portal URL missing.');
+                            window.location.href = portal.url;
                           } catch (e: any) {
-                            setSaveState('error');
-                            setSaveMessage(e?.message || 'Failed to save API key.');
+                            setBillingState('error');
+                            setBillingMessage(e?.message || 'Unable to open billing portal.');
                           }
                         }}
-                        disabled={!apiKeyInput.trim() || saveState === 'saving'}
+                        disabled={billingState === 'loading' || !plan.stripeCustomerId}
                         className={cn(
-                          'flex-1 py-2.5 rounded-xl text-sm font-medium transition-all',
-                          apiKeyInput.trim()
-                            ? 'bg-text-primary text-text-inverse shadow-md hover:shadow-lg active:scale-[0.98]'
+                          'px-3 py-2 rounded-xl text-xs font-medium transition-all',
+                          plan.stripeCustomerId && billingState !== 'loading'
+                            ? 'bg-text-primary text-text-inverse hover:shadow-md'
                             : 'bg-black/5 text-text-tertiary cursor-not-allowed'
                         )}
                       >
-                        {plan.byokApiKey ? 'Update Key' : 'Connect Key'}
+                        Manage Billing
                       </button>
-                      {plan.byokApiKey && (
-                        <button
-                          onClick={async () => {
-                            setSaveState('saving');
-                            setSaveMessage('');
-                            try {
-                              await api.updateUser(userId, {
-                                plan: 'writer',
-                                byokKey: null,
-                                byokProvider: null,
-                              });
-                              clearByokKey();
-                              setApiKeyInput('');
-                              setSaveState('success');
-                              setSaveMessage('API key removed.');
-                            } catch (e: any) {
-                              setSaveState('error');
-                              setSaveMessage(e?.message || 'Failed to remove API key.');
-                            }
-                          }}
-                          disabled={saveState === 'saving'}
-                          className="px-3 py-2.5 rounded-xl text-sm text-text-tertiary hover:text-text-primary hover:bg-black/[0.03] transition-all"
-                        >
-                          Remove
-                        </button>
+                      {!plan.stripeCustomerId && (
+                        <span className="text-[11px] text-text-tertiary self-center">
+                          Start a paid plan first to enable billing portal.
+                        </span>
                       )}
                     </div>
-                    {saveState !== 'idle' && (
-                      <div className={cn(
-                        'text-xs rounded-lg px-3 py-2',
-                        saveState === 'success' && 'bg-success/10 text-success',
-                        saveState === 'error' && 'bg-error/10 text-error',
-                        saveState === 'saving' && 'bg-black/5 text-text-tertiary'
-                      )}>
-                        {saveState === 'saving' ? 'Saving API key...' : saveMessage}
+
+                    {billingState === 'error' && (
+                      <div className="text-xs rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2">
+                        {billingMessage}
                       </div>
                     )}
                   </div>
+
                 </div>
               </div>
             )}

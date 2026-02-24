@@ -3,8 +3,13 @@
 const API_BASE = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(options?.headers || {}),
+  };
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    headers,
     ...options,
   });
   if (!res.ok) {
@@ -18,14 +23,33 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ status: string; database: string }>('/health'),
 
+  // ========== Auth ==========
+  authRegister: (data: { email: string; password: string; name?: string }) =>
+    request<{ user: any }>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+  authLogin: (data: { email: string; password: string }) =>
+    request<{ user: any }>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  authLogout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  authMe: () => request<{ user: any }>('/auth/me'),
+  authForgotPassword: (data: { email: string }) =>
+    request<{ ok: boolean; message: string; resetToken?: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  authResetPassword: (data: { token: string; password: string }) =>
+    request<{ ok: boolean; user: any }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   // ========== Users ==========
-  getUser: (id: string) => request<any>(`/users/${id}`),
-  upsertUser: (data: any) => request<any>('/users', { method: 'POST', body: JSON.stringify(data) }),
-  updateUser: (id: string, data: any) => request<any>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getMe: () => request<any>('/users/me'),
+  updateMe: (data: any) => request<any>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
+  getUser: (id: string) => request<any>(`/users/${id}`), // legacy
+  upsertUser: (data: any) => request<any>('/users', { method: 'POST', body: JSON.stringify(data) }), // legacy
+  updateUser: (id: string, data: any) => request<any>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }), // legacy
 
   // ========== Projects ==========
-  listProjects: (userId?: string) =>
-    request<any[]>(userId ? `/projects?userId=${userId}` : '/projects'),
+  listProjects: (_userId?: string) => request<any[]>('/projects'),
   getProject: (id: string) => request<any>(`/projects/${id}`),
   createProject: (data: any) => request<any>('/projects', { method: 'POST', body: JSON.stringify(data) }),
   updateProject: (id: string, data: any) =>
@@ -49,4 +73,11 @@ export const api = {
   // ========== Transactions ==========
   listTransactions: (userId: string) => request<any[]>(`/users/${userId}/transactions`),
   createTransaction: (data: any) => request<any>('/transactions', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ========== Billing ==========
+  billingPlans: () => request<any>('/billing/plans'),
+  billingStatus: () => request<any>('/billing/status'),
+  billingCheckout: (data: { tier: 'writer' | 'author' | 'studio' }) =>
+    request<{ url: string; sessionId: string }>('/billing/checkout', { method: 'POST', body: JSON.stringify(data) }),
+  billingPortal: () => request<{ url: string }>('/billing/portal', { method: 'POST' }),
 };

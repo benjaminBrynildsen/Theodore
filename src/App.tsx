@@ -13,6 +13,10 @@ import { SettingsView } from './components/views/SettingsView';
 import { ReadingMode } from './components/views/ReadingMode';
 import { ToolsView } from './components/views/ToolsView';
 import { useSettingsStore } from './store/settings';
+import { useAuthStore } from './store/auth';
+import { useCreditsStore } from './store/credits';
+import { api } from './lib/api';
+import { AuthView } from './components/views/AuthView';
 
 export default function App() {
   const {
@@ -25,25 +29,66 @@ export default function App() {
     activeProjectId,
     projects,
     loadProjects,
+    setCurrentUserId,
     rightSidebarOpen,
   } = useStore();
+  const { user, initialized, bootstrap } = useAuthStore();
+  const hydrateCreditsFromUser = useCreditsStore((s) => s.hydrateFromUser);
+  const setCreditTransactions = useCreditsStore((s) => s.setTransactions);
   const { showSettingsView } = useSettingsStore();
   const { activeEntryId, getEntry, setActiveEntry, loadEntries } = useCanonStore();
   const activeCanonEntry = activeEntryId ? getEntry(activeEntryId) : undefined;
   const hasActiveProject = !!activeProjectId && projects.some((p) => p.id === activeProjectId);
 
-  // Load data from API on mount
+  // Resolve session on mount
   useEffect(() => {
-    loadProjects();
-  }, [loadProjects]);
+    bootstrap();
+  }, [bootstrap]);
+
+  // Bind app data to authenticated user
+  useEffect(() => {
+    const userId = user?.id || null;
+    setCurrentUserId(userId);
+    hydrateCreditsFromUser(user || null);
+    if (userId) {
+      loadProjects();
+      api.listTransactions(userId).then((rows) => {
+        const mapped = rows.map((tx: any) => {
+          const meta = tx.metadata || {};
+          return {
+            id: String(tx.id),
+            action: tx.action,
+            creditsUsed: Number(tx.creditsUsed || 0),
+            tokensInput: Number(meta.inputTokens || 0),
+            tokensOutput: Number(meta.outputTokens || 0),
+            model: tx.model || 'unknown',
+            projectId: meta.projectId,
+            chapterId: tx.chapterId || undefined,
+            timestamp: tx.createdAt || new Date().toISOString(),
+          };
+        });
+        setCreditTransactions(mapped);
+      }).catch(() => setCreditTransactions([]));
+    } else {
+      useStore.setState({
+        projects: [],
+        chapters: [],
+        activeProjectId: null,
+        activeChapterId: null,
+        currentView: 'home',
+      });
+      useCanonStore.setState({ entries: [], activeEntryId: null, editingEntryId: null });
+      setCreditTransactions([]);
+    }
+  }, [hydrateCreditsFromUser, loadProjects, setCreditTransactions, setCurrentUserId, user]);
 
   // Load chapters and canon when active project changes
   useEffect(() => {
-    if (activeProjectId) {
+    if (activeProjectId && user?.id) {
       useStore.getState().loadChapters(activeProjectId);
       loadEntries(activeProjectId);
     }
-  }, [activeProjectId, loadEntries]);
+  }, [activeProjectId, loadEntries, user?.id]);
 
   // Guard against stale persisted view/project ids that can produce a blank center pane.
   useEffect(() => {
@@ -51,6 +96,18 @@ export default function App() {
       setCurrentView('home');
     }
   }, [currentView, hasActiveProject, setCurrentView]);
+
+  if (!initialized) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-bg">
+        <div className="glass-pill px-4 py-2 text-sm text-text-secondary">Checking session...</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthView />;
+  }
 
   return (
     <div className="h-screen flex flex-col bg-bg">

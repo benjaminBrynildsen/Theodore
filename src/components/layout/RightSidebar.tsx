@@ -9,6 +9,7 @@ import { StoryBibleExport } from '../features/StoryBibleExport';
 import { ManuscriptFormatter } from '../features/ManuscriptFormatter';
 import { AudiobookPanel } from '../features/AudiobookPanel';
 import { cn } from '../../lib/utils';
+import type { Chapter } from '../../types';
 
 const AI_AGENTS = [
   { id: 'architect', label: 'Architect', desc: 'Structure & pacing', icon: GitBranch },
@@ -21,14 +22,65 @@ const AI_AGENTS = [
 
 type SidebarTab = 'controls' | 'progress' | 'mood' | 'audio' | 'export';
 
+function cleanSnippet(text: string, fallback: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return fallback;
+  return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
+}
+
+function firstSentence(text: string, fallback: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return fallback;
+  const match = normalized.match(/.+?[.!?](?:\s|$)/);
+  const sentence = (match?.[0] || normalized).trim();
+  return sentence.length > 180 ? `${sentence.slice(0, 177)}...` : sentence;
+}
+
+function buildChapterStructure(chapter: Chapter | null) {
+  if (!chapter) return null;
+
+  const paragraphs = chapter.prose
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const opening = paragraphs[0] || firstSentence(chapter.premise.purpose, 'Open with a clear setup and tension source.');
+  const middle =
+    paragraphs[Math.floor(paragraphs.length / 2)] ||
+    firstSentence(chapter.premise.emotionalBeat || chapter.premise.changes, 'Escalate conflict and emotional pressure.');
+  const ending =
+    paragraphs[paragraphs.length - 1] ||
+    firstSentence(chapter.premise.changes, 'Land on a consequence or turn that drives the next chapter.');
+
+  return [
+    {
+      label: 'Beginning',
+      summary: cleanSnippet(opening, 'Set POV, place, and chapter hook.'),
+      intent: firstSentence(chapter.premise.purpose, 'Establish the chapter objective and tone.'),
+    },
+    {
+      label: 'Middle',
+      summary: cleanSnippet(middle, 'Increase stakes through conflict, revelation, or reversal.'),
+      intent: firstSentence(chapter.premise.emotionalBeat || chapter.premise.changes, 'Complicate the goal and force choices.'),
+    },
+    {
+      label: 'Ending',
+      summary: cleanSnippet(ending, 'Resolve this beat and create momentum into the next chapter.'),
+      intent: firstSentence(chapter.premise.changes, 'Show what changed by chapter end.'),
+    },
+  ];
+}
+
 export function RightSidebar() {
-  const { rightSidebarOpen, getActiveProject, updateProject } = useStore();
+  const { rightSidebarOpen, getActiveProject, updateProject, activeChapterId, chapters } = useStore();
   const { settings } = useSettingsStore();
   const [activeTab, setActiveTab] = useState<SidebarTab>('controls');
   const [agentStates, setAgentStates] = useState<Record<string, boolean>>({
     architect: true, lorekeeper: true, continuity: true, dialogue: false, prose: false, redteam: settings.ai.redTeamEnabled,
   });
   const project = getActiveProject();
+  const activeChapter = activeChapterId ? chapters.find((c) => c.id === activeChapterId) || null : null;
+  const chapterStructure = buildChapterStructure(activeChapter);
   
   if (!rightSidebarOpen || !project) return null;
 
@@ -94,6 +146,23 @@ export function RightSidebar() {
       )}
 
       {activeTab !== 'controls' ? null : <>
+      {chapterStructure && (
+        <div className="p-4 border-b border-white/20">
+          <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Chapter Structure</h3>
+          <div className="space-y-2">
+            {chapterStructure.map((segment) => (
+              <div key={segment.label} className="rounded-xl glass-pill p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary mb-1">
+                  {segment.label}
+                </div>
+                <p className="text-sm text-text-primary leading-relaxed">{segment.summary}</p>
+                <p className="text-[11px] text-text-tertiary mt-1">Intent: {segment.intent}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Validation */}
       <div className="p-4 border-b border-white/20">
         <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Validation</h3>

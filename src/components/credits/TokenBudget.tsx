@@ -5,7 +5,7 @@ import { useCanonStore } from '../../store/canon';
 import { useStore } from '../../store';
 import { useSettingsStore } from '../../store/settings';
 import { cn } from '../../lib/utils';
-import type { CreditAction, CREDIT_COSTS } from '../../types/credits';
+import type { CreditAction } from '../../types/credits';
 
 interface Props {
   chapterId: string;
@@ -19,6 +19,10 @@ interface BudgetLine {
   tokens: number;
   icon: typeof Coins;
   detail?: string;
+}
+
+function tokensToCredits(tokens: number): number {
+  return Math.max(1, Math.ceil(tokens / 1000));
 }
 
 export function TokenBudget({ chapterId, action, onConfirm, onCancel }: Props) {
@@ -117,7 +121,7 @@ export function TokenBudget({ chapterId, action, onConfirm, onCancel }: Props) {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Coins size={14} className="text-text-tertiary" />
-          <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Token Budget</span>
+          <span className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Credit Budget</span>
         </div>
         <span className="text-xs text-text-tertiary">{actionLabels[action] || action}</span>
       </div>
@@ -131,9 +135,10 @@ export function TokenBudget({ chapterId, action, onConfirm, onCancel }: Props) {
               <div className="text-xs text-text-secondary truncate">{line.label}</div>
               {line.detail && <div className="text-[10px] text-text-tertiary truncate">{line.detail}</div>}
             </div>
-            <span className="text-xs font-mono text-text-tertiary flex-shrink-0">
-              {line.tokens.toLocaleString()}
-            </span>
+            <div className="text-right flex-shrink-0">
+              <div className="text-xs font-semibold text-text-primary">~{tokensToCredits(line.tokens)} cr</div>
+              <div className="text-[10px] font-mono text-text-tertiary">{line.tokens.toLocaleString()} tok</div>
+            </div>
           </div>
         ))}
 
@@ -141,8 +146,8 @@ export function TokenBudget({ chapterId, action, onConfirm, onCancel }: Props) {
         <div className="flex items-center justify-between px-3 py-2.5 border-t border-black/10 bg-black/[0.02]">
           <span className="text-xs font-semibold">Total</span>
           <div className="text-right">
-            <span className="text-xs font-mono font-semibold">{totalTokens.toLocaleString()} tokens</span>
-            <span className="text-[10px] text-text-tertiary ml-2">≈ {estimatedCredits} credits</span>
+            <span className="text-xs font-semibold">{estimatedCredits} credits</span>
+            <span className="text-[10px] text-text-tertiary ml-2">≈ {totalTokens.toLocaleString()} tokens</span>
           </div>
         </div>
       </div>
@@ -153,9 +158,9 @@ export function TokenBudget({ chapterId, action, onConfirm, onCancel }: Props) {
         affordable ? 'bg-success/5 border border-success/10' : 'bg-error/5 border border-error/10'
       )}>
         <div>
-          <div className="text-xs font-medium">{plan.tier === 'byok' ? 'BYOK — Your API' : `${plan.creditsRemaining.toLocaleString()} credits remaining`}</div>
+          <div className="text-xs font-medium">{`${plan.creditsRemaining.toLocaleString()} credits remaining`}</div>
           <div className="text-[10px] text-text-tertiary">
-            {plan.tier !== 'byok' && `${plan.creditsUsed.toLocaleString()} / ${plan.creditsTotal.toLocaleString()} used this month`}
+            {`${plan.creditsUsed.toLocaleString()} / ${plan.creditsTotal.toLocaleString()} used this month`}
           </div>
         </div>
         {!affordable && (
