@@ -41,6 +41,7 @@ export default function App() {
   const { activeEntryId, getEntry, setActiveEntry, loadEntries } = useCanonStore();
   const activeCanonEntry = activeEntryId ? getEntry(activeEntryId) : undefined;
   const hasActiveProject = !!activeProjectId && projects.some((p) => p.id === activeProjectId);
+  const [showAuth, setShowAuth] = useState(false);
 
   // Resolve session on mount
   useEffect(() => {
@@ -106,8 +107,6 @@ export default function App() {
       </div>
     );
   }
-
-  const [showAuth, setShowAuth] = useState(false);
 
   if (!user) {
     if (showAuth) return <AuthView onBack={() => setShowAuth(false)} />;
