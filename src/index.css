@@ -189,3 +189,15 @@ body {
 .caret-blink {
   animation: caretBlink 0.95s steps(1, end) infinite;
 }
+
+/* Safe area for bottom nav on notched devices */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Bottom padding on mobile to clear the fixed bottom nav */
+@media (max-width: 639px) {
+  .pb-bottom-nav {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}

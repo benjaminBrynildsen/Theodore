@@ -28,7 +28,37 @@ import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlan
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001');
 
-app.use(cors({ origin: true, credentials: true }));
+const APP_URL = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, '') : null;
+const DEV_ALLOWED_ORIGINS = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3001',
+  'http://127.0.0.1:3001',
+];
+const allowedOrigins = new Set<string>([
+  ...(APP_URL ? [APP_URL] : []),
+  ...(process.env.NODE_ENV === 'production' ? [] : DEV_ALLOWED_ORIGINS),
+]);
+
+function normalizeOrigin(originHeader?: string | null): string | null {
+  if (!originHeader || typeof originHeader !== 'string') return null;
+  const normalized = originHeader.trim().replace(/\/$/, '');
+  return normalized || null;
+}
+
+function isAllowedOrigin(originHeader?: string | null): boolean {
+  const normalized = normalizeOrigin(originHeader);
+  if (!normalized) return false;
+  return allowedOrigins.has(normalized);
+}
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    return callback(null, isAllowedOrigin(origin));
+  },
+  credentials: true,
+}));
 const jsonParser = express.json({ limit: '10mb' });
 app.use((req, res, next) => {
   if (req.path === '/api/billing/webhook') return next();
@@ -76,9 +106,62 @@ function getTierCredits(tier: string): number {
 
 function resolveFrontendOrigin(req: express.Request): string {
   const origin = req.get('origin');
-  if (origin) return origin.replace(/\/$/, '');
-  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
+  if (isAllowedOrigin(origin)) return normalizeOrigin(origin) as string;
+  if (APP_URL) return APP_URL;
   return 'http://localhost:5173';
+}
+
+function respondInternalError(res: express.Response, scope: string, error: unknown): void {
+  console.error(`[${scope}]`, error);
+  res.status(500).json({ error: 'Internal server error' });
+}
+
+type RateLimitEntry = { count: number; resetAt: number };
+const rateLimitStore = new Map<string, RateLimitEntry>();
+const activeGenerationUsers = new Set<string>();
+
+function pruneRateLimitStore(now: number): void {
+  if (rateLimitStore.size < 2000) return;
+  for (const [key, entry] of rateLimitStore.entries()) {
+    if (entry.resetAt <= now) {
+      rateLimitStore.delete(key);
+    }
+  }
+}
+
+function takeRateLimitToken(
+  res: express.Response,
+  scope: string,
+  identity: string,
+  limit: number,
+  windowMs: number,
+): boolean {
+  const now = Date.now();
+  pruneRateLimitStore(now);
+  const key = `${scope}:${identity}`;
+  const existing = rateLimitStore.get(key);
+  if (!existing || existing.resetAt <= now) {
+    rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (existing.count >= limit) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSeconds));
+    res.status(429).json({ error: 'Too many attempts. Please try again shortly.' });
+    return false;
+  }
+  existing.count += 1;
+  rateLimitStore.set(key, existing);
+  return true;
+}
+
+function requestClientIp(req: express.Request): string {
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+function normalizedEmailFromBody(req: express.Request): string {
+  const email = typeof req.body?.email === 'string' ? req.body.email : '';
+  return normalizeEmail(email);
 }
 
 function isStripeSubscriptionActive(status?: string | null): boolean {
@@ -283,7 +366,7 @@ app.get('/api/billing/status', async (req, res) => {
       stripeCancelAtPeriodEnd: Boolean((user as any).stripeCancelAtPeriodEnd),
     });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'api', e);
   }
 });
 
@@ -354,7 +437,7 @@ app.post('/api/billing/checkout', async (req, res) => {
 
     res.json({ url: session.url, sessionId: session.id });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'billing.checkout', e);
   }
 });
 
@@ -378,7 +461,7 @@ app.post('/api/billing/portal', async (req, res) => {
     });
     res.json({ url: session.url });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'billing.portal', e);
   }
 });
 
@@ -490,14 +573,18 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
 
     res.json({ received: true });
   } catch (e: any) {
-    console.error('Stripe webhook error:', e.message);
-    res.status(400).json({ error: e.message });
+    console.error('Stripe webhook error:', e);
+    res.status(400).json({ error: 'Invalid webhook payload.' });
   }
 });
 
 // ========== Auth ==========
 app.post('/api/auth/register', async (req, res) => {
   try {
+    const ip = requestClientIp(req);
+    const emailForLimit = normalizedEmailFromBody(req) || 'unknown-email';
+    if (!takeRateLimitToken(res, 'auth.register', `${ip}:${emailForLimit}`, 8, 15 * 60 * 1000)) return;
+
     const email = normalizeEmail(req.body?.email || '');
     const password = String(req.body?.password || '');
     const name = typeof req.body?.name === 'string' ? req.body.name.trim() : null;
@@ -539,12 +626,16 @@ app.post('/api/auth/register', async (req, res) => {
     await createSession(user.id, req, res);
     res.json({ user: toSafeUser(user) });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'auth.register', e);
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
   try {
+    const ip = requestClientIp(req);
+    const emailForLimit = normalizedEmailFromBody(req) || 'unknown-email';
+    if (!takeRateLimitToken(res, 'auth.login', `${ip}:${emailForLimit}`, 12, 15 * 60 * 1000)) return;
+
     const email = normalizeEmail(req.body?.email || '');
     const password = String(req.body?.password || '');
     if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
@@ -557,7 +648,7 @@ app.post('/api/auth/login', async (req, res) => {
     await createSession(user.id, req, res);
     res.json({ user: toSafeUser(user) });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'auth.login', e);
   }
 });
 
@@ -566,7 +657,7 @@ app.post('/api/auth/logout', async (req, res) => {
     await destroySession(req, res);
     res.json({ ok: true });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'auth.logout', e);
   }
 });
 
@@ -576,20 +667,25 @@ app.get('/api/auth/me', async (req, res) => {
     if (!auth) return res.status(401).json({ error: 'Not signed in' });
     res.json({ user: toSafeUser(auth.user) });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'auth.me', e);
   }
 });
 
 app.post('/api/auth/forgot-password', async (req, res) => {
   try {
+    const ip = requestClientIp(req);
+    const emailForLimit = normalizedEmailFromBody(req) || 'unknown-email';
+    if (!takeRateLimitToken(res, 'auth.forgot', `${ip}:${emailForLimit}`, 8, 15 * 60 * 1000)) return;
+
     const email = normalizeEmail(req.body?.email || '');
     if (!email) return res.status(400).json({ error: 'Email is required.' });
 
     const user = await getUserByEmail(email);
     let resetToken: string | undefined;
+    const allowDevResetToken = process.env.ALLOW_DEV_RESET_TOKEN === 'true';
     if (user?.passwordHash) {
       resetToken = await setResetToken(user.id);
-      if (process.env.NODE_ENV !== 'production') {
+      if (allowDevResetToken) {
         console.info(`[Auth] Password reset token for ${email}: ${resetToken}`);
       }
     }
@@ -597,15 +693,18 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     res.json({
       ok: true,
       message: 'If that email exists, a reset link has been generated.',
-      ...(process.env.NODE_ENV !== 'production' && resetToken ? { resetToken } : {}),
+      ...(allowDevResetToken && resetToken ? { resetToken } : {}),
     });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'auth.forgotPassword', e);
   }
 });
 
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
+    const ip = requestClientIp(req);
+    if (!takeRateLimitToken(res, 'auth.resetPassword', ip, 8, 15 * 60 * 1000)) return;
+
     const token = String(req.body?.token || '');
     const password = String(req.body?.password || '');
     if (!token) return res.status(400).json({ error: 'Reset token is required.' });
@@ -631,7 +730,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     await createSession(user.id, req, res);
     res.json({ ok: true, user: toSafeUser(updated) });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'auth.resetPassword', e);
   }
 });
 
@@ -642,7 +741,7 @@ app.get('/api/users/me', async (req, res) => {
     if (!auth) return;
     res.json(toSafeUser(auth.user));
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'api', e);
   }
 });
 
@@ -670,7 +769,7 @@ app.patch('/api/users/me', async (req, res) => {
     const [updated] = await db.update(users).set(updates).where(eq(users.id, auth.user.id)).returning();
     res.json(toSafeUser(updated));
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'api', e);
   }
 });
 
@@ -681,7 +780,7 @@ app.get('/api/projects', async (req, res) => {
     if (!auth) return;
     const result = await db.select().from(projects).where(eq(projects.userId, auth.user.id));
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.get('/api/projects/:id', async (req, res) => {
@@ -691,7 +790,7 @@ app.get('/api/projects/:id', async (req, res) => {
     const project = await getOwnedProject(req.params.id, auth.user.id);
     if (!project) return res.status(404).json({ error: 'Not found' });
     res.json(project);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.post('/api/projects', async (req, res) => {
@@ -700,7 +799,7 @@ app.post('/api/projects', async (req, res) => {
     if (!auth) return;
     const [project] = await db.insert(projects).values(buildProjectInsert(req.body, auth.user.id)).returning();
     res.json(project);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.patch('/api/projects/:id', async (req, res) => {
@@ -712,7 +811,7 @@ app.patch('/api/projects/:id', async (req, res) => {
 
     const [project] = await db.update(projects).set(buildProjectUpdate(req.body)).where(eq(projects.id, req.params.id)).returning();
     res.json(project);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.delete('/api/projects/:id', async (req, res) => {
@@ -724,7 +823,7 @@ app.delete('/api/projects/:id', async (req, res) => {
 
     await db.delete(projects).where(eq(projects.id, req.params.id));
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 // ========== Chapters ==========
@@ -736,7 +835,7 @@ app.get('/api/projects/:projectId/chapters', async (req, res) => {
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const result = await db.select().from(chapters).where(eq(chapters.projectId, req.params.projectId));
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.post('/api/chapters', async (req, res) => {
@@ -749,7 +848,7 @@ app.post('/api/chapters', async (req, res) => {
 
     const [chapter] = await db.insert(chapters).values(buildChapterInsert(req.body, projectId)).returning();
     res.json(chapter);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.patch('/api/chapters/:id', async (req, res) => {
@@ -761,7 +860,7 @@ app.patch('/api/chapters/:id', async (req, res) => {
 
     const [updated] = await db.update(chapters).set(buildChapterUpdate(req.body, chapter.projectId)).where(eq(chapters.id, req.params.id)).returning();
     res.json(updated);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.delete('/api/chapters/:id', async (req, res) => {
@@ -773,7 +872,7 @@ app.delete('/api/chapters/:id', async (req, res) => {
 
     await db.delete(chapters).where(eq(chapters.id, req.params.id));
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 // ========== Canon Entries ==========
@@ -785,7 +884,7 @@ app.get('/api/projects/:projectId/canon', async (req, res) => {
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const result = await db.select().from(canonEntries).where(eq(canonEntries.projectId, req.params.projectId));
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.post('/api/canon', async (req, res) => {
@@ -798,7 +897,7 @@ app.post('/api/canon', async (req, res) => {
 
     const [entry] = await db.insert(canonEntries).values(buildCanonInsert(req.body, projectId)).returning();
     res.json(entry);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.patch('/api/canon/:id', async (req, res) => {
@@ -810,7 +909,7 @@ app.patch('/api/canon/:id', async (req, res) => {
 
     const [updated] = await db.update(canonEntries).set(buildCanonUpdate(req.body, entry.projectId)).where(eq(canonEntries.id, req.params.id)).returning();
     res.json(updated);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.delete('/api/canon/:id', async (req, res) => {
@@ -822,7 +921,7 @@ app.delete('/api/canon/:id', async (req, res) => {
 
     await db.delete(canonEntries).where(eq(canonEntries.id, req.params.id));
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 // ========== Credit Transactions ==========
@@ -833,7 +932,7 @@ app.get('/api/users/:userId/transactions', async (req, res) => {
     if (req.params.userId !== auth.user.id) return res.status(403).json({ error: 'Forbidden' });
     const result = await db.select().from(creditTransactions).where(eq(creditTransactions.userId, auth.user.id));
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 app.post('/api/transactions', async (req, res) => {
@@ -859,7 +958,7 @@ app.post('/api/transactions', async (req, res) => {
       }).where(eq(users.id, auth.user.id));
     }
     res.json(tx);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 // ========== AI Generation ==========
@@ -887,42 +986,51 @@ app.post('/api/generate', async (req, res) => {
     if (user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
-    const result = await generate({
-      prompt, systemPrompt, model, maxTokens, temperature,
-      userId: user.id, projectId, chapterId, action,
-    });
+    if (activeGenerationUsers.has(user.id)) {
+      return res.status(429).json({ error: 'Generation already in progress for this account.' });
+    }
 
-    await db.insert(creditTransactions).values({
-      userId: user.id,
-      action: action || 'generate',
-      creditsUsed: result.creditsUsed,
-      model: result.model,
-      chapterId,
-      metadata: {
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        projectId,
-      },
-    });
+    activeGenerationUsers.add(user.id);
+    try {
+      const result = await generate({
+        prompt, systemPrompt, model, maxTokens, temperature,
+        userId: user.id, projectId, chapterId, action,
+      });
 
-    await db.update(users).set({
-      creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
-      updatedAt: new Date(),
-    }).where(eq(users.id, user.id));
-
-    res.json({
-      text: result.text,
-      model: result.model,
-      usage: {
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
+      await db.insert(creditTransactions).values({
+        userId: user.id,
+        action: action || 'generate',
         creditsUsed: result.creditsUsed,
+        model: result.model,
+        chapterId,
+        metadata: {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          projectId,
+        },
+      });
+
+      await db.update(users).set({
         creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
-      },
-    });
+        updatedAt: new Date(),
+      }).where(eq(users.id, user.id));
+
+      res.json({
+        text: result.text,
+        model: result.model,
+        usage: {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          creditsUsed: result.creditsUsed,
+          creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
+        },
+      });
+    } finally {
+      activeGenerationUsers.delete(user.id);
+    }
   } catch (e: any) {
     console.error('Generate error:', e.message);
-    res.status(500).json({ error: e.message });
+    respondInternalError(res, 'api', e);
   }
 });
 
@@ -949,53 +1057,61 @@ app.post('/api/generate/stream', async (req, res) => {
     if (user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
+    if (activeGenerationUsers.has(user.id)) {
+      return res.status(429).json({ error: 'Generation already in progress for this account.' });
+    }
 
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    });
+    activeGenerationUsers.add(user.id);
+    try {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
 
-    const result = await generateStream(
-      { prompt, systemPrompt, model, maxTokens, temperature, userId: user.id, projectId, chapterId, action },
-      res,
-    );
+      const result = await generateStream(
+        { prompt, systemPrompt, model, maxTokens, temperature, userId: user.id, projectId, chapterId, action },
+        res,
+      );
 
-    await db.insert(creditTransactions).values({
-      userId: user.id,
-      action: action || 'generate-stream',
-      creditsUsed: result.creditsUsed,
-      model: result.model,
-      chapterId,
-      metadata: {
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
-        projectId,
-      },
-    });
-
-    await db.update(users).set({
-      creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
-      updatedAt: new Date(),
-    }).where(eq(users.id, user.id));
-
-    res.write(`data: ${JSON.stringify({
-      type: 'done',
-      usage: {
-        inputTokens: result.inputTokens,
-        outputTokens: result.outputTokens,
+      await db.insert(creditTransactions).values({
+        userId: user.id,
+        action: action || 'generate-stream',
         creditsUsed: result.creditsUsed,
-        creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
-      },
-    })}\n\n`);
+        model: result.model,
+        chapterId,
+        metadata: {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          projectId,
+        },
+      });
 
-    res.end();
+      await db.update(users).set({
+        creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
+        updatedAt: new Date(),
+      }).where(eq(users.id, user.id));
+
+      res.write(`data: ${JSON.stringify({
+        type: 'done',
+        usage: {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          creditsUsed: result.creditsUsed,
+          creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
+        },
+      })}\n\n`);
+
+      res.end();
+    } finally {
+      activeGenerationUsers.delete(user.id);
+    }
   } catch (e: any) {
     console.error('Stream error:', e.message);
     if (!res.headersSent) {
-      res.status(500).json({ error: e.message });
+      respondInternalError(res, 'api', e);
     } else {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: 'Generation failed.' })}\n\n`);
       res.end();
     }
   }
@@ -1012,7 +1128,7 @@ app.get('/api/users/:id/credits', async (req, res) => {
       creditsRemaining: user.creditsRemaining,
       creditsTotal: user.creditsTotal,
     });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: any) { respondInternalError(res, 'api', e); }
 });
 
 // ========== Serve static in production ==========

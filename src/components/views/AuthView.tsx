@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Lock, Mail, Sparkles } from 'lucide-react';
+import { Lock, Mail, Sparkles, ArrowLeft } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 
 type Mode = 'login' | 'register' | 'forgot';
 
-export function AuthView() {
+interface AuthViewProps {
+  onBack?: () => void;
+}
+
+export function AuthView({ onBack }: AuthViewProps) {
   const { login, register, loading, error: authError } = useAuthStore();
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
@@ -98,7 +102,16 @@ export function AuthView() {
   };
 
   return (
-    <div className="h-screen w-full bg-[#f6f6f4] flex items-center justify-center px-4">
+    <div className="h-screen w-full bg-[#f6f6f4] flex flex-col items-center justify-center px-4">
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="self-start ml-4 sm:ml-auto sm:mr-auto sm:max-w-4xl sm:w-full mb-4 flex items-center gap-1.5 text-sm text-black/40 hover:text-black/70 transition-colors"
+        >
+          <ArrowLeft size={16} />
+          Back
+        </button>
+      )}
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-[1fr_1fr] rounded-[28px] overflow-hidden border border-black/10 shadow-[0_24px_60px_rgba(0,0,0,0.10)] bg-white">
         <div className="p-8 lg:p-10 border-b lg:border-b-0 lg:border-r border-black/10 bg-white flex flex-col items-center justify-center text-center">
           <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/50">Theodore</div>

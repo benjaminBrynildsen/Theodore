@@ -107,14 +107,14 @@ export function TopBar() {
         )}
       </div>
 
-      {/* Tools — icon only on mobile */}
+      {/* Tools — hidden on mobile (bottom nav handles it) */}
       {project && (
         <button
           onClick={() => {
             setShowSettingsView(false);
             setShowToolsView(true);
           }}
-          className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0"
+          className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0 hidden sm:block"
           title="Tools"
         >
           <Wrench size={18} />
@@ -132,14 +132,14 @@ export function TopBar() {
         </button>
       )}
 
-      {/* Settings */}
+      {/* Settings — hidden on mobile (bottom nav handles it) */}
       <button
         onClick={() => {
           setShowToolsView(false);
           setSettingsViewSection('writing');
           setShowSettingsView(true);
         }}
-        className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0"
+        className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0 hidden sm:block"
         title="Settings"
       >
         <Settings size={18} />

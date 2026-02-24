@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from './store';
 import { useCanonStore } from './store/canon';
 import { TopBar } from './components/layout/TopBar';
@@ -17,6 +17,8 @@ import { useAuthStore } from './store/auth';
 import { useCreditsStore } from './store/credits';
 import { api } from './lib/api';
 import { AuthView } from './components/views/AuthView';
+import { LandingPage } from './components/views/LandingPage';
+import { BottomNav } from './components/layout/BottomNav';
 
 export default function App() {
   const {
@@ -105,14 +107,17 @@ export default function App() {
     );
   }
 
+  const [showAuth, setShowAuth] = useState(false);
+
   if (!user) {
-    return <AuthView />;
+    if (showAuth) return <AuthView onBack={() => setShowAuth(false)} />;
+    return <LandingPage onGetStarted={() => setShowAuth(true)} />;
   }
 
   return (
     <div className="h-screen flex flex-col bg-bg">
       <TopBar />
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden pb-bottom-nav">
         {!showSettingsView && !showToolsView && <div className="hidden sm:block h-full"><LeftSidebar /></div>}
         <main className="flex-1 flex overflow-hidden min-w-0">
           {showToolsView ? (
@@ -139,10 +144,10 @@ export default function App() {
         {!showSettingsView && !showToolsView && <div className="hidden sm:block"><RightSidebar /></div>}
       </div>
       
+      <BottomNav />
       <UpgradeModal />
       <ImpactPanel />
       {showReadingMode && <ReadingMode onClose={() => setShowReadingMode(false)} />}
-{/* tools view handled inline */}
     </div>
   );
 }
