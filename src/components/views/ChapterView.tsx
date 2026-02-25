@@ -248,33 +248,33 @@ export function ChapterView({ chapter }: Props) {
 
       {/* Minimal top bar */}
       <div className={cn(
-        'flex items-center justify-between px-6 py-3 transition-all duration-300',
+        'flex items-center justify-between px-3 sm:px-6 py-3 transition-all duration-300',
         isFocusMode ? 'opacity-0 hover:opacity-100' : ''
       )}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             onClick={() => setActiveChapter(null)}
-            className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm transition-colors"
+            className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm transition-colors flex-shrink-0"
           >
             <ChevronLeft size={16} />
-            <span>Chapters</span>
+            <span className="hidden sm:inline">Chapters</span>
           </button>
-          <span className="text-text-tertiary text-xs">·</span>
-          <span className="text-xs text-text-tertiary font-mono">Ch. {chapter.number}</span>
-          <Badge status={chapter.status} />
+          <span className="text-text-tertiary text-xs hidden sm:inline">·</span>
+          <span className="text-xs text-text-tertiary font-mono flex-shrink-0">Ch. {chapter.number}</span>
+          <span className="hidden sm:inline"><Badge status={chapter.status} /></span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Word count */}
-          <span className="text-xs text-text-tertiary font-mono">
+          <span className="text-xs text-text-tertiary font-mono flex-shrink-0">
             {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
           </span>
 
-          {/* Like */}
+          {/* Like — hidden on mobile */}
           <button
             onClick={toggleLike}
             className={cn(
-              'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1',
+              'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all hidden sm:flex items-center gap-1',
               liked
                 ? 'bg-rose-100 text-rose-700'
                 : 'text-text-tertiary hover:text-text-primary hover:bg-white/40',
@@ -285,10 +285,10 @@ export function ChapterView({ chapter }: Props) {
             {liked ? 'Liked' : 'Like'}
           </button>
 
-          {/* Extend */}
+          {/* Extend — hidden on mobile */}
           <button
             onClick={() => setChunkSize((prev) => (prev === 'short' ? 'medium' : prev === 'medium' ? 'long' : 'short'))}
-            className="px-2 py-1.5 rounded-lg text-[11px] font-medium text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
+            className="hidden sm:block px-2 py-1.5 rounded-lg text-[11px] font-medium text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
             title="Chunk size"
           >
             {chunkProfile.label}
@@ -297,7 +297,7 @@ export function ChapterView({ chapter }: Props) {
             onClick={handleExtend}
             disabled={!chapter.prose.trim() || extending || generating}
             className={cn(
-              'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1',
+              'hidden sm:flex px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all items-center gap-1',
               !chapter.prose.trim() || extending || generating
                 ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
                 : 'bg-text-primary text-text-inverse hover:shadow-md',
@@ -308,41 +308,41 @@ export function ChapterView({ chapter }: Props) {
             {extending ? 'Extending...' : 'Extend'}
           </button>
 
-          {/* Version history */}
+          {/* Version history — hidden on mobile */}
           {chapter.prose && (
             <button
               onClick={() => setShowHistory(!showHistory)}
-              className={cn('p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showHistory && 'bg-white/40 text-text-primary')}
+              className={cn('hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showHistory && 'bg-white/40 text-text-primary')}
               title="Version history"
             >
               <History size={15} />
             </button>
           )}
 
-          {/* X-Ray */}
+          {/* X-Ray — hidden on mobile */}
           {chapter.prose && (
             <button
               onClick={() => setShowXRay(!showXRay)}
-              className={cn('p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showXRay && 'bg-white/40 text-text-primary')}
+              className={cn('hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showXRay && 'bg-white/40 text-text-primary')}
               title="Prose X-Ray"
             >
               <Scan size={15} />
             </button>
           )}
 
-          {/* Research */}
+          {/* Research — hidden on mobile */}
           <button
             onClick={() => setShowResearch(!showResearch)}
-            className={cn('p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showResearch && 'bg-white/40 text-text-primary')}
+            className={cn('hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showResearch && 'bg-white/40 text-text-primary')}
             title="Smart Research"
           >
             <Search size={15} />
           </button>
 
-          {/* Dictation */}
+          {/* Dictation — hidden on mobile */}
           <button
             onClick={() => setShowDictation(!showDictation)}
-            className={cn('p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showDictation && 'bg-white/40 text-red-500')}
+            className={cn('hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showDictation && 'bg-white/40 text-red-500')}
             title="Dictation mode"
           >
             <Mic size={15} />
@@ -357,10 +357,10 @@ export function ChapterView({ chapter }: Props) {
             <BookMarked size={15} />
           </button>
 
-          {/* Focus mode toggle */}
+          {/* Focus mode toggle — hidden on mobile */}
           <button
             onClick={() => setIsFocusMode(!isFocusMode)}
-            className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
+            className="hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
             title={isFocusMode ? 'Exit focus mode' : 'Focus mode'}
           >
             {isFocusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}

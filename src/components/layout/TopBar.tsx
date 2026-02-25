@@ -147,14 +147,14 @@ export function TopBar() {
 
       <button
         onClick={() => { void logout(); }}
-        className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0"
+        className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0 hidden sm:block"
         title="Sign out"
       >
         <LogOut size={18} />
       </button>
 
-      {/* Credits Badge */}
-      <CreditsBadge />
+      {/* Credits Badge — hidden on mobile */}
+      <div className="hidden sm:block"><CreditsBadge /></div>
 
       {/* Validation — hide on mobile */}
       {project && <div className="hidden md:block"><ValidationBadge /></div>}
