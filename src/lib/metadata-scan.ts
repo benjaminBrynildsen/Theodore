@@ -1,4 +1,15 @@
 import type { AnyCanonEntry } from '../types/canon';
+import {
+  getGenericRoleToken,
+  getLeadingRoleToken,
+  isAliasProneRoleToken,
+  isGenericRoleCharacterName,
+  isLikelyCharacterNoise,
+  isLikelyEntityNoise,
+  normalizeCharacterKey,
+  normalizeEntityKey,
+  sanitizeEntityName,
+} from './entity-normalization';
 
 export interface MetadataScanResult {
   scannedAt: string;
@@ -21,9 +32,7 @@ function escapeRegExp(value: string): string {
 }
 
 function normalizeCandidate(raw: string): string {
-  return raw
-    .replace(/^[\s"'`([{]+|[\s"'`)\]}.,!?;:]+$/g, '')
-    .replace(/^(?:the|a|an)\s+/i, '')
+  return sanitizeEntityName(raw)
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -35,7 +44,38 @@ function hasContext(text: string, name: string, contextPattern: string): boolean
 
 export function scanMetadataOccurrences(prose: string, canonEntries: AnyCanonEntry[]): MetadataScanResult {
   const text = prose || '';
-  const lowerCanonNames = new Set(canonEntries.map((e) => e.name.trim().toLowerCase()));
+  const existingByType = {
+    character: new Set(
+      canonEntries
+        .filter((entry) => entry.type === 'character')
+        .map((entry) => normalizeCharacterKey(entry.name) || normalizeEntityKey(entry.name))
+        .filter(Boolean),
+    ),
+    location: new Set(
+      canonEntries
+        .filter((entry) => entry.type === 'location')
+        .map((entry) => normalizeEntityKey(entry.name))
+        .filter(Boolean),
+    ),
+    system: new Set(
+      canonEntries
+        .filter((entry) => entry.type === 'system')
+        .map((entry) => normalizeEntityKey(entry.name))
+        .filter(Boolean),
+    ),
+    artifact: new Set(
+      canonEntries
+        .filter((entry) => entry.type === 'artifact')
+        .map((entry) => normalizeEntityKey(entry.name))
+        .filter(Boolean),
+    ),
+  };
+
+  const lowerCanonNames = new Set(
+    canonEntries
+      .map((entry) => normalizeEntityKey(entry.name))
+      .filter(Boolean),
+  );
 
   const existingMentions = canonEntries.map((entry) => {
     const pattern = new RegExp(`\\b${escapeRegExp(entry.name)}\\b`, 'gi');
@@ -65,10 +105,11 @@ export function scanMetadataOccurrences(prose: string, canonEntries: AnyCanonEnt
   const candidates = Array.from(counts.entries())
     .filter(([name, count]) => {
       if (!name) return false;
+      if (isLikelyEntityNoise(name)) return false;
       if (STOP.has(name)) return false;
       const parts = name.split(/\s+/);
       if (parts.every((p) => STOP.has(p))) return false;
-      if (lowerCanonNames.has(name.toLowerCase())) return false;
+      if (lowerCanonNames.has(normalizeEntityKey(name))) return false;
       return count > 1 || name.includes(' ');
     })
     .map(([name]) => name)
@@ -82,12 +123,21 @@ export function scanMetadataOccurrences(prose: string, canonEntries: AnyCanonEnt
   const artifactHints = ['Codex', 'Amulet', 'Sword', 'Key', 'Crown', 'Orb', 'Tome', 'Relic', 'Artifact', 'Device', 'Book', 'Engine'];
   const systemHints = ['System', 'Protocol', 'Order', 'Law', 'Magic', 'Code', 'Doctrine', 'Network', 'Council'];
 
-  const locationSet = new Set<string>();
-  const characterSet = new Set<string>();
-  const systemSet = new Set<string>();
-  const artifactSet = new Set<string>();
+  const locationMap = new Map<string, string>();
+  const characterMap = new Map<string, string>();
+  const systemMap = new Map<string, string>();
+  const artifactMap = new Map<string, string>();
+
+  const upsert = (map: Map<string, string>, key: string, name: string) => {
+    if (!key) return;
+    const existing = map.get(key);
+    if (!existing || name.length > existing.length) {
+      map.set(key, name);
+    }
+  };
 
   for (const name of candidates) {
+    if (isLikelyEntityNoise(name)) continue;
     const nearPreposition = hasContext(
       text,
       name,
@@ -109,28 +159,50 @@ export function scanMetadataOccurrences(prose: string, canonEntries: AnyCanonEnt
     const looksLikeLocation = nearPreposition || locationHints.some((h) => name.endsWith(h)) || /\bof\b/.test(name);
 
     if (looksLikeArtifact) {
-      artifactSet.add(name);
+      const key = normalizeEntityKey(name);
+      if (!existingByType.artifact.has(key)) upsert(artifactMap, key, name);
       continue;
     }
     if (looksLikeSystem) {
-      systemSet.add(name);
+      const key = normalizeEntityKey(name);
+      if (!existingByType.system.has(key)) upsert(systemMap, key, name);
       continue;
     }
     if (looksLikeLocation) {
-      locationSet.add(name);
+      const key = normalizeEntityKey(name);
+      if (!existingByType.location.has(key)) upsert(locationMap, key, name);
       continue;
     }
-    characterSet.add(name);
+    if (isLikelyCharacterNoise(name)) continue;
+    const key = normalizeCharacterKey(name) || normalizeEntityKey(name);
+    if (!existingByType.character.has(key)) upsert(characterMap, key, name);
   }
+
+  const roleSpecificNames = new Set(
+    Array.from(characterMap.values())
+      .map((name) => getLeadingRoleToken(name))
+      .filter((role): role is string => !!role),
+  );
+  const hasNamedCharacter = Array.from(characterMap.values())
+    .some((entry) => !isGenericRoleCharacterName(entry) && entry.includes(' '));
+
+  const filteredCharacters = Array.from(characterMap.values()).filter((name) => {
+    if (!isGenericRoleCharacterName(name)) return true;
+    const role = getGenericRoleToken(name);
+    if (!role) return true;
+    if (roleSpecificNames.has(role)) return false;
+    if (hasNamedCharacter && isAliasProneRoleToken(role)) return false;
+    return true;
+  });
 
   return {
     scannedAt: new Date().toISOString(),
     existingMentions,
     newEntities: {
-      characters: Array.from(characterSet).slice(0, 10),
-      locations: Array.from(locationSet).slice(0, 10),
-      systems: Array.from(systemSet).slice(0, 10),
-      artifacts: Array.from(artifactSet).slice(0, 10),
+      characters: filteredCharacters.slice(0, 10),
+      locations: Array.from(locationMap.values()).slice(0, 10),
+      systems: Array.from(systemMap.values()).slice(0, 10),
+      artifacts: Array.from(artifactMap.values()).slice(0, 10),
     },
   };
 }
