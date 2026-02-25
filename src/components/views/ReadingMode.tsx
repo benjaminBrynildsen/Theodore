@@ -44,10 +44,19 @@ function paginateProseMeasured(
   while (paraIdx < paragraphs.length) {
     measure.innerHTML = '';
 
-    // Reserve space for chapter header on first page
+    // Reserve space for chapter header on first page by measuring it
     let usableHeight = containerHeight;
     if (isFirstPage && hasChapterHeader) {
-      usableHeight -= 100; // approximate header height
+      const header = document.createElement('div');
+      header.style.cssText = `width:${containerWidth}px;`;
+      header.innerHTML = `
+        <div style="text-align:center;margin-bottom:${fontSize > 16 ? '1.5rem' : '2rem'};margin-top:0.5rem">
+          <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.25em;margin-bottom:0.5rem;font-family:sans-serif">Chapter</div>
+          <div style="font-family:Georgia,serif;font-weight:600;font-size:${fontSize + 2}px">Title</div>
+        </div>`;
+      measure.appendChild(header);
+      usableHeight -= header.scrollHeight;
+      measure.removeChild(header);
     }
 
     const pageParas: string[] = [];
@@ -174,21 +183,24 @@ export function ReadingMode({ onClose }: Props) {
 
   const chapter = chapters[currentChapterIdx];
 
-  // Measure the page container
+  // Measure the page container using the actual content area
   useEffect(() => {
     const measure = () => {
       const el = pageContainerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      // Subtract padding (mobile: px-5 pt-6 pb-3 = 20px sides, 24+12 top/bottom; footer ~30px)
+      // The container is the full book card. Content padding:
+      // Mobile: px-5 (20px each side), pt-6 (24px top), pb-3 (12px bottom)
+      // Desktop: px-10 (40px each side), py-10 (40px each)
+      // Footer (page number) is about 28px
       const padX = isMobile ? 40 : 80;
-      const padY = isMobile ? 66 : 80; // top+bottom padding + page number footer
+      const padY = isMobile ? (24 + 12 + 28) : (40 + 40 + 28);
       setContainerSize({ w: rect.width - padX, h: rect.height - padY });
     };
-    // Measure after render
-    const raf = requestAnimationFrame(measure);
+    // Measure after layout settles
+    const t1 = requestAnimationFrame(() => requestAnimationFrame(measure));
     window.addEventListener('resize', measure);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
+    return () => { cancelAnimationFrame(t1); window.removeEventListener('resize', measure); };
   }, [isMobile, fontSize]);
 
   const themes: Record<ReaderTheme, { bg: string; text: string; accent: string; paper: string; border: string }> = {
