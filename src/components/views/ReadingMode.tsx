@@ -16,7 +16,7 @@ function paginateProse(prose: string, fontSize: number, isMobile: boolean): stri
 
   // Mobile gets smaller pages
   const targetChars = isMobile
-    ? Math.max(500, Math.round(1200 - (fontSize - 18) * 40))
+    ? Math.max(700, Math.round(1600 - (fontSize - 16) * 50))
     : Math.max(900, Math.round(2400 - (fontSize - 18) * 70));
   const pages: string[] = [];
   let current = '';
@@ -67,7 +67,7 @@ export function ReadingMode({ onClose }: Props) {
 
   const [currentChapterIdx, setCurrentChapterIdx] = useState(0);
   const [currentPage, setCurrentPage] = useState(0);
-  const [fontSize, setFontSize] = useState(18);
+  const [fontSize, setFontSize] = useState(isMobile ? 16 : 18);
   const [theme, setTheme] = useState<ReaderTheme>('light');
   const [showControls, setShowControls] = useState(true);
   const [showToc, setShowToc] = useState(false);
@@ -227,42 +227,40 @@ export function ReadingMode({ onClose }: Props) {
   }
 
   const renderPage = (text: string, pageNum: number, isFirst: boolean) => (
-    <div className={cn('h-full flex flex-col', isMobile ? 'px-6 py-6' : 'px-10 py-10')}>
+    <div className={cn('h-full flex flex-col', isMobile ? 'px-5 pt-6 pb-3' : 'px-10 py-10')}>
       {isFirst && currentPage === 0 && (
-        <div className="mb-6 text-center">
-          <div className={cn('text-xs uppercase tracking-[0.3em] mb-2 font-sans', t.accent)}>
+        <div className={cn('text-center', isMobile ? 'mb-8 mt-2' : 'mb-7')}>
+          <div className={cn('text-[11px] uppercase tracking-[0.25em] mb-2 font-sans', t.accent)}>
             Chapter {chapter.number}
           </div>
-          <h1 className={cn('font-serif font-semibold mb-3', t.text)} style={{ fontSize: fontSize + (isMobile ? 4 : 8) }}>
+          <h1 className={cn('font-serif font-semibold', t.text)} style={{ fontSize: fontSize + (isMobile ? 2 : 8) }}>
             {chapter.title}
           </h1>
-          <div className={cn('w-12 h-px mx-auto', theme === 'dark' ? 'bg-white/20' : 'bg-black/15')} />
         </div>
       )}
       <div className="flex-1 overflow-hidden">
-        {text.split('\n\n').filter(Boolean).map((para, i) => (
-          <p
-            key={i}
-            className={cn('mb-4 sm:mb-5 leading-[1.8] sm:leading-[1.9] font-serif', t.text)}
-            style={{
-              fontSize,
-              textIndent: (i === 0 && isFirst && currentPage === 0) ? 0 : '1.5em',
-              textAlign: 'justify',
-            }}
-          >
-            {(i === 0 && isFirst && currentPage === 0) ? (
-              <>
-                <span className={cn('float-left text-[3em] sm:text-[3.5em] leading-[0.8] mr-2 mt-1 font-serif font-bold', t.text)}>
-                  {para.charAt(0)}
-                </span>
-                {para.slice(1)}
-              </>
-            ) : para}
-          </p>
-        ))}
+        {text.split('\n\n').filter(Boolean).map((para, i) => {
+          const isVeryFirst = i === 0 && isFirst && currentPage === 0;
+          return (
+            <p
+              key={i}
+              className={cn('font-serif', t.text)}
+              style={{
+                fontSize,
+                lineHeight: 1.65,
+                textIndent: isVeryFirst ? 0 : '1.5em',
+                textAlign: 'justify',
+                marginBottom: isMobile ? '0.15em' : '0.3em',
+              }}
+            >
+              {para}
+            </p>
+          );
+        })}
       </div>
-      <div className={cn('text-center text-xs font-mono pt-2', t.accent)}>
-        {pageNum} / {totalPages}
+      <div className={cn('flex justify-between text-[11px] font-sans pt-3', t.accent)}>
+        <span>Page {pageNum} of {totalPages}</span>
+        <span>{totalPages > 0 ? Math.round((pageNum / totalPages) * 100) : 0}%</span>
       </div>
     </div>
   );
