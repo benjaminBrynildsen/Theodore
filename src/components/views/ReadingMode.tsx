@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, BookOpen, Minus, Plus, Sun, Moon, Coffee, List } from 'lucide-react';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
@@ -10,11 +10,14 @@ interface Props {
 type ReaderTheme = 'light' | 'sepia' | 'dark';
 type FlipDir = 'next' | 'prev' | null;
 
-function paginateProse(prose: string, fontSize: number): string[] {
+function paginateProse(prose: string, fontSize: number, isMobile: boolean): string[] {
   const paragraphs = prose.split(/\n+/).map((p) => p.trim()).filter(Boolean);
   if (!paragraphs.length) return [''];
 
-  const targetChars = Math.max(900, Math.round(2400 - (fontSize - 18) * 70));
+  // Mobile gets smaller pages
+  const targetChars = isMobile
+    ? Math.max(500, Math.round(1200 - (fontSize - 18) * 40))
+    : Math.max(900, Math.round(2400 - (fontSize - 18) * 70));
   const pages: string[] = [];
   let current = '';
 
@@ -46,13 +49,24 @@ function paginateProse(prose: string, fontSize: number): string[] {
   return pages.length ? pages : [''];
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 640);
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < 640);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return isMobile;
+}
+
 export function ReadingMode({ onClose }: Props) {
   const { getActiveProject, getProjectChapters } = useStore();
   const project = getActiveProject();
   const chapters = project ? getProjectChapters(project.id).filter((c) => c.prose).sort((a, b) => a.number - b.number) : [];
+  const isMobile = useIsMobile();
 
   const [currentChapterIdx, setCurrentChapterIdx] = useState(0);
-  const [spreadStart, setSpreadStart] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0);
   const [fontSize, setFontSize] = useState(18);
   const [theme, setTheme] = useState<ReaderTheme>('light');
   const [showControls, setShowControls] = useState(true);
@@ -60,6 +74,11 @@ export function ReadingMode({ onClose }: Props) {
   const [flipDir, setFlipDir] = useState<FlipDir>(null);
   const [isFlipping, setIsFlipping] = useState(false);
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Touch/swipe state
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const touchStartTime = useRef(0);
 
   const chapter = chapters[currentChapterIdx];
 
@@ -72,34 +91,38 @@ export function ReadingMode({ onClose }: Props) {
 
   const chapterPages = useMemo(() => {
     if (!chapter?.prose) return [''];
-    return paginateProse(chapter.prose, fontSize);
-  }, [chapter?.prose, fontSize]);
+    return paginateProse(chapter.prose, fontSize, isMobile);
+  }, [chapter?.prose, fontSize, isMobile]);
 
   const totalPages = chapterPages.length;
-  const leftPageText = chapterPages[spreadStart] || '';
-  const rightPageText = chapterPages[spreadStart + 1] || '';
+
+  // For desktop two-page spread
+  const spreadStart = isMobile ? currentPage : Math.floor(currentPage / 2) * 2;
+  const leftPageText = chapterPages[isMobile ? currentPage : spreadStart] || '';
+  const rightPageText = isMobile ? '' : (chapterPages[spreadStart + 1] || '');
 
   const globalProgress = chapters.length > 0 ? ((currentChapterIdx + 1) / chapters.length) * 100 : 0;
+  const pageStep = isMobile ? 1 : 2;
 
-  const canGoPrev = spreadStart > 0 || currentChapterIdx > 0;
-  const canGoNext = spreadStart + 2 < totalPages || currentChapterIdx < chapters.length - 1;
+  const canGoPrev = currentPage > 0 || currentChapterIdx > 0;
+  const canGoNext = currentPage + pageStep < totalPages || currentChapterIdx < chapters.length - 1;
 
-  const resetControlsTimer = () => {
+  const resetControlsTimer = useCallback(() => {
     setShowControls(true);
     if (controlsTimeout.current) clearTimeout(controlsTimeout.current);
     controlsTimeout.current = setTimeout(() => setShowControls(false), 3000);
-  };
+  }, []);
 
   useEffect(() => {
     resetControlsTimer();
     return () => { if (controlsTimeout.current) clearTimeout(controlsTimeout.current); };
-  }, []);
+  }, [resetControlsTimer]);
 
   useEffect(() => {
-    setSpreadStart(0);
-  }, [currentChapterIdx, fontSize]);
+    setCurrentPage(0);
+  }, [currentChapterIdx, fontSize, isMobile]);
 
-  const runFlip = (dir: Exclude<FlipDir, null>, action: () => void) => {
+  const runFlip = useCallback((dir: Exclude<FlipDir, null>, action: () => void) => {
     if (isFlipping) return;
     setIsFlipping(true);
     setFlipDir(dir);
@@ -108,39 +131,35 @@ export function ReadingMode({ onClose }: Props) {
       setFlipDir(null);
     }, 120);
     setTimeout(() => setIsFlipping(false), 260);
-  };
+  }, [isFlipping]);
 
-  const goNext = () => {
+  const goNext = useCallback(() => {
     if (!canGoNext) return;
     runFlip('next', () => {
-      if (spreadStart + 2 < totalPages) {
-        setSpreadStart((p) => p + 2);
+      if (currentPage + pageStep < totalPages) {
+        setCurrentPage((p) => p + pageStep);
       } else if (currentChapterIdx < chapters.length - 1) {
         setCurrentChapterIdx((c) => c + 1);
-        setSpreadStart(0);
+        setCurrentPage(0);
       }
     });
-  };
+  }, [canGoNext, currentPage, pageStep, totalPages, currentChapterIdx, chapters.length, runFlip]);
 
-  const goPrev = () => {
+  const goPrev = useCallback(() => {
     if (!canGoPrev) return;
     runFlip('prev', () => {
-      if (spreadStart > 0) {
-        setSpreadStart((p) => Math.max(0, p - 2));
+      if (currentPage > 0) {
+        setCurrentPage((p) => Math.max(0, p - pageStep));
       } else if (currentChapterIdx > 0) {
         const prevChapterIdx = currentChapterIdx - 1;
-        const prevPages = paginateProse(chapters[prevChapterIdx].prose, fontSize);
-        const prevSpreadStart = prevPages.length <= 2
-          ? 0
-          : prevPages.length % 2 === 0
-          ? prevPages.length - 2
-          : prevPages.length - 1;
+        const prevPages = paginateProse(chapters[prevChapterIdx].prose, fontSize, isMobile);
         setCurrentChapterIdx(prevChapterIdx);
-        setSpreadStart(prevSpreadStart);
+        setCurrentPage(Math.max(0, prevPages.length - pageStep));
       }
     });
-  };
+  }, [canGoPrev, currentPage, pageStep, currentChapterIdx, chapters, fontSize, isMobile, runFlip]);
 
+  // Keyboard navigation
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight' || e.key === ' ') {
@@ -156,12 +175,48 @@ export function ReadingMode({ onClose }: Props) {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  });
+  }, [goNext, goPrev, onClose, resetControlsTimer]);
+
+  // Touch handlers for swipe
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    touchStartTime.current = Date.now();
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+    const elapsed = Date.now() - touchStartTime.current;
+
+    // Must be horizontal swipe (not vertical scroll), min 50px, max 500ms
+    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5 && elapsed < 500) {
+      if (deltaX < 0) goNext();
+      else goPrev();
+    }
+  };
+
+  // Tap zones on mobile: left third = prev, right third = next, center = toggle controls
+  const handleTap = (e: React.MouseEvent) => {
+    if (!isMobile) {
+      resetControlsTimer();
+      return;
+    }
+    const x = e.clientX;
+    const width = window.innerWidth;
+    if (x < width * 0.3) {
+      goPrev();
+    } else if (x > width * 0.7) {
+      goNext();
+    } else {
+      setShowControls((s) => !s);
+    }
+  };
 
   if (!project || chapters.length === 0) {
     return (
       <div className="fixed inset-0 z-50 bg-[#f5f5f0] flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center px-6">
           <BookOpen size={48} className="mx-auto mb-4 text-gray-400" />
           <h2 className="text-xl font-serif mb-2">Nothing to read yet</h2>
           <p className="text-gray-500 mb-6">Generate or write some chapters first.</p>
@@ -171,56 +226,101 @@ export function ReadingMode({ onClose }: Props) {
     );
   }
 
+  const renderPage = (text: string, pageNum: number, isFirst: boolean) => (
+    <div className={cn('h-full flex flex-col', isMobile ? 'px-6 py-6' : 'px-10 py-10')}>
+      {isFirst && currentPage === 0 && (
+        <div className="mb-6 text-center">
+          <div className={cn('text-xs uppercase tracking-[0.3em] mb-2 font-sans', t.accent)}>
+            Chapter {chapter.number}
+          </div>
+          <h1 className={cn('font-serif font-semibold mb-3', t.text)} style={{ fontSize: fontSize + (isMobile ? 4 : 8) }}>
+            {chapter.title}
+          </h1>
+          <div className={cn('w-12 h-px mx-auto', theme === 'dark' ? 'bg-white/20' : 'bg-black/15')} />
+        </div>
+      )}
+      <div className="flex-1 overflow-hidden">
+        {text.split('\n\n').filter(Boolean).map((para, i) => (
+          <p
+            key={i}
+            className={cn('mb-4 sm:mb-5 leading-[1.8] sm:leading-[1.9] font-serif', t.text)}
+            style={{
+              fontSize,
+              textIndent: (i === 0 && isFirst && currentPage === 0) ? 0 : '1.5em',
+              textAlign: 'justify',
+            }}
+          >
+            {(i === 0 && isFirst && currentPage === 0) ? (
+              <>
+                <span className={cn('float-left text-[3em] sm:text-[3.5em] leading-[0.8] mr-2 mt-1 font-serif font-bold', t.text)}>
+                  {para.charAt(0)}
+                </span>
+                {para.slice(1)}
+              </>
+            ) : para}
+          </p>
+        ))}
+      </div>
+      <div className={cn('text-center text-xs font-mono pt-2', t.accent)}>
+        {pageNum} / {totalPages}
+      </div>
+    </div>
+  );
+
   return (
     <div
-      className={cn('fixed inset-0 z-50 transition-colors duration-500', t.bg)}
-      onMouseMove={resetControlsTimer}
-      onClick={resetControlsTimer}
+      className={cn('fixed inset-0 z-50 transition-colors duration-500 select-none', t.bg)}
+      onMouseMove={!isMobile ? resetControlsTimer : undefined}
+      onClick={handleTap}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
     >
+      {/* Top controls */}
       <div className={cn(
-        'absolute top-0 left-0 right-0 z-10 transition-all duration-500',
+        'absolute top-0 left-0 right-0 z-10 transition-all duration-300',
         showControls ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
       )}>
-        <div className="flex items-center justify-between px-8 py-4">
-          <button onClick={onClose} className={cn('flex items-center gap-2 text-sm transition-colors', t.accent, 'hover:' + t.text)}>
+        <div className={cn('flex items-center justify-between px-4 sm:px-8 py-3 sm:py-4', isMobile && 'safe-area-top')}>
+          <button onClick={(e) => { e.stopPropagation(); onClose(); }} className={cn('flex items-center gap-1.5 text-sm transition-colors', t.accent)}>
             <X size={18} />
-            <span>Exit Reading Mode</span>
+            <span className="hidden sm:inline">Exit</span>
           </button>
 
-          <div className={cn('text-sm font-serif', t.accent)}>{project.title}</div>
+          <div className={cn('text-sm font-serif truncate max-w-[50%]', t.accent)}>{project.title}</div>
 
-          <div className="flex items-center gap-3">
-            <button onClick={() => setShowToc(!showToc)} className={cn('p-2 rounded-lg transition-colors', t.accent)}>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button onClick={(e) => { e.stopPropagation(); setShowToc(!showToc); }} className={cn('p-1.5 rounded-lg transition-colors', t.accent)}>
               <List size={18} />
             </button>
 
-            <div className="flex items-center gap-1">
-              <button onClick={() => setFontSize((s) => Math.max(14, s - 2))} className={cn('p-1.5 rounded-lg transition-colors', t.accent)}>
+            <div className="hidden sm:flex items-center gap-1">
+              <button onClick={(e) => { e.stopPropagation(); setFontSize((s) => Math.max(14, s - 2)); }} className={cn('p-1.5 rounded-lg transition-colors', t.accent)}>
                 <Minus size={14} />
               </button>
               <span className={cn('text-xs font-mono w-8 text-center', t.accent)}>{fontSize}</span>
-              <button onClick={() => setFontSize((s) => Math.min(28, s + 2))} className={cn('p-1.5 rounded-lg transition-colors', t.accent)}>
+              <button onClick={(e) => { e.stopPropagation(); setFontSize((s) => Math.min(28, s + 2)); }} className={cn('p-1.5 rounded-lg transition-colors', t.accent)}>
                 <Plus size={14} />
               </button>
             </div>
 
             <div className="flex items-center gap-1">
-              <button onClick={() => setTheme('light')} className={cn('p-1.5 rounded-lg transition-colors', theme === 'light' ? t.text : t.accent)}>
-                <Sun size={16} />
+              <button onClick={(e) => { e.stopPropagation(); setTheme('light'); }} className={cn('p-1.5 rounded-lg transition-colors', theme === 'light' ? t.text : t.accent)}>
+                <Sun size={14} />
               </button>
-              <button onClick={() => setTheme('sepia')} className={cn('p-1.5 rounded-lg transition-colors', theme === 'sepia' ? t.text : t.accent)}>
-                <Coffee size={16} />
+              <button onClick={(e) => { e.stopPropagation(); setTheme('sepia'); }} className={cn('p-1.5 rounded-lg transition-colors', theme === 'sepia' ? t.text : t.accent)}>
+                <Coffee size={14} />
               </button>
-              <button onClick={() => setTheme('dark')} className={cn('p-1.5 rounded-lg transition-colors', theme === 'dark' ? t.text : t.accent)}>
-                <Moon size={16} />
+              <button onClick={(e) => { e.stopPropagation(); setTheme('dark'); }} className={cn('p-1.5 rounded-lg transition-colors', theme === 'dark' ? t.text : t.accent)}>
+                <Moon size={14} />
               </button>
             </div>
           </div>
         </div>
       </div>
 
+      {/* TOC overlay */}
       {showToc && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center" onClick={() => setShowToc(false)}>
+        <div className="absolute inset-0 z-20 flex items-center justify-center px-4" onClick={(e) => { e.stopPropagation(); setShowToc(false); }}>
           <div className={cn('w-80 max-h-[70vh] rounded-2xl shadow-2xl overflow-hidden', t.paper, t.border, 'border')} onClick={(e) => e.stopPropagation()}>
             <div className={cn('px-5 py-4 border-b', t.border)}>
               <h3 className={cn('font-serif font-semibold', t.text)}>Table of Contents</h3>
@@ -231,13 +331,13 @@ export function ReadingMode({ onClose }: Props) {
                   key={ch.id}
                   onClick={() => {
                     setCurrentChapterIdx(idx);
-                    setSpreadStart(0);
+                    setCurrentPage(0);
                     setShowToc(false);
                   }}
                   className={cn(
                     'w-full text-left px-5 py-3 transition-colors border-b last:border-0',
                     t.border,
-                    idx === currentChapterIdx ? `${t.paper} font-medium` : `hover:${t.paper}`,
+                    idx === currentChapterIdx ? `${t.paper} font-medium` : '',
                   )}
                 >
                   <div className={cn('text-sm', t.text)}>
@@ -251,135 +351,91 @@ export function ReadingMode({ onClose }: Props) {
         </div>
       )}
 
-      <div className="absolute inset-0 flex items-stretch pt-16 pb-16 overflow-hidden">
-        <button
-          onClick={goPrev}
-          className={cn(
-            'w-20 flex-shrink-0 flex items-center justify-center transition-opacity',
-            canGoPrev ? 'opacity-90 hover:opacity-100 cursor-pointer' : 'opacity-0 cursor-default'
-          )}
-        >
-          <span className={cn(
-            'w-11 h-11 rounded-full border flex items-center justify-center',
-            t.paper,
-            t.border
-          )}>
-            <ChevronLeft size={24} className={t.accent} />
-          </span>
-        </button>
+      {/* Book content */}
+      <div className="absolute inset-0 flex items-stretch pt-14 sm:pt-16 pb-14 sm:pb-16 overflow-hidden">
+        {/* Prev button — desktop only */}
+        {!isMobile && (
+          <button
+            onClick={(e) => { e.stopPropagation(); goPrev(); }}
+            className={cn(
+              'w-20 flex-shrink-0 flex items-center justify-center transition-opacity',
+              canGoPrev ? 'opacity-90 hover:opacity-100 cursor-pointer' : 'opacity-0 cursor-default'
+            )}
+          >
+            <span className={cn('w-11 h-11 rounded-full border flex items-center justify-center', t.paper, t.border)}>
+              <ChevronLeft size={24} className={t.accent} />
+            </span>
+          </button>
+        )}
 
-        <div className="flex-1 flex justify-center overflow-hidden px-4">
+        <div className="flex-1 flex justify-center overflow-hidden px-2 sm:px-4">
           <div
-            className={cn('max-w-[1100px] w-full rounded-sm shadow-lg overflow-hidden border', t.paper, t.border)}
+            className={cn(
+              'w-full rounded-sm shadow-lg overflow-hidden border',
+              isMobile ? 'max-w-full' : 'max-w-[1100px]',
+              t.paper, t.border
+            )}
             style={{
               transform: flipDir === 'next'
-                ? 'perspective(1200px) rotateY(-12deg) scale(0.98)'
+                ? isMobile ? 'translateX(-8px) scale(0.98)' : 'perspective(1200px) rotateY(-12deg) scale(0.98)'
                 : flipDir === 'prev'
-                ? 'perspective(1200px) rotateY(12deg) scale(0.98)'
-                : 'perspective(1200px) rotateY(0deg) scale(1)',
+                ? isMobile ? 'translateX(8px) scale(0.98)' : 'perspective(1200px) rotateY(12deg) scale(0.98)'
+                : isMobile ? 'translateX(0) scale(1)' : 'perspective(1200px) rotateY(0deg) scale(1)',
               opacity: flipDir ? 0.5 : 1,
               transition: 'transform 180ms ease, opacity 180ms ease',
             }}
           >
-            <div className="h-full grid grid-cols-2">
-              <div className={cn('px-10 py-10 border-r', t.border)}>
-                <div className="mb-7 text-center">
-                  <div className={cn('text-xs uppercase tracking-[0.3em] mb-2 font-sans', t.accent)}>
-                    Chapter {chapter.number}
-                  </div>
-                  <h1 className={cn('font-serif font-semibold mb-3', t.text)} style={{ fontSize: fontSize + 8 }}>
-                    {chapter.title}
-                  </h1>
-                  <div className={cn('w-12 h-px mx-auto', theme === 'dark' ? 'bg-white/20' : 'bg-black/15')} />
+            {isMobile ? (
+              /* Single page on mobile */
+              renderPage(leftPageText, currentPage + 1, true)
+            ) : (
+              /* Two-page spread on desktop */
+              <div className="h-full grid grid-cols-2">
+                <div className={cn('border-r', t.border)}>
+                  {renderPage(leftPageText, spreadStart + 1, true)}
                 </div>
-                <div className="h-[calc(100%-110px)] overflow-hidden">
-                  {leftPageText.split('\n\n').filter(Boolean).map((para, i) => (
-                    <p
-                      key={i}
-                      className={cn('mb-5 leading-[1.9] font-serif', t.text)}
-                      style={{
-                        fontSize,
-                        textIndent: i === 0 ? 0 : '2em',
-                        textAlign: 'justify',
-                      }}
-                    >
-                      {i === 0 ? (
-                        <>
-                          <span className={cn('float-left text-[3.5em] leading-[0.8] mr-2 mt-1 font-serif font-bold', t.text)}>
-                            {para.charAt(0)}
-                          </span>
-                          {para.slice(1)}
-                        </>
-                      ) : para}
-                    </p>
-                  ))}
-                </div>
-                <div className={cn('text-center mt-4 text-xs font-mono', t.accent)}>
-                  Page {spreadStart + 1} of {totalPages}
-                </div>
-              </div>
-
-              <div className="px-10 py-10">
-                <div className="h-[calc(100%-50px)] overflow-hidden">
+                <div>
                   {rightPageText ? (
-                    rightPageText.split('\n\n').filter(Boolean).map((para, i) => (
-                      <p
-                        key={i}
-                        className={cn('mb-5 leading-[1.9] font-serif', t.text)}
-                        style={{
-                          fontSize,
-                          textIndent: i === 0 ? 0 : '2em',
-                          textAlign: 'justify',
-                        }}
-                      >
-                        {para}
-                      </p>
-                    ))
+                    renderPage(rightPageText, spreadStart + 2, false)
                   ) : (
                     <div className={cn('h-full flex items-center justify-center text-sm italic', t.accent)}>
-                      End of spread
+                      End of chapter
                     </div>
                   )}
                 </div>
-                <div className={cn('text-center mt-4 text-xs font-mono', t.accent)}>
-                  Page {Math.min(totalPages, spreadStart + 2)} of {totalPages}
-                </div>
-                <div className={cn('text-center mt-2 text-[10px] font-sans', t.accent)}>
-                  Use left/right arrows to flip
-                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
-        <button
-          onClick={goNext}
-          className={cn(
-            'w-20 flex-shrink-0 flex items-center justify-center transition-opacity',
-            canGoNext ? 'opacity-90 hover:opacity-100 cursor-pointer' : 'opacity-0 cursor-default'
-          )}
-        >
-          <span className={cn(
-            'w-11 h-11 rounded-full border flex items-center justify-center',
-            t.paper,
-            t.border
-          )}>
-            <ChevronRight size={24} className={t.accent} />
-          </span>
-        </button>
+        {/* Next button — desktop only */}
+        {!isMobile && (
+          <button
+            onClick={(e) => { e.stopPropagation(); goNext(); }}
+            className={cn(
+              'w-20 flex-shrink-0 flex items-center justify-center transition-opacity',
+              canGoNext ? 'opacity-90 hover:opacity-100 cursor-pointer' : 'opacity-0 cursor-default'
+            )}
+          >
+            <span className={cn('w-11 h-11 rounded-full border flex items-center justify-center', t.paper, t.border)}>
+              <ChevronRight size={24} className={t.accent} />
+            </span>
+          </button>
+        )}
       </div>
 
+      {/* Bottom progress */}
       <div className={cn(
-        'absolute bottom-0 left-0 right-0 transition-all duration-500',
-        showControls ? 'opacity-100' : 'opacity-0'
+        'absolute bottom-0 left-0 right-0 transition-all duration-300',
+        showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'
       )}>
-        <div className="px-8 pb-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className={cn('text-xs font-mono', t.accent)}>
-              Chapter {chapter.number} of {chapters.length}
+        <div className={cn('px-4 sm:px-8 pb-3 sm:pb-4', isMobile && 'safe-area-bottom')}>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className={cn('text-[10px] sm:text-xs font-mono', t.accent)}>
+              Ch. {chapter.number} of {chapters.length}
             </span>
-            <span className={cn('text-xs font-mono', t.accent)}>
-              {Math.round(globalProgress)}% complete
+            <span className={cn('text-[10px] sm:text-xs font-mono', t.accent)}>
+              {Math.round(globalProgress)}%
             </span>
           </div>
           <div className={cn('w-full h-1 rounded-full', theme === 'dark' ? 'bg-white/10' : 'bg-black/10')}>
@@ -388,25 +444,33 @@ export function ReadingMode({ onClose }: Props) {
               style={{ width: `${globalProgress}%` }}
             />
           </div>
-          <div className="flex justify-center gap-1.5 mt-3">
-            {chapters.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => {
-                  setCurrentChapterIdx(idx);
-                  setSpreadStart(0);
-                }}
-                className={cn(
-                  'w-2 h-2 rounded-full transition-all',
-                  idx === currentChapterIdx
-                    ? (theme === 'dark' ? 'bg-white/60 w-4' : 'bg-black/40 w-4')
-                    : idx < currentChapterIdx
-                      ? (theme === 'dark' ? 'bg-white/25' : 'bg-black/20')
-                      : (theme === 'dark' ? 'bg-white/10' : 'bg-black/8')
-                )}
-              />
-            ))}
-          </div>
+          {isMobile && (
+            <div className={cn('text-center text-[10px] mt-2', t.accent)}>
+              Tap edges or swipe to turn pages
+            </div>
+          )}
+          {!isMobile && (
+            <div className="flex justify-center gap-1.5 mt-3">
+              {chapters.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setCurrentChapterIdx(idx);
+                    setCurrentPage(0);
+                  }}
+                  className={cn(
+                    'w-2 h-2 rounded-full transition-all',
+                    idx === currentChapterIdx
+                      ? (theme === 'dark' ? 'bg-white/60 w-4' : 'bg-black/40 w-4')
+                      : idx < currentChapterIdx
+                        ? (theme === 'dark' ? 'bg-white/25' : 'bg-black/20')
+                        : (theme === 'dark' ? 'bg-white/10' : 'bg-black/8')
+                  )}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
