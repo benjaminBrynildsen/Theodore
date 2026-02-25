@@ -74,22 +74,22 @@ function paginateProseMeasured(
       p.textContent = paragraphs[paraIdx];
       measure.appendChild(p);
 
-      if (measure.scrollHeight > usableHeight && pageParas.length > 0) {
-        // This paragraph doesn't fit — remove it and break
+      if (measure.scrollHeight > usableHeight) {
+        // This paragraph doesn't fit (fully) — split it by words to fill remaining space
         measure.removeChild(p);
-        break;
-      }
-
-      // If a single paragraph is taller than the page, we need to split it by words
-      if (measure.scrollHeight > usableHeight && pageParas.length === 0) {
-        measure.removeChild(p);
-        // Binary search for how many words fit
         const words = paragraphs[paraIdx].split(' ');
-        let lo = 1, hi = words.length, best = 1;
+        if (words.length <= 1) {
+          // Single word that doesn't fit — just break
+          if (pageParas.length > 0) break;
+          pageParas.push(paragraphs[paraIdx]);
+          paraIdx++;
+          break;
+        }
         const testP = document.createElement('p');
         testP.style.cssText = p.style.cssText;
         measure.appendChild(testP);
 
+        let lo = 1, hi = words.length, best = 0;
         while (lo <= hi) {
           const mid = Math.floor((lo + hi) / 2);
           testP.textContent = words.slice(0, mid).join(' ');
@@ -102,9 +102,12 @@ function paginateProseMeasured(
         }
 
         measure.removeChild(testP);
-        pageParas.push(words.slice(0, best).join(' '));
-        // Put the remainder back as the current paragraph
-        paragraphs[paraIdx] = words.slice(best).join(' ');
+        if (best > 0) {
+          pageParas.push(words.slice(0, best).join(' '));
+          // Put the remainder back as the current paragraph
+          paragraphs[paraIdx] = words.slice(best).join(' ');
+        }
+        // If best === 0 and we have content, just break to next page
         break;
       }
 
