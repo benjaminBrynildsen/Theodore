@@ -10,21 +10,119 @@ interface Props {
 type ReaderTheme = 'light' | 'sepia' | 'dark';
 type FlipDir = 'next' | 'prev' | null;
 
-function paginateProse(prose: string, fontSize: number, isMobile: boolean): string[] {
+/**
+ * Measurement-based pagination: renders paragraphs into a hidden div
+ * and splits pages based on what actually fits in the available height.
+ */
+function paginateProseMeasured(
+  prose: string,
+  fontSize: number,
+  containerHeight: number,
+  containerWidth: number,
+  hasChapterHeader: boolean,
+): string[] {
   const paragraphs = prose.split(/\n+/).map((p) => p.trim()).filter(Boolean);
   if (!paragraphs.length) return [''];
 
-  // Mobile gets smaller pages
+  // Create offscreen measuring container
+  const measure = document.createElement('div');
+  measure.style.cssText = `
+    position:absolute;top:-9999px;left:-9999px;visibility:hidden;
+    width:${containerWidth}px;
+    font-family:Georgia,'Times New Roman',serif;
+    font-size:${fontSize}px;
+    line-height:1.65;
+    text-align:justify;
+    padding:0;
+  `;
+  document.body.appendChild(measure);
+
+  const pages: string[] = [];
+  let paraIdx = 0;
+  let isFirstPage = true;
+
+  while (paraIdx < paragraphs.length) {
+    measure.innerHTML = '';
+
+    // Reserve space for chapter header on first page
+    let usableHeight = containerHeight;
+    if (isFirstPage && hasChapterHeader) {
+      usableHeight -= 100; // approximate header height
+    }
+
+    const pageParas: string[] = [];
+
+    while (paraIdx < paragraphs.length) {
+      const p = document.createElement('p');
+      p.style.cssText = `
+        font-family:Georgia,'Times New Roman',serif;
+        font-size:${fontSize}px;
+        line-height:1.65;
+        text-align:justify;
+        text-indent:${pageParas.length === 0 && isFirstPage ? '0' : '1.5em'};
+        margin:0 0 0.15em 0;
+      `;
+      p.textContent = paragraphs[paraIdx];
+      measure.appendChild(p);
+
+      if (measure.scrollHeight > usableHeight && pageParas.length > 0) {
+        // This paragraph doesn't fit — remove it and break
+        measure.removeChild(p);
+        break;
+      }
+
+      // If a single paragraph is taller than the page, we need to split it by words
+      if (measure.scrollHeight > usableHeight && pageParas.length === 0) {
+        measure.removeChild(p);
+        // Binary search for how many words fit
+        const words = paragraphs[paraIdx].split(' ');
+        let lo = 1, hi = words.length, best = 1;
+        const testP = document.createElement('p');
+        testP.style.cssText = p.style.cssText;
+        measure.appendChild(testP);
+
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          testP.textContent = words.slice(0, mid).join(' ');
+          if (measure.scrollHeight <= usableHeight) {
+            best = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
+        }
+
+        measure.removeChild(testP);
+        pageParas.push(words.slice(0, best).join(' '));
+        // Put the remainder back as the current paragraph
+        paragraphs[paraIdx] = words.slice(best).join(' ');
+        break;
+      }
+
+      pageParas.push(paragraphs[paraIdx]);
+      paraIdx++;
+    }
+
+    if (pageParas.length) {
+      pages.push(pageParas.join('\n\n'));
+    }
+    isFirstPage = false;
+  }
+
+  document.body.removeChild(measure);
+  return pages.length ? pages : [''];
+}
+
+/** Fallback character-based pagination (used when container not yet measured) */
+function paginateProseFallback(prose: string, fontSize: number, isMobile: boolean): string[] {
+  const paragraphs = prose.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  if (!paragraphs.length) return [''];
+
   const targetChars = isMobile
     ? Math.max(500, Math.round(1100 - (fontSize - 16) * 50))
     : Math.max(900, Math.round(2400 - (fontSize - 18) * 70));
   const pages: string[] = [];
   let current = '';
-
-  const pushCurrent = () => {
-    if (current.trim()) pages.push(current.trim());
-    current = '';
-  };
 
   for (const para of paragraphs) {
     const candidate = current ? `${current}\n\n${para}` : para;
@@ -32,20 +130,10 @@ function paginateProse(prose: string, fontSize: number, isMobile: boolean): stri
       current = candidate;
       continue;
     }
-
-    if (current) pushCurrent();
-
-    let remaining = para;
-    while (remaining.length > targetChars) {
-      let splitAt = remaining.lastIndexOf(' ', targetChars);
-      if (splitAt < Math.floor(targetChars * 0.6)) splitAt = targetChars;
-      pages.push(remaining.slice(0, splitAt).trim());
-      remaining = remaining.slice(splitAt).trim();
-    }
-    current = remaining;
+    if (current.trim()) pages.push(current.trim());
+    current = para;
   }
-
-  pushCurrent();
+  if (current.trim()) pages.push(current.trim());
   return pages.length ? pages : [''];
 }
 
@@ -81,8 +169,27 @@ export function ReadingMode({ onClose }: Props) {
   const touchStartTime = useRef(0);
   const [dragX, setDragX] = useState(0);
   const isDragging = useRef(false);
+  const pageContainerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState<{ w: number; h: number } | null>(null);
 
   const chapter = chapters[currentChapterIdx];
+
+  // Measure the page container
+  useEffect(() => {
+    const measure = () => {
+      const el = pageContainerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      // Subtract padding (mobile: px-5 pt-6 pb-3 = 20px sides, 24+12 top/bottom; footer ~30px)
+      const padX = isMobile ? 40 : 80;
+      const padY = isMobile ? 66 : 80; // top+bottom padding + page number footer
+      setContainerSize({ w: rect.width - padX, h: rect.height - padY });
+    };
+    // Measure after render
+    const raf = requestAnimationFrame(measure);
+    window.addEventListener('resize', measure);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
+  }, [isMobile, fontSize]);
 
   const themes: Record<ReaderTheme, { bg: string; text: string; accent: string; paper: string; border: string }> = {
     light: { bg: 'bg-[#f5f5f0]', text: 'text-[#2d2d2d]', accent: 'text-[#666]', paper: 'bg-white', border: 'border-[#e0e0da]' },
@@ -93,8 +200,11 @@ export function ReadingMode({ onClose }: Props) {
 
   const chapterPages = useMemo(() => {
     if (!chapter?.prose) return [''];
-    return paginateProse(chapter.prose, fontSize, isMobile);
-  }, [chapter?.prose, fontSize, isMobile]);
+    if (containerSize) {
+      return paginateProseMeasured(chapter.prose, fontSize, containerSize.h, containerSize.w, true);
+    }
+    return paginateProseFallback(chapter.prose, fontSize, isMobile);
+  }, [chapter?.prose, fontSize, isMobile, containerSize]);
 
   const totalPages = chapterPages.length;
 
@@ -154,7 +264,9 @@ export function ReadingMode({ onClose }: Props) {
         setCurrentPage((p) => Math.max(0, p - pageStep));
       } else if (currentChapterIdx > 0) {
         const prevChapterIdx = currentChapterIdx - 1;
-        const prevPages = paginateProse(chapters[prevChapterIdx].prose, fontSize, isMobile);
+        const prevPages = containerSize
+          ? paginateProseMeasured(chapters[prevChapterIdx].prose, fontSize, containerSize.h, containerSize.w, false)
+          : paginateProseFallback(chapters[prevChapterIdx].prose, fontSize, isMobile);
         setCurrentChapterIdx(prevChapterIdx);
         setCurrentPage(Math.max(0, prevPages.length - pageStep));
       }
@@ -413,6 +525,7 @@ export function ReadingMode({ onClose }: Props) {
 
         <div className="flex-1 flex justify-center overflow-hidden px-2 sm:px-4">
           <div
+            ref={pageContainerRef}
             className={cn(
               'w-full rounded-sm shadow-lg overflow-hidden border',
               isMobile ? 'max-w-full' : 'max-w-[1100px]',
