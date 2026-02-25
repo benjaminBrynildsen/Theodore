@@ -304,6 +304,20 @@ export function ReadingMode({ onClose }: Props) {
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
+      {/* Always-visible close button on mobile */}
+      {isMobile && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          className={cn(
+            'absolute top-3 left-3 z-20 w-9 h-9 rounded-full flex items-center justify-center transition-colors',
+            theme === 'dark' ? 'bg-white/10 text-white/60 active:bg-white/20' : 'bg-black/5 text-black/40 active:bg-black/10'
+          )}
+          style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+        >
+          <X size={18} />
+        </button>
+      )}
+
       {/* Top controls */}
       <div className={cn(
         'absolute top-0 left-0 right-0 z-10 transition-all duration-300',
