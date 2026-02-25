@@ -16,7 +16,7 @@ function paginateProse(prose: string, fontSize: number, isMobile: boolean): stri
 
   // Mobile gets smaller pages
   const targetChars = isMobile
-    ? Math.max(700, Math.round(1600 - (fontSize - 16) * 50))
+    ? Math.max(500, Math.round(1100 - (fontSize - 16) * 50))
     : Math.max(900, Math.round(2400 - (fontSize - 18) * 70));
   const pages: string[] = [];
   let current = '';
