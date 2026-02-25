@@ -79,6 +79,8 @@ export function ReadingMode({ onClose }: Props) {
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const touchStartTime = useRef(0);
+  const [dragX, setDragX] = useState(0);
+  const isDragging = useRef(false);
 
   const chapter = chapters[currentChapterIdx];
 
@@ -129,8 +131,8 @@ export function ReadingMode({ onClose }: Props) {
     setTimeout(() => {
       action();
       setFlipDir(null);
-    }, 120);
-    setTimeout(() => setIsFlipping(false), 260);
+    }, 180);
+    setTimeout(() => setIsFlipping(false), 350);
   }, [isFlipping]);
 
   const goNext = useCallback(() => {
@@ -177,20 +179,48 @@ export function ReadingMode({ onClose }: Props) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [goNext, goPrev, onClose, resetControlsTimer]);
 
-  // Touch handlers for swipe
+  // Touch handlers — live drag tracking + swipe
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     touchStartTime.current = Date.now();
+    isDragging.current = false;
+    setDragX(0);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isMobile) return;
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = e.touches[0].clientY - touchStartY.current;
+
+    // Lock to horizontal after 10px if more horizontal than vertical
+    if (!isDragging.current && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      isDragging.current = true;
+    }
+
+    if (isDragging.current) {
+      // Rubber-band: dampen if dragging in a direction we can't go
+      const capped = (dx < 0 && !canGoNext) || (dx > 0 && !canGoPrev)
+        ? dx * 0.2
+        : dx * 0.6;
+      setDragX(capped);
+    }
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
     const deltaX = e.changedTouches[0].clientX - touchStartX.current;
     const deltaY = e.changedTouches[0].clientY - touchStartY.current;
     const elapsed = Date.now() - touchStartTime.current;
+    const wasDragging = isDragging.current;
 
-    // Must be horizontal swipe (not vertical scroll), min 50px, max 500ms
-    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5 && elapsed < 500) {
+    // Animate back to 0
+    setDragX(0);
+    isDragging.current = false;
+
+    // Swipe threshold: 50px or fast flick (30px in <200ms)
+    const isSwipe = Math.abs(deltaX) > 50 || (Math.abs(deltaX) > 30 && elapsed < 200);
+
+    if (wasDragging && isSwipe && Math.abs(deltaX) > Math.abs(deltaY)) {
       if (deltaX < 0) goNext();
       else goPrev();
     }
@@ -271,6 +301,7 @@ export function ReadingMode({ onClose }: Props) {
       onMouseMove={!isMobile ? resetControlsTimer : undefined}
       onClick={handleTap}
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
       {/* Top controls */}
@@ -374,13 +405,23 @@ export function ReadingMode({ onClose }: Props) {
               t.paper, t.border
             )}
             style={{
-              transform: flipDir === 'next'
-                ? isMobile ? 'translateX(-8px) scale(0.98)' : 'perspective(1200px) rotateY(-12deg) scale(0.98)'
+              transform: isMobile
+                ? dragX !== 0
+                  ? `translateX(${dragX}px) scale(${1 - Math.abs(dragX) * 0.0003})`
+                  : flipDir === 'next'
+                  ? 'translateX(-100%) scale(0.95)'
+                  : flipDir === 'prev'
+                  ? 'translateX(100%) scale(0.95)'
+                  : 'translateX(0) scale(1)'
+                : flipDir === 'next'
+                ? 'perspective(1200px) rotateY(-12deg) scale(0.98)'
                 : flipDir === 'prev'
-                ? isMobile ? 'translateX(8px) scale(0.98)' : 'perspective(1200px) rotateY(12deg) scale(0.98)'
-                : isMobile ? 'translateX(0) scale(1)' : 'perspective(1200px) rotateY(0deg) scale(1)',
-              opacity: flipDir ? 0.5 : 1,
-              transition: 'transform 180ms ease, opacity 180ms ease',
+                ? 'perspective(1200px) rotateY(12deg) scale(0.98)'
+                : 'perspective(1200px) rotateY(0deg) scale(1)',
+              opacity: isMobile
+                ? dragX !== 0 ? 1 - Math.abs(dragX) * 0.002 : flipDir ? 0 : 1
+                : flipDir ? 0.5 : 1,
+              transition: dragX !== 0 ? 'none' : 'transform 280ms cubic-bezier(0.25,0.46,0.45,0.94), opacity 280ms ease',
             }}
           >
             {isMobile ? (
