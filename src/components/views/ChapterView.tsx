@@ -12,14 +12,14 @@ import { SmartResearch } from '../features/SmartResearch';
 import { generateStream } from '../../lib/generate';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { cn } from '../../lib/utils';
-import type { Chapter, WritingMode, GenerationType } from '../../types';
+import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
 
 interface Props {
   chapter: Chapter;
 }
 
 export function ChapterView({ chapter }: Props) {
-  const { setActiveChapter, updateChapter, setShowReadingMode } = useStore();
+  const { setActiveChapter, updateChapter, setShowReadingMode, editMode, activeSceneId, setActiveScene, updateScene, syncScenesToProse } = useStore();
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
@@ -208,11 +208,18 @@ export function ChapterView({ chapter }: Props) {
     );
   };
 
+  // Edit mode scene state
+  const scenes = chapter.scenes || [];
+  const activeScene = editMode ? scenes.find(s => s.id === activeSceneId) || null : null;
+  const displayProse = editMode && activeScene ? activeScene.prose : chapter.prose;
+  const displayTitle = editMode && activeScene ? activeScene.title : chapter.title;
+
   // Calculate word count
   useEffect(() => {
-    const words = chapter.prose.trim() ? chapter.prose.trim().split(/\s+/).length : 0;
+    const text = editMode && activeScene ? activeScene.prose : chapter.prose;
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
     setWordCount(words);
-  }, [chapter.prose]);
+  }, [chapter.prose, activeScene?.prose, editMode]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -220,7 +227,7 @@ export function ChapterView({ chapter }: Props) {
       editorRef.current.style.height = 'auto';
       editorRef.current.style.height = Math.max(editorRef.current.scrollHeight, 500) + 'px';
     }
-  }, [chapter.prose]);
+  }, [chapter.prose, activeScene?.prose]);
 
   useEffect(() => {
     if (!isFocusMode) return;
@@ -261,6 +268,12 @@ export function ChapterView({ chapter }: Props) {
           </button>
           <span className="text-text-tertiary text-xs hidden sm:inline">·</span>
           <span className="text-xs text-text-tertiary font-mono flex-shrink-0">Ch. {chapter.number}</span>
+          {editMode && activeScene && (
+            <>
+              <span className="text-text-tertiary text-xs hidden sm:inline">›</span>
+              <span className="text-xs text-text-secondary font-medium truncate hidden sm:inline">Scene {activeScene.order}: {activeScene.title}</span>
+            </>
+          )}
           <span className="hidden sm:inline"><Badge status={chapter.status} /></span>
         </div>
 
@@ -374,16 +387,22 @@ export function ChapterView({ chapter }: Props) {
           'mx-auto px-4 sm:px-8 pb-32 transition-all duration-500',
           isFocusMode ? 'max-w-2xl pt-16' : 'max-w-3xl pt-4'
         )}>
-          {/* Chapter Title */}
+          {/* Chapter / Scene Title */}
           <input
             type="text"
-            value={chapter.title}
-            onChange={(e) => updateChapter(chapter.id, { title: e.target.value })}
+            value={displayTitle}
+            onChange={(e) => {
+              if (editMode && activeScene) {
+                updateScene(chapter.id, activeScene.id, { title: e.target.value });
+              } else {
+                updateChapter(chapter.id, { title: e.target.value });
+              }
+            }}
             className={cn(
               'w-full bg-transparent border-none outline-none font-serif font-semibold tracking-tight placeholder:text-text-tertiary mb-2 transition-all duration-300',
               isFocusMode ? 'text-4xl' : 'text-3xl'
             )}
-            placeholder="Chapter title..."
+            placeholder={editMode && activeScene ? 'Scene title...' : 'Chapter title...'}
           />
 
           {/* Chapter number + premise hint */}
@@ -397,8 +416,37 @@ export function ChapterView({ chapter }: Props) {
             </div>
           )}
 
-          {/* Empty state — no prose yet */}
-          {!chapter.prose && (
+          {/* Empty state — no prose yet (or edit mode with empty scene) */}
+          {(editMode && activeScene && !activeScene.prose) && (
+            <div className="py-16 text-center animate-fade-in">
+              <div className="glass-pill w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5">
+                <Type size={28} className="text-text-tertiary" />
+              </div>
+              <p className="text-text-secondary mb-2 font-medium">Start writing this scene</p>
+              <p className="text-sm text-text-tertiary max-w-xs mx-auto mb-4">
+                Type below or use the chat panel to generate prose.
+              </p>
+              <textarea
+                ref={editorRef}
+                value=""
+                onChange={(e) => {
+                  updateScene(chapter.id, activeScene.id, {
+                    prose: e.target.value,
+                    status: e.target.value.trim() ? 'drafted' : 'outline',
+                  });
+                  syncScenesToProse(chapter.id);
+                }}
+                placeholder="Begin this scene..."
+                className={cn(
+                  'w-full bg-transparent border-none outline-none resize-none',
+                  'font-serif text-lg leading-[2] text-text-primary',
+                  'placeholder:text-text-tertiary/50 placeholder:italic',
+                  'min-h-[200px]'
+                )}
+              />
+            </div>
+          )}
+          {!editMode && !chapter.prose && (
             <div className="py-16 text-center animate-fade-in">
               <div className="glass-pill w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5">
                 <Type size={28} className="text-text-tertiary" />
@@ -497,13 +545,73 @@ export function ChapterView({ chapter }: Props) {
           )}
 
           {/* THE EDITOR — prose exists */}
-          {chapter.prose && (
+          {/* Edit mode: scene-specific or all-scenes view */}
+          {editMode && activeScene && activeScene.prose && (
+            <div className="mt-6">
+              <textarea
+                ref={editorRef}
+                value={activeScene.prose}
+                onChange={(e) => {
+                  updateScene(chapter.id, activeScene.id, {
+                    prose: e.target.value,
+                    status: 'edited',
+                  });
+                  syncScenesToProse(chapter.id);
+                }}
+                className={cn(
+                  'w-full bg-transparent border-none outline-none resize-none',
+                  'font-serif leading-[2] text-text-primary',
+                  'focus:ring-0',
+                  isFocusMode ? 'text-xl' : 'text-lg'
+                )}
+                style={{ minHeight: '500px' }}
+              />
+            </div>
+          )}
+          {editMode && !activeScene && scenes.length > 0 && (
+            <div className="mt-6 space-y-0">
+              {[...scenes].sort((a, b) => a.order - b.order).map((scene, idx) => (
+                <div key={scene.id}>
+                  {idx > 0 && (
+                    <div className="flex items-center gap-3 py-4">
+                      <div className="flex-1 border-t border-black/10" />
+                      <span className="text-[10px] text-text-tertiary font-mono uppercase">Scene Break</span>
+                      <div className="flex-1 border-t border-black/10" />
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setActiveScene(scene.id)}
+                    className="w-full text-left group cursor-pointer"
+                    title={`Click to edit: ${scene.title}`}
+                  >
+                    <div className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-2 group-hover:text-text-primary transition-colors">
+                      Scene {scene.order}: {scene.title}
+                    </div>
+                    {scene.prose ? (
+                      <div className={cn(
+                        'font-serif leading-[2] text-text-primary whitespace-pre-wrap rounded-lg p-3 -mx-3 group-hover:bg-white/30 transition-colors',
+                        isFocusMode ? 'text-xl' : 'text-lg'
+                      )}>
+                        {scene.prose}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-text-tertiary italic py-4 rounded-lg p-3 -mx-3 group-hover:bg-white/30 transition-colors">
+                        No prose yet — click to edit this scene
+                      </div>
+                    )}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Normal mode or edit mode with active scene that has no prose */}
+          {!editMode && chapter.prose && (
             <div className="mt-6">
               <textarea
                 ref={editorRef}
                 value={chapter.prose}
-                onChange={(e) => updateChapter(chapter.id, { 
-                  prose: e.target.value, 
+                onChange={(e) => updateChapter(chapter.id, {
+                  prose: e.target.value,
                   status: 'human-edited',
                   updatedAt: new Date().toISOString(),
                 })}

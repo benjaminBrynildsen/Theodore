@@ -267,6 +267,8 @@ function buildChapterInsert(bodyRaw: unknown, projectId: string) {
     referencedCanonIds: asStringArray(body.referencedCanonIds),
     aiIntentMetadata: 'aiIntentMetadata' in body ? asObject(body.aiIntentMetadata) : undefined,
     validationStatus: asObject(body.validationStatus, DEFAULT_VALIDATION_STATUS),
+    scenes: Array.isArray(body.scenes) ? body.scenes : [],
+    editChatHistory: Array.isArray(body.editChatHistory) ? body.editChatHistory : [],
   };
 }
 
@@ -286,6 +288,8 @@ function buildChapterUpdate(bodyRaw: unknown, projectId: string) {
   if ('referencedCanonIds' in body) updates.referencedCanonIds = asStringArray(body.referencedCanonIds);
   if ('aiIntentMetadata' in body) updates.aiIntentMetadata = body.aiIntentMetadata === null ? null : asObject(body.aiIntentMetadata);
   if ('validationStatus' in body) updates.validationStatus = asObject(body.validationStatus, DEFAULT_VALIDATION_STATUS);
+  if ('scenes' in body) updates.scenes = Array.isArray(body.scenes) ? body.scenes : [];
+  if ('editChatHistory' in body) updates.editChatHistory = Array.isArray(body.editChatHistory) ? body.editChatHistory : [];
 
   return updates;
 }

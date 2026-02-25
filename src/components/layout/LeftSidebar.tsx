@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, Sparkles, MessageSquare, Swords, Wand2, Loader2 } from 'lucide-react';
+import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, Sparkles, MessageSquare, Swords, Wand2, Loader2, Scissors } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
@@ -7,6 +7,7 @@ import { CreditCostTag } from '../credits/CreditCostTag';
 import { cn } from '../../lib/utils';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { generateText } from '../../lib/generate';
+import { EditModeSidebar } from '../editmode/EditModeSidebar';
 import type { CanonType } from '../../types/canon';
 import type { WritingMode, GenerationType } from '../../types';
 
@@ -134,7 +135,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
 // ========== CHAPTER SIDEBAR (Context-Aware Toolkit) ==========
 
 function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId: string }) {
-  const { chapters, updateChapter } = useStore();
+  const { chapters, updateChapter, setEditMode } = useStore();
   const { entries } = useCanonStore();
   const [activeSection, setActiveSection] = useState<'premise' | 'generate' | 'artifacts'>('premise');
   const [writingMode, setWritingMode] = useState<WritingMode>('draft');
@@ -165,8 +166,18 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
     <>
       {/* Chapter breadcrumb */}
       <div className="p-3 border-b border-white/20">
-        <div className="text-sm font-semibold text-text-tertiary uppercase tracking-wider px-1 mb-2">
-          Ch. {chapter.number} · {chapter.title}
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-sm font-semibold text-text-tertiary uppercase tracking-wider px-1 truncate">
+            Ch. {chapter.number} · {chapter.title}
+          </div>
+          <button
+            onClick={() => setEditMode(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all flex-shrink-0"
+            title="Enter Edit Mode — edit by scene"
+          >
+            <Scissors size={13} />
+            <span className="hidden lg:inline">Edit Mode</span>
+          </button>
         </div>
         {/* Section tabs */}
         <div className="flex gap-0.5 glass-pill p-0.5 rounded-xl">
@@ -560,14 +571,16 @@ Task:
 // ========== MAIN SIDEBAR ==========
 
 export function LeftSidebar() {
-  const { leftSidebarOpen, getActiveProject, activeChapterId } = useStore();
+  const { leftSidebarOpen, getActiveProject, activeChapterId, editMode } = useStore();
   const project = getActiveProject();
-  
+
   if (!leftSidebarOpen || !project) return null;
 
   return (
     <aside className="w-[23.5rem] h-full glass-subtle flex flex-col animate-fade-in border-r-0">
-      {activeChapterId ? (
+      {editMode && activeChapterId ? (
+        <EditModeSidebar projectId={project.id} chapterId={activeChapterId} />
+      ) : activeChapterId ? (
         <ChapterSidebar projectId={project.id} chapterId={activeChapterId} />
       ) : (
         <ProjectSidebar projectId={project.id} />

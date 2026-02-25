@@ -1,9 +1,15 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Project, Chapter } from '../types';
+import type { Project, Chapter, Scene, EditChatMessage } from '../types';
 import { api } from '../lib/api';
 import { useCanonStore } from './canon';
 import { scanMetadataOccurrences, type MetadataScanResult } from '../lib/metadata-scan';
+import {
+  isLikelyCharacterNoise,
+  isLikelyEntityNoise,
+  normalizeEntityKeyForType,
+  sanitizeEntityName,
+} from '../lib/entity-normalization';
 const AUTO_METADATA_TAGS = ['auto-detected', 'chapter-scan'];
 type AutoCanonType = 'character' | 'location' | 'system' | 'artifact';
 type ChapterSnapshotType = 'ai-generated' | 'human-edit' | 'auto-save';
@@ -16,20 +22,21 @@ function debounceSave(key: string, fn: () => Promise<void>, ms = 500) {
 }
 
 function normalizeEntityName(value: string): string {
-  return value
-    .replace(/^[\s"'`([{]+|[\s"'`)\]}.,!?;:]+$/g, '')
+  return sanitizeEntityName(value)
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function dedupeEntityNames(names: string[] | undefined): string[] {
+function dedupeEntityNames(names: string[] | undefined, type: AutoCanonType): string[] {
   const uniqueNames: string[] = [];
   const seen = new Set<string>();
 
   for (const raw of names || []) {
     const normalized = normalizeEntityName(raw);
     if (!normalized) continue;
-    const key = normalized.toLowerCase();
+    if (type === 'character' ? isLikelyCharacterNoise(normalized) : isLikelyEntityNoise(normalized)) continue;
+    const key = normalizeEntityKeyForType(type, normalized);
+    if (!key) continue;
     if (seen.has(key)) continue;
     seen.add(key);
     uniqueNames.push(normalized);
@@ -51,22 +58,31 @@ function persistScannedMetadataToCanon(
   scan: MetadataScanResult,
 ): string[] {
   const canonStore = useCanonStore.getState();
+  const autoCanonTypes = new Set<AutoCanonType>(['character', 'location', 'system', 'artifact']);
   const existingKeys = new Set(
-    canonStore.getProjectEntries(projectId).map((entry) => `${entry.type}:${normalizeEntityName(entry.name).toLowerCase()}`),
+    canonStore.getProjectEntries(projectId)
+      .filter((entry): entry is typeof entry & { type: AutoCanonType } => autoCanonTypes.has(entry.type as AutoCanonType))
+      .map((entry) => {
+        const key = normalizeEntityKeyForType(entry.type, entry.name);
+        return key ? `${entry.type}:${key}` : '';
+      })
+      .filter(Boolean),
   );
   const detectedAt = new Date().toISOString();
 
   const entitiesByType: Record<AutoCanonType, string[]> = {
-    character: dedupeEntityNames(scan.newEntities?.characters),
-    location: dedupeEntityNames(scan.newEntities?.locations),
-    system: dedupeEntityNames(scan.newEntities?.systems),
-    artifact: dedupeEntityNames(scan.newEntities?.artifacts),
+    character: dedupeEntityNames(scan.newEntities?.characters, 'character'),
+    location: dedupeEntityNames(scan.newEntities?.locations, 'location'),
+    system: dedupeEntityNames(scan.newEntities?.systems, 'system'),
+    artifact: dedupeEntityNames(scan.newEntities?.artifacts, 'artifact'),
   };
 
   const createdEntryIds: string[] = [];
   for (const type of Object.keys(entitiesByType) as AutoCanonType[]) {
     for (const name of entitiesByType[type]) {
-      const key = `${type}:${name.toLowerCase()}`;
+      const normalized = normalizeEntityKeyForType(type, name);
+      if (!normalized) continue;
+      const key = `${type}:${normalized}`;
       if (existingKeys.has(key)) continue;
 
       const entry = createAutoCanonEntry(projectId, type, name);
@@ -133,6 +149,24 @@ interface AppState {
   rightSidebarOpen: boolean;
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
+
+  // Edit Mode
+  editMode: boolean;
+  activeSceneId: string | null;
+  editChatMessages: EditChatMessage[];
+  scenesGenerating: boolean;
+  editChatLoading: boolean;
+  setEditMode: (active: boolean) => void;
+  setActiveScene: (sceneId: string | null) => void;
+  updateScene: (chapterId: string, sceneId: string, updates: Partial<Scene>) => void;
+  setChapterScenes: (chapterId: string, scenes: Scene[]) => void;
+  addScene: (chapterId: string, scene: Scene) => void;
+  removeScene: (chapterId: string, sceneId: string) => void;
+  syncScenesToProse: (chapterId: string) => void;
+  addEditChatMessage: (msg: EditChatMessage) => void;
+  clearEditChat: () => void;
+  setScenesGenerating: (generating: boolean) => void;
+  setEditChatLoading: (loading: boolean) => void;
 
   // View
   currentView: 'home' | 'project' | 'chapter';
@@ -237,6 +271,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         referencedCanonIds: c.referencedCanonIds || c.referenced_canon_ids || [],
         aiIntentMetadata: c.aiIntentMetadata || c.ai_intent_metadata,
         validationStatus: c.validationStatus || c.validation_status || { isValid: true, checks: [] },
+        scenes: c.scenes || c.scenes || [],
+        editChatHistory: c.editChatHistory || c.edit_chat_history || [],
         createdAt: c.createdAt || c.created_at,
         updatedAt: c.updatedAt || c.updated_at,
       }));
@@ -413,6 +449,102 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   rightSidebarOpen: false,
   toggleLeftSidebar: () => set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),
   toggleRightSidebar: () => set((s) => ({ rightSidebarOpen: !s.rightSidebarOpen })),
+
+  // Edit Mode
+  editMode: false,
+  activeSceneId: null,
+  editChatMessages: [],
+  scenesGenerating: false,
+  editChatLoading: false,
+
+  setEditMode: (active) => {
+    if (!active) {
+      // Sync scenes to prose on exit
+      const chapterId = get().activeChapterId;
+      if (chapterId) {
+        const chapter = get().chapters.find(c => c.id === chapterId);
+        if (chapter?.scenes?.length) {
+          const sorted = [...chapter.scenes].sort((a, b) => a.order - b.order);
+          const combinedProse = sorted.map(s => s.prose).filter(Boolean).join('\n\n***\n\n');
+          if (combinedProse.trim()) {
+            get().updateChapter(chapterId, { prose: combinedProse });
+          }
+        }
+      }
+      set({ editMode: false, activeSceneId: null, editChatMessages: [] });
+    } else {
+      set({ editMode: true });
+    }
+  },
+
+  setActiveScene: (sceneId) => set({ activeSceneId: sceneId }),
+
+  updateScene: (chapterId, sceneId, updates) => {
+    set((s) => ({
+      chapters: s.chapters.map((c) => {
+        if (c.id !== chapterId) return c;
+        const scenes = (c.scenes || []).map((sc) =>
+          sc.id === sceneId ? { ...sc, ...updates } : sc
+        );
+        return { ...c, scenes, updatedAt: new Date().toISOString() };
+      }),
+    }));
+    // Debounced save of scenes to backend
+    debounceSave(`scene-${chapterId}-${sceneId}`, async () => {
+      const chapter = get().chapters.find(c => c.id === chapterId);
+      if (chapter) {
+        await api.updateChapter(chapterId, { scenes: chapter.scenes });
+      }
+    });
+  },
+
+  setChapterScenes: (chapterId, scenes) => {
+    set((s) => ({
+      chapters: s.chapters.map((c) =>
+        c.id === chapterId ? { ...c, scenes, updatedAt: new Date().toISOString() } : c
+      ),
+    }));
+    debounceSave(`scenes-${chapterId}`, async () => {
+      await api.updateChapter(chapterId, { scenes });
+    });
+  },
+
+  addScene: (chapterId, scene) => {
+    set((s) => ({
+      chapters: s.chapters.map((c) =>
+        c.id === chapterId ? { ...c, scenes: [...(c.scenes || []), scene], updatedAt: new Date().toISOString() } : c
+      ),
+    }));
+    debounceSave(`scenes-add-${chapterId}`, async () => {
+      const chapter = get().chapters.find(c => c.id === chapterId);
+      if (chapter) await api.updateChapter(chapterId, { scenes: chapter.scenes });
+    });
+  },
+
+  removeScene: (chapterId, sceneId) => {
+    set((s) => ({
+      chapters: s.chapters.map((c) =>
+        c.id === chapterId ? { ...c, scenes: (c.scenes || []).filter(sc => sc.id !== sceneId), updatedAt: new Date().toISOString() } : c
+      ),
+    }));
+    debounceSave(`scenes-rm-${chapterId}`, async () => {
+      const chapter = get().chapters.find(c => c.id === chapterId);
+      if (chapter) await api.updateChapter(chapterId, { scenes: chapter.scenes });
+    });
+  },
+
+  syncScenesToProse: (chapterId) => {
+    const chapter = get().chapters.find(c => c.id === chapterId);
+    if (!chapter?.scenes?.length) return;
+    const sorted = [...chapter.scenes].sort((a, b) => a.order - b.order);
+    const combinedProse = sorted.map(s => s.prose).filter(Boolean).join('\n\n***\n\n');
+    get().updateChapter(chapterId, { prose: combinedProse });
+  },
+
+  addEditChatMessage: (msg) => set((s) => ({ editChatMessages: [...s.editChatMessages, msg] })),
+  clearEditChat: () => set({ editChatMessages: [] }),
+  setScenesGenerating: (generating) => set({ scenesGenerating: generating }),
+  setEditChatLoading: (loading) => set({ editChatLoading: loading }),
 
   // View
   currentView: 'home',

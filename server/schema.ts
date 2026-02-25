@@ -68,6 +68,8 @@ export const chapters = pgTable('chapters', {
   referencedCanonIds: jsonb('referenced_canon_ids').$type<string[]>().default([]),
   aiIntentMetadata: jsonb('ai_intent_metadata').$type<Record<string, any>>(),
   validationStatus: jsonb('validation_status').$type<Record<string, any>>().notNull(),
+  scenes: jsonb('scenes').$type<any[]>().default([]),
+  editChatHistory: jsonb('edit_chat_history').$type<any[]>().default([]),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

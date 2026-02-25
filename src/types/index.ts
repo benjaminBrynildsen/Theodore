@@ -40,13 +40,34 @@ export interface NarrativeControls {
 
 export type GenreEmphasis = 'adventure' | 'mystery' | 'romance' | 'horror' | 'philosophical';
 
+// ========== Scene Types ==========
+
+export type SceneStatus = 'outline' | 'drafted' | 'edited';
+
+export interface Scene {
+  id: string;
+  title: string;
+  summary: string;
+  prose: string;
+  order: number;
+  status: SceneStatus;
+}
+
+export interface EditChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sceneId?: string;
+  timestamp: string;
+}
+
 // ========== Chapter Types ==========
 
-export type ChapterStatus = 
-  | 'premise-only' 
-  | 'draft-generated' 
-  | 'human-edited' 
-  | 'canon-locked' 
+export type ChapterStatus =
+  | 'premise-only'
+  | 'draft-generated'
+  | 'human-edited'
+  | 'canon-locked'
   | 'out-of-alignment';
 
 export interface Chapter {
@@ -61,6 +82,8 @@ export interface Chapter {
   referencedCanonIds: string[];
   aiIntentMetadata?: AiIntentMetadata;
   validationStatus: ValidationStatus;
+  scenes?: Scene[];
+  editChatHistory?: EditChatMessage[];
   createdAt: string;
   updatedAt: string;
 }

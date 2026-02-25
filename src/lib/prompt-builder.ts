@@ -2,7 +2,7 @@
 // Builds AI prompts that incorporate ALL settings, canon, and project context
 // Every generation call goes through here to ensure consistency
 
-import type { Project, Chapter, PremiseCard, WritingMode, GenerationType } from '../types';
+import type { Project, Chapter, PremiseCard, WritingMode, GenerationType, Scene, EditChatMessage } from '../types';
 import type { AppSettings, WritingStyleSettings } from '../types/settings';
 import type { AnyCanonEntry, CharacterEntry, LocationEntry } from '../types/canon';
 
@@ -311,6 +311,130 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
     'action-skeleton': '\nWrite the ACTION SKELETON — the sequence of events and physical actions without dialogue or internal monologue. Focus on what happens, in what order, with what physical consequences.',
   };
   sections.push(typeInstructions[generationType]);
+
+  return sections.join('\n');
+}
+
+// ========== Scene Decomposition Prompt ==========
+
+export function buildSceneDecompositionPrompt(ctx: PromptContext): string {
+  const { project, chapter } = ctx;
+  const sections: string[] = [];
+
+  sections.push(`You are Theodore, an expert story architect working on "${project.title}" (a ${project.subtype || project.type}).`);
+  sections.push(`\nDecompose the following chapter into 3-5 distinct scenes. Each scene should represent a clear narrative unit with its own setting, tension, and purpose.`);
+
+  sections.push(`\n=== CHAPTER ===`);
+  sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
+  if (chapter.premise.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
+  if (chapter.premise.changes) sections.push(`What changes: ${chapter.premise.changes}`);
+  if (chapter.premise.emotionalBeat) sections.push(`Emotional beat: ${chapter.premise.emotionalBeat}`);
+  if (chapter.premise.characters.length) sections.push(`Characters: ${chapter.premise.characters.join(', ')}`);
+
+  if (chapter.prose?.trim()) {
+    sections.push(`\n=== EXISTING PROSE (use this to inform scene boundaries) ===`);
+    sections.push(chapter.prose.slice(0, 4000));
+  }
+
+  sections.push(`\nReturn ONLY a JSON array of scene objects. No markdown, no explanation. Format:
+[
+  { "title": "Scene Title", "summary": "2-3 sentence description of what happens", "order": 1 },
+  ...
+]
+
+Rules:
+- Generate 3-5 scenes
+- Each scene should have a clear dramatic purpose
+- Scenes should flow naturally from one to the next
+- If existing prose is provided, match scene boundaries to natural breaks in the text`);
+
+  return sections.join('\n');
+}
+
+// ========== Scene Prose Split Prompt ==========
+
+export function buildSceneProseSplitPrompt(chapter: Chapter, scenes: { title: string; summary: string; order: number }[]): string {
+  const sections: string[] = [];
+
+  sections.push(`You are Theodore, a precise text analysis tool. Split the following chapter prose into segments that match the given scene outlines.`);
+
+  sections.push(`\n=== SCENE OUTLINES ===`);
+  for (const s of scenes) {
+    sections.push(`Scene ${s.order}: "${s.title}" — ${s.summary}`);
+  }
+
+  sections.push(`\n=== CHAPTER PROSE ===`);
+  sections.push(chapter.prose);
+
+  sections.push(`\nSplit the prose into segments matching each scene. Preserve the EXACT original text — do not rewrite, summarize, or modify any words.
+
+Return ONLY a JSON array. No markdown, no explanation. Format:
+[
+  { "order": 1, "prose": "exact text from the chapter belonging to scene 1..." },
+  { "order": 2, "prose": "exact text from the chapter belonging to scene 2..." },
+  ...
+]
+
+If prose doesn't clearly map to a scene, assign it to the nearest scene by narrative flow.`);
+
+  return sections.join('\n');
+}
+
+// ========== Scene Edit Prompt ==========
+
+export function buildSceneEditPrompt(
+  ctx: PromptContext,
+  scene: Scene,
+  instruction: string,
+  chatHistory: EditChatMessage[],
+): string {
+  const { project, chapter, canonEntries, settings } = ctx;
+  const sections: string[] = [];
+
+  sections.push(`You are Theodore, an expert fiction editor working on "${project.title}" (a ${project.subtype || project.type}).`);
+
+  // Writing style
+  sections.push('\n=== WRITING STYLE RULES ===');
+  sections.push(buildStyleInstructions(settings.writingStyle));
+
+  // Tone
+  sections.push('\n=== TONE & NARRATIVE ===');
+  sections.push(buildToneInstructions(project));
+
+  // Canon context (brief)
+  if (settings.ai.includeCanonInPrompt && canonEntries.length > 0) {
+    sections.push('\n' + buildCanonContext(canonEntries, chapter));
+  }
+
+  // Chapter context
+  sections.push(`\n=== CHAPTER CONTEXT ===`);
+  sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
+  if (chapter.premise.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
+
+  // Current scene
+  sections.push(`\n=== CURRENT SCENE ===`);
+  sections.push(`Scene: "${scene.title}"`);
+  sections.push(`Summary: ${scene.summary}`);
+  if (scene.prose) {
+    sections.push(`\nCurrent prose:\n${scene.prose}`);
+  } else {
+    sections.push(`\n(No prose written yet for this scene)`);
+  }
+
+  // Recent chat history (last 6 messages)
+  const recentHistory = chatHistory.slice(-6);
+  if (recentHistory.length > 0) {
+    sections.push(`\n=== RECENT CONVERSATION ===`);
+    for (const msg of recentHistory) {
+      sections.push(`${msg.role === 'user' ? 'User' : 'Theodore'}: ${msg.content}`);
+    }
+  }
+
+  // The instruction
+  sections.push(`\n=== USER INSTRUCTION ===`);
+  sections.push(instruction);
+
+  sections.push(`\nApply the user's instruction to the scene. Return ONLY the updated prose text — no explanations, no markdown code blocks, no scene titles. Just the prose.`);
 
   return sections.join('\n');
 }
