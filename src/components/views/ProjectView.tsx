@@ -1,8 +1,9 @@
 import { useState, useRef } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, ImageIcon } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge } from '../ui/Badge';
 import { ChapterView } from './ChapterView';
+import { IllustrateButton } from '../features/IllustrateButton';
 import { cn, generateId } from '../../lib/utils';
 import type { ChapterStatus } from '../../types';
 
@@ -53,9 +54,16 @@ export function ProjectView() {
       {/* Project Header */}
       <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-12 pb-8">
         <h1 className="text-3xl font-serif font-semibold tracking-tight mb-2">{project.title}</h1>
-        <p className="text-text-tertiary text-sm capitalize">
-          {project.subtype?.replace('-', ' ') || project.type} · {chapters.length} chapters · {project.targetLength} length
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-text-tertiary text-sm capitalize">
+            {project.subtype?.replace('-', ' ') || project.type} · {chapters.length} chapters · {project.targetLength} length
+          </p>
+          <IllustrateButton
+            target="cover"
+            projectId={project.id}
+            compact
+          />
+        </div>
       </div>
 
       {/* Reorder warning */}

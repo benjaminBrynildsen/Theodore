@@ -84,6 +84,26 @@ function buildStyleInstructions(style: WritingStyleSettings): string {
   return rules.join('\n');
 }
 
+// ========== Craft Rules (fiction writing intelligence) ==========
+
+function buildCraftRules(): string {
+  return `=== CRAFT RULES (apply to all generation) ===
+
+SCENES: Enter late, leave early. Start in the middle of action or tension, not with arrivals or greetings. End on a shift — a decision, a revelation, a door closing — not a resolution.
+
+DIALOGUE: People rarely say what they mean. Layer subtext beneath the words. Use interruptions, deflections, non-answers. Replace dialogue tags with action beats: "She set down the glass" not "she said, putting down the glass." Never use dialogue to deliver backstory ("As you know, Tim...").
+
+CHARACTERS: On first appearance in a chapter, anchor with ONE visceral sensory detail — not a full description. Show personality through choices and behavior, not adjectives. Interior monologue should conflict with exterior action.
+
+EMOTION: Never name the emotion. No "she felt angry" or "fear gripped him." Show it through the body: clenched jaw, shortened breath, hands that won't stay still. Trust the reader to feel it.
+
+PACING: Vary sentence length deliberately. Short sentences hit hard. Longer sentences carry the reader through stretches of reflection or description, building a rhythm that lulls before the next punch. Paragraph breaks are pacing tools — use them.
+
+DESCRIPTION: Earn every adjective. One precise detail beats three vague ones. Anchor abstract moments in concrete sensory experience. "The room smelled of burnt coffee and old carpet" not "the room was unpleasant."
+
+TRANSITIONS: Cut between scenes at the point of highest tension or sharpest irony. Avoid "Later that evening" — instead, jump-cut and let context orient the reader.`;
+}
+
 // ========== Narrative Controls → Tone Instructions ==========
 
 function buildToneInstructions(project: Project): string {
@@ -147,13 +167,61 @@ function buildToneInstructions(project: Project): string {
 function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
   if (entries.length === 0) return '';
 
+  // Smart filtering: only include canon relevant to this chapter
+  const chapterCharNames = new Set(chapter.premise.characters.map(n => n.toLowerCase()));
+  
+  const characters = entries.filter(e => e.type === 'character') as CharacterEntry[];
+  const locations = entries.filter(e => e.type === 'location') as LocationEntry[];
+  const others = entries.filter(e => e.type !== 'character' && e.type !== 'location');
+
+  // Primary characters: directly listed in chapter premise
+  const primaryChars = characters.filter(c => 
+    chapterCharNames.has(c.name.toLowerCase()) ||
+    (c.character.fullName && chapterCharNames.has(c.character.fullName.toLowerCase())) ||
+    c.character.aliases.some(a => chapterCharNames.has(a.toLowerCase()))
+  );
+
+  // Secondary characters: have a relationship with a primary character
+  const primaryIds = new Set(primaryChars.map(c => c.id));
+  const secondaryChars = characters.filter(c => 
+    !primaryIds.has(c.id) &&
+    c.character.relationships.some(r => primaryIds.has(r.characterId))
+  );
+
+  // Relevant locations: mentioned in chapter constraints, purpose, or changes
+  const chapterText = [
+    chapter.premise.purpose,
+    chapter.premise.changes,
+    chapter.premise.emotionalBeat,
+    ...chapter.premise.constraints,
+    ...(chapter.scenes || []).map(s => s.summary),
+  ].join(' ').toLowerCase();
+
+  const relevantLocations = locations.filter(l =>
+    chapterText.includes(l.name.toLowerCase()) ||
+    (l.location.fullName && chapterText.includes(l.location.fullName.toLowerCase())) ||
+    l.location.aliases.some(a => chapterText.includes(a.toLowerCase())) ||
+    // Also include locations where primary characters currently are
+    primaryChars.some(c => c.character.storyState.currentLocation?.toLowerCase().includes(l.name.toLowerCase()))
+  );
+
+  // Relevant world elements: tagged with chapter characters or mentioned in chapter text
+  const relevantOthers = others.filter(e =>
+    chapterText.includes(e.name.toLowerCase()) ||
+    e.tags.some(t => chapterCharNames.has(t.toLowerCase())) ||
+    e.tags.some(t => chapterText.includes(t.toLowerCase()))
+  );
+
+  // If filtering produces nothing (maybe premise isn't filled out), fall back to all
+  const hasRelevantContent = primaryChars.length > 0 || relevantLocations.length > 0 || relevantOthers.length > 0;
+  
   const sections: string[] = ['=== CANON (established facts — do not contradict) ==='];
 
-  // Characters
-  const characters = entries.filter(e => e.type === 'character') as CharacterEntry[];
-  if (characters.length > 0) {
+  // Characters — full detail for primary, brief for secondary
+  const charsToShow = hasRelevantContent ? primaryChars : characters;
+  if (charsToShow.length > 0) {
     sections.push('\n## Characters');
-    for (const c of characters) {
+    for (const c of charsToShow) {
       const ch = c.character;
       const lines = [`### ${c.name}`];
       if (c.description) lines.push(c.description);
@@ -167,32 +235,54 @@ function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
       if (ch.storyState.currentLocation) lines.push(`Current location: ${ch.storyState.currentLocation}`);
       if (ch.storyState.emotionalState) lines.push(`Emotional state: ${ch.storyState.emotionalState}`);
       if (!ch.storyState.alive) lines.push('⚠ STATUS: DEAD');
+      // Include relevant relationships (only to other characters in this chapter)
+      const relevantRels = ch.relationships.filter(r => chapterCharNames.has(r.characterName.toLowerCase()));
+      if (relevantRels.length > 0) {
+        lines.push('Key relationships:');
+        for (const r of relevantRels) {
+          lines.push(`  - ${r.characterName}: ${r.type} — ${r.currentState || r.dynamic}`);
+        }
+      }
       sections.push(lines.join('\n'));
     }
   }
 
+  // Brief mentions for secondary characters (name + role + relationship only)
+  if (hasRelevantContent && secondaryChars.length > 0) {
+    sections.push('\n## Also Referenced');
+    for (const c of secondaryChars) {
+      const rel = c.character.relationships.find(r => primaryIds.has(r.characterId));
+      sections.push(`- ${c.name} (${c.character.role}): ${rel?.dynamic || c.description || 'mentioned'}`);
+    }
+  }
+
   // Locations
-  const locations = entries.filter(e => e.type === 'location') as LocationEntry[];
-  if (locations.length > 0) {
+  const locsToShow = hasRelevantContent ? relevantLocations : locations;
+  if (locsToShow.length > 0) {
     sections.push('\n## Locations');
-    for (const l of locations) {
+    for (const l of locsToShow) {
       const loc = l.location;
       const lines = [`### ${l.name}`];
       if (l.description) lines.push(l.description);
       if (loc.locationType) lines.push(`Type: ${loc.locationType}`);
       if (loc.currentState.atmosphere) lines.push(`Atmosphere: ${loc.currentState.atmosphere}`);
       if (loc.currentState.condition) lines.push(`Condition: ${loc.currentState.condition}`);
+      if (loc.currentState.sensoryDetails) {
+        const sd = loc.currentState.sensoryDetails;
+        const sensory = [sd.sights, sd.sounds, sd.smells, sd.textures].filter(Boolean);
+        if (sensory.length > 0) lines.push(`Sensory: ${sensory.join('; ')}`);
+      }
       if (loc.storyRelevance.accessRules) lines.push(`Access: ${loc.storyRelevance.accessRules}`);
       if (loc.storyRelevance.dangerLevel) lines.push(`Danger level: ${loc.storyRelevance.dangerLevel}`);
       sections.push(lines.join('\n'));
     }
   }
 
-  // Systems, artifacts, rules, events
-  const others = entries.filter(e => e.type !== 'character' && e.type !== 'location');
-  if (others.length > 0) {
+  // World elements
+  const othersToShow = hasRelevantContent ? relevantOthers : others;
+  if (othersToShow.length > 0) {
     sections.push('\n## World Rules & Elements');
-    for (const e of others) {
+    for (const e of othersToShow) {
       sections.push(`### ${e.name} (${e.type})\n${e.description || 'No description'}`);
     }
   }
@@ -203,12 +293,28 @@ function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
 // ========== Chapter Outline Context ==========
 
 function buildOutlineContext(chapters: Chapter[], currentChapter: Chapter): string {
-  const lines = ['=== STORY OUTLINE ==='];
-  for (const ch of chapters) {
-    const marker = ch.id === currentChapter.id ? '→ ' : '  ';
-    const status = ch.prose ? '(written)' : '(unwritten)';
-    lines.push(`${marker}Ch ${ch.number}: ${ch.title} ${status}`);
-    if (ch.premise.purpose) lines.push(`    Purpose: ${ch.premise.purpose}`);
+  const lines = ['=== STORY OUTLINE (nearby chapters) ==='];
+  
+  // Show all chapter titles for structure, but only detail prev/current/next
+  const currentIdx = chapters.findIndex(ch => ch.id === currentChapter.id);
+  
+  for (let i = 0; i < chapters.length; i++) {
+    const ch = chapters[i];
+    const isCurrent = ch.id === currentChapter.id;
+    const isNearby = Math.abs(i - currentIdx) <= 1;
+    const marker = isCurrent ? '→ ' : '  ';
+    const status = ch.prose ? '✓' : '○';
+    
+    if (isNearby) {
+      // Full detail for prev/current/next
+      lines.push(`${marker}${status} Ch ${ch.number}: ${ch.title}`);
+      if (ch.premise.purpose) lines.push(`    Purpose: ${ch.premise.purpose}`);
+      if (ch.premise.changes) lines.push(`    Changes: ${ch.premise.changes}`);
+      if (ch.premise.emotionalBeat) lines.push(`    Beat: ${ch.premise.emotionalBeat}`);
+    } else {
+      // Just title for distant chapters (structural awareness without token cost)
+      lines.push(`${marker}${status} Ch ${ch.number}: ${ch.title}`);
+    }
   }
   return lines.join('\n');
 }
@@ -254,6 +360,9 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
   sections.push('\n=== WRITING STYLE RULES (follow precisely) ===');
   sections.push(buildStyleInstructions(settings.writingStyle));
 
+  // Craft rules (fiction writing intelligence)
+  sections.push('\n' + buildCraftRules());
+
   // Tone and narrative controls (from project)
   sections.push('\n=== TONE & NARRATIVE ===');
   sections.push(buildToneInstructions(project));
@@ -281,10 +390,18 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
     sections.push('\n' + buildOutlineContext(allChapters, chapter));
   }
 
-  // Previous chapter context (for continuity)
+  // Previous chapter context (for continuity) — grab last complete paragraphs, not a raw char slice
   if (previousChapterProse) {
-    const trimmed = previousChapterProse.slice(-2000); // Last ~2000 chars
-    sections.push(`\n=== PREVIOUS CHAPTER ENDING ===\n...${trimmed}`);
+    const paragraphs = previousChapterProse.split(/\n\n+/).filter(p => p.trim());
+    // Take last 3-5 paragraphs that fit within ~2000 chars
+    let selected: string[] = [];
+    let charCount = 0;
+    for (let i = paragraphs.length - 1; i >= 0 && selected.length < 5; i--) {
+      if (charCount + paragraphs[i].length > 2000 && selected.length > 0) break;
+      selected.unshift(paragraphs[i]);
+      charCount += paragraphs[i].length;
+    }
+    sections.push(`\n=== PREVIOUS CHAPTER ENDING ===\n${selected.join('\n\n')}`);
   }
 
   // Chapter-specific instructions
@@ -300,6 +417,15 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
     sections.push('Setup/Payoff:');
     for (const sp of chapter.premise.setupPayoff) {
       sections.push(`- Setup: ${sp.setup} → Payoff: ${sp.payoff}`);
+    }
+  }
+
+  // Scene outline (if decomposed)
+  if (chapter.scenes && chapter.scenes.length > 0) {
+    sections.push('\nScene outline:');
+    for (const scene of chapter.scenes) {
+      const statusIcon = scene.prose ? '✓' : '○';
+      sections.push(`  ${statusIcon} ${scene.order}. ${scene.title}: ${scene.summary}`);
     }
   }
 
@@ -397,11 +523,14 @@ export function buildSceneEditPrompt(
   sections.push('\n=== WRITING STYLE RULES ===');
   sections.push(buildStyleInstructions(settings.writingStyle));
 
+  // Craft rules
+  sections.push('\n' + buildCraftRules());
+
   // Tone
   sections.push('\n=== TONE & NARRATIVE ===');
   sections.push(buildToneInstructions(project));
 
-  // Canon context (brief)
+  // Canon context (smart-filtered)
   if (settings.ai.includeCanonInPrompt && canonEntries.length > 0) {
     sections.push('\n' + buildCanonContext(canonEntries, chapter));
   }

@@ -6,6 +6,7 @@ import { autoFillCharacter, autoFillLocation, autoFillSystem, autoFillArtifact }
 import { buildAutoFillPrompt, buildValidationPrompt } from '../../lib/prompt-builder';
 import { useSettingsStore } from '../../store/settings';
 import { VoicePreview } from '../features/VoicePreview';
+import { IllustrateButton } from '../features/IllustrateButton';
 import { detectChanges, generateValidationIssues } from '../../lib/validation-engine';
 import { useValidationStore } from '../../store/validation';
 import { useStore } from '../../store';
@@ -770,6 +771,19 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
           className="w-full bg-transparent text-sm text-text-secondary resize-none outline-none leading-relaxed"
         />
       </div>
+
+      {/* AI Illustration */}
+      {(entry.type === 'character' || entry.type === 'location') && (
+        <div className="px-5 py-3 border-b border-black/5">
+          <IllustrateButton
+            target={entry.type as 'character' | 'location'}
+            targetId={entry.id}
+            projectId={entry.projectId}
+            currentImageUrl={(entry as any).imageUrl}
+            onImageGenerated={(url) => handleUpdate({ imageUrl: url } as any)}
+          />
+        </div>
+      )}
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto">

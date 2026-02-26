@@ -607,22 +607,68 @@ export function ChapterView({ chapter }: Props) {
           {/* Normal mode or edit mode with active scene that has no prose */}
           {!editMode && chapter.prose && (
             <div className="mt-6">
-              <textarea
-                ref={editorRef}
-                value={chapter.prose}
-                onChange={(e) => updateChapter(chapter.id, {
-                  prose: e.target.value,
-                  status: 'human-edited',
-                  updatedAt: new Date().toISOString(),
-                })}
-                className={cn(
-                  'w-full bg-transparent border-none outline-none resize-none',
-                  'font-serif leading-[2] text-text-primary',
-                  'focus:ring-0',
-                  isFocusMode ? 'text-xl' : 'text-lg'
-                )}
-                style={{ minHeight: '500px' }}
-              />
+              {/* If scenes exist, show prose with scene section markers */}
+              {scenes.length > 0 ? (
+                <div className="space-y-0">
+                  {[...scenes].sort((a, b) => a.order - b.order).map((scene, idx) => (
+                    <div key={scene.id}>
+                      {/* Scene header label */}
+                      <div className={cn(
+                        'flex items-center gap-3',
+                        idx === 0 ? 'pb-3' : 'py-4'
+                      )}>
+                        {idx > 0 && <div className="flex-1 border-t border-black/10" />}
+                        <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider flex-shrink-0">
+                          Scene {scene.order}{scene.title ? `: ${scene.title}` : ''}
+                        </span>
+                        <div className="flex-1 border-t border-black/10" />
+                      </div>
+                      {/* Scene prose editor */}
+                      <textarea
+                        value={scene.prose || ''}
+                        onChange={(e) => {
+                          updateScene(chapter.id, scene.id, {
+                            prose: e.target.value,
+                            status: e.target.value.trim() ? 'edited' : 'outline',
+                          });
+                          syncScenesToProse(chapter.id);
+                        }}
+                        placeholder={`Write scene ${scene.order}...`}
+                        className={cn(
+                          'w-full bg-transparent border-none outline-none resize-none',
+                          'font-serif leading-[2] text-text-primary',
+                          'focus:ring-0',
+                          'placeholder:text-text-tertiary/40 placeholder:italic',
+                          isFocusMode ? 'text-xl' : 'text-lg'
+                        )}
+                        style={{ minHeight: scene.prose ? `${Math.max(100, scene.prose.split('\n').length * 36)}px` : '100px' }}
+                        onInput={(e) => {
+                          const el = e.target as HTMLTextAreaElement;
+                          el.style.height = 'auto';
+                          el.style.height = Math.max(100, el.scrollHeight) + 'px';
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <textarea
+                  ref={editorRef}
+                  value={chapter.prose}
+                  onChange={(e) => updateChapter(chapter.id, {
+                    prose: e.target.value,
+                    status: 'human-edited',
+                    updatedAt: new Date().toISOString(),
+                  })}
+                  className={cn(
+                    'w-full bg-transparent border-none outline-none resize-none',
+                    'font-serif leading-[2] text-text-primary',
+                    'focus:ring-0',
+                    isFocusMode ? 'text-xl' : 'text-lg'
+                  )}
+                  style={{ minHeight: '500px' }}
+                />
+              )}
             </div>
           )}
         </div>

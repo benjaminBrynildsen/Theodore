@@ -23,6 +23,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
+import { generateImage, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt } from './image-gen.js';
 import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs } from './billing.js';
 
 const app = express();
@@ -1134,6 +1135,135 @@ app.get('/api/users/:id/credits', async (req, res) => {
     });
   } catch (e: any) { respondInternalError(res, 'api', e); }
 });
+
+// ========== Image Generation (Gemini Nano Banana 2) ==========
+
+app.post('/api/generate/image', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth) return res.status(401).json({ error: 'Not signed in' });
+
+    const { prompt, aspectRatio, style, projectId, target, targetId } = req.body;
+    if (!prompt && !target) return res.status(400).json({ error: 'Missing prompt or target' });
+
+    const user = await getUserById(auth.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Check credits (image gen costs 5 credits)
+    if (user.creditsRemaining < 5) {
+      return res.status(402).json({ error: 'INSUFFICIENT_CREDITS', message: 'Not enough credits for image generation.' });
+    }
+
+    let finalPrompt = prompt || '';
+
+    // Auto-build prompt from target type
+    if (target === 'character' && targetId) {
+      const [entry] = await db.select().from(canonEntries).where(eq(canonEntries.id, targetId));
+      if (!entry) return res.status(404).json({ error: 'Canon entry not found' });
+      const data = entry.data as any;
+      finalPrompt = buildCharacterPortraitPrompt({
+        name: entry.name,
+        description: entry.description || undefined,
+        appearance: data?.character?.appearance,
+        age: data?.character?.age,
+        gender: data?.character?.gender,
+        occupation: data?.character?.occupation,
+      });
+    } else if (target === 'location' && targetId) {
+      const [entry] = await db.select().from(canonEntries).where(eq(canonEntries.id, targetId));
+      if (!entry) return res.status(404).json({ error: 'Canon entry not found' });
+      const data = entry.data as any;
+      finalPrompt = buildLocationIllustrationPrompt({
+        name: entry.name,
+        description: entry.description || undefined,
+        locationType: data?.location?.locationType,
+        atmosphere: data?.location?.currentState?.atmosphere,
+        sensoryDetails: data?.location?.currentState?.sensoryDetails,
+        climate: data?.location?.geography?.climate,
+        terrain: data?.location?.geography?.terrain,
+      });
+    } else if (target === 'scene' && targetId && projectId) {
+      // targetId is chapterId:sceneId
+      const [chapterId, sceneId] = targetId.split(':');
+      const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
+      if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
+      const scenes = (chapter.scenes as any[]) || [];
+      const scene = scenes.find((s: any) => s.id === sceneId);
+      if (!scene) return res.status(404).json({ error: 'Scene not found' });
+      finalPrompt = buildSceneIllustrationPrompt({
+        title: scene.title,
+        summary: scene.summary,
+        characters: (chapter.premise as any)?.characters,
+      });
+    } else if (target === 'cover' && projectId) {
+      const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      const nc = (project.narrativeControls as any) || {};
+      finalPrompt = buildBookCoverPrompt({
+        title: project.title,
+        type: project.type,
+        subtype: project.subtype || undefined,
+        genreEmphasis: nc.genreEmphasis,
+        toneMood: nc.toneMood,
+      });
+    }
+
+    if (!finalPrompt) return res.status(400).json({ error: 'Could not build image prompt' });
+
+    const result = await generateImage({
+      prompt: finalPrompt,
+      aspectRatio: aspectRatio || '1:1',
+      style: style || 'concept-art',
+      userId: auth.user.id,
+      projectId,
+    });
+
+    // Deduct credits
+    await db.update(users).set({
+      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+    }).where(eq(users.id, auth.user.id));
+
+    // Log the transaction
+    await db.insert(creditTransactions).values({
+      id: `txn-${randomUUID()}`,
+      userId: auth.user.id,
+      amount: -result.creditsUsed,
+      type: 'generation',
+      action: 'generate-image',
+      model: result.model,
+      inputTokens: 0,
+      outputTokens: 0,
+      projectId: projectId || null,
+      chapterId: null,
+    });
+
+    // If target is a canon entry, update its imageUrl
+    if ((target === 'character' || target === 'location') && targetId) {
+      await db.update(canonEntries).set({
+        imageUrl: result.imageUrl,
+        updatedAt: new Date(),
+      }).where(eq(canonEntries.id, targetId));
+    }
+
+    res.json({
+      imageUrl: result.imageUrl,
+      prompt: result.prompt,
+      creditsUsed: result.creditsUsed,
+      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+    });
+  } catch (e: any) {
+    console.error('Image generation error:', e);
+    if (e.message?.includes('GEMINI_API_KEY')) {
+      return res.status(503).json({ error: 'Image generation not configured. Contact support.' });
+    }
+    res.status(500).json({ error: e.message || 'Image generation failed' });
+  }
+});
+
+// ========== Serve generated images ==========
+const uploadsPath = path.resolve(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsPath)) fs.mkdirSync(uploadsPath, { recursive: true });
+app.use('/uploads', express.static(uploadsPath));
 
 // ========== Serve static in production ==========
 const distPath = path.resolve(process.cwd(), 'dist');
