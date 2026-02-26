@@ -49,20 +49,45 @@ export function IllustrateButton({ target, targetId, projectId, currentImageUrl,
 
   if (compact) {
     return (
-      <button
-        onClick={() => setShowOptions(!showOptions)}
-        disabled={generating}
-        className={cn(
-          'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
-          generating
-            ? 'bg-purple-100 text-purple-700'
-            : 'text-text-tertiary hover:text-purple-700 hover:bg-purple-50'
+      <div className="relative">
+        <button
+          onClick={() => setShowOptions(!showOptions)}
+          disabled={generating}
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+            generating
+              ? 'bg-purple-100 text-purple-700'
+              : 'text-text-tertiary hover:text-purple-700 hover:bg-purple-50'
+          )}
+          title="Generate illustration"
+        >
+          {generating ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />}
+          {generating ? 'Generating...' : 'Illustrate'}
+        </button>
+        {showOptions && (
+          <div className="absolute top-full left-0 mt-2 w-72 z-50 rounded-xl border border-black/10 bg-white shadow-lg p-3 space-y-2 animate-fade-in">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">AI Illustration</span>
+              <button onClick={() => setShowOptions(false)} className="text-text-tertiary hover:text-text-primary"><X size={12} /></button>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {IMAGE_STYLES.map(s => (
+                <button key={s.value} onClick={() => setStyle(s.value)}
+                  className={cn('px-2 py-0.5 rounded text-[10px] transition-all',
+                    style === s.value ? 'bg-purple-100 text-purple-700 font-medium' : 'text-text-tertiary hover:bg-black/5'
+                  )}>{s.label}</button>
+              ))}
+            </div>
+            {error && <div className="text-[10px] text-red-600 bg-red-50 rounded px-2 py-1">{error}</div>}
+            <button onClick={handleGenerate} disabled={generating}
+              className={cn('w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all',
+                generating ? 'bg-purple-100 text-purple-700' : 'bg-purple-600 text-white hover:bg-purple-700'
+              )}>
+              {generating ? <><Loader2 size={12} className="animate-spin" /> Generating...</> : <><Sparkles size={12} /> Generate (5 credits)</>}
+            </button>
+          </div>
         )}
-        title="Generate illustration"
-      >
-        {generating ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />}
-        {generating ? 'Generating...' : 'Illustrate'}
-      </button>
+      </div>
     );
   }
 

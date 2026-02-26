@@ -1225,16 +1225,12 @@ app.post('/api/generate/image', async (req, res) => {
 
     // Log the transaction
     await db.insert(creditTransactions).values({
-      id: `txn-${randomUUID()}`,
       userId: auth.user.id,
-      amount: -result.creditsUsed,
-      type: 'generation',
       action: 'generate-image',
+      creditsUsed: result.creditsUsed,
       model: result.model,
-      inputTokens: 0,
-      outputTokens: 0,
-      projectId: projectId || null,
       chapterId: null,
+      metadata: { projectId, prompt: result.prompt, imageUrl: result.imageUrl },
     });
 
     // If target is a canon entry, update its imageUrl

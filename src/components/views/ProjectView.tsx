@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, ImageIcon } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle } from 'lucide-react';
 import { useStore } from '../../store';
 import { Badge } from '../ui/Badge';
 import { ChapterView } from './ChapterView';
