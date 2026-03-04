@@ -1,5 +1,6 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid } from 'lucide-react';
+import { computeArcBreakpoints, getStructureById } from '../../lib/story-structures';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
@@ -38,33 +39,12 @@ export function ProjectView() {
   const chapters = getProjectChapters(project.id);
   const activeChapter = chapters.find(c => c.id === activeChapterId);
 
-  // Narrative arc structure: maps chapter index to act label
-  // Based on classic 5-point narrative arc (Freytag's Pyramid):
-  // Exposition → Rising Action → Climax → Falling Action → Resolution
+  // Dynamic narrative arc based on selected story structure
+  const structureId = project.storyStructureId || 'plot-pyramid';
+  const structure = getStructureById(structureId);
   const arcBreakpoints = useMemo(() => {
-    const total = chapters.length;
-    if (total < 3) return new Map<number, string>();
-    
-    const breaks = new Map<number, string>();
-    // Act I: ~first 25% — Exposition / Setup
-    // Act II: ~25-50% — Rising Action
-    // Act III: ~50% mark — Climax
-    // Act IV: ~50-75% — Falling Action
-    // Act V: ~last 25% — Resolution / Denouement
-    const expo = 0;
-    const rising = Math.floor(total * 0.25);
-    const climax = Math.floor(total * 0.5);
-    const falling = Math.floor(total * 0.5) + 1;
-    const resolution = Math.floor(total * 0.75);
-
-    breaks.set(expo, 'Exposition');
-    if (rising > expo) breaks.set(rising, 'Rising Action');
-    if (climax > rising) breaks.set(climax, 'Climax');
-    if (falling > climax && falling < total) breaks.set(falling, 'Falling Action');
-    if (resolution > falling && resolution < total) breaks.set(resolution, 'Resolution');
-    
-    return breaks;
-  }, [chapters.length]);
+    return computeArcBreakpoints(structureId, chapters.length);
+  }, [structureId, chapters.length]);
 
   const handleScaffold = async () => {
     setScaffolding(true);
@@ -262,7 +242,7 @@ export function ProjectView() {
       {/* Chapter List */}
       <div className="max-w-3xl mx-auto px-4 sm:px-8 pb-16">
         {/* Arc toggle */}
-        {chapters.length >= 3 && (
+        {chapters.length >= 2 && structure && !structure.isProcess && (
           <div className="flex justify-end mb-3">
             <button
               onClick={() => setShowArcLabels(!showArcLabels)}
@@ -274,21 +254,21 @@ export function ProjectView() {
               )}
             >
               <span className="text-sm">📐</span>
-              Narrative Arc
+              {structure.name}
             </button>
           </div>
         )}
         <div className="space-y-3">
           {chapters.map((chapter, index) => {
             const StatusIcon = statusIcons[chapter.status];
-            const arcLabel = showArcLabels ? arcBreakpoints.get(index) : null;
+            const arcBeat = showArcLabels ? arcBreakpoints.get(index) : null;
             return (
               <div key={chapter.id}>
-              {arcLabel && (
-                <div className="flex items-center gap-3 py-3 mb-1 animate-fade-in">
+              {arcBeat && (
+                <div className="flex items-center gap-3 py-3 mb-1 animate-fade-in" title={arcBeat.description}>
                   <div className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
                   <span className="text-[11px] font-semibold uppercase tracking-widest text-amber-600/80 whitespace-nowrap">
-                    {arcLabel}
+                    {arcBeat.name}
                   </span>
                   <div className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
                 </div>

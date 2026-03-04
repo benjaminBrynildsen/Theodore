@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { X, BookOpen, Film, Tv, Music, FileVideo, Clapperboard, Lock, Minus, Plus } from 'lucide-react';
+import { X, BookOpen, Film, Tv, Music, FileVideo, Clapperboard, Lock, Minus, Plus, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import { useStore } from '../../store';
 import { Button } from '../ui/Button';
 import { Slider } from '../ui/Slider';
 import { generateId, cn } from '../../lib/utils';
+import { STORY_STRUCTURES, type StoryStructure } from '../../lib/story-structures';
 import type { Project, BookSubtype, NarrativeControls } from '../../types';
 
 const projectTypes = [
@@ -33,6 +34,8 @@ export function NewProjectModal({ onClose }: Props) {
   const [assistanceLevel, setAssistanceLevel] = useState(3);
   const [ageRange, setAgeRange] = useState('');
   const [chapterCount, setChapterCount] = useState(10);
+  const [storyStructureId, setStoryStructureId] = useState('plot-pyramid');
+  const [expandedStructure, setExpandedStructure] = useState<string | null>(null);
   const [narrativeControls, setNarrativeControls] = useState<NarrativeControls>({
     toneMood: { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 },
     pacing: 'balanced',
@@ -57,6 +60,7 @@ export function NewProjectModal({ onClose }: Props) {
       assistanceLevel,
       ageRange: subtype === 'childrens-book' ? ageRange : undefined,
       narrativeControls,
+      storyStructureId,
       status: 'active',
       createdAt: now,
       updatedAt: now,
@@ -229,6 +233,81 @@ export function NewProjectModal({ onClose }: Props) {
                 </div>
               </div>
             )}
+
+            {/* Story Structure */}
+            <div>
+              <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Plot Structure</label>
+              <div className="mt-1.5 space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
+                {STORY_STRUCTURES.map((s) => (
+                  <div key={s.id}>
+                    <button
+                      onClick={() => setStoryStructureId(s.id)}
+                      className={cn(
+                        'w-full text-left px-3 py-2.5 rounded-xl transition-all duration-200',
+                        storyStructureId === s.id
+                          ? 'bg-text-primary text-text-inverse shadow-sm'
+                          : 'glass-pill text-text-secondary hover:bg-white/60'
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium">{s.name}</span>
+                            <span className={cn(
+                              'text-[10px] px-1.5 py-0.5 rounded-full',
+                              storyStructureId === s.id ? 'bg-white/20' : 'bg-black/5'
+                            )}>
+                              {s.beats.length} beats
+                            </span>
+                            {s.isProcess && (
+                              <span className={cn(
+                                'text-[10px] px-1.5 py-0.5 rounded-full',
+                                storyStructureId === s.id ? 'bg-white/20' : 'bg-amber-100 text-amber-700'
+                              )}>
+                                process
+                              </span>
+                            )}
+                          </div>
+                          <div className={cn(
+                            'text-[11px] mt-0.5',
+                            storyStructureId === s.id ? 'text-white/70' : 'text-text-tertiary'
+                          )}>
+                            {s.shortDesc}
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedStructure(expandedStructure === s.id ? null : s.id);
+                          }}
+                          className={cn(
+                            'p-1 rounded-lg transition-all',
+                            storyStructureId === s.id ? 'hover:bg-white/20' : 'hover:bg-black/5'
+                          )}
+                        >
+                          {expandedStructure === s.id ? <ChevronUp size={12} /> : <Info size={12} />}
+                        </button>
+                      </div>
+                    </button>
+                    {expandedStructure === s.id && (
+                      <div className="ml-3 mt-1 mb-2 pl-3 border-l-2 border-amber-200 animate-fade-in">
+                        <div className="text-[10px] text-text-tertiary mb-1 uppercase tracking-wider">
+                          {s.author} · Best for: {s.bestFor}
+                        </div>
+                        <div className="space-y-0.5">
+                          {s.beats.map((beat, i) => (
+                            <div key={i} className="text-[11px]">
+                              <span className="font-medium text-text-secondary">{beat.name}</span>
+                              <span className="text-text-tertiary"> — {beat.description}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* Assistance Level */}
             <div>

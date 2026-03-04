@@ -15,6 +15,7 @@ export interface Project {
   assistanceLevel: number; // 1-5, light to heavy
   ageRange?: string; // children's books only
   narrativeControls: NarrativeControls;
+  storyStructureId?: string; // one of the 9 story structures (see story-structures.ts)
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;

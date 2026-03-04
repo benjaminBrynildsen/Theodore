@@ -3,6 +3,7 @@
 
 import type { Project, Chapter, PremiseCard } from '../types';
 import type { AnyCanonEntry } from '../types/canon';
+import { getStructureById } from './story-structures';
 
 export const CHAPTER_PRESETS = [
   { value: 8, label: '8 chapters', desc: 'Novella / Short Novel' },
@@ -73,10 +74,21 @@ export function buildScaffoldPrompt(
   sections.push(`- emotionalBeat: the emotional arc (e.g., "tension builds to dread", "relief gives way to suspicion")`);
   sections.push(`- characters: array of character names present in this chapter`);
   sections.push(`- constraints: any rules (e.g., "don't reveal the killer yet")`);
-  sections.push(`\nThe outline should follow proper story structure:`);
-  sections.push(`- Act 1 (~25%): Setup, inciting incident, establish stakes`);
-  sections.push(`- Act 2 (~50%): Rising action, complications, midpoint shift, darkest moment`);
-  sections.push(`- Act 3 (~25%): Climax, resolution, denouement`);
+  // Story structure guidance
+  const structure = getStructureById(project.storyStructureId || 'plot-pyramid');
+  if (structure && !structure.isProcess) {
+    sections.push(`\nThe outline MUST follow the "${structure.name}" story structure (${structure.author}):`);
+    sections.push(`This structure has ${structure.beats.length} beats that should be distributed across the ${chapterCount} chapters:`);
+    structure.beats.forEach((beat, i) => {
+      sections.push(`  ${i + 1}. ${beat.name}: ${beat.description}`);
+    });
+    sections.push(`Distribute these beats proportionally across the chapters. Each beat should span roughly ${Math.max(1, Math.floor(chapterCount / structure.beats.length))} chapter(s).`);
+  } else {
+    sections.push(`\nThe outline should follow proper story structure:`);
+    sections.push(`- Act 1 (~25%): Setup, inciting incident, establish stakes`);
+    sections.push(`- Act 2 (~50%): Rising action, complications, midpoint shift, darkest moment`);
+    sections.push(`- Act 3 (~25%): Climax, resolution, denouement`);
+  }
 
   sections.push(`\nReturn ONLY a JSON array. No markdown, no explanation. Format:`);
   sections.push(`[
