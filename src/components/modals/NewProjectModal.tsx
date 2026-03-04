@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, BookOpen, Film, Tv, Music, FileVideo, Clapperboard, Lock } from 'lucide-react';
+import { X, BookOpen, Film, Tv, Music, FileVideo, Clapperboard, Lock, Minus, Plus } from 'lucide-react';
 import { useStore } from '../../store';
 import { Button } from '../ui/Button';
 import { Slider } from '../ui/Slider';
@@ -32,6 +32,7 @@ export function NewProjectModal({ onClose }: Props) {
   const [targetLength, setTargetLength] = useState<Project['targetLength']>('medium');
   const [assistanceLevel, setAssistanceLevel] = useState(3);
   const [ageRange, setAgeRange] = useState('');
+  const [chapterCount, setChapterCount] = useState(10);
   const [narrativeControls, setNarrativeControls] = useState<NarrativeControls>({
     toneMood: { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 },
     pacing: 'balanced',
@@ -63,9 +64,9 @@ export function NewProjectModal({ onClose }: Props) {
 
     addProject(project);
 
-    const chapterCount = subtype === 'childrens-book' ? 5 : targetLength === 'short' ? 8 : targetLength === 'medium' ? 15 : targetLength === 'long' ? 25 : 40;
+    const finalChapterCount = subtype === 'childrens-book' ? 5 : chapterCount;
     
-    for (let i = 1; i <= chapterCount; i++) {
+    for (let i = 1; i <= finalChapterCount; i++) {
       addChapter({
         id: generateId(),
         projectId,
@@ -190,6 +191,44 @@ export function NewProjectModal({ onClose }: Props) {
                 ))}
               </div>
             </div>
+
+            {/* Chapter Count */}
+            {subtype !== 'childrens-book' && (
+              <div>
+                <label className="text-xs font-medium text-text-tertiary uppercase tracking-wider">Chapters</label>
+                <div className="flex items-center gap-3 mt-1.5">
+                  <button
+                    onClick={() => setChapterCount(Math.max(3, chapterCount - 1))}
+                    className="w-9 h-9 rounded-xl glass-pill flex items-center justify-center text-text-secondary hover:bg-white/60 transition-all"
+                  >
+                    <Minus size={14} />
+                  </button>
+                  <span className="text-lg font-mono w-8 text-center">{chapterCount}</span>
+                  <button
+                    onClick={() => setChapterCount(Math.min(50, chapterCount + 1))}
+                    className="w-9 h-9 rounded-xl glass-pill flex items-center justify-center text-text-secondary hover:bg-white/60 transition-all"
+                  >
+                    <Plus size={14} />
+                  </button>
+                  <div className="flex gap-1.5 ml-2">
+                    {[8, 10, 15, 25].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setChapterCount(n)}
+                        className={cn(
+                          'px-2.5 py-1 rounded-lg text-xs transition-all',
+                          chapterCount === n
+                            ? 'bg-text-primary text-text-inverse'
+                            : 'glass-pill text-text-tertiary hover:bg-white/60'
+                        )}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Assistance Level */}
             <div>

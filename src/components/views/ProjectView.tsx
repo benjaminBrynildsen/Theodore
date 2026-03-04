@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
@@ -30,12 +30,41 @@ export function ProjectView() {
   const [scaffoldCount, setScaffoldCount] = useState(12);
   const [scaffolding, setScaffolding] = useState(false);
   const [scaffoldError, setScaffoldError] = useState<string | null>(null);
+  const [showArcLabels, setShowArcLabels] = useState(true);
   const project = getActiveProject();
   
   if (!project) return null;
 
   const chapters = getProjectChapters(project.id);
   const activeChapter = chapters.find(c => c.id === activeChapterId);
+
+  // Narrative arc structure: maps chapter index to act label
+  // Based on classic 5-point narrative arc (Freytag's Pyramid):
+  // Exposition → Rising Action → Climax → Falling Action → Resolution
+  const arcBreakpoints = useMemo(() => {
+    const total = chapters.length;
+    if (total < 3) return new Map<number, string>();
+    
+    const breaks = new Map<number, string>();
+    // Act I: ~first 25% — Exposition / Setup
+    // Act II: ~25-50% — Rising Action
+    // Act III: ~50% mark — Climax
+    // Act IV: ~50-75% — Falling Action
+    // Act V: ~last 25% — Resolution / Denouement
+    const expo = 0;
+    const rising = Math.floor(total * 0.25);
+    const climax = Math.floor(total * 0.5);
+    const falling = Math.floor(total * 0.5) + 1;
+    const resolution = Math.floor(total * 0.75);
+
+    breaks.set(expo, 'Exposition');
+    if (rising > expo) breaks.set(rising, 'Rising Action');
+    if (climax > rising) breaks.set(climax, 'Climax');
+    if (falling > climax && falling < total) breaks.set(falling, 'Falling Action');
+    if (resolution > falling && resolution < total) breaks.set(resolution, 'Resolution');
+    
+    return breaks;
+  }, [chapters.length]);
 
   const handleScaffold = async () => {
     setScaffolding(true);
@@ -232,12 +261,39 @@ export function ProjectView() {
 
       {/* Chapter List */}
       <div className="max-w-3xl mx-auto px-4 sm:px-8 pb-16">
+        {/* Arc toggle */}
+        {chapters.length >= 3 && (
+          <div className="flex justify-end mb-3">
+            <button
+              onClick={() => setShowArcLabels(!showArcLabels)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                showArcLabels
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'glass-pill text-text-tertiary hover:bg-white/60'
+              )}
+            >
+              <span className="text-sm">📐</span>
+              Narrative Arc
+            </button>
+          </div>
+        )}
         <div className="space-y-3">
           {chapters.map((chapter, index) => {
             const StatusIcon = statusIcons[chapter.status];
+            const arcLabel = showArcLabels ? arcBreakpoints.get(index) : null;
             return (
+              <div key={chapter.id}>
+              {arcLabel && (
+                <div className="flex items-center gap-3 py-3 mb-1 animate-fade-in">
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
+                  <span className="text-[11px] font-semibold uppercase tracking-widest text-amber-600/80 whitespace-nowrap">
+                    {arcLabel}
+                  </span>
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-amber-300 to-transparent" />
+                </div>
+              )}
               <div
-                key={chapter.id}
                 draggable
                 onDragStart={() => setDragIdx(index)}
                 onDragOver={(e) => { e.preventDefault(); setDragOverIdx(index); }}
@@ -294,6 +350,7 @@ export function ProjectView() {
                   <StatusIcon size={16} className="text-text-tertiary mt-1 flex-shrink-0" />
                 </div>
                 </button>
+              </div>
               </div>
             );
           })}
