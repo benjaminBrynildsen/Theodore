@@ -195,14 +195,42 @@ export function scanMetadataOccurrences(prose: string, canonEntries: AnyCanonEnt
     return true;
   });
 
+  // Deduplicate: remove short names that are a token-subset of a longer name in the same category.
+  // e.g. "Jack" is absorbed by "Jack Monroe"; "Silver Lake" absorbs "Silver".
+  function dedupeSubsetNames(names: string[]): string[] {
+    const sorted = [...names].sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length);
+    const result: string[] = [];
+    const absorbedKeys = new Set<string>();
+
+    for (const name of sorted) {
+      const key = normalizeEntityKey(name);
+      if (absorbedKeys.has(key)) continue;
+      result.push(name);
+      // Mark all single-token subsets of this multi-token name as absorbed
+      const tokens = key.split(/\s+/);
+      if (tokens.length > 1) {
+        for (const token of tokens) {
+          absorbedKeys.add(token);
+        }
+        // Also absorb any shorter contiguous subsequences
+        for (let len = 1; len < tokens.length; len++) {
+          for (let start = 0; start <= tokens.length - len; start++) {
+            absorbedKeys.add(tokens.slice(start, start + len).join(' '));
+          }
+        }
+      }
+    }
+    return result;
+  }
+
   return {
     scannedAt: new Date().toISOString(),
     existingMentions,
     newEntities: {
-      characters: filteredCharacters.slice(0, 10),
-      locations: Array.from(locationMap.values()).slice(0, 10),
-      systems: Array.from(systemMap.values()).slice(0, 10),
-      artifacts: Array.from(artifactMap.values()).slice(0, 10),
+      characters: dedupeSubsetNames(filteredCharacters).slice(0, 10),
+      locations: dedupeSubsetNames(Array.from(locationMap.values())).slice(0, 10),
+      systems: dedupeSubsetNames(Array.from(systemMap.values())).slice(0, 10),
+      artifacts: dedupeSubsetNames(Array.from(artifactMap.values())).slice(0, 10),
     },
   };
 }

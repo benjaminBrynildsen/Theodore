@@ -41,7 +41,26 @@ function dedupeEntityNames(names: string[] | undefined, type: AutoCanonType): st
     seen.add(key);
     uniqueNames.push(normalized);
   }
-  return uniqueNames;
+
+  // Remove short names that are a token-subset of a longer name (e.g. "Jack" absorbed by "Jack Monroe")
+  const sorted = [...uniqueNames].sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length);
+  const result: string[] = [];
+  const absorbedKeys = new Set<string>();
+
+  for (const name of sorted) {
+    const key = normalizeEntityKeyForType(type, name);
+    if (absorbedKeys.has(key)) continue;
+    result.push(name);
+    const tokens = key.split(/\s+/);
+    if (tokens.length > 1) {
+      for (let len = 1; len < tokens.length; len++) {
+        for (let start = 0; start <= tokens.length - len; start++) {
+          absorbedKeys.add(tokens.slice(start, start + len).join(' '));
+        }
+      }
+    }
+  }
+  return result;
 }
 
 function createAutoCanonEntry(projectId: string, type: AutoCanonType, name: string) {
