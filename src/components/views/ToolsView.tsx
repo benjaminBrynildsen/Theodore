@@ -1,37 +1,11 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import {
   ChevronLeft, TrendingUp, BookOpen, BookCopy, FileSignature,
-  LayoutGrid, Barcode, Library, Mic, Rocket, Users,
+  LayoutGrid, Barcode, Library, Rocket, Users,
   Activity, MessageSquareQuote, Waves, Globe, Image,
   Highlighter, Timer, Search, ScrollText, Globe2, UserPlus,
   BarChart3, Crosshair, GitCompare, MessageCircle, Calendar, BookMarked
 } from 'lucide-react';
-import { StoryArcVisualizer } from '../features/StoryArcVisualizer';
-import { FirstReaderAI } from '../features/FirstReaderAI';
-import { CompTitleMatcher } from '../features/CompTitleMatcher';
-import { QueryLetterGenerator } from '../features/QueryLetterGenerator';
-import { SceneBeatBoard } from '../features/SceneBeatBoard';
-import { ISBNAssistant } from '../features/ISBNAssistant';
-import { SeriesBible } from '../features/SeriesBible';
-import { LaunchDashboard } from '../features/LaunchDashboard';
-import { CharacterRelationshipMap } from '../features/CharacterRelationshipMap';
-import { DialogueAnalyzer } from '../features/DialogueAnalyzer';
-import { PacingHeartbeat } from '../features/PacingHeartbeat';
-import { ToneDriftDetector } from '../features/ToneDriftDetector';
-import { PreOrderPage } from '../features/PreOrderPage';
-import { ProseXRay } from '../features/ProseXRay';
-import { ChapterRecapGenerator } from '../features/ChapterRecapGenerator';
-import { AICoverDesigner } from '../features/AICoverDesigner';
-import { SmartResearch } from '../features/SmartResearch';
-import { WritingSprintMode } from '../features/WritingSprintMode';
-import { WorldbuildingWiki } from '../features/WorldbuildingWiki';
-import { NameGenerator } from '../features/NameGenerator';
-import { ReadabilityAnalyzer } from '../features/ReadabilityAnalyzer';
-import { PlotHoleDetector } from '../features/PlotHoleDetector';
-import { ManuscriptComparison } from '../features/ManuscriptComparison';
-import { CollaborationNotes } from '../features/CollaborationNotes';
-import { EpubPreview } from '../features/EpubPreview';
-import { TimelineVisualizer } from '../features/TimelineVisualizer';
 import { cn } from '../../lib/utils';
 
 type Tool =
@@ -69,6 +43,119 @@ const TOOLS: { id: Tool; label: string; icon: typeof TrendingUp; description: st
   { id: 'preorder', label: 'Pre-Order Page', icon: Globe, description: 'Landing page with countdown and email capture', phase: 'Publishing' },
   { id: 'launch', label: 'Launch Dashboard', icon: Rocket, description: 'Sales, reviews, and rankings post-publish', phase: 'Post-Launch' },
 ];
+
+const StoryArcVisualizer = lazy(async () => {
+  const mod = await import('../features/StoryArcVisualizer');
+  return { default: mod.StoryArcVisualizer };
+});
+const FirstReaderAI = lazy(async () => {
+  const mod = await import('../features/FirstReaderAI');
+  return { default: mod.FirstReaderAI };
+});
+const CompTitleMatcher = lazy(async () => {
+  const mod = await import('../features/CompTitleMatcher');
+  return { default: mod.CompTitleMatcher };
+});
+const QueryLetterGenerator = lazy(async () => {
+  const mod = await import('../features/QueryLetterGenerator');
+  return { default: mod.QueryLetterGenerator };
+});
+const SceneBeatBoard = lazy(async () => {
+  const mod = await import('../features/SceneBeatBoard');
+  return { default: mod.SceneBeatBoard };
+});
+const ISBNAssistant = lazy(async () => {
+  const mod = await import('../features/ISBNAssistant');
+  return { default: mod.ISBNAssistant };
+});
+const SeriesBible = lazy(async () => {
+  const mod = await import('../features/SeriesBible');
+  return { default: mod.SeriesBible };
+});
+const LaunchDashboard = lazy(async () => {
+  const mod = await import('../features/LaunchDashboard');
+  return { default: mod.LaunchDashboard };
+});
+const CharacterRelationshipMap = lazy(async () => {
+  const mod = await import('../features/CharacterRelationshipMap');
+  return { default: mod.CharacterRelationshipMap };
+});
+const DialogueAnalyzer = lazy(async () => {
+  const mod = await import('../features/DialogueAnalyzer');
+  return { default: mod.DialogueAnalyzer };
+});
+const PacingHeartbeat = lazy(async () => {
+  const mod = await import('../features/PacingHeartbeat');
+  return { default: mod.PacingHeartbeat };
+});
+const ToneDriftDetector = lazy(async () => {
+  const mod = await import('../features/ToneDriftDetector');
+  return { default: mod.ToneDriftDetector };
+});
+const PreOrderPage = lazy(async () => {
+  const mod = await import('../features/PreOrderPage');
+  return { default: mod.PreOrderPage };
+});
+const ProseXRay = lazy(async () => {
+  const mod = await import('../features/ProseXRay');
+  return { default: mod.ProseXRay };
+});
+const ChapterRecapGenerator = lazy(async () => {
+  const mod = await import('../features/ChapterRecapGenerator');
+  return { default: mod.ChapterRecapGenerator };
+});
+const AICoverDesigner = lazy(async () => {
+  const mod = await import('../features/AICoverDesigner');
+  return { default: mod.AICoverDesigner };
+});
+const SmartResearch = lazy(async () => {
+  const mod = await import('../features/SmartResearch');
+  return { default: mod.SmartResearch };
+});
+const WritingSprintMode = lazy(async () => {
+  const mod = await import('../features/WritingSprintMode');
+  return { default: mod.WritingSprintMode };
+});
+const WorldbuildingWiki = lazy(async () => {
+  const mod = await import('../features/WorldbuildingWiki');
+  return { default: mod.WorldbuildingWiki };
+});
+const NameGenerator = lazy(async () => {
+  const mod = await import('../features/NameGenerator');
+  return { default: mod.NameGenerator };
+});
+const ReadabilityAnalyzer = lazy(async () => {
+  const mod = await import('../features/ReadabilityAnalyzer');
+  return { default: mod.ReadabilityAnalyzer };
+});
+const PlotHoleDetector = lazy(async () => {
+  const mod = await import('../features/PlotHoleDetector');
+  return { default: mod.PlotHoleDetector };
+});
+const ManuscriptComparison = lazy(async () => {
+  const mod = await import('../features/ManuscriptComparison');
+  return { default: mod.ManuscriptComparison };
+});
+const CollaborationNotes = lazy(async () => {
+  const mod = await import('../features/CollaborationNotes');
+  return { default: mod.CollaborationNotes };
+});
+const EpubPreview = lazy(async () => {
+  const mod = await import('../features/EpubPreview');
+  return { default: mod.EpubPreview };
+});
+const TimelineVisualizer = lazy(async () => {
+  const mod = await import('../features/TimelineVisualizer');
+  return { default: mod.TimelineVisualizer };
+});
+
+function ToolLoader() {
+  return (
+    <div className="px-4 py-12 text-center text-sm text-text-tertiary sm:px-8">
+      Loading tool...
+    </div>
+  );
+}
 
 export function ToolsView({ onClose }: { onClose: () => void }) {
   const [activeTool, setActiveTool] = useState<Tool | null>(null);
@@ -165,32 +252,34 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          {activeTool === 'arc' && <StoryArcVisualizer />}
-          {activeTool === 'reader' && <FirstReaderAI />}
-          {activeTool === 'comps' && <CompTitleMatcher />}
-          {activeTool === 'query' && <QueryLetterGenerator />}
-          {activeTool === 'beats' && <SceneBeatBoard />}
-          {activeTool === 'isbn' && <ISBNAssistant />}
-          {activeTool === 'series' && <SeriesBible />}
-          {activeTool === 'launch' && <LaunchDashboard />}
-          {activeTool === 'relationships' && <CharacterRelationshipMap />}
-          {activeTool === 'dialogue' && <DialogueAnalyzer />}
-          {activeTool === 'pacing' && <PacingHeartbeat />}
-          {activeTool === 'tone' && <ToneDriftDetector />}
-          {activeTool === 'preorder' && <PreOrderPage />}
-          {activeTool === 'xray' && <ProseXRay chapterId="ch-1" />}
-          {activeTool === 'recap' && <ChapterRecapGenerator />}
-          {activeTool === 'cover' && <AICoverDesigner />}
-          {activeTool === 'research' && <SmartResearch chapterId="ch-1" />}
-          {activeTool === 'sprint' && <WritingSprintMode />}
-          {activeTool === 'wiki' && <WorldbuildingWiki />}
-          {activeTool === 'names' && <NameGenerator />}
-          {activeTool === 'readability' && <ReadabilityAnalyzer />}
-          {activeTool === 'plothole' && <PlotHoleDetector />}
-          {activeTool === 'diff' && <ManuscriptComparison />}
-          {activeTool === 'collab' && <CollaborationNotes />}
-          {activeTool === 'epub' && <EpubPreview />}
-          {activeTool === 'timeline' && <TimelineVisualizer />}
+          <Suspense fallback={<ToolLoader />}>
+            {activeTool === 'arc' && <StoryArcVisualizer />}
+            {activeTool === 'reader' && <FirstReaderAI />}
+            {activeTool === 'comps' && <CompTitleMatcher />}
+            {activeTool === 'query' && <QueryLetterGenerator />}
+            {activeTool === 'beats' && <SceneBeatBoard />}
+            {activeTool === 'isbn' && <ISBNAssistant />}
+            {activeTool === 'series' && <SeriesBible />}
+            {activeTool === 'launch' && <LaunchDashboard />}
+            {activeTool === 'relationships' && <CharacterRelationshipMap />}
+            {activeTool === 'dialogue' && <DialogueAnalyzer />}
+            {activeTool === 'pacing' && <PacingHeartbeat />}
+            {activeTool === 'tone' && <ToneDriftDetector />}
+            {activeTool === 'preorder' && <PreOrderPage />}
+            {activeTool === 'xray' && <ProseXRay chapterId="ch-1" />}
+            {activeTool === 'recap' && <ChapterRecapGenerator />}
+            {activeTool === 'cover' && <AICoverDesigner />}
+            {activeTool === 'research' && <SmartResearch chapterId="ch-1" />}
+            {activeTool === 'sprint' && <WritingSprintMode />}
+            {activeTool === 'wiki' && <WorldbuildingWiki />}
+            {activeTool === 'names' && <NameGenerator />}
+            {activeTool === 'readability' && <ReadabilityAnalyzer />}
+            {activeTool === 'plothole' && <PlotHoleDetector />}
+            {activeTool === 'diff' && <ManuscriptComparison />}
+            {activeTool === 'collab' && <CollaborationNotes />}
+            {activeTool === 'epub' && <EpubPreview />}
+            {activeTool === 'timeline' && <TimelineVisualizer />}
+          </Suspense>
         </div>
       </div>
     </div>

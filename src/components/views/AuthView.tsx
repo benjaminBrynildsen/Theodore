@@ -23,7 +23,7 @@ export function AuthView({ onBack }: AuthViewProps) {
   const [wordIndex, setWordIndex] = useState(0);
   const [speedStep, setSpeedStep] = useState(0);
   const [wordVisible, setWordVisible] = useState(true);
-  const speedCurveMs = [1000, 900, 820, 760, 700, 660, 620, 590, 560, 540];
+  const speedCurveMs = [1180, 980, 760, 610, 500, 430, 380, 340, 310, 290];
   const finalWordIndex = rotatingWords.length - 1;
   const passwordInvalid = mode === 'register' ? password.length < 8 : mode === 'login' ? password.length === 0 : false;
   const submitDisabled = loading || !email.trim() || passwordInvalid;
@@ -115,21 +115,24 @@ export function AuthView({ onBack }: AuthViewProps) {
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-[1fr_1fr] rounded-[28px] overflow-hidden border border-black/10 shadow-[0_24px_60px_rgba(0,0,0,0.10)] bg-white">
         <div className="p-8 lg:p-10 border-b lg:border-b-0 lg:border-r border-black/10 bg-white flex flex-col items-center justify-center text-center">
           <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/50">Theodore</div>
-          <h1 className="mt-4 max-w-[460px] font-serif text-[44px] leading-[1.08] tracking-[-0.02em] text-black">
-            All you need is an{' '}
-            <span className="inline-flex items-baseline"><span
-              className={cn(
-                'inline-block font-medium transition-all duration-200',
-                wordVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
-              )}
-            >
-              {rotatingWords[wordIndex]}
-            </span><span
-              className={cn(
-                'inline-block h-[0.9em] w-[2px] translate-y-[0.05em] rounded-full bg-black/80 transition-opacity duration-200',
-                wordIndex === finalWordIndex ? 'caret-blink opacity-100' : 'opacity-0'
-              )}
-            /></span>
+          <h1 className="mt-4 flex max-w-[620px] flex-col items-center font-serif text-[44px] leading-[1.08] tracking-[-0.02em] text-black">
+            <span className="block">All you need is an</span>
+            <span className="mt-1 flex min-h-[1.1em] w-[11ch] items-baseline justify-center">
+              <span
+                className={cn(
+                  'inline-block font-medium transition-all duration-200',
+                  wordVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
+                )}
+              >
+                {rotatingWords[wordIndex]}
+              </span>
+              <span
+                className={cn(
+                  'inline-block h-[0.9em] w-[2px] translate-y-[0.05em] rounded-full bg-black/80 transition-opacity duration-200',
+                  wordIndex === finalWordIndex ? 'caret-blink opacity-100' : 'opacity-0'
+                )}
+              />
+            </span>
           </h1>
         </div>
 

@@ -14,6 +14,24 @@ export const CHAPTER_PRESETS = [
   { value: 25, label: '25 chapters', desc: 'Long Epic' },
 ] as const;
 
+const TARGET_LENGTH_CHAPTERS: Record<Project['targetLength'], number> = {
+  short: 8,
+  medium: 12,
+  long: 15,
+  epic: 20,
+};
+
+export function getDefaultScaffoldChapterCount(
+  project: Pick<Project, 'subtype' | 'targetLength'>,
+  requestedCount?: number,
+): number {
+  if (typeof requestedCount === 'number' && Number.isFinite(requestedCount)) {
+    return Math.max(3, Math.round(requestedCount));
+  }
+  if (project.subtype === 'childrens-book') return 5;
+  return TARGET_LENGTH_CHAPTERS[project.targetLength] || 12;
+}
+
 export function buildScaffoldPrompt(
   project: Project,
   chapterCount: number,
@@ -118,15 +136,31 @@ export interface ScaffoldResult {
 }
 
 export function parseScaffoldResponse(text: string): ScaffoldResult[] {
-  // Try to extract JSON array from response
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error('No JSON array found in response');
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced?.[1]?.trim() || trimmed;
+
+  const parseItems = (raw: string): unknown[] => {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { chapters?: unknown[] }).chapters)) {
+      return (parsed as { chapters: unknown[] }).chapters;
+    }
+    throw new Error('Response is not an array');
+  };
+
+  let items: unknown[];
 
   try {
-    const parsed = JSON.parse(jsonMatch[0]);
-    if (!Array.isArray(parsed)) throw new Error('Response is not an array');
+    items = parseItems(candidate);
+  } catch {
+    const jsonMatch = candidate.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('No JSON array found in response');
+    items = parseItems(jsonMatch[0]);
+  }
 
-    return parsed.map((item: any, i: number) => ({
+  try {
+    return items.map((item: any, i: number) => ({
       number: item.number || i + 1,
       title: String(item.title || `Chapter ${i + 1}`),
       purpose: String(item.purpose || ''),
@@ -138,4 +172,96 @@ export function parseScaffoldResponse(text: string): ScaffoldResult[] {
   } catch (e) {
     throw new Error(`Failed to parse scaffold response: ${(e as Error).message}`);
   }
+}
+
+export function normalizeScaffoldResults(
+  results: ScaffoldResult[],
+  targetCount: number,
+  fallbackChapters: Array<{ number?: number; title?: string; premise?: string }> = [],
+): ScaffoldResult[] {
+  const normalizedTarget = Math.max(3, Math.round(targetCount));
+  const output: ScaffoldResult[] = [];
+  const seenNumbers = new Set<number>();
+
+  const pushUnique = (item: ScaffoldResult) => {
+    const number = Math.max(1, Math.round(item.number || output.length + 1));
+    if (seenNumbers.has(number)) return;
+    seenNumbers.add(number);
+    output.push({
+      number,
+      title: item.title || `Chapter ${number}`,
+      purpose: item.purpose || '',
+      changes: item.changes || '',
+      emotionalBeat: item.emotionalBeat || '',
+      characters: Array.isArray(item.characters) ? item.characters : [],
+      constraints: Array.isArray(item.constraints) ? item.constraints : [],
+    });
+  };
+
+  for (const result of results) {
+    pushUnique(result);
+    if (output.length >= normalizedTarget) break;
+  }
+
+  for (const fallback of fallbackChapters) {
+    pushUnique({
+      number: fallback.number || output.length + 1,
+      title: fallback.title || `Chapter ${output.length + 1}`,
+      purpose: fallback.premise || 'Advance character, conflict, and stakes.',
+      changes: '',
+      emotionalBeat: '',
+      characters: [],
+      constraints: [],
+    });
+    if (output.length >= normalizedTarget) break;
+  }
+
+  while (output.length < normalizedTarget) {
+    const number = output.length + 1;
+    pushUnique({
+      number,
+      title: `Chapter ${number}`,
+      purpose: 'Advance character, conflict, and stakes.',
+      changes: '',
+      emotionalBeat: '',
+      characters: [],
+      constraints: [],
+    });
+  }
+
+  return output
+    .slice(0, normalizedTarget)
+    .sort((a, b) => a.number - b.number)
+    .map((item, index) => ({ ...item, number: index + 1 }));
+}
+
+export function createPremiseFromScaffold(result: ScaffoldResult): PremiseCard {
+  return {
+    purpose: result.purpose,
+    changes: result.changes,
+    emotionalBeat: result.emotionalBeat,
+    characters: result.characters,
+    setupPayoff: [],
+    constraints: result.constraints,
+  };
+}
+
+export function createChapterFromScaffold(
+  projectId: string,
+  result: ScaffoldResult,
+  now: string,
+): Omit<Chapter, 'id'> {
+  return {
+    projectId,
+    number: result.number,
+    title: result.title,
+    timelinePosition: result.number,
+    status: 'premise-only',
+    premise: createPremiseFromScaffold(result),
+    prose: '',
+    referencedCanonIds: [],
+    validationStatus: { isValid: true, checks: [] },
+    createdAt: now,
+    updatedAt: now,
+  };
 }

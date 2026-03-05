@@ -1,10 +1,19 @@
 import { useState } from 'react';
-import { X, BookOpen, Film, Tv, Music, FileVideo, Clapperboard, Lock, Minus, Plus, ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { X, BookOpen, Film, Tv, Music, FileVideo, Clapperboard, Lock, Minus, Plus, ChevronDown, ChevronUp, Info, Loader2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { Button } from '../ui/Button';
 import { Slider } from '../ui/Slider';
 import { generateId, cn } from '../../lib/utils';
 import { STORY_STRUCTURES, type StoryStructure } from '../../lib/story-structures';
+import { generateText } from '../../lib/generate';
+import { useSettingsStore } from '../../store/settings';
+import {
+  buildScaffoldPrompt,
+  createChapterFromScaffold,
+  getDefaultScaffoldChapterCount,
+  normalizeScaffoldResults,
+  parseScaffoldResponse,
+} from '../../lib/scaffold';
 import type { Project, BookSubtype, NarrativeControls } from '../../types';
 
 const projectTypes = [
@@ -36,6 +45,7 @@ export function NewProjectModal({ onClose }: Props) {
   const [chapterCount, setChapterCount] = useState(10);
   const [storyStructureId, setStoryStructureId] = useState('plot-pyramid');
   const [expandedStructure, setExpandedStructure] = useState<string | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
   const [narrativeControls, setNarrativeControls] = useState<NarrativeControls>({
     toneMood: { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 },
     pacing: 'balanced',
@@ -45,8 +55,11 @@ export function NewProjectModal({ onClose }: Props) {
   });
 
   const { addProject, setActiveProject, setCurrentView, addChapter } = useStore();
+  const appSettings = useSettingsStore((s) => s.settings);
 
-  const createProject = () => {
+  const createProject = async () => {
+    if (creatingProject) return;
+    setCreatingProject(true);
     const projectId = generateId();
     const now = new Date().toISOString();
     
@@ -66,37 +79,44 @@ export function NewProjectModal({ onClose }: Props) {
       updatedAt: now,
     };
 
-    addProject(project);
+    try {
+      await addProject(project);
 
-    const finalChapterCount = subtype === 'childrens-book' ? 5 : chapterCount;
-    
-    for (let i = 1; i <= finalChapterCount; i++) {
-      addChapter({
-        id: generateId(),
-        projectId,
-        number: i,
-        title: `Chapter ${i}`,
-        timelinePosition: i,
-        status: 'premise-only',
-        premise: {
-          purpose: '',
-          changes: '',
-          characters: [],
-          emotionalBeat: '',
-          setupPayoff: [],
-          constraints: [],
-        },
-        prose: '',
-        referencedCanonIds: [],
-        validationStatus: { isValid: true, checks: [] },
-        createdAt: now,
-        updatedAt: now,
-      });
+      const finalChapterCount = getDefaultScaffoldChapterCount(
+        project,
+        subtype === 'childrens-book' ? 5 : chapterCount,
+      );
+
+      let scaffoldResults = normalizeScaffoldResults([], finalChapterCount);
+      try {
+        const result = await generateText({
+          action: 'scaffold-chapters',
+          model: appSettings.ai.preferredModel || 'gpt-4.1',
+          maxTokens: 4096,
+          projectId,
+          prompt: buildScaffoldPrompt(project, finalChapterCount, [], []),
+        });
+        scaffoldResults = normalizeScaffoldResults(
+          parseScaffoldResponse(result.text || ''),
+          finalChapterCount,
+        );
+      } catch (error) {
+        console.error('Auto scaffold failed for new project:', error);
+      }
+
+      for (const chapter of scaffoldResults) {
+        await addChapter({
+          id: generateId(),
+          ...createChapterFromScaffold(projectId, chapter, now),
+        });
+      }
+
+      setActiveProject(projectId);
+      setCurrentView('project');
+      onClose();
+    } finally {
+      setCreatingProject(false);
     }
-
-    setActiveProject(projectId);
-    setCurrentView('project');
-    onClose();
   };
 
   return (
@@ -370,9 +390,15 @@ export function NewProjectModal({ onClose }: Props) {
               </button>
               <button
                 onClick={createProject}
-                className="flex-1 py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-medium shadow-lg hover:shadow-xl active:scale-[0.98] transition-all"
+                disabled={creatingProject}
+                className="flex-1 py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-medium shadow-lg hover:shadow-xl active:scale-[0.98] transition-all disabled:opacity-60"
               >
-                Create Project
+                {creatingProject ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 size={14} className="animate-spin" />
+                    Building Outline...
+                  </span>
+                ) : 'Create Project'}
               </button>
             </div>
           </div>

@@ -111,7 +111,6 @@ function CharacterDetail({ entry, onUpdate }: { entry: CharacterEntry; onUpdate:
           <Field label="Full Name" value={c.fullName} onChange={(v) => update('fullName', v)} />
           <Field label="Age" value={c.age} onChange={(v) => update('age', v)} placeholder="e.g., 34" />
           <Field label="Gender" value={c.gender} onChange={(v) => update('gender', v)} />
-          <Field label="Pronouns" value={c.pronouns} onChange={(v) => update('pronouns', v)} placeholder="e.g., she/her" />
           <Field label="Species" value={c.species} onChange={(v) => update('species', v)} />
           <Field label="Occupation" value={c.occupation} onChange={(v) => update('occupation', v)} />
         </div>

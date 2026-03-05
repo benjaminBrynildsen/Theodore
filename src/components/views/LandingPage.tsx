@@ -71,9 +71,9 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
           Story Engine
         </div>
 
-        <h1 className="font-serif text-[clamp(2.2rem,6vw,4rem)] leading-[1.06] tracking-[-0.025em] text-black mb-6">
-          All you need is an{' '}
-          <span className="inline-flex items-baseline">
+        <h1 className="mb-6 flex flex-col items-center font-serif text-[clamp(2.2rem,6vw,4rem)] leading-[1.06] tracking-[-0.025em] text-black">
+          <span className="block">All you need is an</span>
+          <span className="mt-1 flex min-h-[1.1em] w-[11ch] items-baseline justify-center">
             <span
               className={cn(
                 'inline-block font-medium transition-all duration-200',

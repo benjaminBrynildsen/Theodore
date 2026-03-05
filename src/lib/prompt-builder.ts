@@ -101,6 +101,8 @@ PACING: Vary sentence length deliberately. Short sentences hit hard. Longer sent
 
 DESCRIPTION: Earn every adjective. One precise detail beats three vague ones. Anchor abstract moments in concrete sensory experience. "The room smelled of burnt coffee and old carpet" not "the room was unpleasant."
 
+CAMERA TEST: Before ending a descriptive paragraph, ask: "Can a camera record this?" If yes, keep it. If no, rewrite it into a visible or audible concrete detail. Prefer "The coffee machine clicked," "A waitress wiped the counter," "Rain tapped the window" over abstract lines like "The past lingered in the room," "The night held its breath," or "Memories clung to the walls."
+
 TRANSITIONS: Cut between scenes at the point of highest tension or sharpest irony. Avoid "Later that evening" — instead, jump-cut and let context orient the reader.`;
 }
 
