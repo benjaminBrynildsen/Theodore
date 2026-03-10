@@ -4,9 +4,10 @@ import { cn } from '../../lib/utils';
 
 interface LandingPageProps {
   onGetStarted: () => void;
+  onSignIn: () => void;
 }
 
-export function LandingPage({ onGetStarted }: LandingPageProps) {
+export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
   const rotatingWords = ['impulse', 'inspiration', 'intention', 'insight', 'instinct', 'ambition', 'aspiration', 'objective', 'outline', 'idea'];
   const [wordIndex, setWordIndex] = useState(0);
   const [speedStep, setSpeedStep] = useState(0);
@@ -57,7 +58,7 @@ export function LandingPage({ onGetStarted }: LandingPageProps) {
           <span className="text-base font-serif font-semibold tracking-tight">Theodore</span>
         </div>
         <button
-          onClick={onGetStarted}
+          onClick={onSignIn}
           className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
         >
           Sign in

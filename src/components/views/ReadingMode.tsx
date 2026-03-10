@@ -69,7 +69,7 @@ function paginateProseMeasured(
         line-height:1.65;
         text-align:justify;
         text-indent:${pageParas.length === 0 && isFirstPage ? '0' : '1.5em'};
-        margin:0 0 0.15em 0;
+        margin:0 0 0.3em 0;
       `;
       p.textContent = paragraphs[paraIdx];
       measure.appendChild(p);
@@ -216,7 +216,8 @@ export function ReadingMode({ onClose }: Props) {
   const chapterPages = useMemo(() => {
     if (!chapter?.prose) return [''];
     if (containerSize) {
-      return paginateProseMeasured(chapter.prose, fontSize, containerSize.h, containerSize.w, true);
+      const pageW = isMobile ? containerSize.w : Math.floor(containerSize.w / 2);
+      return paginateProseMeasured(chapter.prose, fontSize, containerSize.h, pageW, true);
     }
     return paginateProseFallback(chapter.prose, fontSize, isMobile);
   }, [chapter?.prose, fontSize, isMobile, containerSize]);
@@ -279,8 +280,9 @@ export function ReadingMode({ onClose }: Props) {
         setCurrentPage((p) => Math.max(0, p - pageStep));
       } else if (currentChapterIdx > 0) {
         const prevChapterIdx = currentChapterIdx - 1;
+        const prevPageW = isMobile ? containerSize!.w : Math.floor(containerSize!.w / 2);
         const prevPages = containerSize
-          ? paginateProseMeasured(chapters[prevChapterIdx].prose, fontSize, containerSize.h, containerSize.w, false)
+          ? paginateProseMeasured(chapters[prevChapterIdx].prose, fontSize, containerSize.h, prevPageW, false)
           : paginateProseFallback(chapters[prevChapterIdx].prose, fontSize, isMobile);
         setCurrentChapterIdx(prevChapterIdx);
         setCurrentPage(Math.max(0, prevPages.length - pageStep));

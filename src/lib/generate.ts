@@ -58,6 +58,22 @@ export async function generateText(options: GenerateOptions): Promise<GenerateRe
   return data;
 }
 
+// Guest (unauthenticated) generation — for onboarding chat only
+export async function generateTextGuest(options: Omit<GenerateOptions, 'userId' | 'projectId' | 'chapterId'>): Promise<GenerateResult> {
+  const res = await fetch('/api/generate/guest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `Generation failed: ${res.status}`);
+  }
+
+  return await res.json() as GenerateResult;
+}
+
 // Streaming generation
 export async function generateStream(
   options: GenerateOptions,

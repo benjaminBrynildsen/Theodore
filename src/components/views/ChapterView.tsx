@@ -60,7 +60,8 @@ export function ChapterView({ chapter }: Props) {
     const canonEntries = getProjectEntries(project.id);
     const prevChapter = projectChapters.find(c => c.number === chapter.number - 1);
 
-    const prompt = buildGenerationPrompt({
+    const isChildrensBook = project.subtype === 'childrens-book';
+    const basePrompt = buildGenerationPrompt({
       project,
       chapter,
       allChapters: projectChapters,
@@ -69,14 +70,18 @@ export function ChapterView({ chapter }: Props) {
       writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
       generationType: 'full-chapter' as GenerationType,
       previousChapterProse: prevChapter?.prose,
-    }) + `\n\nWrite only the opening chunk of this chapter (${chunkProfile.words} words). End on a continuation beat so more chunks can be added.`;
+    });
+    // Children's books: the prompt already has strict word limits, no chunking needed
+    const prompt = isChildrensBook
+      ? basePrompt
+      : basePrompt + `\n\nWrite only the opening chunk of this chapter (${chunkProfile.words} words). End on a continuation beat so more chunks can be added.`;
 
     let accumulated = '';
     await generateStream(
       {
         prompt,
         model: settings.ai?.preferredModel || 'gpt-4.1',
-        maxTokens: chunkProfile.maxTokens,
+        maxTokens: isChildrensBook ? 300 : chunkProfile.maxTokens,
         action: 'generate-chapter',
         projectId: project.id,
         chapterId: chapter.id,
@@ -298,28 +303,32 @@ export function ChapterView({ chapter }: Props) {
             {liked ? 'Liked' : 'Like'}
           </button>
 
-          {/* Extend — hidden on mobile */}
-          <button
-            onClick={() => setChunkSize((prev) => (prev === 'short' ? 'medium' : prev === 'medium' ? 'long' : 'short'))}
-            className="hidden sm:block px-2 py-1.5 rounded-lg text-[11px] font-medium text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
-            title="Chunk size"
-          >
-            {chunkProfile.label}
-          </button>
-          <button
-            onClick={handleExtend}
-            disabled={!chapter.prose.trim() || extending || generating}
-            className={cn(
-              'hidden sm:flex px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all items-center gap-1',
-              !chapter.prose.trim() || extending || generating
-                ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
-                : 'bg-text-primary text-text-inverse hover:shadow-md',
-            )}
-            title="Extend chapter"
-          >
-            {extending ? <Loader2 size={13} className="animate-spin" /> : <Expand size={13} />}
-            {extending ? 'Extending...' : 'Extend'}
-          </button>
+          {/* Extend — hidden on mobile, hidden for children's books (pages are short) */}
+          {project?.subtype !== 'childrens-book' && (
+            <>
+              <button
+                onClick={() => setChunkSize((prev) => (prev === 'short' ? 'medium' : prev === 'medium' ? 'long' : 'short'))}
+                className="hidden sm:block px-2 py-1.5 rounded-lg text-[11px] font-medium text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
+                title="Chunk size"
+              >
+                {chunkProfile.label}
+              </button>
+              <button
+                onClick={handleExtend}
+                disabled={!chapter.prose.trim() || extending || generating}
+                className={cn(
+                  'hidden sm:flex px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all items-center gap-1',
+                  !chapter.prose.trim() || extending || generating
+                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                    : 'bg-text-primary text-text-inverse hover:shadow-md',
+                )}
+                title="Extend chapter"
+              >
+                {extending ? <Loader2 size={13} className="animate-spin" /> : <Expand size={13} />}
+                {extending ? 'Extending...' : 'Extend'}
+              </button>
+            </>
+          )}
 
           {/* Version history — hidden on mobile */}
           {chapter.prose && (
@@ -485,7 +494,7 @@ export function ChapterView({ chapter }: Props) {
                   }}
                   className="mb-6 px-5 py-2.5 rounded-xl bg-text-primary text-text-inverse text-sm font-medium flex items-center gap-2 mx-auto hover:shadow-lg transition-all"
                 >
-                  <Sparkles size={15} /> Generate
+                  <Sparkles size={15} /> {project?.subtype === 'childrens-book' ? 'Generate Page Text' : 'Generate'}
                 </button>
               ) : (
                 <div className="max-w-sm mx-auto mb-6">

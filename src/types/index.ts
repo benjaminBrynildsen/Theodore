@@ -13,7 +13,8 @@ export interface Project {
   targetLength: 'short' | 'medium' | 'long' | 'epic';
   toneBaseline: string;
   assistanceLevel: number; // 1-5, light to heavy
-  ageRange?: string; // children's books only
+  ageRange?: string; // deprecated, use childrensBookSettings
+  childrensBookSettings?: ChildrensBookSettings;
   narrativeControls: NarrativeControls;
   storyStructureId?: string; // one of the 9 story structures (see story-structures.ts)
   status: ProjectStatus;
@@ -40,6 +41,42 @@ export interface NarrativeControls {
 }
 
 export type GenreEmphasis = 'adventure' | 'mystery' | 'romance' | 'horror' | 'philosophical';
+
+// ========== Children's Book Settings ==========
+
+export type AgeRange = '0-2' | '3-5' | '6-8' | '9-12';
+export type IllustrationStyle = 'watercolor' | 'cartoon' | 'realistic' | 'collage' | 'pencil' | 'digital';
+
+export interface CharacterVisual {
+  name: string;
+  description: string; // e.g. "A small brown rabbit with floppy ears, wearing a blue jacket"
+}
+
+export interface ChildrensBookSettings {
+  ageRange: AgeRange;
+  illustrationStyle: IllustrationStyle;
+  wordsPerSpread: number; // target words per page spread
+  spreadCount: number; // total spreads (replaces chapter count)
+  hasRhyme: boolean;
+  moralLesson?: string;
+  // Style consistency fields
+  styleGuide?: string; // e.g. "Soft watercolor with muted earth tones, whimsical forest setting"
+  characterVisuals?: CharacterVisual[]; // visual descriptions for consistent character rendering
+}
+
+export const AGE_RANGE_LABELS: Record<AgeRange, string> = {
+  '0-2': 'Board Book (0–2)',
+  '3-5': 'Picture Book (3–5)',
+  '6-8': 'Early Reader (6–8)',
+  '9-12': 'Chapter Book (9–12)',
+};
+
+export const AGE_RANGE_DEFAULTS: Record<AgeRange, { wordsPerSpread: number; spreadCount: number }> = {
+  '0-2': { wordsPerSpread: 10, spreadCount: 10 },
+  '3-5': { wordsPerSpread: 40, spreadCount: 16 },
+  '6-8': { wordsPerSpread: 80, spreadCount: 16 },
+  '9-12': { wordsPerSpread: 200, spreadCount: 12 },
+};
 
 // ========== Scene Types ==========
 
@@ -85,6 +122,8 @@ export interface Chapter {
   validationStatus: ValidationStatus;
   scenes?: Scene[];
   editChatHistory?: EditChatMessage[];
+  imageUrl?: string;
+  illustrationNotes?: string;
   createdAt: string;
   updatedAt: string;
 }

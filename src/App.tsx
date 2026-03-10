@@ -5,6 +5,7 @@ import { TopBar } from './components/layout/TopBar';
 import { LeftSidebar } from './components/layout/LeftSidebar';
 import { RightSidebar } from './components/layout/RightSidebar';
 import { Home } from './components/views/Home';
+import { ChatCreation } from './components/views/ChatCreation';
 import { useSettingsStore } from './store/settings';
 import { useAuthStore } from './store/auth';
 import { useCreditsStore } from './store/credits';
@@ -79,6 +80,9 @@ export default function App() {
   const hasActiveProject = !!activeProjectId && projects.some((p) => p.id === activeProjectId);
   const showWorkspaceChrome = !showSettingsView && !showToolsView && currentView !== 'home' && hasActiveProject;
   const [showAuth, setShowAuth] = useState(false);
+  const [showGuestChat, setShowGuestChat] = useState(false);
+  const [returnToChatAfterAuth, setReturnToChatAfterAuth] = useState(false);
+  const [showPostAuthChat, setShowPostAuthChat] = useState(false);
 
   // Resolve session on mount
   useEffect(() => {
@@ -144,6 +148,14 @@ export default function App() {
     }
   }, [activeEntryId, currentView, hasActiveProject, setActiveEntry]);
 
+  // After auth, if user came from guest chat, send them back to ChatCreation
+  useEffect(() => {
+    if (user && returnToChatAfterAuth) {
+      setReturnToChatAfterAuth(false);
+      setShowPostAuthChat(true);
+    }
+  }, [user, returnToChatAfterAuth]);
+
   if (!initialized) {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-bg">
@@ -156,14 +168,41 @@ export default function App() {
     if (showAuth) {
       return (
         <Suspense fallback={<ViewLoader label="Loading sign in..." />}>
-          <AuthView onBack={() => setShowAuth(false)} />
+          <AuthView onBack={() => {
+            setShowAuth(false);
+            if (returnToChatAfterAuth) {
+              setShowGuestChat(true);
+            }
+          }} />
         </Suspense>
+      );
+    }
+    if (showGuestChat) {
+      return (
+        <ChatCreation
+          onClose={() => setShowGuestChat(false)}
+          guestMode
+          onRequireAuth={() => {
+            setReturnToChatAfterAuth(true);
+            setShowAuth(true);
+            setShowGuestChat(false);
+          }}
+        />
       );
     }
     return (
       <Suspense fallback={<ViewLoader label="Loading Theodore..." />}>
-        <LandingPage onGetStarted={() => setShowAuth(true)} />
+        <LandingPage onGetStarted={() => setShowGuestChat(true)} onSignIn={() => setShowAuth(true)} />
       </Suspense>
+    );
+  }
+
+  // Show ChatCreation as authenticated user after signing up from guest flow
+  if (showPostAuthChat) {
+    return (
+      <ChatCreation
+        onClose={() => setShowPostAuthChat(false)}
+      />
     );
   }
 

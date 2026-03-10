@@ -49,6 +49,7 @@ export const projects = pgTable('projects', {
   toneBaseline: text('tone_baseline').default(''),
   assistanceLevel: integer('assistance_level').notNull().default(3),
   ageRange: text('age_range'),
+  childrensBookSettings: jsonb('childrens_book_settings').$type<Record<string, any>>(),
   narrativeControls: jsonb('narrative_controls').$type<Record<string, any>>().notNull(),
   status: text('status').notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -70,6 +71,8 @@ export const chapters = pgTable('chapters', {
   validationStatus: jsonb('validation_status').$type<Record<string, any>>().notNull(),
   scenes: jsonb('scenes').$type<any[]>().default([]),
   editChatHistory: jsonb('edit_chat_history').$type<any[]>().default([]),
+  imageUrl: text('image_url'),
+  illustrationNotes: text('illustration_notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

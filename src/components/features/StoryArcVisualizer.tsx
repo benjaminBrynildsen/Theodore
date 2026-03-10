@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { TrendingUp, Sparkles, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { TrendingUp, Sparkles, Loader2, Info } from 'lucide-react';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
 
@@ -16,12 +16,23 @@ const BEAT_COLORS: Record<string, string> = {
   crisis: '#ef4444', climax: '#f59e0b', resolution: '#10b981', denouement: '#6b7280',
 };
 
+const BEAT_DESCRIPTIONS: Record<string, string> = {
+  setup: 'The opening act that introduces your characters, world, and the status quo before the story disrupts it.',
+  rising: 'Escalating conflicts, obstacles, and stakes that build momentum toward the story\'s central confrontation.',
+  midpoint: 'A major turning point — a revelation, reversal, or shift that reframes everything the reader thought they knew.',
+  crisis: 'The darkest moment. The protagonist faces their greatest obstacle and must make an impossible choice.',
+  climax: 'The peak of the story — the decisive confrontation or moment everything has been building toward.',
+  resolution: 'The aftermath of the climax. Loose ends are tied up and the consequences of the climax play out.',
+  denouement: 'The final wind-down. The new normal is established and the reader gets a sense of closure.',
+};
+
 export function StoryArcVisualizer() {
   const { getActiveProject, getProjectChapters } = useStore();
   const project = getActiveProject();
   const chapters = project ? getProjectChapters(project.id).sort((a, b) => a.number - b.number) : [];
   const [analyzing, setAnalyzing] = useState(false);
   const [dragging, setDragging] = useState<number | null>(null);
+  const [activeBeatInfo, setActiveBeatInfo] = useState<string | null>(null);
 
   // Generate arc points from chapters (mock — real version uses AI)
   const [arcPoints, setArcPoints] = useState<ArcPoint[]>(() => {
@@ -181,10 +192,25 @@ export function StoryArcVisualizer() {
 
       {/* Beat legend */}
       <div className="flex flex-wrap gap-3 mt-3">
-        {Object.entries(BEAT_COLORS).filter(([k]) => k !== 'denouement').map(([beat, color]) => (
-          <div key={beat} className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-            <span className="text-[10px] text-text-tertiary capitalize">{beat}</span>
+        {Object.entries(BEAT_COLORS).map(([beat, color]) => (
+          <div key={beat} className="relative">
+            <button
+              onClick={() => setActiveBeatInfo(activeBeatInfo === beat ? null : beat)}
+              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+            >
+              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+              <span className="text-[10px] text-text-tertiary capitalize">{beat}</span>
+              <Info size={10} className="text-text-tertiary opacity-50" />
+            </button>
+            {activeBeatInfo === beat && (
+              <div className="absolute bottom-full left-0 mb-2 w-56 p-3 rounded-xl bg-white shadow-lg border border-black/5 z-50">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                  <span className="text-xs font-semibold capitalize">{beat}</span>
+                </div>
+                <p className="text-[11px] text-text-secondary leading-relaxed">{BEAT_DESCRIPTIONS[beat]}</p>
+              </div>
+            )}
           </div>
         ))}
       </div>

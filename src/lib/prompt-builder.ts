@@ -353,6 +353,11 @@ export interface PromptContext {
 export function buildGenerationPrompt(ctx: PromptContext): string {
   const { project, chapter, allChapters, canonEntries, settings, writingMode, generationType, previousChapterProse } = ctx;
 
+  // Children's book pages get a completely different prompt
+  if (project.subtype === 'childrens-book') {
+    return buildChildrensPagePrompt(ctx);
+  }
+
   const sections: string[] = [];
 
   // System role
@@ -611,4 +616,83 @@ For each issue found, return:
 - suggested fix
 
 If the changes are safe and create no continuity issues, return an empty array.`;
+}
+
+// ========== Children's Book Page Prompt ==========
+
+function buildChildrensPagePrompt(ctx: PromptContext): string {
+  const { project, chapter, allChapters, previousChapterProse } = ctx;
+  const cbs = project.childrensBookSettings;
+  const ageRange = cbs?.ageRange || '3-5';
+  const hasRhyme = cbs?.hasRhyme || false;
+  const wordsPerSpread = cbs?.wordsPerSpread || 40;
+  const moralLesson = cbs?.moralLesson;
+
+  // Word limits by age range
+  const wordLimits: Record<string, { min: number; max: number; sentences: string }> = {
+    '0-2': { min: 3, max: 15, sentences: '1-2 very short sentences' },
+    '3-5': { min: 15, max: 50, sentences: '2-4 short, simple sentences' },
+    '6-8': { min: 40, max: 100, sentences: '3-5 sentences' },
+    '9-12': { min: 80, max: 200, sentences: '4-8 sentences' },
+  };
+  const limits = wordLimits[ageRange] || wordLimits['3-5'];
+
+  const sections: string[] = [];
+
+  sections.push(`You are Theodore, an expert children's book author. You are writing a picture book titled "${project.title}" for ages ${ageRange}.`);
+
+  sections.push(`\n=== CRITICAL LENGTH RULES ===
+This is a PICTURE BOOK PAGE, not a novel chapter. The illustration is the main content — text is secondary.
+- Write EXACTLY ${limits.sentences}
+- Target ${wordsPerSpread} words (absolute max: ${limits.max} words)
+- Every word must earn its place — picture books are poetry, not prose
+- The illustration will carry most of the storytelling
+- DO NOT write more than ${limits.max} words under any circumstances`);
+
+  if (hasRhyme) {
+    sections.push(`\n=== RHYME ===
+This book uses rhyming text. Write with consistent meter and rhyme scheme. Keep the rhythm bouncy and read-aloud friendly.`);
+  }
+
+  sections.push(`\n=== STYLE RULES ===
+- Use simple, vivid language appropriate for ages ${ageRange}
+- Short sentences, active voice, concrete imagery
+- Present tense preferred for immediacy
+- Sensory details a child can relate to (sounds, colors, textures)
+- Each page should work as a standalone spread with its illustration
+- End with a moment that makes the reader want to turn the page`);
+
+  if (moralLesson) {
+    sections.push(`\nMoral/theme to weave in naturally (don't be preachy): ${moralLesson}`);
+  }
+
+  // Story outline context
+  if (allChapters.length > 1) {
+    sections.push(`\n=== STORY PAGES ===`);
+    for (const ch of allChapters) {
+      const marker = ch.id === chapter.id ? '→ ' : '  ';
+      const status = ch.prose ? '✓' : '○';
+      sections.push(`${marker}${status} Page ${ch.number}: ${ch.title}${ch.premise.purpose ? ' — ' + ch.premise.purpose : ''}`);
+    }
+  }
+
+  // Previous page for continuity
+  if (previousChapterProse) {
+    sections.push(`\n=== PREVIOUS PAGE TEXT ===\n${previousChapterProse}`);
+  }
+
+  // Current page instructions
+  sections.push(`\n=== PAGE TO WRITE ===`);
+  sections.push(`Page ${chapter.number}: "${chapter.title}"`);
+  if (chapter.premise.purpose) sections.push(`What happens: ${chapter.premise.purpose}`);
+  if (chapter.premise.emotionalBeat) sections.push(`Feeling: ${chapter.premise.emotionalBeat}`);
+  if (chapter.premise.characters.length) sections.push(`Characters: ${chapter.premise.characters.join(', ')}`);
+
+  if (chapter.illustrationNotes) {
+    sections.push(`Illustration note: ${chapter.illustrationNotes}`);
+  }
+
+  sections.push(`\nWrite ONLY the page text. No titles, no page numbers, no stage directions, no illustration notes. Just the ${limits.sentences} of children's book text. Remember: maximum ${limits.max} words.`);
+
+  return sections.join('\n');
 }

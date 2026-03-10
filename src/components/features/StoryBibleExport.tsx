@@ -4,6 +4,9 @@ import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { cn } from '../../lib/utils';
 import type { CharacterEntry, LocationEntry } from '../../types/canon';
+import { jsPDF } from 'jspdf';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
+import { saveAs } from 'file-saver';
 
 export function StoryBibleExport() {
   const { getActiveProject, getProjectChapters } = useStore();
@@ -113,24 +116,157 @@ export function StoryBibleExport() {
     return lines.join('\n');
   };
 
+  const exportPdf = (md: string) => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 20;
+    const maxWidth = pageWidth - margin * 2;
+    let y = margin;
+
+    const addPage = () => { doc.addPage(); y = margin; };
+    const checkPage = (needed: number) => { if (y + needed > 280) addPage(); };
+
+    const lines = md.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('# ')) {
+        checkPage(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(20);
+        const wrapped = doc.splitTextToSize(line.slice(2), maxWidth);
+        doc.text(wrapped, margin, y);
+        y += wrapped.length * 8 + 4;
+      } else if (line.startsWith('## ')) {
+        checkPage(12);
+        y += 4;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        const wrapped = doc.splitTextToSize(line.slice(3), maxWidth);
+        doc.text(wrapped, margin, y);
+        y += wrapped.length * 6 + 3;
+      } else if (line.startsWith('### ')) {
+        checkPage(10);
+        y += 2;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        const wrapped = doc.splitTextToSize(line.slice(4), maxWidth);
+        doc.text(wrapped, margin, y);
+        y += wrapped.length * 5 + 2;
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        checkPage(6);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        // Strip bold markdown markers for PDF
+        const clean = line.slice(2).replace(/\*\*(.*?)\*\*/g, '$1');
+        const wrapped = doc.splitTextToSize(`• ${clean}`, maxWidth - 4);
+        doc.text(wrapped, margin + 4, y);
+        y += wrapped.length * 4.5 + 1;
+      } else if (line.startsWith('*') && line.endsWith('*')) {
+        checkPage(6);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(9);
+        doc.text(line.replace(/\*/g, ''), margin, y);
+        y += 5;
+      } else if (line.trim()) {
+        checkPage(6);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        const clean = line.replace(/\*\*(.*?)\*\*/g, '$1');
+        const wrapped = doc.splitTextToSize(clean, maxWidth);
+        doc.text(wrapped, margin, y);
+        y += wrapped.length * 4.5 + 1;
+      } else {
+        y += 3;
+      }
+    }
+
+    doc.save(`${project?.title || 'story'}-bible.pdf`);
+  };
+
+  const exportDocx = async (md: string) => {
+    const paragraphs: Paragraph[] = [];
+    const lines = md.split('\n');
+
+    for (const line of lines) {
+      if (line.startsWith('# ')) {
+        paragraphs.push(new Paragraph({
+          text: line.slice(2),
+          heading: HeadingLevel.HEADING_1,
+          spacing: { after: 200 },
+        }));
+      } else if (line.startsWith('## ')) {
+        paragraphs.push(new Paragraph({
+          text: line.slice(3),
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 300, after: 150 },
+        }));
+      } else if (line.startsWith('### ')) {
+        paragraphs.push(new Paragraph({
+          text: line.slice(4),
+          heading: HeadingLevel.HEADING_3,
+          spacing: { before: 200, after: 100 },
+        }));
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        const content = line.slice(2);
+        // Parse bold markers
+        const runs: TextRun[] = [];
+        const parts = content.split(/\*\*(.*?)\*\*/);
+        parts.forEach((part, i) => {
+          if (part) runs.push(new TextRun({ text: part, bold: i % 2 === 1, size: 22 }));
+        });
+        paragraphs.push(new Paragraph({
+          children: [new TextRun({ text: '• ', size: 22 }), ...runs],
+          spacing: { after: 40 },
+          indent: { left: 360 },
+        }));
+      } else if (line.startsWith('*') && line.endsWith('*')) {
+        paragraphs.push(new Paragraph({
+          children: [new TextRun({ text: line.replace(/\*/g, ''), italics: true, size: 20, color: '666666' })],
+          spacing: { after: 100 },
+        }));
+      } else if (line.trim()) {
+        const runs: TextRun[] = [];
+        const parts = line.split(/\*\*(.*?)\*\*/);
+        parts.forEach((part, i) => {
+          if (part) runs.push(new TextRun({ text: part, bold: i % 2 === 1, size: 22 }));
+        });
+        paragraphs.push(new Paragraph({ children: runs, spacing: { after: 60 } }));
+      } else {
+        paragraphs.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+      }
+    }
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: paragraphs,
+      }],
+    });
+
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, `${project?.title || 'story'}-bible.docx`);
+  };
+
   const handleExport = async () => {
     setExporting(true);
-    
-    const md = generateMarkdown();
-    
-    if (format === 'markdown') {
-      const blob = new Blob([md], { type: 'text/markdown' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${project?.title || 'story'}-bible.md`;
-      a.click();
-      URL.revokeObjectURL(url);
+    try {
+      const md = generateMarkdown();
+
+      if (format === 'markdown') {
+        const blob = new Blob([md], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${project?.title || 'story'}-bible.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else if (format === 'pdf') {
+        exportPdf(md);
+      } else if (format === 'docx') {
+        await exportDocx(md);
+      }
+    } finally {
+      setExporting(false);
     }
-    // PDF and DOCX would need server-side conversion
-    
-    await new Promise(r => setTimeout(r, 500));
-    setExporting(false);
   };
 
   if (!project) return null;

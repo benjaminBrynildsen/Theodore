@@ -2,7 +2,7 @@
 
 export interface ImageGenOptions {
   prompt?: string;
-  target?: 'character' | 'location' | 'scene' | 'cover';
+  target?: 'character' | 'location' | 'scene' | 'cover' | 'page';
   targetId?: string;
   projectId?: string;
   aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
@@ -20,6 +20,7 @@ export async function generateImageApi(options: ImageGenOptions): Promise<ImageG
   const response = await fetch('/api/generate/image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify(options),
   });
 

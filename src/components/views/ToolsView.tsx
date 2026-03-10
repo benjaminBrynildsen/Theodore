@@ -1,36 +1,32 @@
 import { Suspense, lazy, useState } from 'react';
 import {
   ChevronLeft, TrendingUp, BookOpen, BookCopy, FileSignature,
-  LayoutGrid, Barcode, Library, Rocket, Users,
+  LayoutGrid, Barcode, Rocket, Users,
   Activity, MessageSquareQuote, Waves, Globe, Image,
-  Highlighter, Timer, Search, ScrollText, Globe2, UserPlus,
+  Highlighter, ScrollText, UserPlus,
   BarChart3, Crosshair, GitCompare, MessageCircle, Calendar, BookMarked
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 type Tool =
   | 'arc' | 'reader' | 'comps' | 'query'
-  | 'beats' | 'isbn' | 'series' | 'launch'
+  | 'beats' | 'isbn' | 'launch'
   | 'relationships' | 'dialogue' | 'pacing' | 'tone' | 'preorder'
-  | 'xray' | 'recap' | 'cover' | 'research' | 'sprint'
-  | 'wiki' | 'names' | 'readability' | 'plothole' | 'diff' | 'collab' | 'epub' | 'timeline';
+  | 'xray' | 'recap' | 'cover'
+  | 'names' | 'readability' | 'plothole' | 'diff' | 'collab' | 'epub' | 'timeline';
 
 const TOOLS: { id: Tool; label: string; icon: typeof TrendingUp; description: string; phase: string }[] = [
-  { id: 'series', label: 'Series Bible', icon: Library, description: 'Multi-book continuity and open thread tracking', phase: 'Planning' },
   { id: 'relationships', label: 'Relationships', icon: Users, description: 'Character relationship map with connection types', phase: 'Planning' },
-  { id: 'wiki', label: 'World Wiki', icon: Globe2, description: 'Interconnected lore, history, and magic system wiki', phase: 'Planning' },
   { id: 'names', label: 'Name Generator', icon: UserPlus, description: 'Genre-aware names with etymology and phonetics', phase: 'Planning' },
   { id: 'timeline', label: 'Timeline', icon: Calendar, description: 'Chronological event map with conflict detection', phase: 'Planning' },
   { id: 'arc', label: 'Story Arc', icon: TrendingUp, description: 'Visualize and reshape your narrative arc', phase: 'Writing' },
   { id: 'beats', label: 'Scene Beats', icon: LayoutGrid, description: 'Drag beats between chapters to rebalance structure', phase: 'Writing' },
   { id: 'pacing', label: 'Pacing Heartbeat', icon: Activity, description: 'Tempo waveform — see rhythm across chapters', phase: 'Writing' },
-  { id: 'sprint', label: 'Writing Sprint', icon: Timer, description: 'Timed sessions with word count tracking', phase: 'Writing' },
   { id: 'recap', label: 'Chapter Recap', icon: ScrollText, description: '"Previously on..." summaries for continuity', phase: 'Writing' },
   { id: 'reader', label: 'First Reader', icon: BookOpen, description: 'AI beta reader — engagement, clarity, pacing feedback', phase: 'Editing' },
   { id: 'xray', label: 'Prose X-Ray', icon: Highlighter, description: 'Heatmap overlay — dialogue ratio, adverbs, pacing', phase: 'Editing' },
   { id: 'dialogue', label: 'Dialogue Analyzer', icon: MessageSquareQuote, description: 'Voice profiles and character similarity detection', phase: 'Editing' },
   { id: 'tone', label: 'Tone Drift', icon: Waves, description: 'Detect unintentional tone shifts across chapters', phase: 'Editing' },
-  { id: 'research', label: 'Smart Research', icon: Search, description: 'Inline factual accuracy checking and verification', phase: 'Editing' },
   { id: 'readability', label: 'Readability', icon: BarChart3, description: 'Grade level, reading time, audience targeting', phase: 'Editing' },
   { id: 'plothole', label: 'Plot Holes', icon: Crosshair, description: 'Detect contradictions and unresolved threads', phase: 'Editing' },
   { id: 'diff', label: 'Draft Compare', icon: GitCompare, description: 'Diff view between manuscript versions', phase: 'Editing' },
@@ -68,10 +64,6 @@ const ISBNAssistant = lazy(async () => {
   const mod = await import('../features/ISBNAssistant');
   return { default: mod.ISBNAssistant };
 });
-const SeriesBible = lazy(async () => {
-  const mod = await import('../features/SeriesBible');
-  return { default: mod.SeriesBible };
-});
 const LaunchDashboard = lazy(async () => {
   const mod = await import('../features/LaunchDashboard');
   return { default: mod.LaunchDashboard };
@@ -107,18 +99,6 @@ const ChapterRecapGenerator = lazy(async () => {
 const AICoverDesigner = lazy(async () => {
   const mod = await import('../features/AICoverDesigner');
   return { default: mod.AICoverDesigner };
-});
-const SmartResearch = lazy(async () => {
-  const mod = await import('../features/SmartResearch');
-  return { default: mod.SmartResearch };
-});
-const WritingSprintMode = lazy(async () => {
-  const mod = await import('../features/WritingSprintMode');
-  return { default: mod.WritingSprintMode };
-});
-const WorldbuildingWiki = lazy(async () => {
-  const mod = await import('../features/WorldbuildingWiki');
-  return { default: mod.WorldbuildingWiki };
 });
 const NameGenerator = lazy(async () => {
   const mod = await import('../features/NameGenerator');
@@ -259,7 +239,6 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
             {activeTool === 'query' && <QueryLetterGenerator />}
             {activeTool === 'beats' && <SceneBeatBoard />}
             {activeTool === 'isbn' && <ISBNAssistant />}
-            {activeTool === 'series' && <SeriesBible />}
             {activeTool === 'launch' && <LaunchDashboard />}
             {activeTool === 'relationships' && <CharacterRelationshipMap />}
             {activeTool === 'dialogue' && <DialogueAnalyzer />}
@@ -269,9 +248,6 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
             {activeTool === 'xray' && <ProseXRay chapterId="ch-1" />}
             {activeTool === 'recap' && <ChapterRecapGenerator />}
             {activeTool === 'cover' && <AICoverDesigner />}
-            {activeTool === 'research' && <SmartResearch chapterId="ch-1" />}
-            {activeTool === 'sprint' && <WritingSprintMode />}
-            {activeTool === 'wiki' && <WorldbuildingWiki />}
             {activeTool === 'names' && <NameGenerator />}
             {activeTool === 'readability' && <ReadabilityAnalyzer />}
             {activeTool === 'plothole' && <PlotHoleDetector />}

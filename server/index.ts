@@ -23,7 +23,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
-import { generateImage, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt } from './image-gen.js';
+import { generateImage, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
 import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs } from './billing.js';
 
 const app = express();
@@ -31,6 +31,10 @@ const PORT = parseInt(process.env.PORT || '3001');
 
 const APP_URL = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, '') : null;
 const DEV_ALLOWED_ORIGINS = [
+  'http://localhost:5757',
+  'http://localhost:5758',
+  'http://127.0.0.1:5757',
+  'http://127.0.0.1:5758',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:3001',
@@ -229,6 +233,7 @@ function buildProjectInsert(bodyRaw: unknown, userId: string) {
     toneBaseline: asString(body.toneBaseline, ''),
     assistanceLevel: Math.max(1, Math.min(5, Math.round(asFiniteNumber(body.assistanceLevel, 3)))),
     ageRange: 'ageRange' in body ? asOptionalString(body.ageRange) : null,
+    childrensBookSettings: 'childrensBookSettings' in body && body.childrensBookSettings ? asObject(body.childrensBookSettings) : null,
     narrativeControls: asObject(body.narrativeControls, DEFAULT_NARRATIVE_CONTROLS),
     status: asString(body.status, 'active'),
   };
@@ -247,6 +252,7 @@ function buildProjectUpdate(bodyRaw: unknown) {
     updates.assistanceLevel = Math.max(1, Math.min(5, Math.round(asFiniteNumber(body.assistanceLevel, 3))));
   }
   if ('ageRange' in body) updates.ageRange = body.ageRange === null ? null : asOptionalString(body.ageRange);
+  if ('childrensBookSettings' in body) updates.childrensBookSettings = body.childrensBookSettings ? asObject(body.childrensBookSettings) : null;
   if ('narrativeControls' in body) updates.narrativeControls = asObject(body.narrativeControls, DEFAULT_NARRATIVE_CONTROLS);
   if ('status' in body && typeof body.status === 'string') updates.status = body.status;
 
@@ -291,6 +297,8 @@ function buildChapterUpdate(bodyRaw: unknown, projectId: string) {
   if ('validationStatus' in body) updates.validationStatus = asObject(body.validationStatus, DEFAULT_VALIDATION_STATUS);
   if ('scenes' in body) updates.scenes = Array.isArray(body.scenes) ? body.scenes : [];
   if ('editChatHistory' in body) updates.editChatHistory = Array.isArray(body.editChatHistory) ? body.editChatHistory : [];
+  if ('imageUrl' in body) updates.imageUrl = body.imageUrl === null ? null : asOptionalString(body.imageUrl);
+  if ('illustrationNotes' in body) updates.illustrationNotes = body.illustrationNotes === null ? null : asOptionalString(body.illustrationNotes);
 
   return updates;
 }
@@ -967,6 +975,59 @@ app.post('/api/transactions', async (req, res) => {
 });
 
 // ========== AI Generation ==========
+
+// Guest (unauthenticated) generation — only for plan-project during onboarding
+const GUEST_ALLOWED_ACTIONS = new Set(['plan-project', 'scaffold-chapters']);
+const activeGuestIps = new Set<string>();
+
+app.post('/api/generate/guest', async (req, res) => {
+  try {
+    const { prompt, systemPrompt, model, maxTokens, temperature, action } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
+    if (!action || !GUEST_ALLOWED_ACTIONS.has(action)) {
+      return res.status(403).json({ error: 'Guest generation is only available for project planning.' });
+    }
+
+    const ip = requestClientIp(req);
+
+    // Rate limit: 20 guest generations per hour per IP
+    if (!takeRateLimitToken(res, 'guest-generate', ip, 20, 60 * 60 * 1000)) return;
+
+    if (activeGuestIps.has(ip)) {
+      return res.status(429).json({ error: 'Generation already in progress.' });
+    }
+
+    activeGuestIps.add(ip);
+    try {
+      const result = await generate({
+        prompt, systemPrompt, model,
+        maxTokens: Math.min(maxTokens || 2200, 2200),
+        temperature,
+        userId: undefined,
+        projectId: undefined,
+        chapterId: undefined,
+        action,
+      });
+
+      res.json({
+        text: result.text,
+        model: result.model,
+        usage: {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          creditsUsed: 0,
+          creditsRemaining: null,
+        },
+      });
+    } finally {
+      activeGuestIps.delete(ip);
+    }
+  } catch (e: any) {
+    console.error('Guest generate error:', e.message);
+    respondInternalError(res, 'api', e);
+  }
+});
+
 app.post('/api/generate', async (req, res) => {
   try {
     const auth = await requireAuth(req, res);
@@ -1206,6 +1267,21 @@ app.post('/api/generate/image', async (req, res) => {
         genreEmphasis: nc.genreEmphasis,
         toneMood: nc.toneMood,
       });
+    } else if (target === 'page' && targetId) {
+      const [chapter] = await db.select().from(chapters).where(eq(chapters.id, targetId));
+      if (!chapter) return res.status(404).json({ error: 'Page not found' });
+      const [project] = await db.select().from(projects).where(eq(projects.id, chapter.projectId));
+      const cbs = (project?.childrensBookSettings as any) || {};
+      finalPrompt = buildChildrensPagePrompt({
+        title: chapter.title,
+        prose: chapter.prose || '',
+        illustrationNotes: chapter.illustrationNotes || undefined,
+        illustrationStyle: cbs.illustrationStyle,
+        ageRange: cbs.ageRange,
+        bookTitle: project?.title,
+        styleGuide: cbs.styleGuide || undefined,
+        characterVisuals: cbs.characterVisuals || undefined,
+      });
     }
 
     if (!finalPrompt) return res.status(400).json({ error: 'Could not build image prompt' });
@@ -1239,6 +1315,14 @@ app.post('/api/generate/image', async (req, res) => {
         imageUrl: result.imageUrl,
         updatedAt: new Date(),
       }).where(eq(canonEntries.id, targetId));
+    }
+
+    // If target is a page (children's book), update chapter imageUrl
+    if (target === 'page' && targetId) {
+      await db.update(chapters).set({
+        imageUrl: result.imageUrl,
+        updatedAt: new Date(),
+      }).where(eq(chapters.id, targetId));
     }
 
     res.json({

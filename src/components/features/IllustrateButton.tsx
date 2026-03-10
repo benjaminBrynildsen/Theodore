@@ -5,7 +5,7 @@ import type { ImageGenOptions } from '../../lib/image-gen';
 import { cn } from '../../lib/utils';
 
 interface Props {
-  target: 'character' | 'location' | 'scene' | 'cover';
+  target: 'character' | 'location' | 'scene' | 'cover' | 'page';
   targetId?: string;
   projectId?: string;
   currentImageUrl?: string | null;

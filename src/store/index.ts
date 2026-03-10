@@ -235,6 +235,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         toneBaseline: p.toneBaseline || p.tone_baseline || '',
         assistanceLevel: p.assistanceLevel || p.assistance_level || 3,
         ageRange: p.ageRange || p.age_range,
+        childrensBookSettings: p.childrensBookSettings || p.childrens_book_settings,
+        storyStructureId: p.storyStructureId || p.story_structure_id,
         narrativeControls: p.narrativeControls || p.narrative_controls || {},
         status: p.status,
         createdAt: p.createdAt || p.created_at,
@@ -292,6 +294,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         validationStatus: c.validationStatus || c.validation_status || { isValid: true, checks: [] },
         scenes: c.scenes || c.scenes || [],
         editChatHistory: c.editChatHistory || c.edit_chat_history || [],
+        imageUrl: c.imageUrl || c.image_url,
+        illustrationNotes: c.illustrationNotes || c.illustration_notes,
         createdAt: c.createdAt || c.created_at,
         updatedAt: c.updatedAt || c.updated_at,
       }));

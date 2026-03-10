@@ -205,3 +205,63 @@ export function buildBookCoverPrompt(project: {
   parts.push('professional book cover, typography-ready negative space, compelling composition, high quality');
   return parts.join(', ');
 }
+
+export function buildChildrensPagePrompt(page: {
+  title: string;
+  prose: string;
+  illustrationNotes?: string;
+  illustrationStyle?: string;
+  ageRange?: string;
+  bookTitle?: string;
+  styleGuide?: string;
+  characterVisuals?: { name: string; description: string }[];
+}): string {
+  const parts: string[] = [];
+
+  // 1. Style guide anchor — ensures every image shares the same art direction
+  if (page.styleGuide) {
+    parts.push(`Art style: ${page.styleGuide}`);
+  }
+
+  // 2. Character visual descriptions — ensures consistent character appearance across pages
+  if (page.characterVisuals?.length) {
+    const charDescs = page.characterVisuals
+      .map(cv => `${cv.name}: ${cv.description}`)
+      .join('; ');
+    parts.push(`Characters (draw exactly as described): ${charDescs}`);
+  }
+
+  // 3. Scene content — illustration notes or prose
+  if (page.illustrationNotes) {
+    parts.push(page.illustrationNotes);
+  } else if (page.prose) {
+    parts.push(page.prose.slice(0, 300));
+  } else {
+    parts.push(page.title);
+  }
+  if (page.bookTitle) parts.push(`from the children's book "${page.bookTitle}"`);
+
+  // 4. Style based on illustration preference
+  const styleMap: Record<string, string> = {
+    watercolor: 'soft watercolor illustration style, gentle colors, painterly textures',
+    cartoon: 'bright cartoon illustration, bold outlines, playful exaggerated features',
+    realistic: 'detailed realistic illustration, rich colors, lifelike rendering',
+    collage: 'mixed media collage style, textured paper elements, layered composition',
+    pencil: 'gentle pencil illustration, soft shading, hand-drawn feel',
+    digital: 'clean digital illustration, vibrant colors, modern children\'s book style',
+  };
+  parts.push(styleMap[page.illustrationStyle || 'watercolor'] || styleMap.watercolor);
+
+  // 5. Age-appropriate styling
+  const ageStyle: Record<string, string> = {
+    '0-2': 'very simple shapes, high contrast, bold primary colors, minimal detail',
+    '3-5': 'charming, whimsical, expressive characters, bright and inviting',
+    '6-8': 'detailed scene, dynamic composition, engaging and adventurous',
+    '9-12': 'rich detailed illustration, slightly more mature style, atmospheric',
+  };
+  parts.push(ageStyle[page.ageRange || '3-5'] || ageStyle['3-5']);
+
+  // 6. Consistency anchors
+  parts.push("children's book illustration, full page spread, no text in image, consistent art style throughout");
+  return parts.join(', ');
+}
