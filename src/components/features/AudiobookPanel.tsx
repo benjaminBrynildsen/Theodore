@@ -23,7 +23,7 @@ export function AudiobookPanel() {
   const audioStore = useAudioStore();
   const project = getActiveProject();
   const chapters = project ? getProjectChapters(project.id).filter(c => c.prose).sort((a, b) => a.number - b.number) : [];
-  const characters = entries.filter(e => e.projectId === project?.id && e.type === 'character') as CharacterEntry[];
+  const characters = entries.filter(e => e.projectId === project?.id && e.type === 'character' && (e as any).character) as CharacterEntry[];
 
   // Voice settings — synced to audio store
   const { narratorVoice, multiVoice, ttsModel, speed, chapterAudio, generating, error } = audioStore;

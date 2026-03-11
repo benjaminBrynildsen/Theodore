@@ -241,7 +241,7 @@ export default function App() {
         {showWorkspaceChrome && <div className="hidden sm:block"><RightSidebar /></div>}
       </div>
       
-      <AudioPlayerBar />
+      {showWorkspaceChrome && <AudioPlayerBar />}
       <BottomNav />
       <Suspense fallback={null}>
         <UpgradeModal />

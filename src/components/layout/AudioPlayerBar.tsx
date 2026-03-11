@@ -70,7 +70,7 @@ export function AudioPlayerBar() {
     setCurrentChapter(chapterId);
 
     try {
-      const characters = entries.filter(e => e.projectId === project?.id && e.type === 'character') as CharacterEntry[];
+      const characters = entries.filter(e => e.projectId === project?.id && e.type === 'character' && (e as any).character) as CharacterEntry[];
       const voiceMap: Record<string, string> = { ...characterVoices };
       // Fill in any unassigned characters
       for (const char of characters) {
