@@ -298,7 +298,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         referencedCanonIds: c.referencedCanonIds || c.referenced_canon_ids || [],
         aiIntentMetadata: c.aiIntentMetadata || c.ai_intent_metadata,
         validationStatus: c.validationStatus || c.validation_status || { isValid: true, checks: [] },
-        scenes: c.scenes || c.scenes || [],
+        scenes: (c.scenes || []).filter((s: any) => s && s.id),
         editChatHistory: c.editChatHistory || c.edit_chat_history || [],
         imageUrl: c.imageUrl || c.image_url,
         illustrationNotes: c.illustrationNotes || c.illustration_notes,

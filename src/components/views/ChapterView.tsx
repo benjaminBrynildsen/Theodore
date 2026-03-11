@@ -450,7 +450,7 @@ export function ChapterView({ chapter }: Props) {
   }, [editHighlight, inlineEditOpen, isFocusMode]);
 
   // Edit mode scene state
-  const scenes = chapter.scenes || [];
+  const scenes = (chapter.scenes || []).filter((s): s is Scene => Boolean(s?.id));
   const activeScene = editMode ? scenes.find(s => s.id === activeSceneId) || null : null;
   const displayProse = editMode && activeScene ? activeScene.prose : chapter.prose;
   const displayTitle = editMode && activeScene ? activeScene.title : chapter.title;

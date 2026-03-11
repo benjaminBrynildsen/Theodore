@@ -147,7 +147,7 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
   if (!chapter) return null;
 
   const projectEntries = entries.filter(e => e.projectId === projectId);
-  const scenes = chapter.scenes || [];
+  const scenes = (chapter.scenes || []).filter((s: any) => s && s.id);
 
   const updatePremise = (field: string, value: any) => {
     updateChapter(chapter.id, {

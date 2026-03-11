@@ -19,7 +19,7 @@ export function AudioPlayerBar() {
   } = useAudioStore();
 
   const project = getActiveProject();
-  const chapters = project ? getProjectChapters(project.id).filter(c => c.prose).sort((a, b) => a.number - b.number) : [];
+  const chapters = project ? getProjectChapters(project.id).filter(c => c?.id && c.prose).sort((a, b) => a.number - b.number) : [];
   const currentChapter = chapters.find(c => c.id === currentChapterId);
   const currentAudio = currentChapterId ? chapterAudio[currentChapterId] : null;
 
