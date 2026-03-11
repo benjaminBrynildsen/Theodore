@@ -26,6 +26,7 @@ export const OPENAI_VOICES: VoiceInfo[] = [
 export interface ChapterAudio {
   chapterId: string;
   audioUrl: string;
+  sceneAudioUrls?: string[]; // for scene-by-scene playback
   durationEstimate: number;
   generatedAt: string;
 }

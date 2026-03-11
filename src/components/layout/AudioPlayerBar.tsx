@@ -25,6 +25,7 @@ export function AudioPlayerBar() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeUpdateRef = useRef(0);
+  const sceneIndexRef = useRef(0); // track which scene audio is playing
 
   // ========== Audio element ==========
   useEffect(() => {
@@ -32,17 +33,31 @@ export function AudioPlayerBar() {
     audioRef.current = audio;
 
     audio.addEventListener('ended', () => {
-      setPlaying(false);
-      // Auto-advance
       const state = useAudioStore.getState();
+      const chId = state.currentChapterId;
+      const cached = chId ? state.chapterAudio[chId] : null;
+
+      // If playing scene-by-scene, advance to next scene
+      if (cached?.sceneAudioUrls && sceneIndexRef.current < cached.sceneAudioUrls.length - 1) {
+        sceneIndexRef.current++;
+        audio.src = cached.sceneAudioUrls[sceneIndexRef.current];
+        audio.load();
+        audio.play();
+        return;
+      }
+
+      // Otherwise auto-advance to next chapter
+      setPlaying(false);
+      sceneIndexRef.current = 0;
       const chs = useStore.getState().chapters
         .filter(c => c.projectId === useStore.getState().activeProjectId && c.prose)
         .sort((a, b) => a.number - b.number);
-      const idx = chs.findIndex(c => c.id === state.currentChapterId);
+      const idx = chs.findIndex(c => c.id === chId);
       const next = chs[idx + 1];
       if (next && state.chapterAudio[next.id]) {
         setCurrentChapter(next.id);
-        audio.src = state.chapterAudio[next.id].audioUrl;
+        const nextAudio = state.chapterAudio[next.id];
+        audio.src = nextAudio.sceneAudioUrls?.[0] || nextAudio.audioUrl;
         audio.load();
         audio.play();
         setPlaying(true);
@@ -61,55 +76,116 @@ export function AudioPlayerBar() {
   }, []);
 
   // ========== Generate & play ==========
+  const buildVoiceMap = useCallback(() => {
+    const characters = entries.filter(e => e.projectId === project?.id && e.type === 'character' && (e as any).character) as CharacterEntry[];
+    const voiceMap: Record<string, string> = { ...characterVoices };
+    for (const char of characters) {
+      if (!voiceMap[char.name] && char.character?.voiceId) {
+        voiceMap[char.name] = char.character.voiceId;
+      }
+    }
+    return voiceMap;
+  }, [entries, project?.id, characterVoices]);
+
   const generateAndPlay = useCallback(async (chapterId: string) => {
     const chapter = chapters.find(c => c.id === chapterId);
     if (!chapter?.prose) return;
+
+    const scenes = (chapter.scenes || []).filter(s => s.prose?.trim()).sort((a, b) => a.order - b.order);
 
     setGenerating(chapterId);
     setError(null);
     setCurrentChapter(chapterId);
 
     try {
-      const characters = entries.filter(e => e.projectId === project?.id && e.type === 'character' && (e as any).character) as CharacterEntry[];
-      const voiceMap: Record<string, string> = { ...characterVoices };
-      // Fill in any unassigned characters
-      for (const char of characters) {
-        if (!voiceMap[char.name] && char.character?.voiceId) {
-          voiceMap[char.name] = char.character.voiceId;
+      const voiceMap = buildVoiceMap();
+
+      if (scenes.length > 1) {
+        // Scene-by-scene: generate first scene, play immediately, queue rest
+        const firstScene = scenes[0];
+        const result = await api.ttsGenerate({
+          chapterId: `${chapterId}-scene-${firstScene.id}`,
+          prose: firstScene.prose,
+          narratorVoice,
+          characterVoices: voiceMap,
+          model: ttsModel,
+          speed,
+          multiVoice,
+        });
+
+        // Play first scene immediately
+        const audio = audioRef.current;
+        if (audio) {
+          audio.src = result.audioUrl;
+          audio.load();
+          audio.play();
+          setPlaying(true);
         }
-      }
 
-      const result = await api.ttsGenerate({
-        chapterId,
-        prose: chapter.prose,
-        narratorVoice,
-        characterVoices: voiceMap,
-        model: ttsModel,
-        speed,
-        multiVoice,
-      });
+        // Generate remaining scenes in background, concatenate URLs
+        const allUrls = [result.audioUrl];
+        let totalDuration = result.durationEstimate;
 
-      addChapterAudio(chapterId, {
-        chapterId,
-        audioUrl: result.audioUrl,
-        durationEstimate: result.durationEstimate,
-        generatedAt: new Date().toISOString(),
-      });
+        for (let i = 1; i < scenes.length; i++) {
+          const scene = scenes[i];
+          try {
+            const sceneResult = await api.ttsGenerate({
+              chapterId: `${chapterId}-scene-${scene.id}`,
+              prose: scene.prose,
+              narratorVoice,
+              characterVoices: voiceMap,
+              model: ttsModel,
+              speed,
+              multiVoice,
+            });
+            allUrls.push(sceneResult.audioUrl);
+            totalDuration += sceneResult.durationEstimate;
+          } catch (e: any) {
+            console.error(`Scene ${i + 1} generation failed:`, e);
+          }
+        }
 
-      // Play it
-      const audio = audioRef.current;
-      if (audio) {
-        audio.src = result.audioUrl;
-        audio.load();
-        audio.play();
-        setPlaying(true);
+        // Store all scene audio URLs for sequential playback
+        addChapterAudio(chapterId, {
+          chapterId,
+          audioUrl: allUrls[0], // first scene for immediate play
+          sceneAudioUrls: allUrls,
+          durationEstimate: totalDuration,
+          generatedAt: new Date().toISOString(),
+        });
+      } else {
+        // Single scene or no scenes — generate whole chapter
+        const result = await api.ttsGenerate({
+          chapterId,
+          prose: chapter.prose,
+          narratorVoice,
+          characterVoices: voiceMap,
+          model: ttsModel,
+          speed,
+          multiVoice,
+        });
+
+        addChapterAudio(chapterId, {
+          chapterId,
+          audioUrl: result.audioUrl,
+          durationEstimate: result.durationEstimate,
+          generatedAt: new Date().toISOString(),
+        });
+
+        const audio = audioRef.current;
+        if (audio) {
+          audio.src = result.audioUrl;
+          audio.load();
+          audio.play();
+          setPlaying(true);
+        }
       }
     } catch (e: any) {
       setError(e.message || 'Audio generation failed');
     } finally {
       setGenerating(null);
     }
-  }, [chapters, entries, project?.id, narratorVoice, characterVoices, ttsModel, speed, multiVoice]);
+  }, [chapters, entries, project?.id, narratorVoice, characterVoices, ttsModel, speed, multiVoice, buildVoiceMap]);
 
   // Listen for generate requests from chapter header button
   useEffect(() => {
