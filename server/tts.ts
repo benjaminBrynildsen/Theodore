@@ -25,7 +25,7 @@ export interface TTSRequest {
   chapterId: string;
   prose: string;
   voiceMap: VoiceMap;
-  model?: 'tts-1' | 'tts-1-hd';
+  model?: 'tts-1' | 'tts-1-hd' | 'gpt-4o-mini-tts';
   speed?: number; // 0.25 – 4.0
   multiVoice?: boolean; // if false, use narrator for everything
 }
@@ -212,7 +212,7 @@ async function callOpenAITTS(text: string, voice: OpenAIVoice, model: string, sp
 export async function generateChapterAudio(req: TTSRequest & { knownCharacters?: string[] }): Promise<TTSResult> {
   ensureAudioDir();
 
-  const model = req.model || 'tts-1';
+  const model = req.model || 'gpt-4o-mini-tts';
   const speed = req.speed || 1.0;
   const voiceMap = req.voiceMap;
 
@@ -263,7 +263,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
  */
 export async function generateVoicePreview(voice: OpenAIVoice, text?: string): Promise<Buffer> {
   const previewText = text || 'The morning light crept through the curtains, painting golden stripes across the wooden floor.';
-  return callOpenAITTS(previewText, voice, 'tts-1', 1.0);
+  return callOpenAITTS(previewText, voice, 'gpt-4o-mini-tts', 1.0);
 }
 
 // ========== Helpers ==========

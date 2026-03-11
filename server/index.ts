@@ -1378,7 +1378,7 @@ app.post('/api/tts/generate', async (req, res) => {
       chapterId,
       prose,
       voiceMap,
-      model: model || 'tts-1',
+      model: model || 'gpt-4o-mini-tts',
       speed: speed || 1.0,
       multiVoice: multiVoice ?? true,
       knownCharacters,
@@ -1394,7 +1394,7 @@ app.post('/api/tts/generate', async (req, res) => {
       userId: auth.user.id,
       action: 'generate-audio',
       creditsUsed: result.creditsUsed,
-      model: model || 'tts-1',
+      model: model || 'gpt-4o-mini-tts',
       chapterId,
       metadata: { narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate },
     });

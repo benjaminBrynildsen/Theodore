@@ -15,7 +15,7 @@ interface AudioState {
   narratorVoice: OpenAIVoice;
   characterVoices: Record<string, OpenAIVoice>; // characterName → voice
   multiVoice: boolean;
-  ttsModel: 'tts-1' | 'tts-1-hd';
+  ttsModel: 'tts-1' | 'tts-1-hd' | 'gpt-4o-mini-tts';
   speed: number;
 
   // Generation
@@ -32,7 +32,7 @@ interface AudioState {
   setNarratorVoice: (voice: OpenAIVoice) => void;
   setCharacterVoice: (name: string, voice: OpenAIVoice) => void;
   setMultiVoice: (enabled: boolean) => void;
-  setTtsModel: (model: 'tts-1' | 'tts-1-hd') => void;
+  setTtsModel: (model: 'tts-1' | 'tts-1-hd' | 'gpt-4o-mini-tts') => void;
   setSpeed: (speed: number) => void;
   setGenerating: (id: string | null) => void;
   setError: (error: string | null) => void;
@@ -47,7 +47,7 @@ export const useAudioStore = create<AudioState>((set) => ({
   narratorVoice: 'alloy',
   characterVoices: {},
   multiVoice: true,
-  ttsModel: 'tts-1',
+  ttsModel: 'gpt-4o-mini-tts',
   speed: 1.0,
   generating: null,
   error: null,
