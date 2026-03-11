@@ -2,6 +2,7 @@ import { PenSquare, Wrench, Settings, Home, Headphones, Play, Pause, Loader2 } f
 import { useStore } from '../../store';
 import { useSettingsStore } from '../../store/settings';
 import { useAudioStore } from '../../store/audio';
+import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 
 type Tab = 'tools' | 'settings' | 'audio';
@@ -36,8 +37,34 @@ export function BottomNav() {
       } else if (hasAnyAudio && currentChapterId) {
         useAudioStore.getState().setPlaying(true);
       } else if (chapters.length > 0 && chapters[0]?.id) {
-        // Generate first chapter
-        window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: chapters[0].id } }));
+        // Generate first chapter audio directly
+        const ch = chapters[0];
+        const audioStore = useAudioStore.getState();
+        audioStore.setGenerating(ch.id);
+        audioStore.setError(null);
+        audioStore.setCurrentChapter(ch.id);
+        api.ttsGenerate({
+          chapterId: ch.id,
+          prose: ch.prose,
+          narratorVoice: audioStore.narratorVoice,
+          characterVoices: {},
+          model: audioStore.ttsModel,
+          speed: audioStore.speed,
+          multiVoice: audioStore.multiVoice,
+        }).then(result => {
+          audioStore.addChapterAudio(ch.id, {
+            chapterId: ch.id,
+            audioUrl: result.audioUrl,
+            durationEstimate: result.durationEstimate,
+            generatedAt: new Date().toISOString(),
+          });
+          // Trigger playback via state — AudioPlayerBar will pick it up
+          audioStore.setPlaying(true);
+        }).catch(err => {
+          audioStore.setError(err?.message || 'Audio generation failed');
+        }).finally(() => {
+          audioStore.setGenerating(null);
+        });
       }
     }
   };
