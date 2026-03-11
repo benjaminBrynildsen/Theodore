@@ -111,6 +111,31 @@ export function AudioPlayerBar() {
     }
   }, [chapters, entries, project?.id, narratorVoice, characterVoices, ttsModel, speed, multiVoice]);
 
+  // Listen for generate requests from chapter header button
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { chapterId } = (e as CustomEvent).detail;
+      if (chapterId) generateAndPlay(chapterId);
+    };
+    window.addEventListener('theodore:generateAudio', handler);
+    return () => window.removeEventListener('theodore:generateAudio', handler);
+  }, [generateAndPlay]);
+
+  // Sync play/pause from external state changes (e.g. chapter header button)
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentAudio) return;
+    if (playing && audio.paused) {
+      if (!audio.src || audio.src !== currentAudio.audioUrl) {
+        audio.src = currentAudio.audioUrl;
+        audio.load();
+      }
+      audio.play();
+    } else if (!playing && !audio.paused) {
+      audio.pause();
+    }
+  }, [playing, currentAudio]);
+
   const playChapter = useCallback((chapterId: string) => {
     const audio = audioRef.current;
     if (!audio) return;

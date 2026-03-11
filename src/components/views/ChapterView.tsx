@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Headphones, Play, Pause } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
+import { useAudioStore } from '../../store/audio';
 import { Badge } from '../ui/Badge';
 import { VersionTimeline } from '../features/VersionTimeline';
 import type { ProseSelection } from '../../types';
@@ -15,6 +16,54 @@ import { generateStream } from '../../lib/generate';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { cn } from '../../lib/utils';
 import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
+
+/** Small audio play/generate button shown on mobile in chapter header */
+function AudioChapterButton({ chapterId }: { chapterId: string }) {
+  const { playing, currentChapterId, generating, chapterAudio } = useAudioStore();
+  const isThisChapter = currentChapterId === chapterId;
+  const isGenerating = generating === chapterId;
+  const hasAudio = !!chapterAudio[chapterId];
+  const isPlaying = isThisChapter && playing;
+
+  // Clicking triggers the AudioPlayerBar's logic by manipulating shared state
+  const handleClick = () => {
+    if (isGenerating) return;
+    const audioStore = useAudioStore.getState();
+    if (hasAudio && isThisChapter) {
+      // Toggle play/pause — AudioPlayerBar listens to this
+      audioStore.setPlaying(!playing);
+    } else if (hasAudio) {
+      // Switch to this chapter
+      audioStore.setCurrentChapter(chapterId);
+      audioStore.setPlaying(true);
+    } else {
+      // No audio yet — set current chapter so AudioPlayerBar picks it up and generates
+      audioStore.setCurrentChapter(chapterId);
+      // Trigger generate via a custom event the AudioPlayerBar can listen to,
+      // or simply show the player bar which has the generate button.
+      // For now, dispatch a DOM event that AudioPlayerBar can use:
+      window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId } }));
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className="sm:hidden p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all relative"
+      title={isPlaying ? 'Pause audio' : hasAudio ? 'Play audio' : 'Generate audio'}
+    >
+      {isGenerating ? (
+        <Loader2 size={15} className="animate-spin" />
+      ) : isPlaying ? (
+        <Pause size={15} />
+      ) : hasAudio ? (
+        <Play size={15} />
+      ) : (
+        <Headphones size={15} />
+      )}
+    </button>
+  );
+}
 
 interface Props {
   chapter: Chapter;
@@ -660,10 +709,13 @@ export function ChapterView({ chapter }: Props) {
             <Mic size={15} />
           </button>
 
-          {/* Reading mode */}
+          {/* Audio button — mobile only */}
+          <AudioChapterButton chapterId={chapter.id} />
+
+          {/* Reading mode — hidden on mobile */}
           <button
             onClick={() => setShowReadingMode(true)}
-            className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
+            className="hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
             title="Reading mode"
           >
             <BookMarked size={15} />
