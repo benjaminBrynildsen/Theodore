@@ -32,7 +32,7 @@ export function EditModeSidebar({ projectId, chapterId }: Props) {
   const { settings } = useSettingsStore();
 
   const chapter = chapters.find(c => c.id === chapterId);
-  const scenes = chapter?.scenes || [];
+  const scenes = (chapter?.scenes || []).filter((s): s is NonNullable<typeof s> => Boolean(s?.id));
   const activeScene = scenes.find(s => s.id === activeSceneId) || null;
 
   // Auto-generate scenes on mount if chapter has none

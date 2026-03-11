@@ -80,7 +80,7 @@ export function BottomNav() {
     if (isGenerating) return 'Generating';
     if (isPlaying) return 'Pause';
     if (hasAnyAudio) return 'Play';
-    return 'DEPLOY TEST';
+    return 'Listen';
   };
 
   const AudioIcon = getAudioIcon();
