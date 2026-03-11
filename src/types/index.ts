@@ -99,6 +99,13 @@ export interface EditChatMessage {
   timestamp: string;
 }
 
+export interface ProseSelection {
+  text: string;
+  startOffset: number;
+  endOffset: number;
+  sceneName?: string;
+}
+
 // ========== Chapter Types ==========
 
 export type ChapterStatus =

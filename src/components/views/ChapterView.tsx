@@ -1,14 +1,16 @@
-import { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { Badge } from '../ui/Badge';
 import { VersionTimeline } from '../features/VersionTimeline';
+import type { ProseSelection } from '../../types';
 import { TokenBudget } from '../credits/TokenBudget';
 import { DictationMode } from '../features/DictationMode';
 import { ProseXRay } from '../features/ProseXRay';
 import { SmartResearch } from '../features/SmartResearch';
+import { VibeEditor } from '../editmode/VibeEditor';
 import { generateStream } from '../../lib/generate';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { cn } from '../../lib/utils';
@@ -19,7 +21,7 @@ interface Props {
 }
 
 export function ChapterView({ chapter }: Props) {
-  const { setActiveChapter, updateChapter, setShowReadingMode, editMode, activeSceneId, setActiveScene, updateScene, syncScenesToProse } = useStore();
+  const { setActiveChapter, updateChapter, setShowReadingMode, editMode, inlineEditOpen, setInlineEditOpen, activeSceneId, setActiveScene, updateScene, syncScenesToProse, inlineSelection, setInlineSelection, editHighlight, setEditHighlight } = useStore();
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
@@ -32,7 +34,11 @@ export function ChapterView({ chapter }: Props) {
   const [generatedText, setGeneratedText] = useState('');
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [chunkSize, setChunkSize] = useState<'short' | 'medium' | 'long'>('medium');
+  const [showVibeEditor, setShowVibeEditor] = useState(false);
+  const [generatingSceneId, setGeneratingSceneId] = useState<string | null>(null);
+  const [sceneGeneratedText, setSceneGeneratedText] = useState('');
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const proseDisplayRef = useRef<HTMLDivElement>(null);
 
   const { getActiveProject, getProjectChapters, chapters: allChapters } = useStore();
   const { getProjectEntries } = useCanonStore();
@@ -213,6 +219,236 @@ export function ChapterView({ chapter }: Props) {
     );
   };
 
+  // Generate prose for a single scene
+  const handleGenerateScene = async (scene: Scene) => {
+    if (!project) {
+      setGenerationError('No active project selected.');
+      return;
+    }
+    setGenerationError(null);
+    setGeneratingSceneId(scene.id);
+    setSceneGeneratedText('');
+
+    const projectChapters = getProjectChapters(project.id);
+    const canonEntries = getProjectEntries(project.id);
+    const prevChapter = projectChapters.find(c => c.number === chapter.number - 1);
+
+    const basePrompt = buildGenerationPrompt({
+      project,
+      chapter,
+      allChapters: projectChapters,
+      canonEntries,
+      settings,
+      writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
+      generationType: 'full-chapter' as GenerationType,
+      previousChapterProse: prevChapter?.prose,
+    });
+
+    // Find previous scenes' prose for continuity
+    const sortedScenes = [...(chapter.scenes || [])].sort((a, b) => a.order - b.order);
+    const sceneIdx = sortedScenes.findIndex(s => s.id === scene.id);
+    const prevSceneProse = sortedScenes
+      .slice(0, sceneIdx)
+      .map(s => s.prose)
+      .filter(Boolean)
+      .join('\n\n');
+
+    const scenePrompt = basePrompt +
+      `\n\n=== SCENE TO WRITE ===\nScene ${scene.order}: "${scene.title}"\nSummary: ${scene.summary}` +
+      (prevSceneProse ? `\n\n=== PREVIOUS SCENES IN THIS CHAPTER ===\n${prevSceneProse.slice(-2000)}` : '') +
+      `\n\nWrite ONLY this scene (${chunkProfile.words} words). Write finished prose for this single scene only — no scene titles or headers.`;
+
+    let accumulated = '';
+    await generateStream(
+      {
+        prompt: scenePrompt,
+        model: settings.ai?.preferredModel || 'gpt-4.1',
+        maxTokens: chunkProfile.maxTokens,
+        action: 'generate-scene',
+        projectId: project.id,
+        chapterId: chapter.id,
+      },
+      (text) => {
+        accumulated += text;
+        setSceneGeneratedText(accumulated);
+      },
+      () => {
+        updateScene(chapter.id, scene.id, {
+          prose: accumulated,
+          status: 'drafted',
+        });
+        syncScenesToProse(chapter.id);
+        setGeneratingSceneId(null);
+        setSceneGeneratedText('');
+      },
+      (error) => {
+        console.error('Scene generation error:', error);
+        setGeneratingSceneId(null);
+        setSceneGeneratedText('');
+        if (error === 'INSUFFICIENT_CREDITS') {
+          setGenerationError('Not enough credits.');
+          return;
+        }
+        setGenerationError(`Generation failed: ${error}`);
+      },
+    );
+  };
+
+  // Helper: compute character offset within proseDisplayRef for a given node+offset
+  const computeProseOffset = useCallback((container: Node, offset: number): number => {
+    const proseEl = proseDisplayRef.current;
+    if (!proseEl) return -1;
+    const treeWalker = document.createTreeWalker(proseEl, NodeFilter.SHOW_TEXT);
+    let charOffset = 0;
+    while (treeWalker.nextNode()) {
+      if (treeWalker.currentNode === container) return charOffset + offset;
+      charOffset += (treeWalker.currentNode.textContent || '').length;
+    }
+    return -1;
+  }, []);
+
+  // Find the sentence boundaries around a character offset in the full prose
+  const findSentenceAt = useCallback((text: string, offset: number): { start: number; end: number; sentence: string } | null => {
+    // Sentence-ending pattern: . ! ? followed by space/newline or end of string
+    const sentenceEnds = /[.!?](?:\s|$)/g;
+    let sentenceStart = 0;
+    let match;
+    const ends: number[] = [];
+    while ((match = sentenceEnds.exec(text)) !== null) {
+      ends.push(match.index + 1); // include the punctuation
+    }
+    // Add end of text as final boundary
+    ends.push(text.length);
+
+    for (const end of ends) {
+      if (offset <= end) {
+        const sentence = text.slice(sentenceStart, end).trim();
+        if (sentence.length > 0) {
+          // Find actual start (skip leading whitespace)
+          const actualStart = text.indexOf(sentence, sentenceStart);
+          return { start: actualStart, end: actualStart + sentence.length, sentence };
+        }
+      }
+      sentenceStart = end;
+      // Skip whitespace after sentence
+      while (sentenceStart < text.length && /\s/.test(text[sentenceStart])) sentenceStart++;
+    }
+    return null;
+  }, []);
+
+  // Inline edit: handle click (sentence) or drag-select (custom range)
+  const handleProseSelect = useCallback(() => {
+    if (!inlineEditOpen || !proseDisplayRef.current) return;
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+
+    const range = sel.getRangeAt(0);
+
+    // Find which scene this click is in
+    const sceneEl = (range.startContainer as Node).parentElement?.closest('[data-scene-name]');
+    const sceneName = sceneEl?.getAttribute('data-scene-name') || undefined;
+
+    if (!sel.isCollapsed) {
+      // Drag-select: use the selected text directly
+      const selectedText = sel.toString().trim();
+      if (!selectedText || selectedText.length < 3) return;
+
+      const startOffset = computeProseOffset(range.startContainer, range.startOffset);
+      const endOffset = computeProseOffset(range.endContainer, range.endOffset);
+
+      if (startOffset >= 0 && endOffset > startOffset) {
+        setInlineSelection({ text: selectedText, startOffset, endOffset, sceneName });
+        setEditHighlight({ start: startOffset, end: endOffset });
+      }
+    } else {
+      // Click: auto-select the sentence at click position
+      const clickOffset = computeProseOffset(range.startContainer, range.startOffset);
+      if (clickOffset < 0) {
+        // Clicked outside text — clear highlight
+        setEditHighlight(null);
+        setInlineSelection(null);
+        return;
+      }
+
+      const result = findSentenceAt(chapter.prose, clickOffset);
+      if (!result) {
+        setEditHighlight(null);
+        setInlineSelection(null);
+        return;
+      }
+
+      setInlineSelection({ text: result.sentence, startOffset: result.start, endOffset: result.end, sceneName });
+      setEditHighlight({ start: result.start, end: result.end });
+
+      // Visually select the sentence in the DOM
+      try {
+        const proseEl = proseDisplayRef.current;
+        const treeWalker = document.createTreeWalker(proseEl, NodeFilter.SHOW_TEXT);
+        let charCount = 0;
+        let startNode: Node | null = null;
+        let startOff = 0;
+        let endNode: Node | null = null;
+        let endOff = 0;
+
+        while (treeWalker.nextNode()) {
+          const node = treeWalker.currentNode;
+          const len = (node.textContent || '').length;
+          if (!startNode && charCount + len > result.start) {
+            startNode = node;
+            startOff = result.start - charCount;
+          }
+          if (charCount + len >= result.end) {
+            endNode = node;
+            endOff = result.end - charCount;
+            break;
+          }
+          charCount += len;
+        }
+
+        if (startNode && endNode) {
+          const newRange = document.createRange();
+          newRange.setStart(startNode, startOff);
+          newRange.setEnd(endNode, endOff);
+          sel.removeAllRanges();
+          sel.addRange(newRange);
+        }
+      } catch {}
+    }
+  }, [inlineEditOpen, chapter.prose, computeProseOffset, findSentenceAt]);
+
+
+  // Render prose with optional highlight for inline editing
+  const renderHighlightedProse = useCallback((text: string) => {
+    if (!editHighlight || !inlineEditOpen) return null;
+    const before = text.slice(0, editHighlight.start);
+    const highlighted = text.slice(editHighlight.start, editHighlight.end);
+    const after = text.slice(editHighlight.end);
+
+    const renderSection = (str: string) =>
+      str.split('\n\n').map((p, i) => (
+        <span key={i}>
+          {i > 0 && <><br /><br /></>}
+          {p.split('\n').map((line, j) => (
+            <span key={j}>
+              {j > 0 && <br />}
+              {line}
+            </span>
+          ))}
+        </span>
+      ));
+
+    return (
+      <div className="font-serif leading-[2] text-text-primary" style={{ fontSize: isFocusMode ? '1.25rem' : '1.125rem' }}>
+        {renderSection(before)}
+        <mark className="bg-emerald-100 text-emerald-900 rounded px-0.5 transition-all duration-500">
+          {renderSection(highlighted)}
+        </mark>
+        {renderSection(after)}
+      </div>
+    );
+  }, [editHighlight, inlineEditOpen, isFocusMode]);
+
   // Edit mode scene state
   const scenes = chapter.scenes || [];
   const activeScene = editMode ? scenes.find(s => s.id === activeSceneId) || null : null;
@@ -242,6 +478,60 @@ export function ChapterView({ chapter }: Props) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isFocusMode]);
+
+  // Scene scroll tracking
+  const [visibleSceneId, setVisibleSceneId] = useState<string | null>(null);
+  const sceneRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const setSceneRef = useCallback((id: string, el: HTMLDivElement | null) => {
+    if (el) sceneRefs.current.set(id, el);
+    else sceneRefs.current.delete(id);
+  }, []);
+
+  useEffect(() => {
+    if (editMode || !chapter.prose || scenes.length === 0) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Find the topmost visible scene
+        let topScene: { id: string; top: number } | null = null;
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            const sceneId = entry.target.getAttribute('data-scene-id');
+            if (sceneId && (!topScene || entry.boundingClientRect.top < topScene.top)) {
+              topScene = { id: sceneId, top: entry.boundingClientRect.top };
+            }
+          }
+        }
+        if (topScene) setVisibleSceneId(topScene.id);
+      },
+      {
+        root: container,
+        rootMargin: '-10% 0px -60% 0px',
+        threshold: 0,
+      }
+    );
+
+    for (const el of sceneRefs.current.values()) {
+      observer.observe(el);
+    }
+
+    // Initialize with first scene
+    const sortedScenes = [...scenes].sort((a, b) => a.order - b.order);
+    if (sortedScenes.length > 0 && !visibleSceneId) {
+      setVisibleSceneId(sortedScenes[0].id);
+    }
+
+    return () => observer.disconnect();
+  }, [editMode, chapter.prose, scenes, scenes.length]);
+
+  // Vibe Editor overlay
+  if (showVibeEditor) {
+    return <VibeEditor chapter={chapter} onClose={() => setShowVibeEditor(false)} />;
+  }
 
   return (
     <div className={cn(
@@ -390,10 +680,11 @@ export function ChapterView({ chapter }: Props) {
         </div>
       </div>
 
-      {/* THE WRITING SPACE */}
-      <div className="flex-1 overflow-y-auto">
+      {/* THE WRITING SPACE + INLINE EDIT */}
+      <div className="flex-1 flex overflow-hidden">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
         <div className={cn(
-          'mx-auto px-4 sm:px-8 pb-32 transition-all duration-500',
+          'mx-auto px-4 sm:px-16 pb-32 transition-all duration-500',
           isFocusMode ? 'max-w-2xl pt-16' : 'max-w-3xl pt-4'
         )}>
           {/* Chapter / Scene Title */}
@@ -456,16 +747,21 @@ export function ChapterView({ chapter }: Props) {
             </div>
           )}
           {!editMode && !chapter.prose && (
-            <div className="py-16 text-center animate-fade-in">
-              <div className="glass-pill w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5">
-                <Type size={28} className="text-text-tertiary" />
+            <div className="py-16 animate-fade-in">
+              {/* Header */}
+              <div className="text-center mb-8">
+                <div className="glass-pill w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5">
+                  <Type size={28} className="text-text-tertiary" />
+                </div>
+                <p className="text-text-secondary mb-2 font-medium">Start writing</p>
+                <p className="text-sm text-text-tertiary max-w-xs mx-auto mb-4">
+                  {scenes.length > 0
+                    ? 'Generate the whole chapter at once, or write scene by scene.'
+                    : 'Type below to start writing, or generate.'}
+                </p>
               </div>
-              <p className="text-text-secondary mb-2 font-medium">Start writing</p>
-              <p className="text-sm text-text-tertiary max-w-xs mx-auto mb-4">
-                Type below to start writing, or generate.
-              </p>
-              
-              {/* Generate with budget */}
+
+              {/* Chunk size selector */}
               <div className="mb-4 mx-auto w-fit rounded-xl glass-pill p-1 flex gap-1">
                 {(['short', 'medium', 'long'] as const).map((size) => (
                   <button
@@ -480,75 +776,145 @@ export function ChapterView({ chapter }: Props) {
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-text-tertiary mb-4">Chunk target: {chunkProfile.words} words</p>
-              {generating ? (
-                <div className="mb-6 flex items-center gap-2 text-sm text-text-secondary justify-center">
-                  <Loader2 size={16} className="animate-spin" />
-                  <span>Generating...</span>
-                </div>
-              ) : !showBudget ? (
-                <button
-                  onClick={() => {
-                    setShowBudget(false);
-                    handleGenerate();
-                  }}
-                  className="mb-6 px-5 py-2.5 rounded-xl bg-text-primary text-text-inverse text-sm font-medium flex items-center gap-2 mx-auto hover:shadow-lg transition-all"
-                >
-                  <Sparkles size={15} /> {project?.subtype === 'childrens-book' ? 'Generate Page Text' : 'Generate'}
-                </button>
-              ) : (
-                <div className="max-w-sm mx-auto mb-6">
-                  <TokenBudget
-                    chapterId={chapter.id}
-                    action="generate-chapter-full"
-                    onConfirm={() => {
+              <p className="text-xs text-text-tertiary mb-4 text-center">Chunk target: {chunkProfile.words} words</p>
+
+              {/* Generate whole chapter button */}
+              <div className="text-center">
+                {generating ? (
+                  <div className="mb-6 flex items-center gap-2 text-sm text-text-secondary justify-center">
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Generating...</span>
+                  </div>
+                ) : !showBudget ? (
+                  <button
+                    onClick={() => {
                       setShowBudget(false);
                       handleGenerate();
                     }}
-                    onCancel={() => setShowBudget(false)}
-                  />
-                </div>
-              )}
-              {!generating && (
-                <button
-                  onClick={() => setShowBudget((v) => !v)}
-                  className="mb-3 text-xs text-text-tertiary hover:text-text-primary transition-colors"
-                >
-                  {showBudget ? 'Hide credit budget' : 'View credit budget'}
-                </button>
-              )}
+                    disabled={!!generatingSceneId}
+                    className={cn(
+                      'mb-6 px-5 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 mx-auto transition-all',
+                      generatingSceneId
+                        ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                        : 'bg-text-primary text-text-inverse hover:shadow-lg',
+                    )}
+                  >
+                    <Sparkles size={15} /> {project?.subtype === 'childrens-book' ? 'Generate Page Text' : 'Generate Full Chapter'}
+                  </button>
+                ) : (
+                  <div className="max-w-sm mx-auto mb-6">
+                    <TokenBudget
+                      chapterId={chapter.id}
+                      action="generate-chapter-full"
+                      onConfirm={() => {
+                        setShowBudget(false);
+                        handleGenerate();
+                      }}
+                      onCancel={() => setShowBudget(false)}
+                    />
+                  </div>
+                )}
+                {!generating && !generatingSceneId && (
+                  <button
+                    onClick={() => setShowBudget((v) => !v)}
+                    className="mb-3 text-xs text-text-tertiary hover:text-text-primary transition-colors"
+                  >
+                    {showBudget ? 'Hide credit budget' : 'View credit budget'}
+                  </button>
+                )}
+              </div>
+
               {generationError && (
-                <div className="max-w-sm mx-auto mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                <div className="max-w-sm mx-auto mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 text-center">
                   {generationError}
                 </div>
               )}
-              
-              {/* Streaming preview while generating */}
+
+              {/* Streaming preview while generating full chapter */}
               {generating && generatedText && (
-                <div className="font-serif text-lg leading-[2] text-text-primary whitespace-pre-wrap animate-fade-in">
+                <div className="font-serif text-lg leading-[2] text-text-primary whitespace-pre-wrap animate-fade-in text-center">
                   {generatedText}
                   <span className="inline-block w-0.5 h-5 bg-black animate-pulse ml-0.5" />
                 </div>
               )}
 
+              {/* Scene-by-scene generation */}
+              {scenes.length > 0 && !generating && (
+                <div className="mt-8 border-t border-black/5 pt-8">
+                  <p className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-4 text-center">Or generate scene by scene</p>
+                  <div className="space-y-3">
+                    {[...scenes].sort((a, b) => a.order - b.order).map((scene) => {
+                      const isThisGenerating = generatingSceneId === scene.id;
+                      return (
+                        <div key={scene.id} className="glass-pill rounded-xl p-4 animate-fade-in">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-1">
+                                Scene {scene.order}
+                              </div>
+                              <p className="text-sm font-medium text-text-primary">{scene.title}</p>
+                              {scene.summary && (
+                                <p className="text-xs text-text-secondary mt-1 leading-relaxed">{scene.summary}</p>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => handleGenerateScene(scene)}
+                              disabled={!!generatingSceneId || generating}
+                              className={cn(
+                                'flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
+                                isThisGenerating
+                                  ? 'bg-black/5 text-text-tertiary'
+                                  : generatingSceneId || generating
+                                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                                    : 'bg-text-primary text-text-inverse hover:shadow-md',
+                              )}
+                            >
+                              {isThisGenerating ? (
+                                <><Loader2 size={12} className="animate-spin" /> Writing...</>
+                              ) : scene.prose ? (
+                                <><Sparkles size={12} /> Regenerate</>
+                              ) : (
+                                <><Sparkles size={12} /> Generate</>
+                              )}
+                            </button>
+                          </div>
+                          {/* Streaming preview for this scene */}
+                          {isThisGenerating && sceneGeneratedText && (
+                            <div className="mt-3 pt-3 border-t border-black/5 font-serif text-base leading-[2] text-text-primary whitespace-pre-wrap">
+                              {sceneGeneratedText}
+                              <span className="inline-block w-0.5 h-4 bg-black animate-pulse ml-0.5" />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Quick-start writing area */}
-              {!generating && (
-                <textarea
-                  ref={editorRef}
-                  value={chapter.prose}
-                  onChange={(e) => updateChapter(chapter.id, { 
-                    prose: e.target.value, 
-                    status: e.target.value.trim() ? 'human-edited' : 'premise-only',
-                    updatedAt: new Date().toISOString(),
-                  })}
-                  placeholder="Begin your chapter here..."
-                  className={cn(
-                    'w-full bg-transparent border-none outline-none resize-none',
-                    'font-serif text-lg leading-[2] text-text-primary',
-                    'placeholder:text-text-tertiary/50 placeholder:italic',
-                    'min-h-[200px]'
+              {!generating && !generatingSceneId && (
+                <div className={cn(scenes.length > 0 && 'mt-8 border-t border-black/5 pt-8')}>
+                  {scenes.length > 0 && (
+                    <p className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-4 text-center">Or write manually</p>
                   )}
-                />
+                  <textarea
+                    ref={editorRef}
+                    value={chapter.prose}
+                    onChange={(e) => updateChapter(chapter.id, {
+                      prose: e.target.value,
+                      status: e.target.value.trim() ? 'human-edited' : 'premise-only',
+                      updatedAt: new Date().toISOString(),
+                    })}
+                    placeholder="Begin your chapter here..."
+                    className={cn(
+                      'w-full bg-transparent border-none outline-none resize-none',
+                      'font-serif text-lg leading-[2] text-text-primary',
+                      'placeholder:text-text-tertiary/50 placeholder:italic',
+                      'min-h-[200px]'
+                    )}
+                  />
+                </div>
               )}
             </div>
           )}
@@ -613,74 +979,241 @@ export function ChapterView({ chapter }: Props) {
               ))}
             </div>
           )}
-          {/* Normal mode or edit mode with active scene that has no prose */}
+          {/* Normal mode — prose exists */}
           {!editMode && chapter.prose && (
-            <div className="mt-6">
-              {/* If scenes exist, show prose with scene section markers */}
-              {scenes.length > 0 ? (
-                <div className="space-y-0">
-                  {[...scenes].sort((a, b) => a.order - b.order).map((scene, idx) => (
-                    <div key={scene.id}>
-                      {/* Scene header label */}
-                      <div className={cn(
-                        'flex items-center gap-3',
-                        idx === 0 ? 'pb-3' : 'py-4'
-                      )}>
-                        {idx > 0 && <div className="flex-1 border-t border-black/10" />}
-                        <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider flex-shrink-0">
-                          Scene {scene.order}{scene.title ? `: ${scene.title}` : ''}
-                        </span>
-                        <div className="flex-1 border-t border-black/10" />
-                      </div>
-                      {/* Scene prose editor */}
-                      <textarea
-                        value={scene.prose || ''}
-                        onChange={(e) => {
-                          updateScene(chapter.id, scene.id, {
-                            prose: e.target.value,
-                            status: e.target.value.trim() ? 'edited' : 'outline',
-                          });
-                          syncScenesToProse(chapter.id);
-                        }}
-                        placeholder={`Write scene ${scene.order}...`}
-                        className={cn(
-                          'w-full bg-transparent border-none outline-none resize-none',
-                          'font-serif leading-[2] text-text-primary',
-                          'focus:ring-0',
-                          'placeholder:text-text-tertiary/40 placeholder:italic',
-                          isFocusMode ? 'text-xl' : 'text-lg'
-                        )}
-                        style={{ minHeight: scene.prose ? `${Math.max(100, scene.prose.split('\n').length * 36)}px` : '100px' }}
-                        onInput={(e) => {
-                          const el = e.target as HTMLTextAreaElement;
-                          el.style.height = 'auto';
-                          el.style.height = Math.max(100, el.scrollHeight) + 'px';
-                        }}
-                      />
+            <div
+              className="mt-6"
+              onClick={(e) => {
+                // Click on empty margin area (not on text) → clear highlight
+                if (inlineEditOpen && e.target === e.currentTarget) {
+                  setEditHighlight(null);
+                  setInlineSelection(null);
+                  window.getSelection()?.removeAllRanges();
+                }
+              }}
+            >
+              {/* INLINE EDIT MODE: selectable prose with highlights */}
+              {inlineEditOpen ? (
+                <div
+                  ref={proseDisplayRef}
+                  onMouseUp={handleProseSelect}
+                  className="cursor-text select-text"
+                >
+                  {/* If we have a highlight, render with mark */}
+                  {editHighlight ? (
+                    renderHighlightedProse(chapter.prose)
+                  ) : scenes.length > 0 ? (
+                    /* Scenes: continuous selectable view */
+                    <div className="relative">
+                      {[...scenes].sort((a, b) => a.order - b.order).map((scene, idx) => {
+                        const isActive = visibleSceneId === scene.id;
+                        const sortedScenes = [...scenes].sort((a, b) => a.order - b.order);
+                        const activeIdx = sortedScenes.findIndex(s => s.id === visibleSceneId);
+                        const isFuture = idx > activeIdx;
+                        return (
+                          <div
+                            key={scene.id}
+                            ref={(el) => setSceneRef(scene.id, el)}
+                            data-scene-id={scene.id}
+                            data-scene-name={scene.title}
+                            className="relative"
+                          >
+                            <div className={cn(
+                              'absolute -left-4 sm:-left-12 top-0 bottom-0 w-1 rounded-full transition-all duration-500',
+                              isActive ? 'bg-black' : 'bg-black/5'
+                            )} />
+                            <div className={cn(
+                              'absolute -left-10 sm:-left-[5.5rem] z-10 transition-all duration-500 pointer-events-none',
+                              isActive ? 'opacity-100' : 'opacity-0'
+                            )} style={{ top: '50%', transform: 'translateY(-50%)', writingMode: 'vertical-lr' }}>
+                              <span className="text-3xl font-black text-black uppercase tracking-[0.35em] whitespace-nowrap" style={{ transform: 'rotate(180deg)', display: 'block' }}>
+                                Scene {scene.order}
+                              </span>
+                            </div>
+                            {idx > 0 && (
+                              <div className={cn('flex items-center gap-3 py-4 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>
+                                <div className="flex-1 border-t border-black/10" />
+                                <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider flex-shrink-0">
+                                  {scene.title || `Scene ${scene.order}`}
+                                </span>
+                                <div className="flex-1 border-t border-black/10" />
+                              </div>
+                            )}
+                            {idx === 0 && scene.title && (
+                              <div className="pb-3 opacity-60">
+                                <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider">{scene.title}</span>
+                              </div>
+                            )}
+                            {scene.prose ? (
+                              <div className={cn(
+                                'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
+                                isFocusMode ? 'text-xl' : 'text-lg',
+                                isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
+                              )}>
+                                {scene.prose}
+                              </div>
+                            ) : (
+                              <div className={cn('py-6 flex items-center gap-3 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>
+                                <p className="text-sm text-text-tertiary italic flex-1">No prose yet</p>
+                                <button
+                                  onClick={() => handleGenerateScene(scene)}
+                                  disabled={!!generatingSceneId || generating}
+                                  className={cn(
+                                    'flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
+                                    generatingSceneId === scene.id ? 'bg-black/5 text-text-tertiary'
+                                      : generatingSceneId || generating ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                                      : 'bg-text-primary text-text-inverse hover:shadow-md',
+                                  )}
+                                >
+                                  {generatingSceneId === scene.id ? <><Loader2 size={12} className="animate-spin" /> Writing...</> : <><Sparkles size={12} /> Generate</>}
+                                </button>
+                              </div>
+                            )}
+                            {generatingSceneId === scene.id && sceneGeneratedText && (
+                              <div className="font-serif text-lg leading-[2] text-text-primary whitespace-pre-wrap animate-fade-in pb-4">
+                                {sceneGeneratedText}
+                                <span className="inline-block w-0.5 h-5 bg-black animate-pulse ml-0.5" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
+                  ) : (
+                    /* No scenes: flat prose selectable view */
+                    <div className={cn(
+                      'font-serif leading-[2] text-text-primary whitespace-pre-wrap',
+                      isFocusMode ? 'text-xl' : 'text-lg',
+                    )}>
+                      {chapter.prose}
+                    </div>
+                  )}
                 </div>
               ) : (
-                <textarea
-                  ref={editorRef}
-                  value={chapter.prose}
-                  onChange={(e) => updateChapter(chapter.id, {
-                    prose: e.target.value,
-                    status: 'human-edited',
-                    updatedAt: new Date().toISOString(),
-                  })}
-                  className={cn(
-                    'w-full bg-transparent border-none outline-none resize-none',
-                    'font-serif leading-[2] text-text-primary',
-                    'focus:ring-0',
-                    isFocusMode ? 'text-xl' : 'text-lg'
+                /* NORMAL MODE: editable textareas */
+                <>
+                  {scenes.length > 0 ? (
+                    <div className="relative">
+                      {[...scenes].sort((a, b) => a.order - b.order).map((scene, idx) => {
+                        const isActive = visibleSceneId === scene.id;
+                        const sortedScenes = [...scenes].sort((a, b) => a.order - b.order);
+                        const activeIdx = sortedScenes.findIndex(s => s.id === visibleSceneId);
+                        const isFuture = idx > activeIdx;
+                        return (
+                          <div
+                            key={scene.id}
+                            ref={(el) => setSceneRef(scene.id, el)}
+                            data-scene-id={scene.id}
+                            className="relative"
+                          >
+                            <div className={cn(
+                              'absolute -left-4 sm:-left-12 top-0 bottom-0 w-1 rounded-full transition-all duration-500',
+                              isActive ? 'bg-black' : 'bg-black/5'
+                            )} />
+                            <div className={cn(
+                              'absolute -left-10 sm:-left-[5.5rem] z-10 transition-all duration-500 pointer-events-none',
+                              isActive ? 'opacity-100' : 'opacity-0'
+                            )} style={{ top: '50%', transform: 'translateY(-50%)', writingMode: 'vertical-lr' }}>
+                              <span className="text-3xl font-black text-black uppercase tracking-[0.35em] whitespace-nowrap" style={{ transform: 'rotate(180deg)', display: 'block' }}>
+                                Scene {scene.order}
+                              </span>
+                            </div>
+                            {idx > 0 && (
+                              <div className={cn('flex items-center gap-3 py-4 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>
+                                <div className="flex-1 border-t border-black/10" />
+                                <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider flex-shrink-0">
+                                  {scene.title || `Scene ${scene.order}`}
+                                </span>
+                                <div className="flex-1 border-t border-black/10" />
+                              </div>
+                            )}
+                            {idx === 0 && scene.title && (
+                              <div className="pb-3 opacity-60">
+                                <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider">{scene.title}</span>
+                              </div>
+                            )}
+                            {scene.prose ? (
+                              <textarea
+                                value={scene.prose}
+                                onChange={(e) => {
+                                  updateScene(chapter.id, scene.id, {
+                                    prose: e.target.value,
+                                    status: e.target.value.trim() ? 'edited' : 'outline',
+                                  });
+                                  syncScenesToProse(chapter.id);
+                                }}
+                                className={cn(
+                                  'w-full bg-transparent border-none outline-none resize-none overflow-hidden',
+                                  'font-serif leading-[2]',
+                                  'focus:ring-0',
+                                  'transition-all duration-500',
+                                  isFocusMode ? 'text-xl' : 'text-lg',
+                                  isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
+                                )}
+                                ref={(el) => {
+                                  if (el) {
+                                    el.style.height = 'auto';
+                                    el.style.height = Math.max(80, el.scrollHeight) + 'px';
+                                  }
+                                }}
+                                onInput={(e) => {
+                                  const el = e.target as HTMLTextAreaElement;
+                                  el.style.height = 'auto';
+                                  el.style.height = Math.max(80, el.scrollHeight) + 'px';
+                                }}
+                              />
+                            ) : (
+                              <div className={cn('py-6 flex items-center gap-3 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>
+                                <p className="text-sm text-text-tertiary italic flex-1">No prose yet</p>
+                                <button
+                                  onClick={() => handleGenerateScene(scene)}
+                                  disabled={!!generatingSceneId || generating}
+                                  className={cn(
+                                    'flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
+                                    generatingSceneId === scene.id ? 'bg-black/5 text-text-tertiary'
+                                      : generatingSceneId || generating ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                                      : 'bg-text-primary text-text-inverse hover:shadow-md',
+                                  )}
+                                >
+                                  {generatingSceneId === scene.id ? <><Loader2 size={12} className="animate-spin" /> Writing...</> : <><Sparkles size={12} /> Generate</>}
+                                </button>
+                              </div>
+                            )}
+                            {generatingSceneId === scene.id && sceneGeneratedText && (
+                              <div className="font-serif text-lg leading-[2] text-text-primary whitespace-pre-wrap animate-fade-in pb-4">
+                                {sceneGeneratedText}
+                                <span className="inline-block w-0.5 h-5 bg-black animate-pulse ml-0.5" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <textarea
+                      ref={editorRef}
+                      value={chapter.prose}
+                      onChange={(e) => updateChapter(chapter.id, {
+                        prose: e.target.value,
+                        status: 'human-edited',
+                        updatedAt: new Date().toISOString(),
+                      })}
+                      className={cn(
+                        'w-full bg-transparent border-none outline-none resize-none',
+                        'font-serif leading-[2] text-text-primary',
+                        'focus:ring-0',
+                        isFocusMode ? 'text-xl' : 'text-lg'
+                      )}
+                      style={{ minHeight: '500px' }}
+                    />
                   )}
-                  style={{ minHeight: '500px' }}
-                />
+                </>
               )}
             </div>
           )}
         </div>
+      </div>
+
       </div>
 
       {/* Prose X-Ray */}

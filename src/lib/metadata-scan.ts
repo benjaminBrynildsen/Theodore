@@ -44,13 +44,27 @@ function hasContext(text: string, name: string, contextPattern: string): boolean
 
 export function scanMetadataOccurrences(prose: string, canonEntries: AnyCanonEntry[]): MetadataScanResult {
   const text = prose || '';
+  // Collect character keys including aliases so known variants aren't re-detected
+  const characterKeys: string[] = [];
+  for (const entry of canonEntries) {
+    if (entry.type !== 'character') continue;
+    const key = normalizeCharacterKey(entry.name) || normalizeEntityKey(entry.name);
+    if (key) characterKeys.push(key);
+    // Also add individual name tokens (first name, last name) as known
+    const tokens = normalizeEntityKey(entry.name).split(/\s+/);
+    for (const t of tokens) { if (t) characterKeys.push(t); }
+    // Add explicit aliases from character profile
+    const aliases = (entry as any).character?.aliases as string[] | undefined;
+    if (aliases) {
+      for (const alias of aliases) {
+        const ak = normalizeCharacterKey(alias) || normalizeEntityKey(alias);
+        if (ak) characterKeys.push(ak);
+      }
+    }
+  }
+
   const existingByType = {
-    character: new Set(
-      canonEntries
-        .filter((entry) => entry.type === 'character')
-        .map((entry) => normalizeCharacterKey(entry.name) || normalizeEntityKey(entry.name))
-        .filter(Boolean),
-    ),
+    character: new Set(characterKeys),
     location: new Set(
       canonEntries
         .filter((entry) => entry.type === 'location')
@@ -197,6 +211,7 @@ export function scanMetadataOccurrences(prose: string, canonEntries: AnyCanonEnt
 
   // Deduplicate: remove short names that are a token-subset of a longer name in the same category.
   // e.g. "Jack" is absorbed by "Jack Monroe"; "Silver Lake" absorbs "Silver".
+  // Also merges aliases (first-name-only references) into the longest known form.
   function dedupeSubsetNames(names: string[]): string[] {
     const sorted = [...names].sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length);
     const result: string[] = [];
@@ -220,7 +235,21 @@ export function scanMetadataOccurrences(prose: string, canonEntries: AnyCanonEnt
         }
       }
     }
-    return result;
+
+    // Second pass: also absorb names whose *character key* matches a token of any kept name.
+    // This catches "John" being absorbed by "John Smith" even when normalizeCharacterKey differs.
+    const keptKeys = result.map(n => normalizeEntityKey(n));
+    return result.filter(name => {
+      const key = normalizeEntityKey(name);
+      const tokens = key.split(/\s+/);
+      if (tokens.length > 1) return true; // multi-word names survive
+      // Single-word: check if any multi-word kept name contains this token
+      for (const kk of keptKeys) {
+        if (kk === key) continue;
+        if (kk.split(/\s+/).includes(tokens[0])) return false;
+      }
+      return true;
+    });
   }
 
   return {

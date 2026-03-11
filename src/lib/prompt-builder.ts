@@ -6,6 +6,82 @@ import type { Project, Chapter, PremiseCard, WritingMode, GenerationType, Scene,
 import type { AppSettings, WritingStyleSettings } from '../types/settings';
 import type { AnyCanonEntry, CharacterEntry, LocationEntry } from '../types/canon';
 
+// ========== Selection-Based Edit Prompt (Vibe Editor) ==========
+
+export interface SelectionEditContext {
+  project: Project;
+  chapter: Chapter;
+  allChapters: Chapter[];
+  canonEntries: AnyCanonEntry[];
+  settings: AppSettings;
+  instruction: string;
+  selectedText: string | null;
+  fullProse: string;
+  chatHistory: EditChatMessage[];
+}
+
+export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
+  const { project, chapter, settings, instruction, selectedText, fullProse, chatHistory } = ctx;
+  const sections: string[] = [];
+
+  sections.push(`You are Theodore, an expert fiction editor working on "${project.title}" (a ${project.subtype || project.type}).`);
+
+  // Writing style
+  sections.push('\n=== WRITING STYLE RULES ===');
+  sections.push(buildStyleInstructions(settings.writingStyle));
+
+  // Tone
+  sections.push('\n=== TONE & NARRATIVE ===');
+  sections.push(buildToneInstructions(project));
+
+  // Chapter context
+  sections.push(`\n=== CHAPTER CONTEXT ===`);
+  sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
+  if (chapter.premise.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
+  if (chapter.premise.emotionalBeat) sections.push(`Beat: ${chapter.premise.emotionalBeat}`);
+
+  // Recent chat history
+  if (chatHistory.length > 0) {
+    sections.push(`\n=== RECENT CONVERSATION ===`);
+    for (const msg of chatHistory.slice(-6)) {
+      sections.push(`${msg.role === 'user' ? 'User' : 'Theodore'}: ${msg.content}`);
+    }
+  }
+
+  if (selectedText) {
+    // Selection mode — rewrite only the selected portion
+    sections.push(`\n=== FULL CHAPTER PROSE (for context) ===`);
+    // Show surrounding context, mark the selection
+    const selIdx = fullProse.indexOf(selectedText);
+    if (selIdx >= 0) {
+      const contextBefore = fullProse.slice(Math.max(0, selIdx - 500), selIdx);
+      const contextAfter = fullProse.slice(selIdx + selectedText.length, selIdx + selectedText.length + 500);
+      if (contextBefore) sections.push(`...${contextBefore}`);
+      sections.push(`\n>>> SELECTED TEXT (rewrite this) >>>\n${selectedText}\n<<< END SELECTION <<<`);
+      if (contextAfter) sections.push(`${contextAfter}...`);
+    } else {
+      sections.push(fullProse.slice(0, 3000));
+      sections.push(`\n>>> SELECTED TEXT (rewrite this) >>>\n${selectedText}\n<<< END SELECTION <<<`);
+    }
+
+    sections.push(`\n=== USER INSTRUCTION ===`);
+    sections.push(instruction);
+
+    sections.push(`\nRewrite ONLY the selected text according to the user's instruction. Return ONLY the replacement text — no explanations, no markdown, no quotes, no "here's the rewrite". Just the new prose that will replace the selection. Keep the same approximate length unless the user asks to expand or shorten. Maintain voice, tense, and POV consistency with the surrounding text.`);
+  } else {
+    // Full prose mode — edit the entire chapter
+    sections.push(`\n=== CURRENT CHAPTER PROSE ===`);
+    sections.push(fullProse.slice(0, 6000));
+
+    sections.push(`\n=== USER INSTRUCTION ===`);
+    sections.push(instruction);
+
+    sections.push(`\nApply the user's instruction to the entire chapter. Return ONLY the updated full prose — no explanations, no markdown code blocks, no titles. Just the prose text.`);
+  }
+
+  return sections.join('\n');
+}
+
 // ========== Writing Style → Prompt Instructions ==========
 
 function buildStyleInstructions(style: WritingStyleSettings): string {

@@ -108,6 +108,7 @@ export function buildScaffoldPrompt(
     sections.push(`- Act 3 (~25%): Climax, resolution, denouement`);
   }
 
+  sections.push(`\nCRITICAL: You MUST generate ALL ${chapterCount} chapters. Do not stop early. Keep each field to 1-2 short sentences max to stay within limits.`);
   sections.push(`\nReturn ONLY a JSON array. No markdown, no explanation. Format:`);
   sections.push(`[
   {

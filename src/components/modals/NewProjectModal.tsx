@@ -92,7 +92,7 @@ export function NewProjectModal({ onClose }: Props) {
         const result = await generateText({
           action: 'scaffold-chapters',
           model: appSettings.ai.preferredModel || 'gpt-4.1',
-          maxTokens: 4096,
+          maxTokens: Math.max(4096, finalChapterCount * 400),
           projectId,
           prompt: buildScaffoldPrompt(project, finalChapterCount, [], []),
         });

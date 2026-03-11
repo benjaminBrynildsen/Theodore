@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, Sparkles, MessageSquare, Swords, Wand2, Loader2, Scissors } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, Sparkles, MessageSquare, Swords, Wand2, Loader2, Scissors, PenLine } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
@@ -8,6 +8,7 @@ import { cn } from '../../lib/utils';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { generateText } from '../../lib/generate';
 import { EditModeSidebar } from '../editmode/EditModeSidebar';
+import { InlineEditChat } from '../features/InlineEditChat';
 import type { CanonType } from '../../types/canon';
 import type { WritingMode, GenerationType } from '../../types';
 
@@ -135,9 +136,9 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
 // ========== CHAPTER SIDEBAR (Context-Aware Toolkit) ==========
 
 function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId: string }) {
-  const { chapters, updateChapter, setEditMode } = useStore();
+  const { chapters, updateChapter, setEditMode, inlineEditOpen, setInlineEditOpen, inlineSelection, setInlineSelection, editHighlight, setEditHighlight } = useStore();
   const { entries } = useCanonStore();
-  const [activeSection, setActiveSection] = useState<'premise' | 'generate' | 'artifacts'>('premise');
+  const [activeSection, setActiveSection] = useState<'edit' | 'scenes' | 'generate' | 'artifacts'>('edit');
   const [writingMode, setWritingMode] = useState<WritingMode>('draft');
   const [generating, setGenerating] = useState<string | null>(null);
   const [chunkSize, setChunkSize] = useState<ChapterChunkSize>('medium');
@@ -146,6 +147,7 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
   if (!chapter) return null;
 
   const projectEntries = entries.filter(e => e.projectId === projectId);
+  const scenes = chapter.scenes || [];
 
   const updatePremise = (field: string, value: any) => {
     updateChapter(chapter.id, {
@@ -154,8 +156,18 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
     });
   };
 
+  // Auto-open inline edit when Edit tab is active
+  useEffect(() => {
+    if (activeSection === 'edit' && chapter.prose) {
+      setInlineEditOpen(true);
+    } else if (activeSection !== 'edit' && inlineEditOpen) {
+      setInlineEditOpen(false);
+    }
+  }, [activeSection]);
+
   const sections = [
-    { id: 'premise' as const, label: 'Premise', icon: FileText },
+    { id: 'edit' as const, label: 'Edit', icon: PenLine },
+    { id: 'scenes' as const, label: 'Scenes', icon: FileText },
     { id: 'generate' as const, label: 'Generate', icon: Sparkles },
     { id: 'artifacts' as const, label: 'Artifacts', icon: Gem },
   ];
@@ -166,18 +178,10 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
     <>
       {/* Chapter breadcrumb */}
       <div className="p-3 border-b border-white/20">
-        <div className="flex items-center justify-between mb-2">
+        <div className="mb-2">
           <div className="text-sm font-semibold text-text-tertiary uppercase tracking-wider px-1 truncate">
             Ch. {chapter.number} · {chapter.title}
           </div>
-          <button
-            onClick={() => setEditMode(true)}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all flex-shrink-0"
-            title="Enter Edit Mode — edit by scene"
-          >
-            <Scissors size={13} />
-            <span className="hidden lg:inline">Edit Mode</span>
-          </button>
         </div>
         {/* Section tabs */}
         <div className="flex gap-0.5 glass-pill p-0.5 rounded-xl">
@@ -199,49 +203,132 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
         </div>
       </div>
 
+      {/* EDIT SECTION — full height chat, no padding wrapper */}
+      {activeSection === 'edit' && (
+        !chapter.prose ? (
+          <div className="flex-1 overflow-y-auto p-3">
+            <div className="text-center py-8">
+              <div className="w-14 h-14 rounded-2xl bg-purple-50 flex items-center justify-center mx-auto mb-3">
+                <PenLine size={24} className="text-purple-400" />
+              </div>
+              <p className="text-sm font-medium text-text-secondary mb-1">No prose yet</p>
+              <p className="text-xs text-text-tertiary leading-relaxed max-w-[260px] mx-auto">
+                Generate or write some prose first, then come back here to refine it sentence by sentence.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <InlineEditChat
+            chapterId={chapter.id}
+            prose={chapter.prose}
+            selection={inlineSelection}
+            onClearSelection={() => {
+              setInlineSelection(null);
+              setEditHighlight(null);
+            }}
+            onProseUpdate={(newProse, highlightStart, highlightEnd) => {
+              updateChapter(chapter.id, {
+                prose: newProse,
+                status: 'human-edited',
+                updatedAt: new Date().toISOString(),
+              });
+              if (highlightStart !== highlightEnd) {
+                setEditHighlight({ start: highlightStart, end: highlightEnd });
+                setTimeout(() => setEditHighlight(null), 4000);
+              } else {
+                setEditHighlight(null);
+              }
+            }}
+            onClose={() => setActiveSection('scenes')}
+          />
+        )
+      )}
+
+      {activeSection !== 'edit' && (
       <div className="flex-1 overflow-y-auto p-3">
-        {/* PREMISE SECTION */}
-        {activeSection === 'premise' && (
-          <div className="space-y-3 animate-fade-in">
+
+        {/* SCENES SECTION */}
+        {activeSection === 'scenes' && (
+          <div className="space-y-4 animate-fade-in">
+            {/* Chapter premise overview */}
             <div>
-              <label className="text-sm font-semibold text-text-tertiary uppercase tracking-wider">Purpose</label>
-              <textarea
-                value={chapter.premise.purpose}
-                onChange={(e) => updatePremise('purpose', e.target.value)}
-                placeholder="What is this chapter's role?"
-                rows={5}
-                className="w-full mt-1 px-3 py-3 rounded-lg glass-input text-[15px] leading-relaxed resize-none"
-              />
+              <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider px-1 mb-2">Chapter Premise</div>
+              <div className="glass-pill rounded-xl p-3 space-y-2.5">
+                <div>
+                  <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Purpose</label>
+                  <textarea
+                    value={chapter.premise.purpose}
+                    onChange={(e) => updatePremise('purpose', e.target.value)}
+                    placeholder="What is this chapter's role?"
+                    rows={3}
+                    className="w-full mt-1 px-2 py-1.5 rounded-lg glass-input text-[13px] leading-relaxed resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Changes</label>
+                  <textarea
+                    value={chapter.premise.changes}
+                    onChange={(e) => updatePremise('changes', e.target.value)}
+                    placeholder="How is the world different after?"
+                    rows={2}
+                    className="w-full mt-1 px-2 py-1.5 rounded-lg glass-input text-[13px] leading-relaxed resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Emotional Beat</label>
+                  <input
+                    type="text"
+                    value={chapter.premise.emotionalBeat}
+                    onChange={(e) => updatePremise('emotionalBeat', e.target.value)}
+                    placeholder="e.g., Grief giving way to wonder"
+                    className="w-full mt-1 px-2 py-1.5 rounded-lg glass-input text-[13px]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Constraints</label>
+                  <textarea
+                    value={chapter.premise.constraints.join('\n')}
+                    onChange={(e) => updatePremise('constraints', e.target.value.split('\n').filter(Boolean))}
+                    placeholder="What must NOT happen (one per line)"
+                    rows={2}
+                    className="w-full mt-1 px-2 py-1.5 rounded-lg glass-input text-[13px] leading-relaxed resize-none"
+                  />
+                </div>
+              </div>
             </div>
+
+            {/* Scene list */}
             <div>
-              <label className="text-sm font-semibold text-text-tertiary uppercase tracking-wider">What Changes</label>
-              <textarea
-                value={chapter.premise.changes}
-                onChange={(e) => updatePremise('changes', e.target.value)}
-                placeholder="How is the world different after?"
-                rows={4}
-                className="w-full mt-1 px-3 py-3 rounded-lg glass-input text-[15px] leading-relaxed resize-none"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-semibold text-text-tertiary uppercase tracking-wider">Emotional Beat</label>
-              <input
-                type="text"
-                value={chapter.premise.emotionalBeat}
-                onChange={(e) => updatePremise('emotionalBeat', e.target.value)}
-                placeholder="e.g., Grief giving way to wonder"
-                className="w-full mt-1 px-3 py-3 rounded-lg glass-input text-[15px]"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-semibold text-text-tertiary uppercase tracking-wider">Constraints</label>
-              <textarea
-                value={chapter.premise.constraints.join('\n')}
-                onChange={(e) => updatePremise('constraints', e.target.value.split('\n').filter(Boolean))}
-                placeholder="What must NOT happen (one per line)"
-                rows={5}
-                className="w-full mt-1 px-3 py-3 rounded-lg glass-input text-[15px] leading-relaxed resize-none"
-              />
+              <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider px-1 mb-2">
+                Scenes {scenes.length > 0 && `(${scenes.length})`}
+              </div>
+              {scenes.length === 0 ? (
+                <div className="glass-pill rounded-xl p-4 text-center">
+                  <p className="text-xs text-text-tertiary">No scenes yet. Generate the chapter to create scenes automatically.</p>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {[...scenes].sort((a, b) => a.order - b.order).map((scene) => {
+                    const sceneWordCount = scene.prose?.trim() ? scene.prose.trim().split(/\s+/).length : 0;
+                    return (
+                      <div key={scene.id} className="glass-pill rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
+                            Scene {scene.order}
+                          </span>
+                          <span className="text-[10px] text-text-tertiary">
+                            {sceneWordCount > 0 ? `${sceneWordCount} words` : 'empty'}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium text-text-primary">{scene.title}</p>
+                        {scene.summary && (
+                          <p className="text-xs text-text-secondary mt-1 leading-relaxed line-clamp-2">{scene.summary}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -564,6 +651,7 @@ Task:
           </div>
         )}
       </div>
+      )}
     </>
   );
 }
@@ -577,7 +665,7 @@ export function LeftSidebar() {
   if (!leftSidebarOpen || !project) return null;
 
   return (
-    <aside className="w-[23.5rem] h-full glass-subtle flex flex-col animate-fade-in border-r-0">
+    <aside className="w-[28rem] h-full glass-subtle flex flex-col animate-fade-in border-r-0">
       {editMode && activeChapterId ? (
         <EditModeSidebar projectId={project.id} chapterId={activeChapterId} />
       ) : activeChapterId ? (

@@ -24,6 +24,8 @@ import {
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
 import { generateImage, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
+import { generateChapterAudio, generateVoicePreview, OPENAI_VOICES } from './tts.js';
+import type { OpenAIVoice } from './tts.js';
 import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs } from './billing.js';
 
 const app = express();
@@ -31,6 +33,8 @@ const PORT = parseInt(process.env.PORT || '3001');
 
 const APP_URL = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, '') : null;
 const DEV_ALLOWED_ORIGINS = [
+  'http://localhost:5050',
+  'http://127.0.0.1:5050',
   'http://localhost:5757',
   'http://localhost:5758',
   'http://127.0.0.1:5757',
@@ -39,6 +43,8 @@ const DEV_ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
   'http://localhost:3001',
   'http://127.0.0.1:3001',
+  'http://localhost:5055',
+  'http://127.0.0.1:5055',
 ];
 const allowedOrigins = new Set<string>([
   ...(APP_URL ? [APP_URL] : []),
@@ -1337,6 +1343,93 @@ app.post('/api/generate/image', async (req, res) => {
       return res.status(503).json({ error: 'Image generation not configured. Contact support.' });
     }
     res.status(500).json({ error: e.message || 'Image generation failed' });
+  }
+});
+
+// ========== TTS / Audiobook Generation ==========
+
+app.get('/api/tts/voices', (_req, res) => {
+  res.json({ voices: OPENAI_VOICES });
+});
+
+app.post('/api/tts/generate', async (req, res) => {
+  try {
+    const auth = getAuth(req);
+    if (!auth) return res.status(401).json({ error: 'Not authenticated' });
+
+    const { chapterId, prose, narratorVoice, characterVoices, model, speed, multiVoice } = req.body;
+    if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
+
+    // Credit check
+    const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.creditsRemaining < 2) return res.status(402).json({ error: 'Insufficient credits for audio generation' });
+
+    // Build voice map
+    const voiceMap = {
+      narrator: (narratorVoice || 'alloy') as OpenAIVoice,
+      characters: (characterVoices || {}) as Record<string, OpenAIVoice>,
+    };
+
+    // Get known character names for dialogue attribution
+    const knownCharacters = Object.keys(characterVoices || {});
+
+    const result = await generateChapterAudio({
+      chapterId,
+      prose,
+      voiceMap,
+      model: model || 'tts-1',
+      speed: speed || 1.0,
+      multiVoice: multiVoice ?? true,
+      knownCharacters,
+    });
+
+    // Deduct credits
+    await db.update(users).set({
+      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+    }).where(eq(users.id, auth.user.id));
+
+    // Log transaction
+    await db.insert(creditTransactions).values({
+      userId: auth.user.id,
+      action: 'generate-audio',
+      creditsUsed: result.creditsUsed,
+      model: model || 'tts-1',
+      chapterId,
+      metadata: { narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate },
+    });
+
+    res.json({
+      audioUrl: result.audioUrl,
+      durationEstimate: result.durationEstimate,
+      segments: result.segments,
+      creditsUsed: result.creditsUsed,
+      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+    });
+  } catch (e: any) {
+    console.error('TTS generation error:', e);
+    if (e.message?.includes('OPENAI_API_KEY')) {
+      return res.status(503).json({ error: 'TTS not configured. Add OPENAI_API_KEY to enable audio generation.' });
+    }
+    res.status(500).json({ error: e.message || 'Audio generation failed' });
+  }
+});
+
+app.post('/api/tts/preview', async (req, res) => {
+  try {
+    const { voice, text } = req.body;
+    if (!voice) return res.status(400).json({ error: 'voice is required' });
+
+    const audioBuffer = await generateVoicePreview(voice as OpenAIVoice, text);
+
+    res.set({
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': String(audioBuffer.length),
+    });
+    res.send(audioBuffer);
+  } catch (e: any) {
+    console.error('TTS preview error:', e);
+    res.status(500).json({ error: e.message || 'Preview failed' });
   }
 });
 

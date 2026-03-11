@@ -11,6 +11,7 @@ import { useAuthStore } from './store/auth';
 import { useCreditsStore } from './store/credits';
 import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
+import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 
 const ProjectView = lazy(async () => {
   const mod = await import('./components/views/ProjectView');
@@ -240,6 +241,7 @@ export default function App() {
         {showWorkspaceChrome && <div className="hidden sm:block"><RightSidebar /></div>}
       </div>
       
+      <AudioPlayerBar />
       <BottomNav />
       <Suspense fallback={null}>
         <UpgradeModal />

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { Project, Chapter, Scene, EditChatMessage } from '../types';
+import type { Project, Chapter, Scene, EditChatMessage, ProseSelection } from '../types';
 import { api } from '../lib/api';
 import { useCanonStore } from './canon';
 import { scanMetadataOccurrences, type MetadataScanResult } from '../lib/metadata-scan';
@@ -171,11 +171,17 @@ interface AppState {
 
   // Edit Mode
   editMode: boolean;
+  inlineEditOpen: boolean;
   activeSceneId: string | null;
   editChatMessages: EditChatMessage[];
   scenesGenerating: boolean;
   editChatLoading: boolean;
   setEditMode: (active: boolean) => void;
+  setInlineEditOpen: (open: boolean) => void;
+  inlineSelection: ProseSelection | null;
+  setInlineSelection: (selection: ProseSelection | null) => void;
+  editHighlight: { start: number; end: number } | null;
+  setEditHighlight: (highlight: { start: number; end: number } | null) => void;
   setActiveScene: (sceneId: string | null) => void;
   updateScene: (chapterId: string, sceneId: string, updates: Partial<Scene>) => void;
   setChapterScenes: (chapterId: string, scenes: Scene[]) => void;
@@ -457,7 +463,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     await api.deleteChapter(id);
   },
 
-  setActiveChapter: (id) => set({ activeChapterId: id }),
+  setActiveChapter: (id) => set({ activeChapterId: id, ...(id ? { leftSidebarOpen: true } : {}) }),
   getProjectChapters: (projectId) => get().chapters.filter((c) => c.projectId === projectId).sort((a, b) => a.number - b.number),
 
   // Canon (compat — real canon in canon store)
@@ -475,6 +481,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
   // Edit Mode
   editMode: false,
+  inlineEditOpen: false,
   activeSceneId: null,
   editChatMessages: [],
   scenesGenerating: false,
@@ -496,9 +503,16 @@ export const useStore = create<AppState>()(persist((set, get) => ({
       }
       set({ editMode: false, activeSceneId: null, editChatMessages: [] });
     } else {
-      set({ editMode: true });
+      set({ editMode: true, inlineEditOpen: false });
     }
   },
+  setInlineEditOpen: (open) => {
+    set({ inlineEditOpen: open, ...(open ? { editMode: false } : {}), ...(!open ? { inlineSelection: null, editHighlight: null } : {}) });
+  },
+  inlineSelection: null,
+  setInlineSelection: (selection) => set({ inlineSelection: selection }),
+  editHighlight: null,
+  setEditHighlight: (highlight) => set({ editHighlight: highlight }),
 
   setActiveScene: (sceneId) => set({ activeSceneId: sceneId }),
 

@@ -74,6 +74,31 @@ export const api = {
   listTransactions: (userId: string) => request<any[]>(`/users/${userId}/transactions`),
   createTransaction: (data: any) => request<any>('/transactions', { method: 'POST', body: JSON.stringify(data) }),
 
+  // ========== TTS / Audiobook ==========
+  ttsGenerate: (data: {
+    chapterId: string;
+    prose: string;
+    narratorVoice: string;
+    characterVoices: Record<string, string>;
+    model?: string;
+    speed?: number;
+    multiVoice?: boolean;
+  }) => request<{
+    audioUrl: string;
+    durationEstimate: number;
+    segments: number;
+    creditsUsed: number;
+    creditsRemaining: number;
+  }>('/tts/generate', { method: 'POST', body: JSON.stringify(data) }),
+
+  ttsPreview: (voice: string, text?: string) =>
+    fetch(`/api/tts/preview`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice, text }),
+    }),
+
   // ========== Billing ==========
   billingPlans: () => request<any>('/billing/plans'),
   billingStatus: () => request<any>('/billing/status'),
