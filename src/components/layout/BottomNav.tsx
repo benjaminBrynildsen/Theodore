@@ -12,8 +12,9 @@ export function BottomNav() {
   const { playing, currentChapterId, generating, chapterAudio } = useAudioStore();
 
   const project = getActiveProject();
-  const chapters = project ? getProjectChapters(project.id).filter(c => c.prose).sort((a, b) => a.number - b.number) : [];
-  const hasAnyAudio = chapters.some(c => chapterAudio[c.id]);
+  const rawChapters = project ? getProjectChapters(project.id) : [];
+  const chapters = (rawChapters || []).filter(c => c?.prose).sort((a, b) => a.number - b.number);
+  const hasAnyAudio = chapters.some(c => c?.id && chapterAudio[c.id]);
   const isGenerating = !!generating;
   const isPlaying = playing && !!currentChapterId;
 
@@ -34,10 +35,9 @@ export function BottomNav() {
         useAudioStore.getState().setPlaying(false);
       } else if (hasAnyAudio && currentChapterId) {
         useAudioStore.getState().setPlaying(true);
-      } else if (chapters.length > 0) {
+      } else if (chapters.length > 0 && chapters[0]?.id) {
         // Generate first chapter
-        const first = chapters[0];
-        window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: first.id } }));
+        window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: chapters[0].id } }));
       }
     }
   };
