@@ -604,4 +604,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     currentView: state.currentView,
     canonEntries: state.canonEntries,
   }),
+  onRehydrateStorage: () => (state) => {
+    // Sanitize chapters on rehydration — filter out corrupted scenes
+    if (state?.chapters) {
+      state.chapters = state.chapters.filter(c => c && c.id).map(c => ({
+        ...c,
+        scenes: (c.scenes || []).filter((s: any) => s && s.id),
+      }));
+    }
+  },
 }));
