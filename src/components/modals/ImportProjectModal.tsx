@@ -132,9 +132,11 @@ export function ImportProjectModal({ onClose }: { onClose: () => void }) {
     const now = new Date().toISOString();
 
     // Create project
+    const { generateBookCover } = await import('../../lib/cover-generator');
+    const importTitle = projectTitle || 'Imported Project';
     const project = {
       id: projectId,
-      title: projectTitle || 'Imported Project',
+      title: importTitle,
       type: 'book' as const,
       subtype: 'novel' as const,
       targetLength: 'medium' as const,
@@ -147,6 +149,7 @@ export function ImportProjectModal({ onClose }: { onClose: () => void }) {
         focusMix: { character: 40, plot: 35, world: 25 },
         genreEmphasis: [] as string[],
       },
+      coverUrl: generateBookCover(importTitle),
       status: 'active' as const,
       createdAt: now,
       updatedAt: now,

@@ -1,21 +1,22 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Headphones, Loader2, X, Volume2 } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Loader2, X, Volume2, VolumeX, Headphones } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
 import { useCanonStore } from '../../store/canon';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
+import { autoAssignVoice } from '../../lib/voice-assign';
 import type { CharacterEntry } from '../../types/canon';
 
 export function AudioPlayerBar() {
   const { getActiveProject, getProjectChapters } = useStore();
   const { entries } = useCanonStore();
   const {
-    playing, currentChapterId, currentTime, duration,
+    playing, currentChapterId, currentTime, duration, volume,
     chapterAudio, narratorVoice, characterVoices, multiVoice, ttsModel, speed,
-    generating, error,
-    setPlaying, setCurrentChapter, setCurrentTime, setDuration,
-    addChapterAudio, setGenerating, setError,
+    generating, error, miniPlayerVisible, sidebarPlayerVisible,
+    setPlaying, setCurrentChapter, setCurrentTime, setDuration, setVolume,
+    addChapterAudio, setGenerating, setError, setMiniPlayerVisible,
   } = useAudioStore();
 
   const project = getActiveProject();
@@ -25,11 +26,12 @@ export function AudioPlayerBar() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeUpdateRef = useRef(0);
-  const sceneIndexRef = useRef(0); // track which scene audio is playing
+  const sceneIndexRef = useRef(0);
 
   // ========== Audio element ==========
   useEffect(() => {
     const audio = new Audio();
+    audio.volume = volume;
     audioRef.current = audio;
 
     audio.addEventListener('ended', () => {
@@ -37,7 +39,6 @@ export function AudioPlayerBar() {
       const chId = state.currentChapterId;
       const cached = chId ? state.chapterAudio[chId] : null;
 
-      // If playing scene-by-scene, advance to next scene
       if (cached?.sceneAudioUrls && sceneIndexRef.current < cached.sceneAudioUrls.length - 1) {
         sceneIndexRef.current++;
         audio.src = cached.sceneAudioUrls[sceneIndexRef.current];
@@ -46,7 +47,6 @@ export function AudioPlayerBar() {
         return;
       }
 
-      // Otherwise auto-advance to next chapter
       setPlaying(false);
       sceneIndexRef.current = 0;
       const chs = useStore.getState().chapters
@@ -75,20 +75,47 @@ export function AudioPlayerBar() {
     return () => { audio.pause(); audio.src = ''; };
   }, []);
 
+  // Sync volume
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume;
+  }, [volume]);
+
   // ========== Generate & play ==========
-  const buildVoiceMap = useCallback(() => {
+  const buildVoiceContext = useCallback(() => {
     const characters = entries.filter(e => e.projectId === project?.id && e.type === 'character' && (e as any).character) as CharacterEntry[];
     const voiceMap: Record<string, string> = { ...characterVoices };
+    const descriptions: Record<string, string> = {};
+
     for (const char of characters) {
-      if (!voiceMap[char.name] && char.character?.voiceId) {
-        voiceMap[char.name] = char.character.voiceId;
+      if (!voiceMap[char.name]) {
+        voiceMap[char.name] = char.character?.voiceId || autoAssignVoice(char, narratorVoice);
+      }
+
+      // Build a speech/personality description for voice acting instructions
+      const c = char.character || {} as any;
+      const personality = c.personality || {} as any;
+      const parts: string[] = [];
+
+      if (c.gender) parts.push(c.gender);
+      if (c.age) parts.push(`${c.age} years old`);
+      if (c.role) parts.push(`${c.role} character`);
+      if (personality.speechPattern) parts.push(`Speech style: ${personality.speechPattern}`);
+      if (personality.traits?.length) parts.push(`Personality: ${personality.traits.slice(0, 4).join(', ')}`);
+      if (personality.innerVoice) parts.push(`Inner voice: ${personality.innerVoice}`);
+      if (char.description) parts.push(char.description.slice(0, 120));
+
+      if (parts.length > 0) {
+        descriptions[char.name] = parts.join('. ') + '.';
       }
     }
-    return voiceMap;
+
+    return { voiceMap, descriptions };
   }, [entries, project?.id, characterVoices]);
 
   const generateAndPlay = useCallback(async (chapterId: string) => {
-    const chapter = chapters.find(c => c.id === chapterId);
+    // Read latest chapter state from store (not stale closure)
+    const freshChapters = useStore.getState().chapters;
+    const chapter = freshChapters.find(c => c.id === chapterId);
     if (!chapter?.prose) return;
 
     const scenes = (chapter.scenes || []).filter(s => s.prose?.trim()).sort((a, b) => a.order - b.order);
@@ -98,22 +125,22 @@ export function AudioPlayerBar() {
     setCurrentChapter(chapterId);
 
     try {
-      const voiceMap = buildVoiceMap();
+      const { voiceMap, descriptions } = buildVoiceContext();
+      const versionSuffix = `-v${Date.now()}`;
 
       if (scenes.length > 1) {
-        // Scene-by-scene: generate first scene, play immediately, queue rest
         const firstScene = scenes[0];
         const result = await api.ttsGenerate({
-          chapterId: `${chapterId}-scene-${firstScene.id}`,
+          chapterId: `${chapterId}-scene-${firstScene.id}${versionSuffix}`,
           prose: firstScene.prose,
           narratorVoice,
           characterVoices: voiceMap,
+          characterDescriptions: descriptions,
           model: ttsModel,
           speed,
           multiVoice,
         });
 
-        // Play first scene immediately
         const audio = audioRef.current;
         if (audio) {
           audio.src = result.audioUrl;
@@ -122,7 +149,6 @@ export function AudioPlayerBar() {
           setPlaying(true);
         }
 
-        // Generate remaining scenes in background, concatenate URLs
         const allUrls = [result.audioUrl];
         let totalDuration = result.durationEstimate;
 
@@ -130,10 +156,11 @@ export function AudioPlayerBar() {
           const scene = scenes[i];
           try {
             const sceneResult = await api.ttsGenerate({
-              chapterId: `${chapterId}-scene-${scene.id}`,
+              chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
               prose: scene.prose,
               narratorVoice,
               characterVoices: voiceMap,
+              characterDescriptions: descriptions,
               model: ttsModel,
               speed,
               multiVoice,
@@ -145,21 +172,20 @@ export function AudioPlayerBar() {
           }
         }
 
-        // Store all scene audio URLs for sequential playback
         addChapterAudio(chapterId, {
           chapterId,
-          audioUrl: allUrls[0], // first scene for immediate play
+          audioUrl: allUrls[0],
           sceneAudioUrls: allUrls,
           durationEstimate: totalDuration,
           generatedAt: new Date().toISOString(),
         });
       } else {
-        // Single scene or no scenes — generate whole chapter
         const result = await api.ttsGenerate({
-          chapterId,
+          chapterId: `${chapterId}${versionSuffix}`,
           prose: chapter.prose,
           narratorVoice,
           characterVoices: voiceMap,
+          characterDescriptions: descriptions,
           model: ttsModel,
           speed,
           multiVoice,
@@ -185,7 +211,7 @@ export function AudioPlayerBar() {
     } finally {
       setGenerating(null);
     }
-  }, [chapters, entries, project?.id, narratorVoice, characterVoices, ttsModel, speed, multiVoice, buildVoiceMap]);
+  }, [chapters, entries, project?.id, narratorVoice, characterVoices, ttsModel, speed, multiVoice, buildVoiceContext]);
 
   // Listen for generate requests from chapter header button
   useEffect(() => {
@@ -197,7 +223,25 @@ export function AudioPlayerBar() {
     return () => window.removeEventListener('theodore:generateAudio', handler);
   }, [generateAndPlay]);
 
-  // Sync play/pause from external state changes (e.g. chapter header button)
+  const seekTo = useCallback((fraction: number) => {
+    const audio = audioRef.current;
+    if (audio && duration > 0) {
+      audio.currentTime = fraction * duration;
+      setCurrentTime(audio.currentTime);
+    }
+  }, [duration]);
+
+  // Listen for seek requests from NowPlayingPanel
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { fraction } = (e as CustomEvent).detail;
+      if (typeof fraction === 'number') seekTo(fraction);
+    };
+    window.addEventListener('theodore:seekAudio', handler);
+    return () => window.removeEventListener('theodore:seekAudio', handler);
+  }, [seekTo]);
+
+  // Sync play/pause from external state changes
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentAudio) return;
@@ -235,6 +279,16 @@ export function AudioPlayerBar() {
     setPlaying(true);
   }, [chapterAudio, currentChapterId, playing, generateAndPlay]);
 
+  // Listen for play requests (play cached audio or generate if missing)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { chapterId } = (e as CustomEvent).detail;
+      if (chapterId) playChapter(chapterId);
+    };
+    window.addEventListener('theodore:playChapter', handler);
+    return () => window.removeEventListener('theodore:playChapter', handler);
+  }, [playChapter]);
+
   const skipPrev = useCallback(() => {
     if (!currentChapterId) return;
     const idx = chapters.findIndex(c => c.id === currentChapterId);
@@ -247,106 +301,100 @@ export function AudioPlayerBar() {
     if (idx < chapters.length - 1) playChapter(chapters[idx + 1].id);
   }, [currentChapterId, chapters, playChapter]);
 
-  const seekTo = useCallback((fraction: number) => {
-    const audio = audioRef.current;
-    if (audio && duration > 0) {
-      audio.currentTime = fraction * duration;
-      setCurrentTime(audio.currentTime);
-    }
-  }, [duration]);
-
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  // ========== Determine what to show ==========
-  // Show bar if: we have audio playing/paused, or are generating, or there's a current chapter
-  const isActive = currentChapterId || generating;
+  const dismiss = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio) audio.pause();
+    setPlaying(false);
+    setMiniPlayerVisible(false);
+  }, []);
 
-  // Show "Generate Audio" prompt when there's a project with chapters but no audio activity
-  const showGeneratePrompt = project && chapters.length > 0 && !isActive;
-
-  if (!project || chapters.length === 0) return null;
-
-  // Generate prompt state
-  if (showGeneratePrompt) {
-    return (
-      <div className="fixed bottom-0 inset-x-0 z-50 sm:bottom-0">
-        <div className="mx-auto max-w-xl px-4 pb-4 sm:pb-4">
-          <button
-            onClick={() => {
-              const first = chapters[0];
-              if (first) generateAndPlay(first.id);
-            }}
-            disabled={!!generating}
-            className="w-full py-3.5 px-6 rounded-2xl bg-black text-white text-sm font-medium flex items-center justify-center gap-3 shadow-2xl hover:shadow-3xl hover:scale-[1.02] transition-all active:scale-[0.98]"
-          >
-            {generating ? (
-              <><Loader2 size={18} className="animate-spin" /> Generating audio...</>
-            ) : (
-              <><Headphones size={18} /> Generate Audio</>
-            )}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isActive) return null;
+  // ========== Visibility ==========
+  // Hide bottom bar when sidebar player is showing
+  if (sidebarPlayerVisible) return null;
+  if (!miniPlayerVisible || !project || chapters.length === 0) return null;
+  if (!currentChapterId && !generating) return null;
 
   const chapterIdx = currentChapterId ? chapters.findIndex(c => c.id === currentChapterId) : -1;
+  const chapterImage = currentChapter?.imageUrl;
+  const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const isMuted = volume === 0;
 
   return (
     <div className="fixed bottom-0 inset-x-0 z-50 safe-area-bottom">
-      <div className="glass-strong border-t border-white/30 backdrop-blur-xl">
-        {/* Error banner */}
-        {error && (
-          <div className="px-4 py-1.5 bg-red-50 text-red-700 text-xs flex items-center justify-between">
-            <span>{error}</span>
-            <button onClick={() => setError(null)}><X size={12} /></button>
-          </div>
-        )}
-
-        {/* Progress bar */}
+      <div className="bg-[#181818] text-white shadow-2xl">
+        {/* Progress bar — thin line at top */}
         <div
-          className="h-1 bg-black/5 cursor-pointer relative"
+          className="h-1 bg-white/10 cursor-pointer relative group"
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             seekTo((e.clientX - rect.left) / rect.width);
           }}
         >
           <div
-            className="absolute inset-y-0 left-0 bg-black rounded-r-full transition-all duration-200"
-            style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
+            className="absolute inset-y-0 left-0 bg-white rounded-r-full transition-[width] duration-200"
+            style={{ width: `${progressPct}%` }}
+          />
+          <div
+            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ left: `calc(${progressPct}% - 6px)` }}
           />
         </div>
 
-        <div className="flex items-center gap-3 px-4 py-2.5 sm:px-6">
-          {/* Chapter info */}
-          <div className="flex-1 min-w-0">
+        {/* Error banner */}
+        {error && (
+          <div className="px-4 py-1.5 bg-red-500/20 text-red-300 text-xs flex items-center justify-between">
+            <span>{error}</span>
+            <button onClick={() => setError(null)}><X size={12} /></button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 px-4 py-2 sm:px-5">
+          {/* Cover art */}
+          <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-white/10">
+            {chapterImage ? (
+              <img src={chapterImage} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5">
+                <Headphones size={20} className="text-white/40" />
+              </div>
+            )}
+          </div>
+
+          {/* Track info */}
+          <div className="flex-1 min-w-0 mr-2">
             {generating ? (
               <div className="flex items-center gap-2">
-                <Loader2 size={14} className="animate-spin text-text-tertiary" />
-                <span className="text-xs text-text-secondary truncate">Generating Ch. {chapters.find(c => c.id === generating)?.number}...</span>
+                <Loader2 size={14} className="animate-spin text-white/60" />
+                <span className="text-sm text-white/70 truncate">
+                  Generating Ch. {chapters.find(c => c.id === generating)?.number}...
+                </span>
               </div>
             ) : currentChapter ? (
               <>
-                <div className="text-xs font-medium truncate">Ch. {currentChapter.number}: {currentChapter.title}</div>
-                <div className="text-[10px] text-text-tertiary">
+                <div className="text-sm font-medium truncate text-white">
+                  Ch. {currentChapter.number}: {currentChapter.title}
+                </div>
+                <div className="text-[11px] text-white/50 truncate">
+                  {project.title}
+                  <span className="mx-1.5">·</span>
                   {formatTime(currentTime)} / {formatTime(duration || currentAudio?.durationEstimate || 0)}
                 </div>
               </>
             ) : null}
           </div>
 
-          {/* Controls */}
+          {/* Playback controls */}
           <div className="flex items-center gap-1">
             <button
               onClick={skipPrev}
               disabled={chapterIdx <= 0 || !!generating}
-              className="p-2 rounded-full text-text-secondary hover:text-text-primary disabled:opacity-30 transition-colors"
+              className="p-2 rounded-full text-white/60 hover:text-white disabled:opacity-30 transition-colors"
             >
               <SkipBack size={16} />
             </button>
@@ -355,32 +403,51 @@ export function AudioPlayerBar() {
                 if (currentChapterId) playChapter(currentChapterId);
               }}
               disabled={!currentChapterId || !!generating}
-              className="p-3 rounded-full bg-black text-white hover:shadow-lg disabled:opacity-50 transition-all"
+              className="p-2.5 rounded-full bg-white text-[#181818] hover:scale-105 disabled:opacity-50 transition-all"
             >
               {generating ? (
-                <Loader2 size={20} className="animate-spin" />
+                <Loader2 size={18} className="animate-spin" />
               ) : playing ? (
-                <Pause size={20} />
+                <Pause size={18} />
               ) : (
-                <Play size={20} />
+                <Play size={18} className="ml-0.5" />
               )}
             </button>
             <button
               onClick={skipNext}
               disabled={chapterIdx >= chapters.length - 1 || !!generating}
-              className="p-2 rounded-full text-text-secondary hover:text-text-primary disabled:opacity-30 transition-colors"
+              className="p-2 rounded-full text-white/60 hover:text-white disabled:opacity-30 transition-colors"
             >
               <SkipForward size={16} />
             </button>
           </div>
 
-          {/* Volume / speed indicator */}
-          <div className="flex-1 flex justify-end min-w-0">
-            <div className="flex items-center gap-2">
-              <Volume2 size={12} className="text-text-tertiary" />
-              <span className="text-[10px] text-text-tertiary">{speed}x</span>
-            </div>
+          {/* Volume control */}
+          <div className="hidden sm:flex items-center gap-2 ml-2">
+            <button
+              onClick={() => setVolume(isMuted ? 1 : 0)}
+              className="p-1.5 rounded-full text-white/50 hover:text-white transition-colors"
+            >
+              {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              className="w-20 h-1 accent-white appearance-none bg-white/20 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full"
+            />
           </div>
+
+          {/* Close */}
+          <button
+            onClick={dismiss}
+            className="p-1.5 rounded-full text-white/30 hover:text-white/60 transition-colors ml-1"
+          >
+            <X size={14} />
+          </button>
         </div>
       </div>
     </div>

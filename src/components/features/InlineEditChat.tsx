@@ -325,8 +325,14 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
 
       {/* Input */}
       <div className={cn('p-3 border-t border-white/20', selection && 'pt-0 border-t-0')}>
+        <div className="flex items-center justify-between mb-1.5 px-1">
+          <span className="text-[11px] font-medium text-text-secondary">
+            {selection ? 'Editing selected text' : 'Editing full chapter'}
+          </span>
+          <span className="text-[10px] text-text-tertiary">Enter to send</span>
+        </div>
         <div className={cn(
-          'flex items-end gap-2 glass-pill p-2 focus-within:bg-white/80 focus-within:shadow-sm transition-all',
+          'flex items-end gap-2 glass-pill p-3 focus-within:bg-white/80 focus-within:shadow-md transition-all',
           selection ? 'rounded-b-xl rounded-t-none border-t-0 mx-0 border border-blue-200' : 'rounded-xl'
         )}>
           <textarea
@@ -340,32 +346,26 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
                 : 'Describe what to change...'
             }
             disabled={loading || !prose}
-            rows={1}
-            className="flex-1 bg-transparent outline-none text-sm text-text-primary placeholder:text-text-tertiary/60 resize-none max-h-32"
+            rows={2}
+            className="flex-1 bg-transparent outline-none text-[14px] leading-relaxed text-text-primary placeholder:text-text-tertiary/60 resize-none max-h-40"
             onInput={(e) => {
               const el = e.target as HTMLTextAreaElement;
               el.style.height = 'auto';
-              el.style.height = Math.min(el.scrollHeight, 128) + 'px';
+              el.style.height = Math.min(el.scrollHeight, 160) + 'px';
             }}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || loading || !prose}
             className={cn(
-              'p-2 rounded-lg transition-all flex-shrink-0',
+              'p-2.5 rounded-lg transition-all flex-shrink-0',
               input.trim() && !loading && prose
                 ? 'bg-stone-800 text-white hover:bg-stone-900'
                 : 'bg-black/5 text-text-tertiary cursor-not-allowed'
             )}
           >
-            <Send size={14} />
+            <Send size={16} />
           </button>
-        </div>
-        <div className="flex items-center justify-between mt-1.5 px-1">
-          <span className="text-[10px] text-text-tertiary">
-            {selection ? 'Editing selected text' : 'Editing full chapter'}
-          </span>
-          <span className="text-[10px] text-text-tertiary">Enter to send</span>
         </div>
       </div>
     </div>

@@ -75,7 +75,7 @@ export function ProjectView() {
           for (const r of results) {
             if (existingNumbers.has(r.number)) {
               const existing = chapters.find(c => c.number === r.number);
-              if (existing && !existing.premise.purpose) {
+              if (existing && !existing.premise?.purpose) {
                 updateChapter(existing.id, {
                   title: r.title,
                   premise: {
@@ -449,7 +449,7 @@ export function ProjectView() {
                       <span className="text-xs font-medium truncate">{chapter.title}</span>
                       <Badge status={chapter.status} />
                     </div>
-                    {chapter.premise.purpose ? (
+                    {chapter.premise?.purpose ? (
                       <p className="text-[10px] text-text-secondary line-clamp-2 leading-relaxed">{chapter.premise.purpose}</p>
                     ) : (
                       <p className="text-[10px] text-text-tertiary italic">Tap to write</p>
@@ -549,7 +549,7 @@ export function ProjectView() {
                         <span className="font-medium">{chapter.title}</span>
                         <Badge status={chapter.status} />
                       </div>
-                      {chapter.premise.purpose ? (
+                      {chapter.premise?.purpose ? (
                         <p className="text-sm text-text-secondary line-clamp-2">{chapter.premise.purpose}</p>
                       ) : (
                         <p className="text-sm text-text-tertiary italic">No premise yet — click to define</p>

@@ -17,6 +17,7 @@ export interface Project {
   childrensBookSettings?: ChildrensBookSettings;
   narrativeControls: NarrativeControls;
   storyStructureId?: string; // one of the 9 story structures (see story-structures.ts)
+  coverUrl?: string;
   status: ProjectStatus;
   createdAt: string;
   updatedAt: string;
@@ -89,6 +90,7 @@ export interface Scene {
   prose: string;
   order: number;
   status: SceneStatus;
+  emotionalMetadata?: import('./music').SceneEmotionalMetadata;
 }
 
 export interface EditChatMessage {

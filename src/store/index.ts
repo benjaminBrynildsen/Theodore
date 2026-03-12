@@ -4,6 +4,7 @@ import type { Project, Chapter, Scene, EditChatMessage, ProseSelection } from '.
 import { api } from '../lib/api';
 import { useCanonStore } from './canon';
 import { scanMetadataOccurrences, type MetadataScanResult } from '../lib/metadata-scan';
+import { analyzeSceneEmotion, hashProse, isMetadataStale } from '../lib/emotion-analyzer';
 import {
   isLikelyCharacterNoise,
   isLikelyEntityNoise,
@@ -192,6 +193,10 @@ interface AppState {
   clearEditChat: () => void;
   setScenesGenerating: (generating: boolean) => void;
   setEditChatLoading: (loading: boolean) => void;
+
+  // Emotion Analysis
+  emotionAnalyzing: boolean;
+  analyzeChapterEmotions: (chapterId: string) => Promise<void>;
 
   // View
   currentView: 'home' | 'project' | 'chapter';
@@ -463,7 +468,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     await api.deleteChapter(id);
   },
 
-  setActiveChapter: (id) => set({ activeChapterId: id, ...(id ? { leftSidebarOpen: true } : {}) }),
+  setActiveChapter: (id) => set({ activeChapterId: id, ...(id ? { leftSidebarOpen: true, rightSidebarOpen: true } : {}) }),
   getProjectChapters: (projectId) => get().chapters.filter((c) => c.projectId === projectId).sort((a, b) => a.number - b.number),
 
   // Canon (compat — real canon in canon store)
@@ -475,7 +480,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
   // UI State
   leftSidebarOpen: true,
-  rightSidebarOpen: false,
+  rightSidebarOpen: true,
   toggleLeftSidebar: () => set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),
   toggleRightSidebar: () => set((s) => ({ rightSidebarOpen: !s.rightSidebarOpen })),
 
@@ -533,6 +538,51 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         await api.updateChapter(chapterId, { scenes: chapter.scenes });
       }
     });
+
+    // Queue emotional analysis if prose changed significantly
+    if (typeof updates.prose === 'string') {
+      debounceSave(`emotion-${sceneId}`, async () => {
+        const chapter = get().chapters.find(c => c.id === chapterId);
+        if (!chapter) return;
+        const scene = (chapter.scenes || []).find(s => s.id === sceneId);
+        if (!scene?.prose?.trim() || !isMetadataStale(scene)) return;
+
+        const project = get().projects.find(p => p.id === chapter.projectId);
+        const sortedScenes = (chapter.scenes || []).filter(s => s.prose?.trim()).sort((a, b) => a.order - b.order);
+        const sceneIdx = sortedScenes.findIndex(s => s.id === sceneId);
+        const prevScene = sceneIdx > 0 ? sortedScenes[sceneIdx - 1] : null;
+
+        try {
+          const metadata = await analyzeSceneEmotion({
+            scene,
+            chapterEmotionalBeat: chapter.premise?.emotionalBeat,
+            previousSceneEndEmotion: prevScene?.emotionalMetadata?.arc?.end,
+            narrativeControls: project?.narrativeControls,
+            projectId: chapter.projectId,
+            chapterId,
+          });
+
+          // Save metadata back to scene
+          set((s) => ({
+            chapters: s.chapters.map((c) => {
+              if (c.id !== chapterId) return c;
+              const scenes = (c.scenes || []).map((sc) =>
+                sc.id === sceneId ? { ...sc, emotionalMetadata: metadata } : sc
+              );
+              return { ...c, scenes };
+            }),
+          }));
+
+          // Persist to backend
+          const updated = get().chapters.find(c => c.id === chapterId);
+          if (updated) {
+            await api.updateChapter(chapterId, { scenes: updated.scenes });
+          }
+        } catch (e) {
+          console.error('[EmotionAnalysis] Auto-analysis failed for scene', sceneId, e);
+        }
+      }, 3000); // 3 second debounce for analysis (longer than save)
+    }
   },
 
   setChapterScenes: (chapterId, scenes) => {
@@ -582,6 +632,51 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   clearEditChat: () => set({ editChatMessages: [] }),
   setScenesGenerating: (generating) => set({ scenesGenerating: generating }),
   setEditChatLoading: (loading) => set({ editChatLoading: loading }),
+
+  // Emotion Analysis
+  emotionAnalyzing: false,
+  analyzeChapterEmotions: async (chapterId: string) => {
+    const chapter = get().chapters.find(c => c.id === chapterId);
+    if (!chapter?.scenes?.length) return;
+
+    const project = get().projects.find(p => p.id === chapter.projectId);
+    const scenes = chapter.scenes.filter(s => s.prose?.trim()).sort((a, b) => a.order - b.order);
+    if (scenes.length === 0) return;
+
+    set({ emotionAnalyzing: true });
+
+    try {
+      const { analyzeChapterScenes } = await import('../lib/emotion-analyzer');
+      const results = await analyzeChapterScenes(scenes, {
+        chapterEmotionalBeat: chapter.premise?.emotionalBeat,
+        narrativeControls: project?.narrativeControls,
+        projectId: chapter.projectId,
+        chapterId,
+      });
+
+      // Apply results to scenes
+      set((s) => ({
+        chapters: s.chapters.map((c) => {
+          if (c.id !== chapterId) return c;
+          const updatedScenes = (c.scenes || []).map((sc) => {
+            const metadata = results.get(sc.id);
+            return metadata ? { ...sc, emotionalMetadata: metadata } : sc;
+          });
+          return { ...c, scenes: updatedScenes };
+        }),
+      }));
+
+      // Persist
+      const updated = get().chapters.find(c => c.id === chapterId);
+      if (updated) {
+        await api.updateChapter(chapterId, { scenes: updated.scenes });
+      }
+    } catch (e) {
+      console.error('[EmotionAnalysis] Chapter analysis failed:', e);
+    } finally {
+      set({ emotionAnalyzing: false });
+    }
+  },
 
   // View
   currentView: 'home',

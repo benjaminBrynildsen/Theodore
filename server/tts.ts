@@ -14,6 +14,7 @@ export interface TTSSegment {
   text: string;
   speaker?: string; // character name for dialogue
   voice: OpenAIVoice;
+  tone?: string; // delivery instructions (e.g. "whispering, tense")
 }
 
 export interface VoiceMap {
@@ -28,6 +29,8 @@ export interface TTSRequest {
   model?: 'tts-1' | 'tts-1-hd' | 'gpt-4o-mini-tts';
   speed?: number; // 0.25 – 4.0
   multiVoice?: boolean; // if false, use narrator for everything
+  characterDescriptions?: Record<string, string>; // characterName → personality/speech description for voice acting
+  narratorStyle?: string; // e.g. "dramatic audiobook narrator with a rich baritone"
 }
 
 export interface TTSResult {
@@ -82,12 +85,14 @@ export function parseDialogue(prose: string, knownCharacters: string[]): TTSSegm
 
     const dialogueText = match[1];
     const speaker = attributeSpeaker(prose, match.index, match[0].length, knownCharacters);
+    const tone = detectTone(prose, match.index, match[0].length);
 
     segments.push({
       type: 'dialogue',
       text: dialogueText,
       speaker: speaker || undefined,
       voice: 'alloy', // will be overridden by voice map
+      tone,
     });
 
     lastIndex = match.index + match[0].length;
@@ -144,13 +149,92 @@ function attributeSpeaker(prose: string, matchStart: number, matchLength: number
   return null;
 }
 
+// ========== Tone Detection ==========
+
+interface ToneCue {
+  keywords: string[];
+  tone: string;
+}
+
+const TONE_CUES: ToneCue[] = [
+  // Delivery verbs (from dialogue tags)
+  { keywords: ['whispered', 'whisper', 'whispering'], tone: 'whispering, hushed, intimate' },
+  { keywords: ['shouted', 'shout', 'shouting', 'yelled', 'yell', 'yelling', 'bellowed', 'roared'], tone: 'shouting, loud, forceful' },
+  { keywords: ['screamed', 'scream', 'screaming', 'shrieked'], tone: 'screaming, panicked, shrill' },
+  { keywords: ['hissed', 'hiss', 'hissing'], tone: 'hissing, venomous, low and sharp' },
+  { keywords: ['growled', 'growl', 'snarled', 'snarl'], tone: 'growling, menacing, low and threatening' },
+  { keywords: ['snapped', 'snap', 'barked'], tone: 'snapping, curt, impatient' },
+  { keywords: ['murmured', 'murmur', 'mumbled', 'muttered'], tone: 'murmuring, soft, under the breath' },
+  { keywords: ['pleaded', 'begged', 'implored'], tone: 'pleading, desperate, emotional' },
+  { keywords: ['laughed', 'chuckled', 'giggled'], tone: 'laughing, amused, light' },
+  { keywords: ['cried', 'sobbed', 'wept'], tone: 'crying, tearful, broken voice' },
+  { keywords: ['stammered', 'stuttered', 'faltered'], tone: 'stammering, nervous, halting' },
+  { keywords: ['demanded', 'commanded', 'ordered'], tone: 'commanding, authoritative, firm' },
+  { keywords: ['sighed'], tone: 'sighing, weary, resigned' },
+  { keywords: ['gasped'], tone: 'gasping, breathless, shocked' },
+
+  // Adverb/adjective modifiers
+  { keywords: ['angrily', 'furious', 'furiously', 'rage', 'raging'], tone: 'angry, intense, heated' },
+  { keywords: ['sadly', 'sorrowful', 'mournful', 'grief'], tone: 'sad, heavy, mournful' },
+  { keywords: ['softly', 'gently', 'tenderly'], tone: 'soft, gentle, tender' },
+  { keywords: ['coldly', 'icily', 'flatly'], tone: 'cold, detached, emotionless' },
+  { keywords: ['excitedly', 'eagerly', 'breathlessly'], tone: 'excited, energetic, breathless' },
+  { keywords: ['nervously', 'anxiously', 'fearfully'], tone: 'nervous, anxious, shaky' },
+  { keywords: ['sarcastically', 'dryly', 'mockingly'], tone: 'sarcastic, dry, mocking' },
+  { keywords: ['quietly', 'barely audible', 'under .* breath'], tone: 'very quiet, barely above a whisper' },
+
+  // Context clues
+  { keywords: ['tears streaming', 'eyes welling', 'voice breaking', 'voice cracked'], tone: 'emotional, voice cracking, holding back tears' },
+  { keywords: ['through gritted teeth', 'jaw clenched', 'fists clenched'], tone: 'tense, restrained fury, speaking through clenched teeth' },
+  { keywords: ['voice trembling', 'hands shaking', 'trembled'], tone: 'trembling, fearful, unsteady' },
+];
+
+/**
+ * Detects delivery tone from the prose context surrounding a dialogue segment.
+ * Looks at dialogue tags and narrative beats nearby.
+ */
+function detectTone(prose: string, matchStart: number, matchLength: number): string | undefined {
+  const windowBefore = prose.slice(Math.max(0, matchStart - 150), matchStart).toLowerCase();
+  const windowAfter = prose.slice(matchStart + matchLength, matchStart + matchLength + 150).toLowerCase();
+  const context = windowBefore + ' ' + windowAfter;
+
+  const matched: string[] = [];
+  for (const cue of TONE_CUES) {
+    for (const kw of cue.keywords) {
+      if (kw.includes('.*') ? new RegExp(kw, 'i').test(context) : context.includes(kw)) {
+        matched.push(cue.tone);
+        break; // one keyword per cue is enough
+      }
+    }
+  }
+
+  if (matched.length === 0) return undefined;
+  // Deduplicate and take the most specific (first 2 matches)
+  const unique = [...new Set(matched)];
+  return unique.slice(0, 2).join('; ');
+}
+
+/**
+ * Detects a general narration tone from the text content itself.
+ * Used for narration segments to set mood.
+ */
+function detectNarrationTone(text: string): string | undefined {
+  const lower = text.toLowerCase();
+  if (/\b(battle|sword|blood|clash|explosion|roar)\b/.test(lower)) return 'dramatic, intense, action-paced';
+  if (/\b(crept|silence|shadow|darkness|still|eerie|quiet)\b/.test(lower)) return 'hushed, suspenseful, atmospheric';
+  if (/\b(tears|grief|loss|mourn|funeral|farewell)\b/.test(lower)) return 'somber, reflective, measured pace';
+  if (/\b(joy|celebration|laughter|smile|bright|warm sun)\b/.test(lower)) return 'warm, uplifting, gentle energy';
+  return undefined;
+}
+
 /**
  * Applies voice assignments to parsed segments.
  */
 export function applyVoiceMap(segments: TTSSegment[], voiceMap: VoiceMap): TTSSegment[] {
   return segments.map(seg => {
     if (seg.type === 'narration') {
-      return { ...seg, voice: voiceMap.narrator };
+      const tone = seg.tone || detectNarrationTone(seg.text);
+      return { ...seg, voice: voiceMap.narrator, tone };
     }
     if (seg.type === 'dialogue' && seg.speaker) {
       // Look for character name match (case-insensitive, partial match)
@@ -174,9 +258,22 @@ function ensureAudioDir() {
   }
 }
 
-async function callOpenAITTS(text: string, voice: OpenAIVoice, model: string, speed: number): Promise<Buffer> {
+async function callOpenAITTS(text: string, voice: OpenAIVoice, model: string, speed: number, instructions?: string): Promise<Buffer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
+
+  const body: Record<string, any> = {
+    model,
+    input: text,
+    voice,
+    response_format: 'mp3',
+    speed,
+  };
+
+  // gpt-4o-mini-tts supports the 'instructions' param for tone/emotion guidance
+  if (instructions && model === 'gpt-4o-mini-tts') {
+    body.instructions = instructions;
+  }
 
   const response = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',
@@ -184,13 +281,7 @@ async function callOpenAITTS(text: string, voice: OpenAIVoice, model: string, sp
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      input: text,
-      voice,
-      response_format: 'mp3',
-      speed,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -215,6 +306,35 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   const model = req.model || 'gpt-4o-mini-tts';
   const speed = req.speed || 1.0;
   const voiceMap = req.voiceMap;
+  const charDescs = req.characterDescriptions || {};
+  const narratorStyle = req.narratorStyle || 'Professional audiobook narrator. Read with natural pacing, clear enunciation, and appropriate emotional weight for the scene.';
+
+  /**
+   * Build instructions string for a TTS segment.
+   * Combines: base role, character personality, and detected tone.
+   */
+  function buildInstructions(seg: TTSSegment): string {
+    const parts: string[] = [];
+
+    if (seg.type === 'narration') {
+      parts.push(narratorStyle);
+    } else if (seg.type === 'dialogue' && seg.speaker) {
+      const charDesc = charDescs[seg.speaker];
+      if (charDesc) {
+        parts.push(`Voice acting as ${seg.speaker}. ${charDesc}`);
+      } else {
+        parts.push(`Voice acting as ${seg.speaker}. Speak in character with distinct personality.`);
+      }
+    } else {
+      parts.push(narratorStyle);
+    }
+
+    if (seg.tone) {
+      parts.push(`Delivery: ${seg.tone}.`);
+    }
+
+    return parts.join(' ');
+  }
 
   let audioBuffers: Buffer[];
 
@@ -223,19 +343,28 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     let segments = parseDialogue(req.prose, req.knownCharacters);
     segments = applyVoiceMap(segments, voiceMap);
 
-    // Merge consecutive segments with the same voice to reduce API calls
+    // Log voice routing for debugging
+    const dialogueSegs = segments.filter(s => s.type === 'dialogue');
+    const uniqueVoices = [...new Set(segments.map(s => s.voice))];
+    console.log(`[TTS] Multi-voice: ${segments.length} segments, ${dialogueSegs.length} dialogue, voices: ${uniqueVoices.join(', ')}`);
+    for (const seg of dialogueSegs.slice(0, 5)) {
+      console.log(`  [TTS] "${seg.text.slice(0, 50)}..." → speaker: ${seg.speaker || 'unknown'}, voice: ${seg.voice}, tone: ${seg.tone || 'neutral'}`);
+    }
+
+    // Merge consecutive segments with the same voice (preserve tone from first segment)
     const merged = mergeConsecutiveSegments(segments);
 
-    // Generate audio for each segment
+    // Generate audio for each segment with instructions
     audioBuffers = [];
     for (const seg of merged) {
       if (!seg.text.trim()) continue;
-      const buf = await callOpenAITTS(seg.text, seg.voice, model, speed);
+      const instructions = buildInstructions(seg);
+      const buf = await callOpenAITTS(seg.text, seg.voice, model, speed, instructions);
       audioBuffers.push(buf);
     }
   } else {
-    // Single voice — narrator reads everything
-    const buf = await callOpenAITTS(req.prose, voiceMap.narrator, model, speed);
+    // Single voice — narrator reads everything with narrator style
+    const buf = await callOpenAITTS(req.prose, voiceMap.narrator, model, speed, narratorStyle);
     audioBuffers = [buf];
   }
 
@@ -277,8 +406,8 @@ function mergeConsecutiveSegments(segments: TTSSegment[]): TTSSegment[] {
     const prev = merged[merged.length - 1];
     const curr = segments[i];
 
-    if (prev.voice === curr.voice) {
-      // Merge: add a space between narration, or appropriate separator
+    // Only merge if same voice AND same tone (different tones need different instructions)
+    if (prev.voice === curr.voice && prev.tone === curr.tone) {
       prev.text = prev.text + ' ' + curr.text;
     } else {
       merged.push({ ...curr });

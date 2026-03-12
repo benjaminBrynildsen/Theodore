@@ -1,11 +1,13 @@
-import { useState } from 'react';
-import { Shield, GitBranch, Sparkles, AlertTriangle, MessageSquare, Feather, Headphones, FileOutput, Sliders } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Shield, GitBranch, Sparkles, AlertTriangle, MessageSquare, Feather, Mic, FileOutput, Sliders, Disc3 } from 'lucide-react';
 import { useStore } from '../../store';
 import { useSettingsStore } from '../../store/settings';
 import { Slider } from '../ui/Slider';
 import { StoryBibleExport } from '../features/StoryBibleExport';
 import { ManuscriptFormatter } from '../features/ManuscriptFormatter';
 import { AudiobookPanel } from '../features/AudiobookPanel';
+import { NowPlayingPanel } from '../features/NowPlayingPanel';
+import { useAudioStore } from '../../store/audio';
 import { cn } from '../../lib/utils';
 import type { Chapter } from '../../types';
 
@@ -18,7 +20,7 @@ const AI_AGENTS = [
   { id: 'redteam', label: 'Red Team', desc: 'Plot holes & weak points', icon: AlertTriangle },
 ];
 
-type SidebarTab = 'controls' | 'audio' | 'export';
+type SidebarTab = 'playing' | 'controls' | 'audio' | 'export';
 
 function cleanSnippet(text: string, fallback: string) {
   const normalized = text.replace(/\s+/g, ' ').trim();
@@ -37,34 +39,35 @@ function firstSentence(text: string, fallback: string) {
 function buildChapterStructure(chapter: Chapter | null) {
   if (!chapter) return null;
 
-  const paragraphs = chapter.prose
+  const paragraphs = (chapter.prose || '')
     .split(/\n+/)
     .map((p) => p.trim())
     .filter(Boolean);
 
-  const opening = paragraphs[0] || firstSentence(chapter.premise.purpose, 'Open with a clear setup and tension source.');
+  const premise = chapter.premise;
+  const opening = paragraphs[0] || firstSentence(premise?.purpose, 'Open with a clear setup and tension source.');
   const middle =
     paragraphs[Math.floor(paragraphs.length / 2)] ||
-    firstSentence(chapter.premise.emotionalBeat || chapter.premise.changes, 'Escalate conflict and emotional pressure.');
+    firstSentence(premise?.emotionalBeat || premise?.changes, 'Escalate conflict and emotional pressure.');
   const ending =
     paragraphs[paragraphs.length - 1] ||
-    firstSentence(chapter.premise.changes, 'Land on a consequence or turn that drives the next chapter.');
+    firstSentence(premise?.changes, 'Land on a consequence or turn that drives the next chapter.');
 
   return [
     {
       label: 'Beginning',
       summary: cleanSnippet(opening, 'Set POV, place, and chapter hook.'),
-      intent: firstSentence(chapter.premise.purpose, 'Establish the chapter objective and tone.'),
+      intent: firstSentence(premise?.purpose, 'Establish the chapter objective and tone.'),
     },
     {
       label: 'Middle',
       summary: cleanSnippet(middle, 'Increase stakes through conflict, revelation, or reversal.'),
-      intent: firstSentence(chapter.premise.emotionalBeat || chapter.premise.changes, 'Complicate the goal and force choices.'),
+      intent: firstSentence(premise?.emotionalBeat || premise?.changes, 'Complicate the goal and force choices.'),
     },
     {
       label: 'Ending',
       summary: cleanSnippet(ending, 'Resolve this beat and create momentum into the next chapter.'),
-      intent: firstSentence(chapter.premise.changes, 'Show what changed by chapter end.'),
+      intent: firstSentence(premise?.changes, 'Show what changed by chapter end.'),
     },
   ];
 }
@@ -72,7 +75,8 @@ function buildChapterStructure(chapter: Chapter | null) {
 export function RightSidebar() {
   const { rightSidebarOpen, getActiveProject, updateProject, activeChapterId, chapters } = useStore();
   const { settings } = useSettingsStore();
-  const [activeTab, setActiveTab] = useState<SidebarTab>('controls');
+  const { miniPlayerVisible: hasAudioActivity, setSidebarPlayerVisible } = useAudioStore();
+  const [activeTab, setActiveTab] = useState<SidebarTab>('playing');
   const [agentStates, setAgentStates] = useState<Record<string, boolean>>({
     architect: true,
     lorekeeper: true,
@@ -85,11 +89,19 @@ export function RightSidebar() {
   const activeChapter = activeChapterId ? chapters.find((c) => c.id === activeChapterId) || null : null;
   const chapterStructure = buildChapterStructure(activeChapter);
 
+  // Tell the audio store whether the sidebar player is showing
+  const sidebarPlayerShowing = rightSidebarOpen && !!project && activeTab === 'playing';
+  useEffect(() => {
+    setSidebarPlayerVisible(sidebarPlayerShowing);
+    return () => setSidebarPlayerVisible(false);
+  }, [sidebarPlayerShowing, setSidebarPlayerVisible]);
+
   if (!rightSidebarOpen || !project) return null;
 
   const tabs = [
-    { id: 'controls' as const, icon: Sliders, label: 'Controls' },
-    { id: 'audio' as const, icon: Headphones, label: 'Audio' },
+    { id: 'playing' as const, icon: Disc3, label: 'Playing', pulse: hasAudioActivity },
+    { id: 'controls' as const, icon: Sliders, label: 'Settings' },
+    { id: 'audio' as const, icon: Mic, label: 'Narrator' },
     { id: 'export' as const, icon: FileOutput, label: 'Export' },
   ];
 
@@ -109,19 +121,24 @@ export function RightSidebar() {
   };
 
   return (
-    <aside className="w-72 glass-subtle flex flex-col animate-slide-in-right border-l-0 min-h-0">
-      <div className="flex border-b border-white/20 px-1 pt-1">
-        {tabs.map(({ id, icon: Icon, label }) => (
+    <aside className={cn(
+      'h-full flex flex-col animate-slide-in-right border-l-0 min-h-0 w-80 glass-subtle'
+    )}>
+      <div className="flex px-1 pt-1 border-b border-black/[0.06]">
+        {tabs.map(({ id, icon: Icon, label, pulse }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}
             className={cn(
-              'flex-1 flex flex-col items-center gap-0.5 py-2 rounded-t-lg text-[9px] transition-all',
-              activeTab === id ? 'text-text-primary bg-white/20' : 'text-text-tertiary hover:text-text-secondary'
+              'flex-1 flex flex-col items-center gap-0.5 py-2 rounded-t-lg text-[9px] transition-all relative',
+              id === activeTab ? 'text-text-primary bg-white/20' : 'text-text-tertiary hover:text-text-secondary'
             )}
           >
-            <Icon size={14} />
+            <Icon size={14} className={cn(id === 'playing' && hasAudioActivity && 'animate-spin-slow')} />
             {label}
+            {pulse && activeTab !== id && (
+              <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-text-primary" />
+            )}
           </button>
         ))}
       </div>
@@ -129,6 +146,12 @@ export function RightSidebar() {
       {activeTab === 'audio' && (
         <div className="flex-1 overflow-y-auto min-h-0">
           <AudiobookPanel />
+        </div>
+      )}
+
+      {activeTab === 'playing' && (
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <NowPlayingPanel />
         </div>
       )}
 

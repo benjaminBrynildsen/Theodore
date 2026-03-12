@@ -63,9 +63,11 @@ export function NewProjectModal({ onClose }: Props) {
     const projectId = generateId();
     const now = new Date().toISOString();
     
+    const { generateBookCover } = await import('../../lib/cover-generator');
+    const projectTitle = title || 'Untitled';
     const project: Project = {
       id: projectId,
-      title: title || 'Untitled',
+      title: projectTitle,
       type: 'book',
       subtype,
       targetLength,
@@ -74,6 +76,7 @@ export function NewProjectModal({ onClose }: Props) {
       ageRange: subtype === 'childrens-book' ? ageRange : undefined,
       narrativeControls,
       storyStructureId,
+      coverUrl: generateBookCover(projectTitle),
       status: 'active',
       createdAt: now,
       updatedAt: now,

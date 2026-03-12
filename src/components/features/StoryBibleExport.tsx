@@ -106,8 +106,8 @@ export function StoryBibleExport() {
       lines.push('## Chapter Outline\n');
       for (const ch of chapters) {
         lines.push(`### Chapter ${ch.number}: ${ch.title}`);
-        if (ch.premise.purpose) lines.push(`**Purpose:** ${ch.premise.purpose}`);
-        if (ch.premise.emotionalBeat) lines.push(`**Beat:** ${ch.premise.emotionalBeat}`);
+        if (ch.premise?.purpose) lines.push(`**Purpose:** ${ch.premise.purpose}`);
+        if (ch.premise?.emotionalBeat) lines.push(`**Beat:** ${ch.premise.emotionalBeat}`);
         lines.push(`**Status:** ${ch.status} · ${ch.prose ? ch.prose.split(/\s+/).length + ' words' : 'unwritten'}`);
         lines.push('');
       }

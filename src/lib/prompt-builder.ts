@@ -37,8 +37,8 @@ export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
   // Chapter context
   sections.push(`\n=== CHAPTER CONTEXT ===`);
   sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
-  if (chapter.premise.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
-  if (chapter.premise.emotionalBeat) sections.push(`Beat: ${chapter.premise.emotionalBeat}`);
+  if (chapter.premise?.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
+  if (chapter.premise?.emotionalBeat) sections.push(`Beat: ${chapter.premise.emotionalBeat}`);
 
   // Recent chat history
   if (chatHistory.length > 0) {
@@ -246,7 +246,7 @@ function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
   if (entries.length === 0) return '';
 
   // Smart filtering: only include canon relevant to this chapter
-  const chapterCharNames = new Set(chapter.premise.characters.map(n => n.toLowerCase()));
+  const chapterCharNames = new Set((chapter.premise?.characters || []).map(n => n.toLowerCase()));
   
   const characters = entries.filter(e => e.type === 'character') as CharacterEntry[];
   const locations = entries.filter(e => e.type === 'location') as LocationEntry[];
@@ -268,12 +268,12 @@ function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
 
   // Relevant locations: mentioned in chapter constraints, purpose, or changes
   const chapterText = [
-    chapter.premise.purpose,
-    chapter.premise.changes,
-    chapter.premise.emotionalBeat,
-    ...chapter.premise.constraints,
+    chapter.premise?.purpose,
+    chapter.premise?.changes,
+    chapter.premise?.emotionalBeat,
+    ...(chapter.premise?.constraints || []),
     ...(chapter.scenes || []).map(s => s.summary),
-  ].join(' ').toLowerCase();
+  ].filter(Boolean).join(' ').toLowerCase();
 
   const relevantLocations = locations.filter(l =>
     chapterText.includes(l.name.toLowerCase()) ||
@@ -386,9 +386,9 @@ function buildOutlineContext(chapters: Chapter[], currentChapter: Chapter): stri
     if (isNearby) {
       // Full detail for prev/current/next
       lines.push(`${marker}${status} Ch ${ch.number}: ${ch.title}`);
-      if (ch.premise.purpose) lines.push(`    Purpose: ${ch.premise.purpose}`);
-      if (ch.premise.changes) lines.push(`    Changes: ${ch.premise.changes}`);
-      if (ch.premise.emotionalBeat) lines.push(`    Beat: ${ch.premise.emotionalBeat}`);
+      if (ch.premise?.purpose) lines.push(`    Purpose: ${ch.premise.purpose}`);
+      if (ch.premise?.changes) lines.push(`    Changes: ${ch.premise.changes}`);
+      if (ch.premise?.emotionalBeat) lines.push(`    Beat: ${ch.premise.emotionalBeat}`);
     } else {
       // Just title for distant chapters (structural awareness without token cost)
       lines.push(`${marker}${status} Ch ${ch.number}: ${ch.title}`);
@@ -491,12 +491,12 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
   sections.push('\n=== CHAPTER TO WRITE ===');
   sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
 
-  if (chapter.premise.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
-  if (chapter.premise.changes) sections.push(`What changes: ${chapter.premise.changes}`);
-  if (chapter.premise.emotionalBeat) sections.push(`Emotional beat: ${chapter.premise.emotionalBeat}`);
-  if (chapter.premise.characters.length) sections.push(`Characters present: ${chapter.premise.characters.join(', ')}`);
-  if (chapter.premise.constraints.length) sections.push(`Constraints:\n${chapter.premise.constraints.map(c => `- ${c}`).join('\n')}`);
-  if (chapter.premise.setupPayoff.length) {
+  if (chapter.premise?.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
+  if (chapter.premise?.changes) sections.push(`What changes: ${chapter.premise.changes}`);
+  if (chapter.premise?.emotionalBeat) sections.push(`Emotional beat: ${chapter.premise.emotionalBeat}`);
+  if (chapter.premise?.characters?.length) sections.push(`Characters present: ${chapter.premise.characters.join(', ')}`);
+  if (chapter.premise?.constraints?.length) sections.push(`Constraints:\n${chapter.premise.constraints.map(c => `- ${c}`).join('\n')}`);
+  if (chapter.premise?.setupPayoff?.length) {
     sections.push('Setup/Payoff:');
     for (const sp of chapter.premise.setupPayoff) {
       sections.push(`- Setup: ${sp.setup} → Payoff: ${sp.payoff}`);
@@ -535,10 +535,10 @@ export function buildSceneDecompositionPrompt(ctx: PromptContext): string {
 
   sections.push(`\n=== CHAPTER ===`);
   sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
-  if (chapter.premise.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
-  if (chapter.premise.changes) sections.push(`What changes: ${chapter.premise.changes}`);
-  if (chapter.premise.emotionalBeat) sections.push(`Emotional beat: ${chapter.premise.emotionalBeat}`);
-  if (chapter.premise.characters.length) sections.push(`Characters: ${chapter.premise.characters.join(', ')}`);
+  if (chapter.premise?.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
+  if (chapter.premise?.changes) sections.push(`What changes: ${chapter.premise.changes}`);
+  if (chapter.premise?.emotionalBeat) sections.push(`Emotional beat: ${chapter.premise.emotionalBeat}`);
+  if (chapter.premise?.characters?.length) sections.push(`Characters: ${chapter.premise.characters.join(', ')}`);
 
   if (chapter.prose?.trim()) {
     sections.push(`\n=== EXISTING PROSE (use this to inform scene boundaries) ===`);
@@ -621,7 +621,7 @@ export function buildSceneEditPrompt(
   // Chapter context
   sections.push(`\n=== CHAPTER CONTEXT ===`);
   sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
-  if (chapter.premise.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
+  if (chapter.premise?.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
 
   // Current scene
   sections.push(`\n=== CURRENT SCENE ===`);
@@ -683,7 +683,7 @@ Changes made:
 ${changes.map(c => `- ${c.field}: "${c.oldValue}" → "${c.newValue}"`).join('\n')}
 
 Chapters that reference this entry or may be affected:
-${chapters.map(ch => `Ch ${ch.number}: ${ch.title} — ${ch.premise.purpose || 'no premise'}`).join('\n')}
+${chapters.map(ch => `Ch ${ch.number}: ${ch.title} — ${ch.premise?.purpose || 'no premise'}`).join('\n')}
 
 For each issue found, return:
 - severity: critical | error | warning | info
@@ -748,7 +748,7 @@ This book uses rhyming text. Write with consistent meter and rhyme scheme. Keep 
     for (const ch of allChapters) {
       const marker = ch.id === chapter.id ? '→ ' : '  ';
       const status = ch.prose ? '✓' : '○';
-      sections.push(`${marker}${status} Page ${ch.number}: ${ch.title}${ch.premise.purpose ? ' — ' + ch.premise.purpose : ''}`);
+      sections.push(`${marker}${status} Page ${ch.number}: ${ch.title}${ch.premise?.purpose ? ' — ' + ch.premise.purpose : ''}`);
     }
   }
 
@@ -760,9 +760,9 @@ This book uses rhyming text. Write with consistent meter and rhyme scheme. Keep 
   // Current page instructions
   sections.push(`\n=== PAGE TO WRITE ===`);
   sections.push(`Page ${chapter.number}: "${chapter.title}"`);
-  if (chapter.premise.purpose) sections.push(`What happens: ${chapter.premise.purpose}`);
-  if (chapter.premise.emotionalBeat) sections.push(`Feeling: ${chapter.premise.emotionalBeat}`);
-  if (chapter.premise.characters.length) sections.push(`Characters: ${chapter.premise.characters.join(', ')}`);
+  if (chapter.premise?.purpose) sections.push(`What happens: ${chapter.premise.purpose}`);
+  if (chapter.premise?.emotionalBeat) sections.push(`Feeling: ${chapter.premise.emotionalBeat}`);
+  if (chapter.premise?.characters?.length) sections.push(`Characters: ${chapter.premise.characters.join(', ')}`);
 
   if (chapter.illustrationNotes) {
     sections.push(`Illustration note: ${chapter.illustrationNotes}`);

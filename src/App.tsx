@@ -238,7 +238,7 @@ export default function App() {
           </div>
         )}
         
-        {showWorkspaceChrome && <div className="hidden sm:block"><RightSidebar /></div>}
+        {showWorkspaceChrome && <div className="hidden sm:block h-full"><RightSidebar /></div>}
       </div>
       
       {showWorkspaceChrome && <AudioPlayerBar />}

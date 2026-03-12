@@ -23,10 +23,25 @@ export const OPENAI_VOICES: VoiceInfo[] = [
   { id: 'shimmer', name: 'Shimmer', desc: 'Bright & optimistic', gender: 'female', tone: 'bright' },
 ];
 
+export interface AudioVersion {
+  version: number;
+  audioUrl: string;
+  sceneAudioUrls?: string[];
+  durationEstimate: number;
+  generatedAt: string;
+  voiceConfig?: {
+    narratorVoice: string;
+    model: string;
+    speed: number;
+  };
+}
+
 export interface ChapterAudio {
   chapterId: string;
   audioUrl: string;
-  sceneAudioUrls?: string[]; // for scene-by-scene playback
+  sceneAudioUrls?: string[];
   durationEstimate: number;
   generatedAt: string;
+  activeVersion: number;
+  versions: AudioVersion[];
 }

@@ -737,6 +737,7 @@ Rules for JSON markers:
       const now = new Date().toISOString();
 
       const isChildrens = bookType === 'childrens-book';
+      const { generateBookCover } = await import('../../lib/cover-generator');
       const project: Project = {
         id: projectId,
         title: finalSettings.title,
@@ -753,6 +754,7 @@ Rules for JSON markers:
           hasRhyme: false,
         }) : undefined,
         narrativeControls: finalSettings.narrativeControls,
+        coverUrl: generateBookCover(finalSettings.title),
         status: 'active',
         createdAt: now,
         updatedAt: now,

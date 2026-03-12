@@ -80,6 +80,8 @@ export const api = {
     prose: string;
     narratorVoice: string;
     characterVoices: Record<string, string>;
+    characterDescriptions?: Record<string, string>;
+    narratorStyle?: string;
     model?: string;
     speed?: number;
     multiVoice?: boolean;
@@ -98,6 +100,22 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ voice, text }),
     }),
+
+  // ========== Music / Suno ==========
+  musicStatus: () => request<{ available: boolean }>('/music/status'),
+  musicGenerate: (data: {
+    sceneId: string;
+    prompt: string;
+    genre?: string;
+    durationHint?: number;
+  }) => request<{
+    audioUrl: string;
+    title: string;
+    durationSeconds: number;
+    creditsUsed: number;
+    creditsRemaining: number;
+    sunoJobId?: string;
+  }>('/music/generate', { method: 'POST', body: JSON.stringify(data) }),
 
   // ========== Billing ==========
   billingPlans: () => request<any>('/billing/plans'),

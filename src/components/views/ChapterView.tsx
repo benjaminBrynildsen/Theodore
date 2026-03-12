@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
@@ -9,6 +9,7 @@ import type { ProseSelection } from '../../types';
 import { TokenBudget } from '../credits/TokenBudget';
 import { DictationMode } from '../features/DictationMode';
 import { ProseXRay } from '../features/ProseXRay';
+import { EmotionalXRay } from '../features/EmotionalXRay';
 import { SmartResearch } from '../features/SmartResearch';
 import { VibeEditor } from '../editmode/VibeEditor';
 import { generateStream } from '../../lib/generate';
@@ -27,6 +28,7 @@ export function ChapterView({ chapter }: Props) {
   const [showBudget, setShowBudget] = useState(false);
   const [showDictation, setShowDictation] = useState(false);
   const [showXRay, setShowXRay] = useState(false);
+  const [showEmotionXRay, setShowEmotionXRay] = useState(false);
   const [showResearch, setShowResearch] = useState(false);
   const [wordCount, setWordCount] = useState(0);
   const [generating, setGenerating] = useState(false);
@@ -642,6 +644,17 @@ export function ChapterView({ chapter }: Props) {
             </button>
           )}
 
+          {/* Emotional X-Ray — hidden on mobile */}
+          {chapter.scenes && chapter.scenes.length > 0 && (
+            <button
+              onClick={() => setShowEmotionXRay(!showEmotionXRay)}
+              className={cn('hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showEmotionXRay && 'bg-purple-100 text-purple-600')}
+              title="Emotional X-Ray"
+            >
+              <Activity size={15} />
+            </button>
+          )}
+
           {/* Research — hidden on mobile */}
           <button
             onClick={() => setShowResearch(!showResearch)}
@@ -706,11 +719,11 @@ export function ChapterView({ chapter }: Props) {
           />
 
           {/* Chapter number + premise hint */}
-          {!chapter.prose && chapter.premise.purpose && (
+          {!chapter.prose && chapter.premise?.purpose && (
             <div className="mb-8 glass-pill rounded-xl p-4 animate-fade-in">
               <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-1.5">Premise</div>
               <p className="text-sm text-text-secondary leading-relaxed">{chapter.premise.purpose}</p>
-              {chapter.premise.emotionalBeat && (
+              {chapter.premise?.emotionalBeat && (
                 <p className="text-xs text-text-tertiary mt-2 italic">Beat: {chapter.premise.emotionalBeat}</p>
               )}
             </div>
@@ -1218,6 +1231,9 @@ export function ChapterView({ chapter }: Props) {
 
       {/* Prose X-Ray */}
       {showXRay && chapter.prose && <ProseXRay chapterId={chapter.id} />}
+
+      {/* Emotional X-Ray */}
+      {showEmotionXRay && <EmotionalXRay chapterId={chapter.id} />}
 
       {/* Smart Research */}
       {showResearch && <SmartResearch chapterId={chapter.id} />}

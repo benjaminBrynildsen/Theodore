@@ -1354,10 +1354,10 @@ app.get('/api/tts/voices', (_req, res) => {
 
 app.post('/api/tts/generate', async (req, res) => {
   try {
-    const auth = getAuth(req);
+    const auth = await getAuth(req);
     if (!auth) return res.status(401).json({ error: 'Not authenticated' });
 
-    const { chapterId, prose, narratorVoice, characterVoices, model, speed, multiVoice } = req.body;
+    const { chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle, model, speed, multiVoice } = req.body;
     if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
 
     // Credit check
@@ -1373,6 +1373,7 @@ app.post('/api/tts/generate', async (req, res) => {
 
     // Get known character names for dialogue attribution
     const knownCharacters = Object.keys(characterVoices || {});
+    console.log(`[TTS] Generating for ${chapterId}, multiVoice: ${multiVoice}, narrator: ${narratorVoice}, characters: ${knownCharacters.length > 0 ? knownCharacters.join(', ') : 'none'}`);
 
     const result = await generateChapterAudio({
       chapterId,
@@ -1382,6 +1383,8 @@ app.post('/api/tts/generate', async (req, res) => {
       speed: speed || 1.0,
       multiVoice: multiVoice ?? true,
       knownCharacters,
+      characterDescriptions: characterDescriptions || {},
+      narratorStyle: narratorStyle || undefined,
     });
 
     // Deduct credits
@@ -1430,6 +1433,56 @@ app.post('/api/tts/preview', async (req, res) => {
   } catch (e: any) {
     console.error('TTS preview error:', e);
     res.status(500).json({ error: e.message || 'Preview failed' });
+  }
+});
+
+// ========== Music Generation (Suno) ==========
+
+import { generateSceneMusic, isMusicAvailable } from './suno.js';
+
+app.get('/api/music/status', async (_req, res) => {
+  res.json({ available: isMusicAvailable() });
+});
+
+app.post('/api/music/generate', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth) return res.status(401).json({ error: 'Not authenticated' });
+
+    const { sceneId, prompt, genre, durationHint } = req.body;
+    if (!sceneId || !prompt) return res.status(400).json({ error: 'sceneId and prompt are required' });
+
+    if (!isMusicAvailable()) {
+      return res.status(503).json({ error: 'Music generation not configured. Set SUNO_API_KEY or MUSIC_API_ENDPOINT.' });
+    }
+
+    // Credit check
+    const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.creditsRemaining < 3) return res.status(402).json({ error: 'Insufficient credits for music generation' });
+
+    const result = await generateSceneMusic({ sceneId, prompt, genre, durationHint });
+
+    // Deduct credits
+    await db.update(users).set({
+      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+    }).where(eq(users.id, auth.user.id));
+
+    await db.insert(creditTransactions).values({
+      userId: auth.user.id,
+      action: 'generate-music',
+      creditsUsed: result.creditsUsed,
+      model: 'suno',
+      metadata: { sceneId, genre, durationSeconds: result.durationSeconds },
+    });
+
+    res.json({
+      ...result,
+      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+    });
+  } catch (e: any) {
+    console.error('Music generation error:', e);
+    res.status(500).json({ error: e.message || 'Music generation failed' });
   }
 });
 

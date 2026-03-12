@@ -79,7 +79,7 @@ export function buildScaffoldPrompt(
   if (existingChapters.length > 0) {
     sections.push(`\n=== EXISTING CHAPTERS (keep these, fill gaps) ===`);
     for (const ch of existingChapters) {
-      sections.push(`Ch ${ch.number}: "${ch.title}" — ${ch.premise.purpose || 'no premise'} ${ch.prose ? '(has prose)' : '(empty)'}`);
+      sections.push(`Ch ${ch.number}: "${ch.title}" — ${ch.premise?.purpose || 'no premise'} ${ch.prose ? '(has prose)' : '(empty)'}`);
     }
     sections.push(`\nKeep existing chapters in place. Generate new chapters to fill the outline to ${chapterCount} total. Adjust numbering as needed.`);
   }
