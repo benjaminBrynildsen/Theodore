@@ -10,6 +10,7 @@ import { TokenBudget } from '../credits/TokenBudget';
 import { DictationMode } from '../features/DictationMode';
 import { ProseXRay } from '../features/ProseXRay';
 import { EmotionalXRay } from '../features/EmotionalXRay';
+import { SceneSFXBadges } from '../features/SceneSFXBadges';
 import { SmartResearch } from '../features/SmartResearch';
 import { VibeEditor } from '../editmode/VibeEditor';
 import { generateStream } from '../../lib/generate';
@@ -1058,12 +1059,19 @@ export function ChapterView({ chapter }: Props) {
                               </div>
                             )}
                             {scene.prose ? (
-                              <div className={cn(
-                                'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
-                                isFocusMode ? 'text-xl' : 'text-lg',
-                                isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
-                              )}>
-                                {scene.prose}
+                              <div>
+                                <div className={cn(
+                                  'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
+                                  isFocusMode ? 'text-xl' : 'text-lg',
+                                  isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
+                                )}>
+                                  {scene.prose}
+                                </div>
+                                <SceneSFXBadges
+                                  chapterId={chapter.id}
+                                  sceneId={scene.id}
+                                  sfx={scene.sfx || []}
+                                />
                               </div>
                             ) : (
                               <div className={cn('py-6 flex items-center gap-3 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>

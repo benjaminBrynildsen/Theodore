@@ -83,6 +83,15 @@ export const AGE_RANGE_DEFAULTS: Record<AgeRange, { wordsPerSpread: number; spre
 
 export type SceneStatus = 'outline' | 'drafted' | 'edited';
 
+export interface SceneSFX {
+  id: string;
+  prompt: string;         // e.g. "rain on a tin roof", "busy cafe ambiance"
+  audioUrl?: string;       // cached URL after generation
+  position: 'start' | 'end' | 'background'; // when to play relative to scene
+  enabled: boolean;        // user can toggle off
+  durationSeconds?: number;
+}
+
 export interface Scene {
   id: string;
   title: string;
@@ -91,6 +100,7 @@ export interface Scene {
   order: number;
   status: SceneStatus;
   emotionalMetadata?: import('./music').SceneEmotionalMetadata;
+  sfx?: SceneSFX[];
 }
 
 export interface EditChatMessage {

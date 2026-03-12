@@ -24,8 +24,10 @@ import {
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
 import { generateImage, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
-import { generateChapterAudio, generateVoicePreview, OPENAI_VOICES } from './tts.js';
-import type { OpenAIVoice } from './tts.js';
+import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, getVoicesWithPreviews } from './tts.js';
+import type { ElevenLabsVoice } from './tts.js';
+// Legacy alias
+type OpenAIVoice = ElevenLabsVoice;
 import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs } from './billing.js';
 
 const app = express();
@@ -1348,8 +1350,13 @@ app.post('/api/generate/image', async (req, res) => {
 
 // ========== TTS / Audiobook Generation ==========
 
-app.get('/api/tts/voices', (_req, res) => {
-  res.json({ voices: OPENAI_VOICES });
+app.get('/api/tts/voices', async (_req, res) => {
+  try {
+    const voices = await getVoicesWithPreviews();
+    res.json({ voices });
+  } catch {
+    res.json({ voices: ELEVENLABS_VOICES });
+  }
 });
 
 app.post('/api/tts/generate', async (req, res) => {
@@ -1367,8 +1374,8 @@ app.post('/api/tts/generate', async (req, res) => {
 
     // Build voice map
     const voiceMap = {
-      narrator: (narratorVoice || 'alloy') as OpenAIVoice,
-      characters: (characterVoices || {}) as Record<string, OpenAIVoice>,
+      narrator: (narratorVoice || 'XrExE9yKIg1WjnnlVkGX') as ElevenLabsVoice, // default: Matilda
+      characters: (characterVoices || {}) as Record<string, ElevenLabsVoice>,
     };
 
     // Get known character names for dialogue attribution
@@ -1379,7 +1386,7 @@ app.post('/api/tts/generate', async (req, res) => {
       chapterId,
       prose,
       voiceMap,
-      model: model || 'gpt-4o-mini-tts',
+      model: model || 'eleven_multilingual_v2',
       speed: speed || 1.0,
       multiVoice: multiVoice ?? true,
       knownCharacters,
@@ -1397,7 +1404,7 @@ app.post('/api/tts/generate', async (req, res) => {
       userId: auth.user.id,
       action: 'generate-audio',
       creditsUsed: result.creditsUsed,
-      model: model || 'gpt-4o-mini-tts',
+      model: model || 'eleven_multilingual_v2',
       chapterId,
       metadata: { narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate },
     });
@@ -1411,8 +1418,8 @@ app.post('/api/tts/generate', async (req, res) => {
     });
   } catch (e: any) {
     console.error('TTS generation error:', e);
-    if (e.message?.includes('OPENAI_API_KEY')) {
-      return res.status(503).json({ error: 'TTS not configured. Add OPENAI_API_KEY to enable audio generation.' });
+    if (e.message?.includes('ELEVENLABS_API_KEY')) {
+      return res.status(503).json({ error: 'TTS not configured. Add ELEVENLABS_API_KEY to enable audio generation.' });
     }
     res.status(500).json({ error: e.message || 'Audio generation failed' });
   }
@@ -1423,7 +1430,7 @@ app.post('/api/tts/preview', async (req, res) => {
     const { voice, text } = req.body;
     if (!voice) return res.status(400).json({ error: 'voice is required' });
 
-    const audioBuffer = await generateVoicePreview(voice as OpenAIVoice, text);
+    const audioBuffer = await generateVoicePreview(voice as ElevenLabsVoice, text);
 
     res.set({
       'Content-Type': 'audio/mpeg',
@@ -1436,9 +1443,10 @@ app.post('/api/tts/preview', async (req, res) => {
   }
 });
 
-// ========== Music Generation (Suno) ==========
+// ========== Music Generation (ElevenLabs) ==========
 
-import { generateSceneMusic, isMusicAvailable } from './suno.js';
+import { generateSceneMusic, isMusicAvailable } from './music.js';
+import { generateSFX, isSFXAvailable } from './sfx.js';
 
 app.get('/api/music/status', async (_req, res) => {
   res.json({ available: isMusicAvailable() });
@@ -1453,7 +1461,7 @@ app.post('/api/music/generate', async (req, res) => {
     if (!sceneId || !prompt) return res.status(400).json({ error: 'sceneId and prompt are required' });
 
     if (!isMusicAvailable()) {
-      return res.status(503).json({ error: 'Music generation not configured. Set SUNO_API_KEY or MUSIC_API_ENDPOINT.' });
+      return res.status(503).json({ error: 'Music generation not configured. Set ELEVENLABS_API_KEY or MUSIC_API_ENDPOINT.' });
     }
 
     // Credit check
@@ -1472,7 +1480,7 @@ app.post('/api/music/generate', async (req, res) => {
       userId: auth.user.id,
       action: 'generate-music',
       creditsUsed: result.creditsUsed,
-      model: 'suno',
+      model: 'elevenlabs-music',
       metadata: { sceneId, genre, durationSeconds: result.durationSeconds },
     });
 
@@ -1483,6 +1491,54 @@ app.post('/api/music/generate', async (req, res) => {
   } catch (e: any) {
     console.error('Music generation error:', e);
     res.status(500).json({ error: e.message || 'Music generation failed' });
+  }
+});
+
+// ========== Sound Effects (ElevenLabs) ==========
+
+app.get('/api/sfx/status', async (_req, res) => {
+  res.json({ available: isSFXAvailable() });
+});
+
+app.post('/api/sfx/generate', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth) return res.status(401).json({ error: 'Not authenticated' });
+
+    const { prompt, durationSeconds } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'prompt is required' });
+
+    if (!isSFXAvailable()) {
+      return res.status(503).json({ error: 'SFX generation not configured. Set ELEVENLABS_API_KEY.' });
+    }
+
+    // Credit check
+    const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (user.creditsRemaining < 1) return res.status(402).json({ error: 'Insufficient credits for SFX generation' });
+
+    const result = await generateSFX({ prompt, durationSeconds });
+
+    // Deduct credits
+    await db.update(users).set({
+      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+    }).where(eq(users.id, auth.user.id));
+
+    await db.insert(creditTransactions).values({
+      userId: auth.user.id,
+      action: 'generate-sfx',
+      creditsUsed: result.creditsUsed,
+      model: 'elevenlabs-sfx',
+      metadata: { prompt, durationSeconds: result.durationSeconds },
+    });
+
+    res.json({
+      ...result,
+      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+    });
+  } catch (e: any) {
+    console.error('SFX generation error:', e);
+    res.status(500).json({ error: e.message || 'SFX generation failed' });
   }
 });
 

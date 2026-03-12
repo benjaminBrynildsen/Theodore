@@ -1,19 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Headphones, Play, Pause, Download, Loader2, Volume2, User, Wand2, RotateCcw, ChevronDown, ChevronUp, Clock, Trash2 } from 'lucide-react';
+import { Headphones, Play, Pause, Download, Loader2, Volume2, User, Wand2, RotateCcw, ChevronDown, ChevronUp, Clock, Trash2, Layers } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useAudioStore } from '../../store/audio';
 import { cn } from '../../lib/utils';
 import { api } from '../../lib/api';
-import { OPENAI_VOICES } from '../../lib/tts-types';
-import type { OpenAIVoice } from '../../lib/tts-types';
+import { ELEVENLABS_VOICES, getVoiceName } from '../../lib/tts-types';
+import type { ElevenLabsVoice } from '../../lib/tts-types';
 import type { CharacterEntry } from '../../types/canon';
 import { autoAssignVoice, voiceAssignmentReason } from '../../lib/voice-assign';
 
 interface VoiceAssignment {
   characterId: string;
   characterName: string;
-  voiceId: OpenAIVoice;
+  voiceId: ElevenLabsVoice;
   reason?: string;
 }
 
@@ -33,12 +33,32 @@ export function AudiobookPanel() {
   const [showVoiceConfig, setShowVoiceConfig] = useState(true);
   const [expandedCharacter, setExpandedCharacter] = useState<string | null>(null);
   const [expandedVersions, setExpandedVersions] = useState<string | null>(null);
+  const [expandedScenes, setExpandedScenes] = useState<string | null>(null);
+  const [generatingScene, setGeneratingScene] = useState<string | null>(null); // sceneId being generated
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
+
+  // Fetch preview URLs from ElevenLabs (free, cached server-side)
+  useEffect(() => {
+    api.ttsVoices().then(data => {
+      const urls: Record<string, string> = {};
+      for (const v of data.voices) {
+        if (v.previewUrl) urls[v.id] = v.previewUrl;
+      }
+      setPreviewUrls(urls);
+    }).catch(() => {});
+  }, []);
+
+  // Narrator voices — curated subset ideal for narration
+  const narratorVoices = ELEVENLABS_VOICES.filter(v =>
+    ['Matilda', 'George', 'Rachel', 'Adam', 'Daniel', 'Lily'].includes(v.name)
+  );
+  const allVoices = ELEVENLABS_VOICES;
 
   // ========== Auto-assign voices on mount ==========
   useEffect(() => {
     if (characters.length === 0) return;
     const assignments: VoiceAssignment[] = characters.map(char => {
-      const existingVoice = char.character?.voiceId as OpenAIVoice | undefined;
+      const existingVoice = char.character?.voiceId as ElevenLabsVoice | undefined;
       const voice = existingVoice || autoAssignVoice(char, narratorVoice);
       const reason = voiceAssignmentReason(char, voice);
       return { characterId: char.id, characterName: char.name, voiceId: voice, reason };
@@ -50,7 +70,7 @@ export function AudiobookPanel() {
   }, [characters.length, narratorVoice]);
 
   // ========== Voice assignment ==========
-  const assignVoice = useCallback((charId: string, charName: string, voiceId: OpenAIVoice) => {
+  const assignVoice = useCallback((charId: string, charName: string, voiceId: ElevenLabsVoice) => {
     setVoiceAssignments(prev => {
       const filtered = prev.filter(a => a.characterId !== charId);
       return [...filtered, { characterId: charId, characterName: charName, voiceId }];
@@ -85,7 +105,7 @@ export function AudiobookPanel() {
   }, [characters, updateEntry, audioStore]);
 
   // ========== Voice preview ==========
-  const previewVoice = async (voiceId: OpenAIVoice) => {
+  const previewVoice = async (voiceId: ElevenLabsVoice) => {
     if (previewing === voiceId) {
       previewAudioRef.current?.pause();
       setPreviewing(null);
@@ -93,10 +113,20 @@ export function AudiobookPanel() {
     }
     setPreviewing(voiceId);
     try {
-      const res = await api.ttsPreview(voiceId);
-      if (!res.ok) throw new Error('Preview failed');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      // Use free ElevenLabs preview URL if available (no credit cost)
+      const previewUrl = previewUrls[voiceId];
+      let url: string;
+
+      if (previewUrl) {
+        url = previewUrl;
+      } else {
+        // Fallback: generate via our API (costs credits)
+        const res = await api.ttsPreview(voiceId);
+        if (!res.ok) throw new Error('Preview failed');
+        const blob = await res.blob();
+        url = URL.createObjectURL(blob);
+      }
+
       if (previewAudioRef.current) previewAudioRef.current.pause();
       const audio = new Audio(url);
       previewAudioRef.current = audio;
@@ -107,9 +137,79 @@ export function AudiobookPanel() {
     }
   };
 
+  // ========== Voice context builder (shared) ==========
+  const buildVoiceParams = useCallback(() => {
+    const charVoiceMap: Record<string, string> = {};
+    const charDescriptions: Record<string, string> = {};
+    for (const a of voiceAssignments) {
+      charVoiceMap[a.characterName] = a.voiceId;
+      const char = characters.find(c => c.id === a.characterId);
+      if (char) {
+        const c = char.character || {} as any;
+        const personality = c.personality || {} as any;
+        const parts: string[] = [];
+        if (c.gender) parts.push(c.gender);
+        if (c.age) parts.push(`${c.age} years old`);
+        if (c.role) parts.push(`${c.role} character`);
+        if (personality.speechPattern) parts.push(`Speech style: ${personality.speechPattern}`);
+        if (personality.traits?.length) parts.push(`Personality: ${personality.traits.slice(0, 4).join(', ')}`);
+        if (char.description) parts.push(char.description.slice(0, 120));
+        if (parts.length > 0) charDescriptions[a.characterName] = parts.join('. ') + '.';
+      }
+    }
+    return { charVoiceMap, charDescriptions };
+  }, [voiceAssignments, characters]);
+
   // ========== Generation ==========
+
+  /** Generate a single scene's audio */
+  const generateScene = async (chapterId: string, sceneId: string) => {
+    const freshChapters = useStore.getState().chapters;
+    const chapter = freshChapters.find(c => c.id === chapterId);
+    if (!chapter) return;
+
+    const scene = (chapter.scenes || []).find(s => s.id === sceneId);
+    if (!scene?.prose?.trim()) return;
+
+    setGeneratingScene(sceneId);
+    audioStore.setError(null);
+
+    try {
+      const { charVoiceMap, charDescriptions } = buildVoiceParams();
+      const versionSuffix = `-v${Date.now()}`;
+
+      const result = await api.ttsGenerate({
+        chapterId: `${chapterId}-scene-${sceneId}${versionSuffix}`,
+        prose: scene.prose,
+        narratorVoice,
+        characterVoices: charVoiceMap,
+        characterDescriptions: charDescriptions,
+        model: ttsModel,
+        speed,
+        multiVoice,
+      });
+
+      // Store as scene-level audio (keyed by sceneId)
+      audioStore.addChapterAudio(`scene-${sceneId}`, {
+        chapterId: `scene-${sceneId}`,
+        audioUrl: result.audioUrl,
+        durationEstimate: result.durationEstimate,
+        generatedAt: new Date().toISOString(),
+      });
+
+      // Auto-play the generated scene
+      window.dispatchEvent(new CustomEvent('theodore:playChapter', {
+        detail: { chapterId: `scene-${sceneId}` },
+      }));
+    } catch (e: any) {
+      audioStore.setError(e.message || 'Scene generation failed');
+    } finally {
+      setGeneratingScene(null);
+    }
+  };
+
+  /** Generate full chapter audio */
   const generateChapter = async (chapterId: string) => {
-    // Read latest chapter state from store (not stale closure)
     const freshChapters = useStore.getState().chapters;
     const chapter = freshChapters.find(c => c.id === chapterId);
     if (!chapter?.prose) return;
@@ -118,26 +218,7 @@ export function AudiobookPanel() {
     audioStore.setError(null);
 
     try {
-      const charVoiceMap: Record<string, string> = {};
-      const charDescriptions: Record<string, string> = {};
-      for (const a of voiceAssignments) {
-        charVoiceMap[a.characterName] = a.voiceId;
-        // Build description from canon entry
-        const char = characters.find(c => c.id === a.characterId);
-        if (char) {
-          const c = char.character || {} as any;
-          const personality = c.personality || {} as any;
-          const parts: string[] = [];
-          if (c.gender) parts.push(c.gender);
-          if (c.age) parts.push(`${c.age} years old`);
-          if (c.role) parts.push(`${c.role} character`);
-          if (personality.speechPattern) parts.push(`Speech style: ${personality.speechPattern}`);
-          if (personality.traits?.length) parts.push(`Personality: ${personality.traits.slice(0, 4).join(', ')}`);
-          if (char.description) parts.push(char.description.slice(0, 120));
-          if (parts.length > 0) charDescriptions[a.characterName] = parts.join('. ') + '.';
-        }
-      }
-
+      const { charVoiceMap, charDescriptions } = buildVoiceParams();
       const versionSuffix = `-v${Date.now()}`;
 
       const result = await api.ttsGenerate({
@@ -200,8 +281,6 @@ export function AudiobookPanel() {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  const narratorVoices = OPENAI_VOICES.filter(v => ['alloy', 'fable', 'sage', 'ballad'].includes(v.id));
-  const allVoices = OPENAI_VOICES;
   const audioCount = Object.keys(chapterAudio).length;
 
   if (!project) return null;
@@ -213,7 +292,7 @@ export function AudiobookPanel() {
           <Headphones size={18} />
           <h2 className="text-lg font-serif font-semibold">Audiobook Studio</h2>
         </div>
-        <p className="text-xs text-text-tertiary">Generate narrated audio with OpenAI voices — multi-voice character support</p>
+        <p className="text-xs text-text-tertiary">Generate narrated audio with ElevenLabs voices — multi-voice character support</p>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -243,24 +322,17 @@ export function AudiobookPanel() {
                   {narratorVoices.map(voice => (
                     <button
                       key={voice.id}
-                      onClick={() => audioStore.setNarratorVoice(voice.id)}
+                      onClick={() => { audioStore.setNarratorVoice(voice.id); previewVoice(voice.id); }}
                       className={cn(
                         'text-left p-2.5 rounded-xl transition-all text-xs relative group',
                         narratorVoice === voice.id ? 'bg-text-primary text-text-inverse' : 'glass-pill hover:bg-white/60'
                       )}
                     >
-                      <div className="font-medium">{voice.name}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium">{voice.name}</span>
+                        {previewing === voice.id && <Volume2 size={9} className="animate-pulse" />}
+                      </div>
                       <div className={cn('text-[10px]', narratorVoice === voice.id ? 'text-white/60' : 'text-text-tertiary')}>{voice.desc}</div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); previewVoice(voice.id); }}
-                        className={cn(
-                          'absolute top-2 right-2 p-1 rounded-lg transition-all',
-                          previewing === voice.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                          narratorVoice === voice.id ? 'text-white/60 hover:text-white' : 'text-text-tertiary hover:text-text-primary'
-                        )}
-                      >
-                        <Volume2 size={10} />
-                      </button>
                     </button>
                   ))}
                 </div>
@@ -283,7 +355,7 @@ export function AudiobookPanel() {
                     {characters.map(char => {
                       const assignment = voiceAssignments.find(a => a.characterId === char.id);
                       const isExpanded = expandedCharacter === char.id;
-                      const assignedVoice = OPENAI_VOICES.find(v => v.id === assignment?.voiceId);
+                      const assignedVoiceName = assignment ? getVoiceName(assignment.voiceId) : null;
 
                       return (
                         <div key={char.id} className="glass-pill rounded-xl overflow-hidden">
@@ -293,8 +365,8 @@ export function AudiobookPanel() {
                           >
                             <User size={12} className="text-text-tertiary flex-shrink-0" />
                             <span className="text-xs font-medium flex-1 truncate">{char.name}</span>
-                            {assignedVoice && (
-                              <span className="text-[10px] text-text-tertiary flex-shrink-0">{assignedVoice.name}</span>
+                            {assignedVoiceName && (
+                              <span className="text-[10px] text-text-tertiary flex-shrink-0">{assignedVoiceName}</span>
                             )}
                             {isExpanded ? <ChevronUp size={12} className="text-text-tertiary" /> : <ChevronDown size={12} className="text-text-tertiary" />}
                           </button>
@@ -308,13 +380,16 @@ export function AudiobookPanel() {
                                 {allVoices.map(voice => (
                                   <button
                                     key={voice.id}
-                                    onClick={() => assignVoice(char.id, char.name, voice.id)}
+                                    onClick={() => { assignVoice(char.id, char.name, voice.id); previewVoice(voice.id); }}
                                     className={cn(
                                       'text-left p-2 rounded-lg text-[10px] transition-all relative group',
                                       assignment?.voiceId === voice.id ? 'bg-text-primary text-text-inverse' : 'bg-black/5 hover:bg-black/10'
                                     )}
                                   >
-                                    <div className="font-medium">{voice.name}</div>
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="font-medium">{voice.name}</div>
+                                      {previewing === voice.id && <Volume2 size={8} className="animate-pulse" />}
+                                    </div>
                                     <div className={cn(assignment?.voiceId === voice.id ? 'text-white/50' : 'text-text-tertiary')}>
                                       {voice.desc}
                                     </div>
@@ -356,9 +431,9 @@ export function AudiobookPanel() {
                   onChange={e => audioStore.setTtsModel(e.target.value as any)}
                   className="text-[10px] bg-black/5 rounded-lg px-2 py-1 border-0"
                 >
-                  <option value="gpt-4o-mini-tts">Mini TTS</option>
-                  <option value="tts-1">Standard</option>
-                  <option value="tts-1-hd">HD</option>
+                  <option value="eleven_multilingual_v2">HD Quality</option>
+                  <option value="eleven_turbo_v2_5">Standard</option>
+                  <option value="eleven_flash_v2_5">Fast</option>
                 </select>
                 <div className="flex items-center gap-1">
                   <span className="text-[10px] text-text-tertiary">{speed}x</span>
@@ -399,9 +474,13 @@ export function AudiobookPanel() {
               const versions = audio?.versions || [];
               const hasMultipleVersions = versions.length > 1;
               const isVersionsExpanded = expandedVersions === ch.id;
+              const isScenesExpanded = expandedScenes === ch.id;
+              const scenes = (ch.scenes || []).filter((s: any) => s?.id && s.prose?.trim()).sort((a: any, b: any) => a.order - b.order);
+              const hasScenes = scenes.length > 1;
 
               return (
                 <div key={ch.id} className="rounded-xl overflow-hidden">
+                  {/* Chapter header row */}
                   <div
                     className={cn(
                       'flex items-center gap-3 p-3 transition-all',
@@ -411,8 +490,9 @@ export function AudiobookPanel() {
                     <button
                       onClick={() => {
                         if (audio) {
-                          // Dispatch play event to mini player
                           window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch.id } }));
+                        } else if (hasScenes) {
+                          setExpandedScenes(isScenesExpanded ? null : ch.id);
                         } else {
                           generateChapter(ch.id);
                         }
@@ -437,38 +517,139 @@ export function AudiobookPanel() {
                         {isGenerating ? 'Generating...' :
                          audio ? `Audio ready · ~${formatTime(audio.durationEstimate)}` :
                          `${wordCount.toLocaleString()} words · ~${estMinutes} min`}
+                        {hasScenes && !audio && ` · ${scenes.length} scenes`}
                       </div>
                     </div>
-                    {audio && (
-                      <div className="flex items-center gap-1">
-                        {hasMultipleVersions && (
+                    <div className="flex items-center gap-1">
+                      {/* Scene expand toggle */}
+                      {hasScenes && (
+                        <button
+                          onClick={() => setExpandedScenes(isScenesExpanded ? null : ch.id)}
+                          className={cn(
+                            'p-1.5 rounded-lg transition-colors',
+                            isScenesExpanded ? 'text-text-primary bg-black/5' : 'text-text-tertiary hover:text-text-primary'
+                          )}
+                          title={`${scenes.length} scenes`}
+                        >
+                          <Layers size={12} />
+                        </button>
+                      )}
+                      {audio && (
+                        <>
+                          {hasMultipleVersions && (
+                            <button
+                              onClick={() => setExpandedVersions(isVersionsExpanded ? null : ch.id)}
+                              className="px-1.5 py-0.5 rounded-md bg-black/5 text-[10px] font-medium text-text-tertiary hover:text-text-primary transition-colors"
+                              title={`${versions.length} versions`}
+                            >
+                              v{audio.activeVersion}
+                              <span className="text-text-tertiary/60 ml-0.5">/{versions.length}</span>
+                            </button>
+                          )}
                           <button
-                            onClick={() => setExpandedVersions(isVersionsExpanded ? null : ch.id)}
-                            className="px-1.5 py-0.5 rounded-md bg-black/5 text-[10px] font-medium text-text-tertiary hover:text-text-primary transition-colors"
-                            title={`${versions.length} versions`}
+                            onClick={() => downloadChapter(ch.id)}
+                            className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary transition-colors"
+                            title="Download MP3"
                           >
-                            v{audio.activeVersion}
-                            <span className="text-text-tertiary/60 ml-0.5">/{versions.length}</span>
+                            <Download size={12} />
                           </button>
-                        )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Scene-level generation controls */}
+                  {isScenesExpanded && hasScenes && (
+                    <div className="bg-black/[0.02] border-t border-black/5 px-3 py-2 space-y-1.5">
+                      <div className="text-[9px] font-semibold text-text-tertiary uppercase tracking-wider mb-1">
+                        Generate by Scene
+                      </div>
+                      {scenes.map((scene: any) => {
+                        const sceneAudio = chapterAudio[`scene-${scene.id}`];
+                        const isSceneGenerating = generatingScene === scene.id;
+                        const sceneWords = scene.prose.split(/\s+/).length;
+                        const isScenePlaying = audioStore.playing && audioStore.currentChapterId === `scene-${scene.id}`;
+
+                        return (
+                          <div
+                            key={scene.id}
+                            className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-white/60 hover:bg-white/80 transition-all"
+                          >
+                            {/* Play/generate button */}
+                            <button
+                              onClick={() => {
+                                if (sceneAudio) {
+                                  window.dispatchEvent(new CustomEvent('theodore:playChapter', {
+                                    detail: { chapterId: `scene-${scene.id}` },
+                                  }));
+                                } else {
+                                  generateScene(ch.id, scene.id);
+                                }
+                              }}
+                              disabled={isSceneGenerating}
+                              className={cn(
+                                'w-7 h-7 rounded-full flex items-center justify-center transition-all flex-shrink-0',
+                                sceneAudio ? 'bg-text-primary text-text-inverse' : 'bg-black/5 hover:bg-black/10'
+                              )}
+                            >
+                              {isSceneGenerating ? (
+                                <Loader2 size={10} className="animate-spin" />
+                              ) : sceneAudio ? (
+                                isScenePlaying ? <Pause size={10} /> : <Play size={10} />
+                              ) : (
+                                <Headphones size={10} className="text-text-tertiary" />
+                              )}
+                            </button>
+
+                            {/* Scene info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[11px] font-medium truncate">
+                                Scene {scene.order}: {scene.title}
+                              </div>
+                              <div className="text-[9px] text-text-tertiary">
+                                {isSceneGenerating ? 'Generating...' :
+                                 sceneAudio ? `Ready · ~${formatTime(sceneAudio.durationEstimate)}` :
+                                 `${sceneWords.toLocaleString()} words`}
+                              </div>
+                            </div>
+
+                            {/* Regenerate if already generated */}
+                            {sceneAudio && (
+                              <button
+                                onClick={() => generateScene(ch.id, scene.id)}
+                                disabled={isSceneGenerating}
+                                className="p-1 rounded text-text-tertiary hover:text-text-primary transition-colors"
+                                title="Regenerate scene"
+                              >
+                                <RotateCcw size={10} />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {/* Full chapter generation button */}
+                      <div className="pt-1.5 border-t border-black/5 space-y-1">
                         <button
                           onClick={() => generateChapter(ch.id)}
-                          disabled={isGenerating}
-                          className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary transition-colors"
-                          title="Generate new version"
+                          disabled={isGenerating || !!generatingScene}
+                          className={cn(
+                            'w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-medium transition-all',
+                            audio
+                              ? 'bg-black/5 text-text-secondary hover:bg-black/10'
+                              : 'bg-text-primary text-text-inverse hover:shadow-md'
+                          )}
                         >
-                          <RotateCcw size={12} />
-                        </button>
-                        <button
-                          onClick={() => downloadChapter(ch.id)}
-                          className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary transition-colors"
-                          title="Download MP3"
-                        >
-                          <Download size={12} />
+                          {isGenerating ? (
+                            <Loader2 size={10} className="animate-spin" />
+                          ) : (
+                            <RotateCcw size={10} />
+                          )}
+                          {audio ? 'Regenerate Full Chapter' : 'Generate Full Chapter'}
                         </button>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   {/* Version history */}
                   {isVersionsExpanded && versions.length > 0 && (
@@ -503,7 +684,7 @@ export function AudiobookPanel() {
                               <span className="font-medium">v{v.version}</span>
                               {v.voiceConfig && (
                                 <span className={cn('ml-1.5', isActive ? 'text-white/50' : 'text-text-tertiary')}>
-                                  {v.voiceConfig.model === 'tts-1-hd' ? 'HD' : 'Std'} · {v.voiceConfig.speed}x
+                                  {v.voiceConfig.model === 'eleven_multilingual_v2' ? 'HD' : v.voiceConfig.model === 'eleven_turbo_v2_5' ? 'Std' : 'Fast'} · {v.voiceConfig.speed}x
                                 </span>
                               )}
                             </div>

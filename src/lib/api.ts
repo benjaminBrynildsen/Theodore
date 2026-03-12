@@ -75,6 +75,7 @@ export const api = {
   createTransaction: (data: any) => request<any>('/transactions', { method: 'POST', body: JSON.stringify(data) }),
 
   // ========== TTS / Audiobook ==========
+  ttsVoices: () => request<{ voices: Array<{ id: string; name: string; desc: string; gender: string; tone: string; previewUrl?: string }> }>('/tts/voices'),
   ttsGenerate: (data: {
     chapterId: string;
     prose: string;
@@ -101,7 +102,7 @@ export const api = {
       body: JSON.stringify({ voice, text }),
     }),
 
-  // ========== Music / Suno ==========
+  // ========== Music (ElevenLabs) ==========
   musicStatus: () => request<{ available: boolean }>('/music/status'),
   musicGenerate: (data: {
     sceneId: string;
@@ -114,8 +115,19 @@ export const api = {
     durationSeconds: number;
     creditsUsed: number;
     creditsRemaining: number;
-    sunoJobId?: string;
   }>('/music/generate', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ========== Sound Effects (ElevenLabs) ==========
+  sfxStatus: () => request<{ available: boolean }>('/sfx/status'),
+  sfxGenerate: (data: {
+    prompt: string;
+    durationSeconds?: number;
+  }) => request<{
+    audioUrl: string;
+    durationSeconds: number;
+    creditsUsed: number;
+    creditsRemaining: number;
+  }>('/sfx/generate', { method: 'POST', body: JSON.stringify(data) }),
 
   // ========== Billing ==========
   billingPlans: () => request<any>('/billing/plans'),

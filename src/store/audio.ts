@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { OpenAIVoice, ChapterAudio, AudioVersion } from '../lib/tts-types';
+import type { ElevenLabsVoice, ChapterAudio, AudioVersion, ElevenLabsModel } from '../lib/tts-types';
+import { DEFAULT_NARRATOR_VOICE } from '../lib/tts-types';
+
+// Legacy alias
+type OpenAIVoice = ElevenLabsVoice;
 
 interface AudioState {
   // Playback
@@ -18,10 +22,10 @@ interface AudioState {
   chapterAudio: Record<string, ChapterAudio>;
 
   // Voice config
-  narratorVoice: OpenAIVoice;
-  characterVoices: Record<string, OpenAIVoice>;
+  narratorVoice: ElevenLabsVoice;
+  characterVoices: Record<string, ElevenLabsVoice>;
   multiVoice: boolean;
-  ttsModel: 'tts-1' | 'tts-1-hd' | 'gpt-4o-mini-tts';
+  ttsModel: ElevenLabsModel;
   speed: number;
 
   // Generation
@@ -40,10 +44,10 @@ interface AudioState {
   removeChapterAudio: (chapterId: string) => void;
   removeAudioVersion: (chapterId: string, version: number) => void;
   setActiveVersion: (chapterId: string, version: number) => void;
-  setNarratorVoice: (voice: OpenAIVoice) => void;
-  setCharacterVoice: (name: string, voice: OpenAIVoice) => void;
+  setNarratorVoice: (voice: ElevenLabsVoice) => void;
+  setCharacterVoice: (name: string, voice: ElevenLabsVoice) => void;
   setMultiVoice: (enabled: boolean) => void;
-  setTtsModel: (model: 'tts-1' | 'tts-1-hd' | 'gpt-4o-mini-tts') => void;
+  setTtsModel: (model: ElevenLabsModel) => void;
   setSpeed: (speed: number) => void;
   setGenerating: (id: string | null) => void;
   setError: (error: string | null) => void;
@@ -62,6 +66,33 @@ function ensureVersioned(audio: ChapterAudio): ChapterAudio {
   return { ...audio, activeVersion: 1, versions: [v1] };
 }
 
+/** Migrate old OpenAI voice IDs to ElevenLabs — returns input if already an ElevenLabs ID */
+function migrateVoiceId(voice: string): ElevenLabsVoice {
+  const MIGRATION_MAP: Record<string, string> = {
+    alloy: 'XrExE9yKIg1WjnnlVkGX',    // Matilda
+    ash: 'TxGEqnHWrfWFTfGW9XjX',       // Josh
+    ballad: 'pFZP5JQG7iQjIQuC4Bku',    // Lily
+    coral: '21m00Tcm4TlvDq8ikWAM',     // Rachel
+    echo: 'onwK4e9ZLuTAKqWW03F9',      // Daniel
+    fable: 'JBFqnCBsd6RMkjVDRZzb',     // George
+    nova: 'XB0fDUnXU5powFXDhCwa',      // Charlotte
+    onyx: 'pNInz6obpgDQGcFmaJgB',      // Adam
+    sage: 'onwK4e9ZLuTAKqWW03F9',      // Daniel
+    shimmer: 'ThT5KcBeYPX3keUQqHPh',   // Dorothy
+  };
+  return MIGRATION_MAP[voice] || voice;
+}
+
+/** Migrate old model IDs */
+function migrateModelId(model: string): ElevenLabsModel {
+  const MODEL_MAP: Record<string, ElevenLabsModel> = {
+    'gpt-4o-mini-tts': 'eleven_flash_v2_5',
+    'tts-1': 'eleven_turbo_v2_5',
+    'tts-1-hd': 'eleven_multilingual_v2',
+  };
+  return MODEL_MAP[model] || (model as ElevenLabsModel);
+}
+
 export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   playing: false,
   currentChapterId: null,
@@ -71,10 +102,10 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   miniPlayerVisible: false,
   sidebarPlayerVisible: false,
   chapterAudio: {},
-  narratorVoice: 'alloy',
+  narratorVoice: DEFAULT_NARRATOR_VOICE,
   characterVoices: {},
   multiVoice: true,
-  ttsModel: 'gpt-4o-mini-tts',
+  ttsModel: 'eleven_multilingual_v2',
   speed: 1.0,
   generating: null,
   error: null,
@@ -197,4 +228,27 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
     speed: state.speed,
     volume: state.volume,
   }),
+  // Migrate persisted state from OpenAI voices/models to ElevenLabs
+  migrate: (persistedState: any, version: number) => {
+    if (persistedState) {
+      // Migrate narrator voice
+      if (persistedState.narratorVoice) {
+        persistedState.narratorVoice = migrateVoiceId(persistedState.narratorVoice);
+      }
+      // Migrate character voices
+      if (persistedState.characterVoices) {
+        const migrated: Record<string, string> = {};
+        for (const [name, voice] of Object.entries(persistedState.characterVoices)) {
+          migrated[name] = migrateVoiceId(voice as string);
+        }
+        persistedState.characterVoices = migrated;
+      }
+      // Migrate TTS model
+      if (persistedState.ttsModel) {
+        persistedState.ttsModel = migrateModelId(persistedState.ttsModel);
+      }
+    }
+    return persistedState;
+  },
+  version: 2,
 }));

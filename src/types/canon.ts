@@ -79,7 +79,7 @@ export interface CharacterEntry extends CanonBase {
     };
 
     // Voice (auto-assigned or manually set for audiobook)
-    voiceId?: string; // OpenAI TTS voice ID (alloy, ash, ballad, coral, echo, fable, nova, onyx, sage, shimmer)
+    voiceId?: string; // ElevenLabs voice ID
     voiceReason?: string; // why this voice was chosen
 
     // Story State (changes as story progresses)

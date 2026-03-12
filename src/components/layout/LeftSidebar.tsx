@@ -131,6 +131,7 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
   if (!chapter) return null;
 
   const projectEntries = entries.filter(e => e.projectId === projectId);
+  const chapterEntries = projectEntries.filter(e => (chapter.referencedCanonIds || []).includes(e.id));
   const scenes = (chapter.scenes || []).filter((s: any) => s && s.id);
 
   const updatePremise = (field: string, value: any) => {
@@ -318,14 +319,14 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
         {/* ARTIFACTS SECTION */}
         {activeSection === 'artifacts' && (
           <div className="space-y-3 animate-fade-in">
-            {projectEntries.length === 0 ? (
+            {chapterEntries.length === 0 ? (
               <div className="text-center py-8 text-text-tertiary text-xs">
-                No canon entries yet. Create characters and locations from the project view.
+                No canon entries referenced in this chapter.
               </div>
             ) : (
               <>
                 {canonSections.map(({ type, label, icon: Icon }) => {
-                  const typeEntries = projectEntries.filter(e => e.type === type);
+                  const typeEntries = chapterEntries.filter(e => e.type === type);
                   if (typeEntries.length === 0) return null;
                   return (
                     <div key={type}>

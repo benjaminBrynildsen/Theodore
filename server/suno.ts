@@ -1,5 +1,5 @@
 // ========== Suno Music Generation Service ==========
-// Background music generation for scenes via Suno API
+// Background music generation for scenes via sunoapi.org (third-party Suno API)
 // Architecture mirrors tts.ts — server-side generation, file caching, URL serving
 
 import fs from 'fs';
@@ -8,6 +8,7 @@ import crypto from 'crypto';
 
 const MUSIC_DIR = path.join(process.cwd(), 'uploads', 'music');
 const CREDITS_PER_TRACK = 3;
+const SUNO_API_BASE = 'https://api.sunoapi.org/api/v1';
 
 export interface MusicGenerateRequest {
   sceneId: string;
@@ -31,15 +32,11 @@ function ensureMusicDir() {
 }
 
 /**
- * Generate background music for a scene via Suno API.
+ * Generate background music for a scene.
  *
- * Currently Suno's API access is limited. This implementation:
- * 1. Checks for SUNO_API_KEY in environment
- * 2. If available, calls Suno's create endpoint
- * 3. If not available, returns a placeholder response so the UI pipeline works
- *
- * When Suno opens their API more broadly, only the `callSunoAPI` function
- * needs to be updated.
+ * Checks for API keys in order:
+ * 1. SUNO_API_KEY — uses sunoapi.org third-party Suno API
+ * 2. MUSIC_API_ENDPOINT — custom/self-hosted music generation
  */
 export async function generateSceneMusic(req: MusicGenerateRequest): Promise<MusicGenerateResult> {
   ensureMusicDir();
@@ -57,12 +54,22 @@ export async function generateSceneMusic(req: MusicGenerateRequest): Promise<Mus
   }
 
   // No API configured — return error
-  throw new Error('No music generation API configured. Set SUNO_API_KEY or MUSIC_API_ENDPOINT.');
+  throw new Error('No music generation API configured. Set SUNO_API_KEY (sunoapi.org) or MUSIC_API_ENDPOINT.');
 }
 
 /**
- * Call Suno's API to generate music.
- * Based on Suno API v3.5 structure.
+ * Call sunoapi.org to generate music.
+ * API docs: https://sunoapi.org
+ *
+ * POST /api/v1/generate
+ * - customMode: true (we provide our own style/prompt)
+ * - instrumental: true (no vocals for background music)
+ * - model: V5
+ * - style: genre tags
+ * - prompt: scene music prompt from emotion analyzer
+ *
+ * Returns task_id, then poll /api/v1/query?ids=<task_id> for completion.
+ * Each request generates 2 songs — we pick the first.
  */
 async function callSunoAPI(req: MusicGenerateRequest, apiKey: string): Promise<MusicGenerateResult> {
   const duration = req.durationHint || 60;
@@ -70,35 +77,46 @@ async function callSunoAPI(req: MusicGenerateRequest, apiKey: string): Promise<M
   // Step 1: Create generation job
   console.log(`[Suno] Generating music for scene ${req.sceneId}, duration: ${duration}s`);
   console.log(`[Suno] Prompt: ${req.prompt.slice(0, 200)}`);
+  console.log(`[Suno] Genre/Style: ${req.genre || 'cinematic instrumental'}`);
 
-  const createResponse = await fetch('https://studio-api.suno.ai/api/external/generate/', {
+  const createResponse = await fetch(`${SUNO_API_BASE}/generate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      topic: req.prompt,
-      tags: req.genre || 'cinematic instrumental',
-      make_instrumental: true,
-      // Suno generates ~2-4 minute clips by default
+      customMode: true,
+      instrumental: true,
+      model: 'V5',
+      style: req.genre || 'cinematic instrumental',
+      title: `Scene ${req.sceneId.slice(-6)}`,
+      prompt: req.prompt,
     }),
   });
 
   if (!createResponse.ok) {
     const err = await createResponse.json().catch(() => ({}));
-    throw new Error(`Suno API error ${createResponse.status}: ${(err as any).detail || createResponse.statusText}`);
+    console.error('[Suno] API error:', err);
+    throw new Error(`Suno API error ${createResponse.status}: ${(err as any).message || (err as any).detail || createResponse.statusText}`);
   }
 
   const createData = await createResponse.json() as any;
-  const clipId = createData.clips?.[0]?.id || createData.id;
+  console.log('[Suno] Create response:', JSON.stringify(createData).slice(0, 500));
 
-  if (!clipId) {
-    throw new Error('Suno API did not return a clip ID');
+  // sunoapi.org returns { code, data: [{ song_id }] } or { task_id }
+  const taskId = createData.task_id || createData.data?.[0]?.song_id || createData.id;
+
+  if (!taskId) {
+    throw new Error('Suno API did not return a task/song ID');
   }
+
+  console.log(`[Suno] Task ID: ${taskId}, polling for completion...`);
 
   // Step 2: Poll for completion
   let audioUrl: string | null = null;
+  let songTitle: string | null = null;
+  let songDuration: number | null = null;
   let pollAttempts = 0;
   const maxPollAttempts = 60; // 5 minutes at 5s intervals
 
@@ -106,28 +124,43 @@ async function callSunoAPI(req: MusicGenerateRequest, apiKey: string): Promise<M
     await new Promise(resolve => setTimeout(resolve, 5000));
     pollAttempts++;
 
-    const statusResponse = await fetch(`https://studio-api.suno.ai/api/external/clips/?ids=${clipId}`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-    });
+    try {
+      const statusResponse = await fetch(`${SUNO_API_BASE}/query?ids=${taskId}`, {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
 
-    if (statusResponse.ok) {
-      const statusData = await statusResponse.json() as any;
-      const clip = Array.isArray(statusData) ? statusData[0] : statusData;
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json() as any;
+        // Response format: { code, data: [{ song_id, status, audio_url, title, duration }] }
+        const songs = statusData.data || (Array.isArray(statusData) ? statusData : [statusData]);
+        const song = songs[0];
 
-      if (clip?.status === 'complete' && clip?.audio_url) {
-        audioUrl = clip.audio_url;
-        console.log(`[Suno] Generation complete after ${pollAttempts * 5}s`);
-      } else if (clip?.status === 'error') {
-        throw new Error(`Suno generation failed: ${clip.error_message || 'Unknown error'}`);
+        if (song?.status === 'complete' || song?.status === 'SUCCESS' || song?.audio_url) {
+          audioUrl = song.audio_url || song.song_url;
+          songTitle = song.title;
+          songDuration = song.duration;
+          console.log(`[Suno] Generation complete after ${pollAttempts * 5}s`);
+        } else if (song?.status === 'error' || song?.status === 'FAILED') {
+          throw new Error(`Suno generation failed: ${song.error_message || song.fail_reason || 'Unknown error'}`);
+        } else {
+          if (pollAttempts % 6 === 0) {
+            console.log(`[Suno] Still generating... (${pollAttempts * 5}s elapsed, status: ${song?.status || 'unknown'})`);
+          }
+        }
       }
+    } catch (err: any) {
+      if (err.message.includes('Suno generation failed')) throw err;
+      // Network error during poll — continue
+      console.warn(`[Suno] Poll error (attempt ${pollAttempts}):`, err.message);
     }
   }
 
   if (!audioUrl) {
-    throw new Error('Suno generation timed out');
+    throw new Error('Suno generation timed out after 5 minutes');
   }
 
   // Step 3: Download and cache locally
+  console.log(`[Suno] Downloading audio from: ${audioUrl.slice(0, 100)}...`);
   const audioResponse = await fetch(audioUrl);
   if (!audioResponse.ok) throw new Error('Failed to download generated music');
 
@@ -137,12 +170,14 @@ async function callSunoAPI(req: MusicGenerateRequest, apiKey: string): Promise<M
   const filepath = path.join(MUSIC_DIR, filename);
   fs.writeFileSync(filepath, audioBuffer);
 
+  console.log(`[Suno] Saved to ${filepath} (${(audioBuffer.length / 1024).toFixed(0)}KB)`);
+
   return {
     audioUrl: `/uploads/music/${filename}`,
-    title: `Scene ${req.sceneId.slice(-6)} — ${req.genre || 'cinematic'}`,
-    durationSeconds: duration,
+    title: songTitle || `Scene ${req.sceneId.slice(-6)} — ${req.genre || 'cinematic'}`,
+    durationSeconds: songDuration || duration,
     creditsUsed: CREDITS_PER_TRACK,
-    sunoJobId: clipId,
+    sunoJobId: taskId,
   };
 }
 
