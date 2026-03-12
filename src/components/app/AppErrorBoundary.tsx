@@ -85,6 +85,8 @@ export class AppErrorBoundary extends Component<Props, State> {
             }}
           >
             {this.state.error.message || 'Unknown runtime error'}
+            {'\n\n'}
+            {this.state.error.stack || '(no stack trace)'}
           </pre>
           <div style={{ marginTop: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button
