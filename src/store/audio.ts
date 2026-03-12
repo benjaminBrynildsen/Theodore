@@ -70,15 +70,15 @@ function ensureVersioned(audio: ChapterAudio): ChapterAudio {
 function migrateVoiceId(voice: string): ElevenLabsVoice {
   const MIGRATION_MAP: Record<string, string> = {
     alloy: 'XrExE9yKIg1WjnnlVkGX',    // Matilda
-    ash: 'TxGEqnHWrfWFTfGW9XjX',       // Josh
+    ash: 'iP95p4xoKVk53GoZ742B',       // Chris
     ballad: 'pFZP5JQG7iQjIQuC4Bku',    // Lily
-    coral: '21m00Tcm4TlvDq8ikWAM',     // Rachel
+    coral: 'EXAVITQu4vr4xnSDxMaL',     // Sarah
     echo: 'onwK4e9ZLuTAKqWW03F9',      // Daniel
     fable: 'JBFqnCBsd6RMkjVDRZzb',     // George
-    nova: 'XB0fDUnXU5powFXDhCwa',      // Charlotte
+    nova: 'FGY2WhTYpPnrIDTdsKH5',      // Laura
     onyx: 'pNInz6obpgDQGcFmaJgB',      // Adam
     sage: 'onwK4e9ZLuTAKqWW03F9',      // Daniel
-    shimmer: 'ThT5KcBeYPX3keUQqHPh',   // Dorothy
+    shimmer: 'cgSgspJ2msm6clMCkdW9',   // Jessica
   };
   return MIGRATION_MAP[voice] || voice;
 }
@@ -129,6 +129,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
         version: nextVersion,
         audioUrl: audio.audioUrl,
         sceneAudioUrls: audio.sceneAudioUrls,
+        sceneIds: audio.sceneIds,
         durationEstimate: audio.durationEstimate,
         generatedAt: audio.generatedAt,
         voiceConfig: {
@@ -145,6 +146,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
         chapterId,
         audioUrl: audio.audioUrl,
         sceneAudioUrls: audio.sceneAudioUrls,
+        sceneIds: audio.sceneIds,
         durationEstimate: audio.durationEstimate,
         generatedAt: audio.generatedAt,
         activeVersion: nextVersion,
@@ -178,6 +180,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
             chapterId,
             audioUrl: active.audioUrl,
             sceneAudioUrls: active.sceneAudioUrls,
+            sceneIds: active.sceneIds,
             durationEstimate: active.durationEstimate,
             generatedAt: active.generatedAt,
             activeVersion: active.version,
@@ -201,6 +204,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
             ...migrated,
             audioUrl: target.audioUrl,
             sceneAudioUrls: target.sceneAudioUrls,
+            sceneIds: target.sceneIds,
             durationEstimate: target.durationEstimate,
             generatedAt: target.generatedAt,
             activeVersion: version,

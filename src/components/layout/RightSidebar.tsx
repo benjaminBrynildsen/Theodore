@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, GitBranch, Sparkles, AlertTriangle, MessageSquare, Feather, Mic, FileOutput, Sliders, Disc3 } from 'lucide-react';
+import { Shield, GitBranch, Sparkles, AlertTriangle, MessageSquare, Feather, Headphones, FileOutput, Sliders, Disc3 } from 'lucide-react';
 import { useStore } from '../../store';
 import { useSettingsStore } from '../../store/settings';
 import { Slider } from '../ui/Slider';
@@ -101,7 +101,7 @@ export function RightSidebar() {
   const tabs = [
     { id: 'playing' as const, icon: Disc3, label: 'Playing', pulse: hasAudioActivity },
     { id: 'controls' as const, icon: Sliders, label: 'Settings' },
-    { id: 'audio' as const, icon: Mic, label: 'Narrator' },
+    { id: 'audio' as const, icon: Headphones, label: 'Studio' },
     { id: 'export' as const, icon: FileOutput, label: 'Export' },
   ];
 
@@ -122,7 +122,7 @@ export function RightSidebar() {
 
   return (
     <aside className={cn(
-      'h-full flex flex-col animate-slide-in-right border-l-0 min-h-0 w-80 glass-subtle'
+      'h-full flex flex-col animate-slide-in-right border-l-0 min-h-0 w-[420px] glass-subtle'
     )}>
       <div className="flex px-1 pt-1 border-b border-black/[0.06]">
         {tabs.map(({ id, icon: Icon, label, pulse }) => (

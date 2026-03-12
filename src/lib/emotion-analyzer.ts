@@ -79,6 +79,7 @@ function buildAnalysisPrompt(input: AnalyzeSceneInput): string {
   "tempo": one of [${TEMPO_LIST}],
   "suggestedGenre": one of [${GENRE_LIST}],
   "musicPrompt": "A natural-language Suno prompt for background music. Include genre, mood, instruments, BPM hint, and atmosphere. Example: 'Melancholic piano solo slowly building tension, minor key, 80 BPM, cinematic underscore, distant rain atmosphere'",
+  "suggestedAmbience": ["1-3 short ambient sound descriptions based on scene setting/mood, e.g. 'gentle rain', 'cafe chatter', 'forest wind', 'crackling fireplace'. Only sounds that fit the scene."],
   "transitionSmoothness": number 0-100 (how smooth is the emotional transition from the previous scene, 100=seamless, 0=jarring),
   "confidence": number 0-100
 }`);
@@ -126,6 +127,7 @@ export async function analyzeSceneEmotion(input: AnalyzeSceneInput): Promise<Sce
     tempo: validateTempo(parsed.tempo) || 'moderato',
     suggestedGenre: validateGenre(parsed.suggestedGenre) || 'cinematic',
     musicPrompt: typeof parsed.musicPrompt === 'string' ? parsed.musicPrompt : undefined,
+    suggestedAmbience: Array.isArray(parsed.suggestedAmbience) ? parsed.suggestedAmbience.slice(0, 3).map(String) : undefined,
     transitionSmoothness: parsed.transitionSmoothness != null ? clamp(parsed.transitionSmoothness, 0, 100) : undefined,
     confidence: clamp(parsed.confidence ?? 70, 0, 100),
     analyzedAt: new Date().toISOString(),

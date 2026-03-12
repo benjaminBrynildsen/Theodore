@@ -30,6 +30,35 @@ const NON_ENTITY_SINGLE_TOKENS = new Set([
   'character', 'characters', 'location', 'locations', 'system', 'systems',
   'artifact', 'artifacts', 'event', 'events',
   'question', 'questions', 'notes', 'note',
+  // Common English words that get capitalized at sentence starts
+  'he', 'she', 'they', 'them', 'we', 'you', 'it', 'i',
+  'his', 'her', 'my', 'your', 'our', 'their', 'its',
+  'this', 'that', 'these', 'those', 'there', 'here', 'where', 'when',
+  'who', 'what', 'which', 'how', 'why',
+  'only', 'just', 'even', 'still', 'also', 'too', 'very', 'quite',
+  'not', 'no', 'yes', 'maybe', 'perhaps', 'never', 'always',
+  'good', 'bad', 'great', 'much', 'more', 'most', 'less', 'least',
+  'first', 'last', 'next', 'new', 'old', 'other', 'another',
+  'some', 'any', 'all', 'every', 'each', 'both', 'few', 'many',
+  'plus', 'minus', 'part', 'half', 'whole',
+  'now', 'then', 'soon', 'later', 'once', 'again',
+  'up', 'down', 'out', 'in', 'off', 'on', 'back', 'away',
+  'well', 'right', 'left', 'long', 'far', 'close', 'near',
+  'something', 'nothing', 'everything', 'anything', 'someone', 'everyone',
+  'nobody', 'everybody', 'somewhere', 'anywhere', 'nowhere',
+  'could', 'would', 'should', 'might', 'must', 'shall', 'will',
+  'been', 'being', 'had', 'has', 'have', 'did', 'does', 'was', 'were',
+  'said', 'asked', 'told', 'replied', 'thought', 'knew', 'felt', 'looked',
+  'got', 'made', 'came', 'went', 'took', 'gave', 'saw', 'heard',
+  'enough', 'almost', 'already', 'though', 'although', 'however',
+  'but', 'and', 'or', 'so', 'yet', 'nor', 'for',
+  'with', 'from', 'into', 'about', 'after', 'before', 'between', 'through',
+  'above', 'below', 'over', 'under', 'around', 'along',
+  'sure', 'like', 'way', 'thing', 'things', 'kind', 'sort', 'lot',
+  'time', 'day', 'night', 'morning', 'evening', 'afternoon',
+  'year', 'years', 'month', 'months', 'week', 'weeks', 'hour', 'hours',
+  'man', 'woman', 'boy', 'girl', 'people', 'person', 'child', 'children',
+  'hand', 'head', 'face', 'eye', 'eyes', 'voice', 'door', 'room',
   ...Array.from(TIME_WORDS),
 ]);
 
@@ -80,7 +109,7 @@ export function normalizeCharacterKey(name: string): string {
 }
 
 export function normalizeEntityKeyForType(
-  type: 'character' | 'location' | 'system' | 'artifact',
+  type: 'character' | 'location' | 'system' | 'artifact' | 'media',
   name: string,
 ): string {
   if (type === 'character') return normalizeCharacterKey(name) || normalizeEntityKey(name);

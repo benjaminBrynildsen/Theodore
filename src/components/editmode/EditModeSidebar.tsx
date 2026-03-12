@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { X, Loader2, Plus } from 'lucide-react';
+import { useEffect, useCallback } from 'react';
+import { X, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
@@ -35,95 +35,95 @@ export function EditModeSidebar({ projectId, chapterId }: Props) {
   const scenes = (chapter?.scenes || []).filter((s): s is NonNullable<typeof s> => Boolean(s?.id));
   const activeScene = scenes.find(s => s.id === activeSceneId) || null;
 
+  // Scene generation logic — reusable from mount and rescan button
+  const generateScenes = useCallback(async () => {
+    const project = getActiveProject();
+    const freshChapter = useStore.getState().chapters.find(c => c.id === chapterId);
+    if (!project || !freshChapter) return;
+
+    setScenesGenerating(true);
+    try {
+      const allChapters = getProjectChapters(project.id);
+      const canonEntries = getProjectEntries(project.id);
+
+      const prompt = buildSceneDecompositionPrompt({
+        project,
+        chapter: freshChapter,
+        allChapters,
+        canonEntries,
+        settings,
+        writingMode: 'draft',
+        generationType: 'scene-outline',
+      });
+
+      const result = await generateText({
+        prompt,
+        model: settings.ai.preferredModel || 'gpt-4.1',
+        maxTokens: 1500,
+        action: 'generate-chapter-outline',
+        projectId: project.id,
+        chapterId,
+      });
+
+      const text = (result.text || '').trim();
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error('Invalid scene decomposition response');
+
+      const parsed = JSON.parse(jsonMatch[0]) as { title: string; summary: string; order: number }[];
+      let newScenes: Scene[] = parsed.map((s, i) => ({
+        id: generateId(),
+        title: s.title || `Scene ${i + 1}`,
+        summary: s.summary || '',
+        prose: '',
+        order: s.order || i + 1,
+        status: 'outline' as const,
+      }));
+
+      // If chapter has existing prose, split it across scenes
+      if (freshChapter.prose?.trim()) {
+        try {
+          const splitPrompt = buildSceneProseSplitPrompt(
+            freshChapter,
+            newScenes.map(s => ({ title: s.title, summary: s.summary, order: s.order })),
+          );
+
+          const splitResult = await generateText({
+            prompt: splitPrompt,
+            model: settings.ai.preferredModel || 'gpt-4.1',
+            maxTokens: 4000,
+            action: 'generate-chapter-outline',
+            projectId: project.id,
+            chapterId,
+          });
+
+          const splitText = (splitResult.text || '').trim();
+          const splitJsonMatch = splitText.match(/\[[\s\S]*\]/);
+          if (splitJsonMatch) {
+            const splitParsed = JSON.parse(splitJsonMatch[0]) as { order: number; prose: string }[];
+            for (const seg of splitParsed) {
+              const targetScene = newScenes.find(s => s.order === seg.order);
+              if (targetScene && seg.prose) {
+                targetScene.prose = seg.prose;
+                targetScene.status = 'drafted';
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to split prose into scenes:', e);
+        }
+      }
+
+      setChapterScenes(chapterId, newScenes);
+    } catch (error) {
+      console.error('Failed to generate scenes:', error);
+    } finally {
+      setScenesGenerating(false);
+    }
+  }, [chapterId, settings]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Auto-generate scenes on mount if chapter has none
   useEffect(() => {
     if (!chapter || scenes.length > 0 || scenesGenerating) return;
-
-    const generateScenes = async () => {
-      const project = getActiveProject();
-      if (!project) return;
-
-      setScenesGenerating(true);
-      try {
-        const allChapters = getProjectChapters(project.id);
-        const canonEntries = getProjectEntries(project.id);
-
-        const prompt = buildSceneDecompositionPrompt({
-          project,
-          chapter,
-          allChapters,
-          canonEntries,
-          settings,
-          writingMode: 'draft',
-          generationType: 'scene-outline',
-        });
-
-        const result = await generateText({
-          prompt,
-          model: settings.ai.preferredModel || 'gpt-4.1',
-          maxTokens: 1500,
-          action: 'generate-chapter-outline',
-          projectId: project.id,
-          chapterId,
-        });
-
-        const text = (result.text || '').trim();
-        // Parse JSON from response — handle markdown code blocks
-        const jsonMatch = text.match(/\[[\s\S]*\]/);
-        if (!jsonMatch) throw new Error('Invalid scene decomposition response');
-
-        const parsed = JSON.parse(jsonMatch[0]) as { title: string; summary: string; order: number }[];
-        let newScenes: Scene[] = parsed.map((s, i) => ({
-          id: generateId(),
-          title: s.title || `Scene ${i + 1}`,
-          summary: s.summary || '',
-          prose: '',
-          order: s.order || i + 1,
-          status: 'outline' as const,
-        }));
-
-        // If chapter has existing prose, split it across scenes
-        if (chapter.prose?.trim()) {
-          try {
-            const splitPrompt = buildSceneProseSplitPrompt(
-              chapter,
-              newScenes.map(s => ({ title: s.title, summary: s.summary, order: s.order })),
-            );
-
-            const splitResult = await generateText({
-              prompt: splitPrompt,
-              model: settings.ai.preferredModel || 'gpt-4.1',
-              maxTokens: 4000,
-              action: 'generate-chapter-outline',
-              projectId: project.id,
-              chapterId,
-            });
-
-            const splitText = (splitResult.text || '').trim();
-            const splitJsonMatch = splitText.match(/\[[\s\S]*\]/);
-            if (splitJsonMatch) {
-              const splitParsed = JSON.parse(splitJsonMatch[0]) as { order: number; prose: string }[];
-              for (const seg of splitParsed) {
-                const targetScene = newScenes.find(s => s.order === seg.order);
-                if (targetScene && seg.prose) {
-                  targetScene.prose = seg.prose;
-                  targetScene.status = 'drafted';
-                }
-              }
-            }
-          } catch (e) {
-            console.error('Failed to split prose into scenes:', e);
-          }
-        }
-
-        setChapterScenes(chapterId, newScenes);
-      } catch (error) {
-        console.error('Failed to generate scenes:', error);
-      } finally {
-        setScenesGenerating(false);
-      }
-    };
-
     generateScenes();
   }, [chapterId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -176,8 +176,15 @@ export function EditModeSidebar({ projectId, chapterId }: Props) {
         )}
 
         {!scenesGenerating && scenes.length === 0 && (
-          <div className="text-center py-8 text-text-tertiary text-xs">
-            No scenes yet. They'll be generated automatically.
+          <div className="text-center py-8">
+            <p className="text-text-tertiary text-xs mb-3">No scenes yet</p>
+            <button
+              onClick={generateScenes}
+              className="flex items-center justify-center gap-1.5 mx-auto px-3 py-2 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all"
+            >
+              <RefreshCw size={12} />
+              Generate Scenes
+            </button>
           </div>
         )}
 
@@ -191,13 +198,24 @@ export function EditModeSidebar({ projectId, chapterId }: Props) {
         ))}
 
         {!scenesGenerating && scenes.length > 0 && (
-          <button
-            onClick={handleAddScene}
-            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all mt-1"
-          >
-            <Plus size={12} />
-            Add Scene
-          </button>
+          <div className="flex items-center gap-1 mt-1">
+            <button
+              onClick={handleAddScene}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all"
+            >
+              <Plus size={12} />
+              Add Scene
+            </button>
+            <button
+              onClick={generateScenes}
+              disabled={scenesGenerating}
+              className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all"
+              title="Re-analyze chapter and regenerate scene breakdown"
+            >
+              <RefreshCw size={12} />
+              Rescan
+            </button>
+          </div>
         )}
       </div>
 

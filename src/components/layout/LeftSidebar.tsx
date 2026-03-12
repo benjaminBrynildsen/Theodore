@@ -1,17 +1,23 @@
-import { useState, useEffect } from 'react';
-import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, PenLine } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, PenLine, Film, RefreshCw, Loader2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
+import { useSettingsStore } from '../../store/settings';
 import { cn } from '../../lib/utils';
 import { EditModeSidebar } from '../editmode/EditModeSidebar';
 import { InlineEditChat } from '../features/InlineEditChat';
+import { buildSceneDecompositionPrompt, buildSceneProseSplitPrompt } from '../../lib/prompt-builder';
+import { generateText } from '../../lib/generate';
+import { generateId } from '../../lib/utils';
 import type { CanonType } from '../../types/canon';
+import type { Scene } from '../../types';
 
 const canonSections: { type: CanonType; label: string; icon: React.ElementType }[] = [
   { type: 'character', label: 'Characters', icon: Users },
-  { type: 'location', label: 'Locations', icon: MapPin },
+  { type: 'location', label: 'Places', icon: MapPin },
+  { type: 'artifact', label: 'Objects', icon: Gem },
+  { type: 'media', label: 'Media', icon: Film },
   { type: 'system', label: 'Systems', icon: Cog },
-  { type: 'artifact', label: 'Artifacts', icon: Gem },
   { type: 'rule', label: 'Rules', icon: Scale },
   { type: 'event', label: 'Major Events', icon: Milestone },
 ];
@@ -19,7 +25,7 @@ const canonSections: { type: CanonType; label: string; icon: React.ElementType }
 // ========== PROJECT SIDEBAR (Canon & World) ==========
 
 function ProjectSidebar({ projectId }: { projectId: string }) {
-  const { entries, setActiveEntry, activeEntryId, createCharacter, createLocation, createSystem, createArtifact, createRule, createEvent, addEntry } = useCanonStore();
+  const { entries, setActiveEntry, activeEntryId, createCharacter, createLocation, createSystem, createArtifact, createMedia, createRule, createEvent, addEntry } = useCanonStore();
   const [search, setSearch] = useState('');
   const [expandedType, setExpandedType] = useState<CanonType | null>('character');
 
@@ -31,7 +37,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   const handleAdd = (type: CanonType) => {
     const creators: Record<CanonType, (pid: string, name: string) => any> = {
       character: createCharacter, location: createLocation, system: createSystem,
-      artifact: createArtifact, rule: createRule, event: createEvent,
+      artifact: createArtifact, media: createMedia, rule: createRule, event: createEvent,
     };
     const entry = creators[type](projectId, `New ${type.charAt(0).toUpperCase() + type.slice(1)}`);
     addEntry(entry);
@@ -123,8 +129,9 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
 // ========== CHAPTER SIDEBAR (Context-Aware Toolkit) ==========
 
 function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId: string }) {
-  const { chapters, updateChapter, setEditMode, inlineEditOpen, setInlineEditOpen, inlineSelection, setInlineSelection, editHighlight, setEditHighlight } = useStore();
-  const { entries } = useCanonStore();
+  const { chapters, updateChapter, setEditMode, inlineEditOpen, setInlineEditOpen, inlineSelection, setInlineSelection, editHighlight, setEditHighlight, setChapterScenes, scenesGenerating, setScenesGenerating, getActiveProject, getProjectChapters } = useStore();
+  const { entries, getProjectEntries } = useCanonStore();
+  const { settings } = useSettingsStore();
   const [activeSection, setActiveSection] = useState<'edit' | 'scenes' | 'artifacts'>('edit');
 
   const chapter = chapters.find(c => c.id === chapterId);
@@ -141,6 +148,88 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
     });
   };
 
+  // Rescan: regenerate scenes from chapter prose
+  const rescanScenes = async () => {
+    const project = getActiveProject();
+    const freshChapter = useStore.getState().chapters.find(c => c.id === chapterId);
+    if (!project || !freshChapter?.prose?.trim()) return;
+
+    setScenesGenerating(true);
+    try {
+      const allChapters = getProjectChapters(project.id);
+      const canonEntries = getProjectEntries(project.id);
+
+      const prompt = buildSceneDecompositionPrompt({
+        project,
+        chapter: freshChapter,
+        allChapters,
+        canonEntries,
+        settings,
+        writingMode: 'draft',
+        generationType: 'scene-outline',
+      });
+
+      const result = await generateText({
+        prompt,
+        model: settings.ai.preferredModel || 'gpt-4.1',
+        maxTokens: 1500,
+        action: 'generate-chapter-outline',
+        projectId: project.id,
+        chapterId,
+      });
+
+      const text = (result.text || '').trim();
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) throw new Error('Invalid scene decomposition response');
+
+      const parsed = JSON.parse(jsonMatch[0]) as { title: string; summary: string; order: number }[];
+      const newScenes: Scene[] = parsed.map((s, i) => ({
+        id: generateId(),
+        title: s.title || `Scene ${i + 1}`,
+        summary: s.summary || '',
+        prose: '',
+        order: s.order || i + 1,
+        status: 'outline' as const,
+      }));
+
+      // Split existing prose across new scenes
+      try {
+        const splitPrompt = buildSceneProseSplitPrompt(
+          freshChapter,
+          newScenes.map(s => ({ title: s.title, summary: s.summary, order: s.order })),
+        );
+        const splitResult = await generateText({
+          prompt: splitPrompt,
+          model: settings.ai.preferredModel || 'gpt-4.1',
+          maxTokens: 4000,
+          action: 'generate-chapter-outline',
+          projectId: project.id,
+          chapterId,
+        });
+        const splitText = (splitResult.text || '').trim();
+        const splitJsonMatch = splitText.match(/\[[\s\S]*\]/);
+        if (splitJsonMatch) {
+          const splitParsed = JSON.parse(splitJsonMatch[0]) as { order: number; prose: string }[];
+          for (const seg of splitParsed) {
+            const targetScene = newScenes.find(s => s.order === seg.order);
+            if (targetScene && seg.prose) {
+              targetScene.prose = seg.prose;
+              targetScene.status = 'drafted';
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to split prose into scenes:', e);
+      }
+
+      setChapterScenes(chapterId, newScenes);
+    } catch (error) {
+      console.error('Failed to rescan scenes:', error);
+    } finally {
+      setScenesGenerating(false);
+    }
+  };
+
   // Auto-open inline edit when Edit tab is active
   useEffect(() => {
     if (activeSection === 'edit' && chapter.prose) {
@@ -153,7 +242,7 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
   const sections = [
     { id: 'edit' as const, label: 'Edit', icon: PenLine },
     { id: 'scenes' as const, label: 'Scenes', icon: FileText },
-    { id: 'artifacts' as const, label: 'Artifacts', icon: Gem },
+    { id: 'artifacts' as const, label: 'Artifacts', icon: Gem }, // tab name kept for route compat
   ];
 
   return (
@@ -281,12 +370,37 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
 
             {/* Scene list */}
             <div>
-              <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider px-1 mb-2">
-                Scenes {scenes.length > 0 && `(${scenes.length})`}
+              <div className="flex items-center justify-between px-1 mb-2">
+                <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
+                  Scenes {scenes.length > 0 && `(${scenes.length})`}
+                </div>
+                <button
+                  onClick={rescanScenes}
+                  disabled={scenesGenerating || !chapter.prose?.trim()}
+                  className="flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-primary transition-colors px-2 py-1 rounded-lg hover:bg-black/5 disabled:opacity-40"
+                  title="Re-analyze chapter prose and regenerate scene breakdown"
+                >
+                  {scenesGenerating ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                  Rescan
+                </button>
               </div>
-              {scenes.length === 0 ? (
+              {scenesGenerating ? (
+                <div className="glass-pill rounded-xl p-6 text-center">
+                  <Loader2 size={20} className="mx-auto text-text-tertiary animate-spin mb-2" />
+                  <p className="text-xs text-text-tertiary">Analyzing chapter & splitting into scenes...</p>
+                </div>
+              ) : scenes.length === 0 ? (
                 <div className="glass-pill rounded-xl p-4 text-center">
-                  <p className="text-xs text-text-tertiary">No scenes yet. Generate the chapter to create scenes automatically.</p>
+                  <p className="text-xs text-text-tertiary mb-2">No scenes yet</p>
+                  {chapter.prose?.trim() && (
+                    <button
+                      onClick={rescanScenes}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all"
+                    >
+                      <RefreshCw size={11} />
+                      Generate Scenes
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-1.5">
@@ -319,6 +433,15 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
         {/* ARTIFACTS SECTION */}
         {activeSection === 'artifacts' && (
           <div className="space-y-3 animate-fade-in">
+            <div className="flex justify-end px-1">
+              <button
+                onClick={() => useStore.getState().rescanChapterMetadata(chapterId)}
+                className="flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-primary transition-colors px-2 py-1 rounded-lg hover:bg-black/5"
+              >
+                <Search size={10} />
+                Rescan
+              </button>
+            </div>
             {chapterEntries.length === 0 ? (
               <div className="text-center py-8 text-text-tertiary text-xs">
                 No canon entries referenced in this chapter.
@@ -335,18 +458,27 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
                         {label}
                       </div>
                       <div className="space-y-1">
-                        {typeEntries.map(entry => (
+                        {typeEntries.map(entry => {
+                          const isActive = useCanonStore.getState().activeEntryId === entry.id;
+                          return (
                           <button
                             key={entry.id}
-                            onClick={() => useCanonStore.getState().setActiveEntry(entry.id)}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg glass-pill hover:bg-white/60 transition-all text-left"
+                            onClick={() => {
+                              const store = useCanonStore.getState();
+                              store.setActiveEntry(store.activeEntryId === entry.id ? null : entry.id);
+                            }}
+                            className={cn(
+                              'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-left',
+                              isActive ? 'bg-amber-100/80 ring-1 ring-amber-300' : 'glass-pill hover:bg-white/60'
+                            )}
                           >
                             <span className="text-[15px] font-medium truncate">{entry.name}</span>
                             {entry.description && (
                               <span className="text-xs text-text-tertiary truncate flex-1">{entry.description.slice(0, 40)}...</span>
                             )}
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -370,7 +502,7 @@ export function LeftSidebar() {
   if (!leftSidebarOpen || !project) return null;
 
   return (
-    <aside className="w-80 h-full glass-subtle flex flex-col animate-fade-in border-r-0">
+    <aside className="w-96 h-full glass-subtle flex flex-col animate-fade-in border-r-0">
       {editMode && activeChapterId ? (
         <EditModeSidebar projectId={project.id} chapterId={activeChapterId} />
       ) : activeChapterId ? (

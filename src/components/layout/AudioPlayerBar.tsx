@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Loader2, X, Volume2, VolumeX, Headphones } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
+import { useMusicStore } from '../../store/music';
 import { useCanonStore } from '../../store/canon';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
@@ -25,8 +26,95 @@ export function AudioPlayerBar() {
   const currentAudio = currentChapterId ? chapterAudio[currentChapterId] : null;
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const musicRef = useRef<HTMLAudioElement | null>(null);
+  const preloadedMusicRef = useRef<Record<string, HTMLAudioElement>>({});
   const timeUpdateRef = useRef(0);
   const sceneIndexRef = useRef(0);
+
+  const musicVolume = useMusicStore((s) => s.musicVolume);
+
+  // Preload music for all scenes in a chapter so playback is instant
+  const preloadSceneMusic = useCallback((sceneIds: string[]) => {
+    // Clean up old preloaded elements
+    for (const el of Object.values(preloadedMusicRef.current)) {
+      el.pause();
+      el.src = '';
+    }
+    preloadedMusicRef.current = {};
+
+    const musicState = useMusicStore.getState();
+    for (const sceneId of sceneIds) {
+      const mapping = musicState.sceneTracks[sceneId];
+      const track = mapping?.tracks?.find((t) => t.id === mapping.activeTrackId) || mapping?.tracks?.[0];
+      if (track?.audioUrl) {
+        const el = new Audio(track.audioUrl);
+        el.preload = 'auto';
+        el.loop = true;
+        preloadedMusicRef.current[track.audioUrl] = el;
+      }
+    }
+  }, []);
+
+  // Play background music for a scene (ducked behind narration)
+  const playSceneMusic = useCallback((sceneId: string | undefined) => {
+    if (!sceneId) {
+      // No scene — fade out music
+      if (musicRef.current) {
+        musicRef.current.pause();
+        musicRef.current = null;
+      }
+      return;
+    }
+    const musicState = useMusicStore.getState();
+    const mapping = musicState.sceneTracks[sceneId];
+    const activeTrack = mapping?.tracks?.find((t) => t.id === mapping.activeTrackId) || mapping?.tracks?.[0];
+    if (!activeTrack?.audioUrl) {
+      if (musicRef.current) { musicRef.current.pause(); musicRef.current = null; }
+      return;
+    }
+
+    // If already playing this track, skip
+    if (musicRef.current?.src?.endsWith(activeTrack.audioUrl)) return;
+
+    if (musicRef.current) { musicRef.current.pause(); }
+    const m = new Audio(activeTrack.audioUrl);
+    m.volume = musicVolume;
+    m.loop = true; // loop background music under narration
+    musicRef.current = m;
+    m.play().catch(() => {}); // ignore autoplay errors
+  }, [musicVolume]);
+
+  // Helper to look up & play scene music by index from cached audio
+  const syncMusicToScene = useCallback((cached: { sceneIds?: string[] } | null, sceneIdx: number) => {
+    const sceneId = cached?.sceneIds?.[sceneIdx];
+    if (sceneId) {
+      const mapping = useMusicStore.getState().sceneTracks[sceneId];
+      const track = mapping?.tracks?.find((t) => t.id === mapping.activeTrackId) || mapping?.tracks?.[0];
+      if (track?.audioUrl) {
+        // If already playing this track, skip
+        if (musicRef.current?.src?.endsWith(track.audioUrl)) return;
+        if (musicRef.current) musicRef.current.pause();
+
+        // Reuse preloaded element for instant playback
+        const preloaded = preloadedMusicRef.current[track.audioUrl];
+        if (preloaded) {
+          preloaded.volume = useMusicStore.getState().musicVolume;
+          preloaded.currentTime = 0;
+          musicRef.current = preloaded;
+          preloaded.play().catch(() => {});
+        } else {
+          const m = new Audio(track.audioUrl);
+          m.volume = useMusicStore.getState().musicVolume;
+          m.loop = true;
+          musicRef.current = m;
+          m.play().catch(() => {});
+        }
+        return;
+      }
+    }
+    // No music for this scene — stop
+    if (musicRef.current) { musicRef.current.pause(); musicRef.current = null; }
+  }, []);
 
   // ========== Audio element ==========
   useEffect(() => {
@@ -44,8 +132,13 @@ export function AudioPlayerBar() {
         audio.src = cached.sceneAudioUrls[sceneIndexRef.current];
         audio.load();
         audio.play();
+        // Switch background music to match new scene
+        syncMusicToScene(cached, sceneIndexRef.current);
         return;
       }
+
+      // Chapter ended — stop music
+      if (musicRef.current) { musicRef.current.pause(); musicRef.current = null; }
 
       setPlaying(false);
       sceneIndexRef.current = 0;
@@ -61,6 +154,8 @@ export function AudioPlayerBar() {
         audio.load();
         audio.play();
         setPlaying(true);
+        // Start music for first scene of next chapter
+        syncMusicToScene(nextAudio, 0);
       }
     });
     audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
@@ -72,13 +167,23 @@ export function AudioPlayerBar() {
       }
     });
 
-    return () => { audio.pause(); audio.src = ''; };
+    return () => {
+      audio.pause(); audio.src = '';
+      if (musicRef.current) { musicRef.current.pause(); musicRef.current = null; }
+      for (const el of Object.values(preloadedMusicRef.current)) { el.pause(); el.src = ''; }
+      preloadedMusicRef.current = {};
+    };
   }, []);
 
   // Sync volume
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
+
+  // Sync music volume
+  useEffect(() => {
+    if (musicRef.current) musicRef.current.volume = musicVolume;
+  }, [musicVolume]);
 
   // ========== Generate & play ==========
   const buildVoiceContext = useCallback(() => {
@@ -128,6 +233,9 @@ export function AudioPlayerBar() {
       const { voiceMap, descriptions } = buildVoiceContext();
       const versionSuffix = `-v${Date.now()}`;
 
+      // Preload music for all scenes before narration starts
+      preloadSceneMusic(scenes.map(s => s.id));
+
       if (scenes.length > 1) {
         const firstScene = scenes[0];
         const result = await api.ttsGenerate({
@@ -149,7 +257,12 @@ export function AudioPlayerBar() {
           setPlaying(true);
         }
 
+        // Start background music for first scene
+        sceneIndexRef.current = 0;
+        syncMusicToScene({ sceneIds: scenes.map(s => s.id) }, 0);
+
         const allUrls = [result.audioUrl];
+        const allSceneIds = [firstScene.id];
         let totalDuration = result.durationEstimate;
 
         for (let i = 1; i < scenes.length; i++) {
@@ -166,6 +279,7 @@ export function AudioPlayerBar() {
               multiVoice,
             });
             allUrls.push(sceneResult.audioUrl);
+            allSceneIds.push(scene.id);
             totalDuration += sceneResult.durationEstimate;
           } catch (e: any) {
             console.error(`Scene ${i + 1} generation failed:`, e);
@@ -176,6 +290,7 @@ export function AudioPlayerBar() {
           chapterId,
           audioUrl: allUrls[0],
           sceneAudioUrls: allUrls,
+          sceneIds: allSceneIds,
           durationEstimate: totalDuration,
           generatedAt: new Date().toISOString(),
         });
@@ -251,8 +366,10 @@ export function AudioPlayerBar() {
         audio.load();
       }
       audio.play();
+      if (musicRef.current) musicRef.current.play().catch(() => {});
     } else if (!playing && !audio.paused) {
       audio.pause();
+      if (musicRef.current) musicRef.current.pause();
     }
   }, [playing, currentAudio]);
 
@@ -267,17 +384,29 @@ export function AudioPlayerBar() {
     }
 
     if (currentChapterId === chapterId) {
-      if (playing) { audio.pause(); setPlaying(false); }
-      else { audio.play(); setPlaying(true); }
+      if (playing) {
+        audio.pause();
+        if (musicRef.current) musicRef.current.pause();
+        setPlaying(false);
+      } else {
+        audio.play();
+        if (musicRef.current) musicRef.current.play().catch(() => {});
+        setPlaying(true);
+      }
       return;
     }
 
-    audio.src = cached.audioUrl;
+    sceneIndexRef.current = 0;
+    // Preload music for all scenes before playback
+    if (cached.sceneIds?.length) preloadSceneMusic(cached.sceneIds);
+    audio.src = cached.sceneAudioUrls?.[0] || cached.audioUrl;
     audio.load();
     audio.play();
     setCurrentChapter(chapterId);
     setPlaying(true);
-  }, [chapterAudio, currentChapterId, playing, generateAndPlay]);
+    // Start background music for first scene
+    syncMusicToScene(cached, 0);
+  }, [chapterAudio, currentChapterId, playing, generateAndPlay, syncMusicToScene]);
 
   // Listen for play requests (play cached audio or generate if missing)
   useEffect(() => {
@@ -310,6 +439,7 @@ export function AudioPlayerBar() {
   const dismiss = useCallback(() => {
     const audio = audioRef.current;
     if (audio) audio.pause();
+    if (musicRef.current) { musicRef.current.pause(); musicRef.current = null; }
     setPlaying(false);
     setMiniPlayerVisible(false);
   }, []);

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity, Tags } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
@@ -14,6 +14,7 @@ import { SceneSFXBadges } from '../features/SceneSFXBadges';
 import { SmartResearch } from '../features/SmartResearch';
 import { VibeEditor } from '../editmode/VibeEditor';
 import { generateStream } from '../../lib/generate';
+import { tagDialogue } from '../../lib/dialogue-tagger';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { cn } from '../../lib/utils';
 import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
@@ -40,12 +41,19 @@ export function ChapterView({ chapter }: Props) {
   const [showVibeEditor, setShowVibeEditor] = useState(false);
   const [generatingSceneId, setGeneratingSceneId] = useState<string | null>(null);
   const [sceneGeneratedText, setSceneGeneratedText] = useState('');
+  const [taggingSceneId, setTaggingSceneId] = useState<string | null>(null);
+  const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
+  const [editingChapterProse, setEditingChapterProse] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const proseDisplayRef = useRef<HTMLDivElement>(null);
 
   const { getActiveProject, getProjectChapters, chapters: allChapters } = useStore();
-  const { getProjectEntries } = useCanonStore();
+  const { getProjectEntries, activeEntryId, getEntry } = useCanonStore();
   const { settings } = useSettingsStore();
+
+  // Highlighted artifact name (from clicking an entry in the Artifacts tab)
+  const highlightedEntry = activeEntryId ? getEntry(activeEntryId) : null;
+  const highlightName = highlightedEntry?.name || null;
   const project = getActiveProject();
   const liked = Boolean((chapter.aiIntentMetadata as any)?.userFeedback?.liked);
   const chunkProfiles: Record<'short' | 'medium' | 'long', { label: string; words: string; maxTokens: number }> = {
@@ -297,6 +305,25 @@ export function ChapterView({ chapter }: Props) {
     );
   };
 
+  // Tag dialogue in a scene with AI-generated [CharacterName] tags
+  const handleTagScene = async (scene: Scene) => {
+    if (!project || !scene.prose?.trim()) return;
+    setTaggingSceneId(scene.id);
+    try {
+      const characterEntries = getProjectEntries(project.id).filter(e => e.type === 'character');
+      const characterNames = characterEntries.map(e => e.name);
+      const tagged = await tagDialogue(scene.prose, characterNames, project.id, chapter.id);
+      updateScene(chapter.id, scene.id, { prose: tagged });
+      // Also sync to chapter prose
+      syncScenesToProse(chapter.id);
+    } catch (e: any) {
+      console.error('Dialogue tagging failed:', e);
+      setGenerationError(`Tagging failed: ${e.message}`);
+    } finally {
+      setTaggingSceneId(null);
+    }
+  };
+
   // Helper: compute character offset within proseDisplayRef for a given node+offset
   const computeProseOffset = useCallback((container: Node, offset: number): number => {
     const proseEl = proseDisplayRef.current;
@@ -451,6 +478,63 @@ export function ChapterView({ chapter }: Props) {
       </div>
     );
   }, [editHighlight, inlineEditOpen, isFocusMode]);
+
+  // Render prose with entity name highlights (for artifact tab clicks)
+  const renderEntityHighlightedProse = useCallback((text: string, entityName: string, className?: string) => {
+    const escaped = entityName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(\\b${escaped}\\b)`, 'gi');
+    const parts = text.split(regex);
+
+    return parts.map((part, i) => {
+      if (regex.test(part)) {
+        // Reset regex lastIndex since we're using 'g' flag
+        regex.lastIndex = 0;
+        return (
+          <mark key={i} className="bg-amber-200/70 text-amber-900 rounded px-0.5 py-0.5 transition-all duration-300">
+            {part}
+          </mark>
+        );
+      }
+      // Render newlines properly
+      return <span key={i}>{part.split('\n').map((line, j) => (
+        <span key={j}>{j > 0 && <br />}{line}</span>
+      ))}</span>;
+    });
+  }, []);
+
+  // Render prose with [CharacterName] dialogue tags as inline colored badges
+  const SPEAKER_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4', '#f97316'];
+  const speakerColorMap = useRef(new Map<string, string>());
+  const renderTaggedProse = useCallback((text: string) => {
+    const tagRegex = /\[([^\]]+)\]/g;
+    const parts: (string | JSX.Element)[] = [];
+    let lastIdx = 0;
+    let match: RegExpExecArray | null;
+    while ((match = tagRegex.exec(text)) !== null) {
+      if (match.index > lastIdx) {
+        parts.push(text.slice(lastIdx, match.index));
+      }
+      const name = match[1];
+      if (!speakerColorMap.current.has(name)) {
+        speakerColorMap.current.set(name, SPEAKER_COLORS[speakerColorMap.current.size % SPEAKER_COLORS.length]);
+      }
+      const color = speakerColorMap.current.get(name)!;
+      parts.push(
+        <span
+          key={`tag-${match.index}`}
+          className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white mr-1 align-baseline"
+          style={{ backgroundColor: color }}
+        >
+          {name}
+        </span>
+      );
+      lastIdx = match.index + match[0].length;
+    }
+    if (lastIdx < text.length) {
+      parts.push(text.slice(lastIdx));
+    }
+    return parts.length > 0 ? parts : text;
+  }, []);
 
   // Edit mode scene state
   const scenes = (chapter.scenes || []).filter((s): s is Scene => Boolean(s?.id));
@@ -871,26 +955,47 @@ export function ChapterView({ chapter }: Props) {
                                 <p className="text-xs text-text-secondary mt-1 leading-relaxed">{scene.summary}</p>
                               )}
                             </div>
-                            <button
-                              onClick={() => handleGenerateScene(scene)}
-                              disabled={!!generatingSceneId || generating}
-                              className={cn(
-                                'flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
-                                isThisGenerating
-                                  ? 'bg-black/5 text-text-tertiary'
-                                  : generatingSceneId || generating
-                                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
-                                    : 'bg-text-primary text-text-inverse hover:shadow-md',
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              {scene.prose && (
+                                <button
+                                  onClick={() => handleTagScene(scene)}
+                                  disabled={!!taggingSceneId || !!generatingSceneId || generating}
+                                  className={cn(
+                                    'px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
+                                    taggingSceneId === scene.id
+                                      ? 'bg-blue-50 text-blue-500'
+                                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100',
+                                  )}
+                                  title="Tag dialogue with character names"
+                                >
+                                  {taggingSceneId === scene.id ? (
+                                    <><Loader2 size={12} className="animate-spin" /> Tagging...</>
+                                  ) : (
+                                    <><Tags size={12} /> Tag</>
+                                  )}
+                                </button>
                               )}
-                            >
-                              {isThisGenerating ? (
-                                <><Loader2 size={12} className="animate-spin" /> Writing...</>
-                              ) : scene.prose ? (
-                                <><Sparkles size={12} /> Regenerate</>
-                              ) : (
-                                <><Sparkles size={12} /> Generate</>
-                              )}
-                            </button>
+                              <button
+                                onClick={() => handleGenerateScene(scene)}
+                                disabled={!!generatingSceneId || generating}
+                                className={cn(
+                                  'px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
+                                  isThisGenerating
+                                    ? 'bg-black/5 text-text-tertiary'
+                                    : generatingSceneId || generating
+                                      ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                                      : 'bg-text-primary text-text-inverse hover:shadow-md',
+                                )}
+                              >
+                                {isThisGenerating ? (
+                                  <><Loader2 size={12} className="animate-spin" /> Writing...</>
+                                ) : scene.prose ? (
+                                  <><Sparkles size={12} /> Regenerate</>
+                                ) : (
+                                  <><Sparkles size={12} /> Generate</>
+                                )}
+                              </button>
+                            </div>
                           </div>
                           {/* Streaming preview for this scene */}
                           {isThisGenerating && sceneGeneratedText && (
@@ -1065,7 +1170,7 @@ export function ChapterView({ chapter }: Props) {
                                   isFocusMode ? 'text-xl' : 'text-lg',
                                   isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
                                 )}>
-                                  {scene.prose}
+                                  {highlightName ? renderEntityHighlightedProse(scene.prose, highlightName) : renderTaggedProse(scene.prose)}
                                 </div>
                                 <SceneSFXBadges
                                   chapterId={chapter.id}
@@ -1106,7 +1211,7 @@ export function ChapterView({ chapter }: Props) {
                       'font-serif leading-[2] text-text-primary whitespace-pre-wrap',
                       isFocusMode ? 'text-xl' : 'text-lg',
                     )}>
-                      {chapter.prose}
+                      {highlightName ? renderEntityHighlightedProse(chapter.prose, highlightName) : renderTaggedProse(chapter.prose)}
                     </div>
                   )}
                 </div>
@@ -1154,7 +1259,19 @@ export function ChapterView({ chapter }: Props) {
                               </div>
                             )}
                             {scene.prose ? (
+                              highlightName ? (
+                                <div
+                                  className={cn(
+                                    'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
+                                    isFocusMode ? 'text-xl' : 'text-lg',
+                                    isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
+                                  )}
+                                >
+                                  {renderEntityHighlightedProse(scene.prose, highlightName)}
+                                </div>
+                              ) : editingSceneId === scene.id ? (
                               <textarea
+                                autoFocus
                                 value={scene.prose}
                                 onChange={(e) => {
                                   updateScene(chapter.id, scene.id, {
@@ -1163,6 +1280,7 @@ export function ChapterView({ chapter }: Props) {
                                   });
                                   syncScenesToProse(chapter.id);
                                 }}
+                                onBlur={() => setEditingSceneId(null)}
                                 className={cn(
                                   'w-full bg-transparent border-none outline-none resize-none overflow-hidden',
                                   'font-serif leading-[2]',
@@ -1183,6 +1301,18 @@ export function ChapterView({ chapter }: Props) {
                                   el.style.height = Math.max(80, el.scrollHeight) + 'px';
                                 }}
                               />
+                              ) : (
+                                <div
+                                  onClick={() => setEditingSceneId(scene.id)}
+                                  className={cn(
+                                    'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500 cursor-text',
+                                    isFocusMode ? 'text-xl' : 'text-lg',
+                                    isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
+                                  )}
+                                >
+                                  {renderTaggedProse(scene.prose)}
+                                </div>
+                              )
                             ) : (
                               <div className={cn('py-6 flex items-center gap-3 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>
                                 <p className="text-sm text-text-tertiary italic flex-1">No prose yet</p>
@@ -1210,15 +1340,24 @@ export function ChapterView({ chapter }: Props) {
                         );
                       })}
                     </div>
-                  ) : (
+                  ) : highlightName ? (
+                    <div className={cn(
+                      'font-serif leading-[2] text-text-primary whitespace-pre-wrap',
+                      isFocusMode ? 'text-xl' : 'text-lg'
+                    )} style={{ minHeight: '500px' }}>
+                      {renderEntityHighlightedProse(chapter.prose, highlightName)}
+                    </div>
+                  ) : editingChapterProse ? (
                     <textarea
                       ref={editorRef}
+                      autoFocus
                       value={chapter.prose}
                       onChange={(e) => updateChapter(chapter.id, {
                         prose: e.target.value,
                         status: 'human-edited',
                         updatedAt: new Date().toISOString(),
                       })}
+                      onBlur={() => setEditingChapterProse(false)}
                       className={cn(
                         'w-full bg-transparent border-none outline-none resize-none',
                         'font-serif leading-[2] text-text-primary',
@@ -1227,6 +1366,17 @@ export function ChapterView({ chapter }: Props) {
                       )}
                       style={{ minHeight: '500px' }}
                     />
+                  ) : (
+                    <div
+                      onClick={() => setEditingChapterProse(true)}
+                      className={cn(
+                        'font-serif leading-[2] text-text-primary whitespace-pre-wrap cursor-text',
+                        isFocusMode ? 'text-xl' : 'text-lg'
+                      )}
+                      style={{ minHeight: '500px' }}
+                    >
+                      {renderTaggedProse(chapter.prose)}
+                    </div>
                   )}
                 </>
               )}

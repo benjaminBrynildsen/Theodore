@@ -49,6 +49,9 @@ export interface SceneEmotionalMetadata {
   proseHash?: string; // hash of prose at analysis time — detect staleness
   confidence: number; // 0-100
 
+  // Ambient SFX suggestions from AI analysis
+  suggestedAmbience?: string[]; // e.g. ["gentle rain", "cafe chatter", "forest wind"]
+
   // User overrides (merged on top of AI-generated values)
   userOverrides?: Partial<Pick<SceneEmotionalMetadata,
     'primaryEmotion' | 'secondaryEmotion' | 'intensity' | 'arc' |

@@ -63,7 +63,8 @@ export async function generateSceneMusic(req: MusicGenerateRequest): Promise<Mus
  * - output_format: mp3_44100_128
  */
 async function callElevenLabsMusic(req: MusicGenerateRequest, apiKey: string): Promise<MusicGenerateResult> {
-  const durationSec = Math.min(Math.max(req.durationHint || 60, 3), 300);
+  // Cap at 90s to conserve credits — background music loops anyway
+  const durationSec = Math.min(Math.max(req.durationHint || 30, 3), 90);
   const durationMs = durationSec * 1000;
 
   // Build a rich prompt combining user prompt with genre

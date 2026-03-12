@@ -10,7 +10,7 @@ import { IllustrateButton } from '../features/IllustrateButton';
 import { detectChanges, generateValidationIssues } from '../../lib/validation-engine';
 import { useValidationStore } from '../../store/validation';
 import { useStore } from '../../store';
-import type { AnyCanonEntry, CharacterEntry, LocationEntry, SystemEntry, ArtifactEntry, RuleEntry, EventEntry } from '../../types/canon';
+import type { AnyCanonEntry, CharacterEntry, LocationEntry, SystemEntry, ArtifactEntry, RuleEntry, EventEntry, MediaEntry } from '../../types/canon';
 
 // Reusable field components
 function Field({ label, value, onChange, placeholder, multiline, className }: {
@@ -606,6 +606,25 @@ function EventDetail({ entry, onUpdate }: { entry: EventEntry; onUpdate: (update
   );
 }
 
+// ========== MEDIA DETAIL ==========
+
+function MediaDetail({ entry, onUpdate }: { entry: MediaEntry; onUpdate: (updates: any) => void }) {
+  const m = entry.media;
+  const update = (field: string, value: any) => {
+    onUpdate({ media: { ...m, [field]: value } });
+  };
+  return (
+    <Section title="Media Details">
+      <Field label="Type" value={m.mediaType} onChange={(v) => update('mediaType', v)} placeholder="song, movie, book, album, painting..." />
+      <Field label="Creator / Artist" value={m.creator} onChange={(v) => update('creator', v)} placeholder="Who created this?" />
+      <Field label="Year" value={m.year} onChange={(v) => update('year', v)} placeholder="Year of release/creation" />
+      <Field label="Significance" value={m.significance} onChange={(v) => update('significance', v)} placeholder="Why does it matter to the story?" multiline />
+      <Field label="Referenced By" value={m.mentionedBy} onChange={(v) => update('mentionedBy', v)} placeholder="Which character mentions it?" />
+      <Field label="Mood / Feeling" value={m.mood} onChange={(v) => update('mood', v)} placeholder="What feeling does it evoke?" />
+    </Section>
+  );
+}
+
 // ========== MAIN PANEL ==========
 
 interface Props {
@@ -795,6 +814,7 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
         {entry.type === 'location' && <LocationDetail entry={entry as LocationEntry} onUpdate={handleUpdate} />}
         {entry.type === 'system' && <SystemDetail entry={entry as SystemEntry} onUpdate={handleUpdate} />}
         {entry.type === 'artifact' && <ArtifactDetail entry={entry as ArtifactEntry} onUpdate={handleUpdate} />}
+        {entry.type === 'media' && <MediaDetail entry={entry as MediaEntry} onUpdate={handleUpdate} />}
         {entry.type === 'rule' && <RuleDetail entry={entry as RuleEntry} onUpdate={handleUpdate} />}
         {entry.type === 'event' && <EventDetail entry={entry as EventEntry} onUpdate={handleUpdate} />}
       </div>

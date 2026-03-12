@@ -12,7 +12,7 @@ import {
   sanitizeEntityName,
 } from '../lib/entity-normalization';
 const AUTO_METADATA_TAGS = ['auto-detected', 'chapter-scan'];
-type AutoCanonType = 'character' | 'location' | 'system' | 'artifact';
+type AutoCanonType = 'character' | 'location' | 'system' | 'artifact' | 'media';
 type ChapterSnapshotType = 'ai-generated' | 'human-edit' | 'auto-save';
 
 // Debounce helper for saving
@@ -69,6 +69,7 @@ function createAutoCanonEntry(projectId: string, type: AutoCanonType, name: stri
   if (type === 'character') return canonStore.createCharacter(projectId, name);
   if (type === 'location') return canonStore.createLocation(projectId, name);
   if (type === 'system') return canonStore.createSystem(projectId, name);
+  if (type === 'media') return canonStore.createMedia(projectId, name);
   return canonStore.createArtifact(projectId, name);
 }
 
@@ -78,7 +79,7 @@ function persistScannedMetadataToCanon(
   scan: MetadataScanResult,
 ): string[] {
   const canonStore = useCanonStore.getState();
-  const autoCanonTypes = new Set<AutoCanonType>(['character', 'location', 'system', 'artifact']);
+  const autoCanonTypes = new Set<AutoCanonType>(['character', 'location', 'system', 'artifact', 'media']);
   const existingKeys = new Set(
     canonStore.getProjectEntries(projectId)
       .filter((entry): entry is typeof entry & { type: AutoCanonType } => autoCanonTypes.has(entry.type as AutoCanonType))
@@ -95,6 +96,7 @@ function persistScannedMetadataToCanon(
     location: dedupeEntityNames(scan.newEntities?.locations, 'location'),
     system: dedupeEntityNames(scan.newEntities?.systems, 'system'),
     artifact: dedupeEntityNames(scan.newEntities?.artifacts, 'artifact'),
+    media: dedupeEntityNames(scan.newEntities?.media, 'media'),
   };
 
   const createdEntryIds: string[] = [];
@@ -157,6 +159,7 @@ interface AppState {
   deleteChapter: (id: string) => Promise<void>;
   setActiveChapter: (id: string | null) => void;
   getProjectChapters: (projectId: string) => Chapter[];
+  rescanChapterMetadata: (chapterId: string) => void;
 
   // Canon (kept for compat — real canon is in canon store)
   canonEntries: any[];
@@ -470,6 +473,78 @@ export const useStore = create<AppState>()(persist((set, get) => ({
 
   setActiveChapter: (id) => set({ activeChapterId: id, ...(id ? { leftSidebarOpen: true, rightSidebarOpen: true } : {}) }),
   getProjectChapters: (projectId) => get().chapters.filter((c) => c.projectId === projectId).sort((a, b) => a.number - b.number),
+
+  rescanChapterMetadata: (chapterId) => {
+    const chapter = get().chapters.find((c) => c.id === chapterId);
+    if (!chapter?.prose) return;
+
+    const canonStore = useCanonStore.getState();
+    const prose = chapter.prose;
+
+    // 1. Remove ALL auto-detected entries for this chapter,
+    //    plus any auto-detected entry that is clearly noise (common word appearing lowercase in prose)
+    const projectEntries = canonStore.getProjectEntries(chapter.projectId);
+    const chapterTag = `chapter-${chapter.number}`;
+    for (const entry of projectEntries) {
+      if (!entry.tags?.includes('auto-detected')) continue;
+      const isThisChapter = entry.tags?.includes(chapterTag);
+      // Also nuke entries that are common words — check if name appears lowercased in prose
+      const lower = entry.name.toLowerCase();
+      const isSingleWord = !entry.name.includes(' ');
+      const isCommonWord = isSingleWord && (
+        lower.length < 4 ||
+        prose.includes(` ${lower} `) || prose.includes(` ${lower},`) || prose.includes(` ${lower}.`) ||
+        prose.includes(` ${lower};`) || prose.includes(` ${lower}!`) || prose.includes(` ${lower}?`) ||
+        prose.includes(` ${lower}\n`) || prose.includes(` ${lower}'`) || prose.includes(` ${lower}—`)
+      );
+      if (isThisChapter || isCommonWord) {
+        canonStore.deleteEntry(entry.id);
+      }
+    }
+
+    // 2. Re-run the scan with the cleaned canon list
+    const freshCanon = canonStore.getProjectEntries(chapter.projectId);
+    const scan = scanMetadataOccurrences(chapter.prose, freshCanon);
+
+    // 3. Persist new entries
+    const createdIds = persistScannedMetadataToCanon(chapter.projectId, chapter.number, scan);
+
+    // 4. Collect all candidate ref IDs
+    const mentionRefs = (scan.existingMentions || []).map((m: any) => m.canonId);
+    const manualRefs = (chapter.referencedCanonIds || []).filter((id: string) => {
+      const entry = freshCanon.find((e) => e.id === id);
+      return entry && !entry.tags?.includes('auto-detected');
+    });
+    const allRefs = Array.from(new Set([...manualRefs, ...mentionRefs, ...createdIds]));
+
+    // 5. Dedup: if "Jack" and "Jack Russo" are both referenced character entries,
+    //    suppress the shorter name so only the full name shows
+    const refEntries = allRefs
+      .map((id) => ({ id, entry: canonStore.getEntry(id) || freshCanon.find((e) => e.id === id) }))
+      .filter((r) => r.entry);
+    const charRefs = refEntries.filter((r) => r.entry!.type === 'character');
+    const suppressedIds = new Set<string>();
+    for (const short of charRefs) {
+      for (const long of charRefs) {
+        if (short.id === long.id) continue;
+        const shortName = short.entry!.name.toLowerCase();
+        const longName = long.entry!.name.toLowerCase();
+        // "jack" is a substring of "jack russo" → suppress "jack"
+        if (longName.includes(shortName) && longName.length > shortName.length) {
+          suppressedIds.add(short.id);
+        }
+      }
+    }
+    const nextRefs = allRefs.filter((id) => !suppressedIds.has(id));
+
+    set((s) => ({
+      chapters: s.chapters.map((c) =>
+        c.id === chapterId
+          ? { ...c, referencedCanonIds: nextRefs, aiIntentMetadata: { ...(c.aiIntentMetadata as any), metadataScan: scan } }
+          : c
+      ),
+    }));
+  },
 
   // Canon (compat — real canon in canon store)
   addCanonEntry: (entry) => set((s) => ({ canonEntries: [...s.canonEntries, entry] })),

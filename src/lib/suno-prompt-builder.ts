@@ -107,5 +107,7 @@ export function buildSunoPrompt(metadata: SceneEmotionalMetadata): string {
  * Assumes ~150 words per minute reading speed.
  */
 export function estimateSceneDuration(wordCount: number): number {
-  return Math.max(30, Math.ceil((wordCount / 150) * 60)); // minimum 30 seconds
+  // Cap at 90 seconds to conserve ElevenLabs credits (3 per track)
+  // Most scenes don't need more than 60-90s of background music
+  return Math.min(90, Math.max(15, Math.ceil((wordCount / 150) * 60)));
 }

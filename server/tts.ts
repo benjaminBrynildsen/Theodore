@@ -56,25 +56,42 @@ export interface ElevenLabsVoiceInfo {
   desc: string;
   gender: string;
   tone: string;
+  age?: string;
+  accent?: string;
+  useCase?: string;
+  descriptive?: string;
+  description?: string;
   previewUrl?: string;
 }
 
+// All IDs verified against ElevenLabs /v1/voices API (2026-03-12)
 export const ELEVENLABS_VOICES: ElevenLabsVoiceInfo[] = [
-  // Male
-  { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam', desc: 'Deep & authoritative', gender: 'male', tone: 'deep' },
-  { id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Josh', desc: 'Warm & friendly', gender: 'male', tone: 'warm' },
-  { id: 'VR6AewLTigWG4xSOukaG', name: 'Arnold', desc: 'Crisp & commanding', gender: 'male', tone: 'energetic' },
-  { id: 'onwK4e9ZLuTAKqWW03F9', name: 'Daniel', desc: 'Calm & measured', gender: 'male', tone: 'calm' },
-  { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam', desc: 'Clear narrator', gender: 'male', tone: 'neutral' },
-  // Female
-  { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', desc: 'Warm & balanced', gender: 'female', tone: 'warm' },
-  { id: 'XB0fDUnXU5powFXDhCwa', name: 'Charlotte', desc: 'Confident & assertive', gender: 'female', tone: 'energetic' },
-  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah', desc: 'Soft & gentle', gender: 'female', tone: 'gentle' },
-  { id: 'pFZP5JQG7iQjIQuC4Bku', name: 'Lily', desc: 'Warm storyteller', gender: 'female', tone: 'warm' },
-  { id: 'ThT5KcBeYPX3keUQqHPh', name: 'Dorothy', desc: 'Pleasant & bright', gender: 'female', tone: 'bright' },
+  // Young male
+  { id: 'TX3LPaxmHKxFdv7VOQHJ', name: 'Liam', desc: 'Energetic & social', gender: 'male', tone: 'neutral' },
+  { id: 'SOYHLrjzK2X1ezoPC6cr', name: 'Harry', desc: 'Fierce warrior', gender: 'male', tone: 'intense' },
+  { id: 'iP95p4xoKVk53GoZ742B', name: 'Chris', desc: 'Charming & down-to-earth', gender: 'male', tone: 'warm' },
+  { id: 'bIHbv24MWmeRgasZH58o', name: 'Will', desc: 'Relaxed optimist', gender: 'male', tone: 'casual' },
+  // Middle-aged male
+  { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam', desc: 'Dominant & firm', gender: 'male', tone: 'deep' },
+  { id: 'onwK4e9ZLuTAKqWW03F9', name: 'Daniel', desc: 'Steady broadcaster', gender: 'male', tone: 'calm' },
+  { id: 'nPczCjzI2devNBz1zQrb', name: 'Brian', desc: 'Deep & comforting', gender: 'male', tone: 'deep' },
+  { id: 'pqHfZKP75CvOlQylNhV4', name: 'Bill', desc: 'Wise & balanced', gender: 'male', tone: 'authoritative' },
+  { id: 'N2lVS1w4EtoT3dr4eOWO', name: 'Callum', desc: 'Husky trickster', gender: 'male', tone: 'raspy' },
+  { id: 'IKne3meq5aSn9XLyUdCD', name: 'Charlie', desc: 'Deep & confident', gender: 'male', tone: 'casual' },
+  { id: 'cjVigY5qzO86Huf0OWal', name: 'Eric', desc: 'Smooth & trustworthy', gender: 'male', tone: 'smooth' },
+  { id: 'CwhRBWXzGAHq8TQ4Fs17', name: 'Roger', desc: 'Laid-back & resonant', gender: 'male', tone: 'casual' },
+  { id: 'SAz9YHcvj6GT2YYXdXww', name: 'River', desc: 'Relaxed & informative', gender: 'male', tone: 'neutral' },
+  // Young female
+  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah', desc: 'Mature & reassuring', gender: 'female', tone: 'gentle' },
+  { id: 'cgSgspJ2msm6clMCkdW9', name: 'Jessica', desc: 'Playful & bright', gender: 'female', tone: 'bright' },
+  { id: 'hpp4J3VqNfWAUOO0d1Us', name: 'Bella', desc: 'Professional & warm', gender: 'female', tone: 'warm' },
+  { id: 'FGY2WhTYpPnrIDTdsKH5', name: 'Laura', desc: 'Enthusiastic & quirky', gender: 'female', tone: 'energetic' },
+  // Middle-aged female
+  { id: 'pFZP5JQG7iQjIQuC4Bku', name: 'Lily', desc: 'Velvety actress', gender: 'female', tone: 'warm' },
+  { id: 'Xb7hH8MSUJpSbSDYk0k2', name: 'Alice', desc: 'Clear & engaging', gender: 'female', tone: 'authoritative' },
   // Versatile
-  { id: 'XrExE9yKIg1WjnnlVkGX', name: 'Matilda', desc: 'Rich storyteller', gender: 'neutral', tone: 'dramatic' },
-  { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'George', desc: 'Warm & expressive', gender: 'neutral', tone: 'balanced' },
+  { id: 'XrExE9yKIg1WjnnlVkGX', name: 'Matilda', desc: 'Knowledgeable & professional', gender: 'neutral', tone: 'dramatic' },
+  { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'George', desc: 'Warm & captivating storyteller', gender: 'neutral', tone: 'balanced' },
 ];
 
 // Legacy alias
@@ -89,47 +106,80 @@ const PREVIEW_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
  * Fetch preview URLs from ElevenLabs' voice API (free, no credits).
  * Each pre-made voice includes a preview_url in its metadata.
  */
+// Cache for combined voices (premade + user library)
+let fullVoiceCache: ElevenLabsVoiceInfo[] | null = null;
+
 export async function getVoicesWithPreviews(): Promise<ElevenLabsVoiceInfo[]> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) return ELEVENLABS_VOICES;
 
   // Use cache if fresh
-  if (previewUrlCache && Date.now() - previewUrlFetchedAt < PREVIEW_CACHE_TTL) {
-    return ELEVENLABS_VOICES.map(v => ({
-      ...v,
-      previewUrl: previewUrlCache![v.id] || undefined,
-    }));
+  if (fullVoiceCache && previewUrlCache && Date.now() - previewUrlFetchedAt < PREVIEW_CACHE_TTL) {
+    return fullVoiceCache;
   }
 
   try {
+    // Try authenticated endpoint first (returns premade + user library voices)
     const response = await fetch(`${ELEVENLABS_API}/voices`, {
       headers: { 'xi-api-key': apiKey },
     });
 
-    if (!response.ok) {
-      console.warn('[TTS] Failed to fetch voice previews:', response.status);
-      return ELEVENLABS_VOICES;
+    let apiVoices: any[] = [];
+    if (response.ok) {
+      const data = await response.json() as any;
+      apiVoices = data.voices || [];
     }
 
-    const data = await response.json() as any;
-    const voices = data.voices || [];
+    // Use the authenticated endpoint as the source of truth
+    // Only voices in the user's account (library + premade they've added) are returned
+    if (apiVoices.length > 0) {
+      previewUrlCache = {};
+      const merged: ElevenLabsVoiceInfo[] = [];
+      const seenIds = new Set<string>();
 
-    previewUrlCache = {};
-    for (const voice of voices) {
-      if (voice.voice_id && voice.preview_url) {
-        previewUrlCache[voice.voice_id] = voice.preview_url;
+      // Map ElevenLabs age labels to our AgeCategory
+      const ageMap: Record<string, string> = {
+        young: 'young', middle_aged: 'middle', old: 'old', elderly: 'old', teen: 'teen', child: 'child',
+      };
+
+      for (const voice of apiVoices) {
+        if (!voice.voice_id || seenIds.has(voice.voice_id)) continue;
+        seenIds.add(voice.voice_id);
+        if (voice.preview_url) previewUrlCache[voice.voice_id] = voice.preview_url;
+
+        const labels = voice.labels || {};
+        // Normalize accent (e.g., 'en-british' → 'british', 'us southern' → 'american')
+        let accent = (labels.accent || '').toLowerCase().replace(/^en-/, '');
+        if (accent.startsWith('us ')) accent = 'american';
+
+        merged.push({
+          id: voice.voice_id,
+          name: voice.name?.split(' - ')[0]?.trim() || voice.name || 'Unknown',
+          desc: voice.name?.includes(' - ') ? voice.name.split(' - ').slice(1).join(' - ').trim() : (voice.description?.slice(0, 60) || ''),
+          gender: labels.gender || 'neutral',
+          tone: labels.descriptive || labels.use_case || 'neutral',
+          age: ageMap[labels.age] || labels.age || undefined,
+          accent: accent || undefined,
+          useCase: labels.use_case || undefined,
+          descriptive: labels.descriptive || undefined,
+          description: voice.description || undefined,
+          previewUrl: voice.preview_url || undefined,
+        });
       }
+
+      previewUrlFetchedAt = Date.now();
+      fullVoiceCache = merged;
+      console.log(`[TTS] Loaded ${merged.length} voices from ElevenLabs account`);
+      return merged;
     }
+
+    // Fallback: only if API key doesn't work at all, use hardcoded voices
     previewUrlFetchedAt = Date.now();
-
-    console.log(`[TTS] Cached ${Object.keys(previewUrlCache).length} voice preview URLs`);
-
-    return ELEVENLABS_VOICES.map(v => ({
-      ...v,
-      previewUrl: previewUrlCache![v.id] || undefined,
-    }));
+    fullVoiceCache = ELEVENLABS_VOICES;
+    console.log(`[TTS] Fallback: using ${fullVoiceCache.length} hardcoded voices (API key may be invalid)`);
+    return fullVoiceCache;
   } catch (err: any) {
-    console.warn('[TTS] Error fetching voice previews:', err.message);
+    console.warn('[TTS] Error fetching voices:', err.message);
     return ELEVENLABS_VOICES;
   }
 }
@@ -145,17 +195,36 @@ export function parseDialogue(prose: string, knownCharacters: string[]): TTSSegm
   const segments: TTSSegment[] = [];
   const dialogueRegex = /[\u201C"]((?:[^\u201D"\\]|\\.)*)[\u201D"]/g;
 
+  // First pass: build a map of dialogue positions → tagged speaker from [Name] patterns
+  // Pattern: [CharacterName] followed by optional whitespace then opening quote
+  const taggedSpeakers = new Map<number, string>();
+  const tagRegex = /\[([^\]]+)\]\s*(?=[\u201C"])/g;
+  let tagMatch: RegExpExecArray | null;
+  while ((tagMatch = tagRegex.exec(prose)) !== null) {
+    // Find the quote that follows this tag
+    const afterTag = prose.slice(tagMatch.index + tagMatch[0].length);
+    const quoteMatch = afterTag.match(/^[\u201C"]/);
+    if (quoteMatch) {
+      const quotePos = tagMatch.index + tagMatch[0].length;
+      taggedSpeakers.set(quotePos, tagMatch[1].trim());
+    }
+  }
+
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = dialogueRegex.exec(prose)) !== null) {
     const before = prose.slice(lastIndex, match.index).trim();
-    if (before) {
-      segments.push({ type: 'narration', text: before, voice: '' });
+    // Strip all [Name] tags from narration text (they're speaker markers, not spoken)
+    const cleanBefore = before.replace(/\[([^\]]+)\]\s*/g, '').trim();
+    if (cleanBefore) {
+      segments.push({ type: 'narration', text: cleanBefore, voice: '' });
     }
 
     const dialogueText = match[1];
-    const speaker = attributeSpeaker(prose, match.index, match[0].length, knownCharacters);
+    // Use tagged speaker if available, otherwise fall back to heuristic
+    const taggedSpeaker = taggedSpeakers.get(match.index);
+    const speaker = taggedSpeaker || attributeSpeaker(prose, match.index, match[0].length, knownCharacters);
     const tone = detectTone(prose, match.index, match[0].length);
 
     segments.push({
@@ -169,7 +238,7 @@ export function parseDialogue(prose: string, knownCharacters: string[]): TTSSegm
     lastIndex = match.index + match[0].length;
   }
 
-  const remaining = prose.slice(lastIndex).trim();
+  const remaining = prose.slice(lastIndex).replace(/\[([^\]]+)\]\s*/g, '').trim();
   if (remaining) {
     segments.push({ type: 'narration', text: remaining, voice: '' });
   }

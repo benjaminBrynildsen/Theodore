@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { generateId } from '../lib/utils';
 import { api } from '../lib/api';
-import type { AnyCanonEntry, CanonType, CharacterEntry, LocationEntry, SystemEntry, ArtifactEntry, RuleEntry, EventEntry } from '../types/canon';
+import type { AnyCanonEntry, CanonType, CharacterEntry, LocationEntry, SystemEntry, ArtifactEntry, RuleEntry, EventEntry, MediaEntry } from '../types/canon';
 
 // Debounce helper
 const debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {};
@@ -57,6 +57,7 @@ function toDb(entry: AnyCanonEntry): any {
   else if ('location' in entry) data = (entry as LocationEntry).location;
   else if ('system' in entry) data = (entry as SystemEntry).system;
   else if ('artifact' in entry) data = (entry as ArtifactEntry).artifact;
+  else if ('media' in entry) data = (entry as MediaEntry).media;
   else if ('rule' in entry) data = (entry as RuleEntry).rule;
   else if ('event' in entry) data = (entry as EventEntry).event;
 
@@ -82,6 +83,7 @@ interface CanonState {
   createLocation: (projectId: string, name: string) => LocationEntry;
   createSystem: (projectId: string, name: string) => SystemEntry;
   createArtifact: (projectId: string, name: string) => ArtifactEntry;
+  createMedia: (projectId: string, name: string) => MediaEntry;
   createRule: (projectId: string, name: string) => RuleEntry;
   createEvent: (projectId: string, name: string) => EventEntry;
 }
@@ -209,6 +211,17 @@ export const useCanonStore = create<CanonState>()(persist((set, get) => ({
         properties: { abilities: [], limitations: [], activationMethod: '', sideEffects: '', power: '' },
         history: { creator: '', creationDate: '', purpose: '', previousOwners: [], legends: '', currentLocation: '', currentOwner: '' },
         storyRelevance: { firstAppearance: 0, significance: '', whoSeeksIt: [], prophecy: '' },
+      },
+    };
+    return entry;
+  },
+
+  createMedia: (projectId, name) => {
+    const entry: MediaEntry = {
+      id: generateId(), projectId, type: 'media', name, description: '', tags: [], notes: '',
+      version: 1, linkedCanonIds: [], createdAt: now(), updatedAt: now(),
+      media: {
+        mediaType: '', creator: '', year: '', significance: '', mentionedBy: '', mood: '',
       },
     };
     return entry;

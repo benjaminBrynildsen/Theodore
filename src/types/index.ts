@@ -90,6 +90,7 @@ export interface SceneSFX {
   position: 'start' | 'end' | 'background'; // when to play relative to scene
   enabled: boolean;        // user can toggle off
   durationSeconds?: number;
+  source?: 'manual' | 'suggested'; // how this SFX was created
 }
 
 export interface Scene {

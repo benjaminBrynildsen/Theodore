@@ -1,6 +1,6 @@
 // ========== Rich Canon Data Models ==========
 
-export type CanonType = 'character' | 'location' | 'system' | 'artifact' | 'rule' | 'event';
+export type CanonType = 'character' | 'location' | 'system' | 'artifact' | 'rule' | 'event' | 'media';
 
 export interface CanonBase {
   id: string;
@@ -326,4 +326,18 @@ export interface EventEntry extends CanonBase {
   };
 }
 
-export type AnyCanonEntry = CharacterEntry | LocationEntry | SystemEntry | ArtifactEntry | RuleEntry | EventEntry;
+// ========== MEDIA (songs, movies, books, etc.) ==========
+
+export interface MediaEntry extends CanonBase {
+  type: 'media';
+  media: {
+    mediaType: string; // song, movie, book, album, painting, poem, show, etc.
+    creator: string;
+    year: string;
+    significance: string; // why it matters to the story
+    mentionedBy: string; // which character references it
+    mood: string; // the feeling it evokes
+  };
+}
+
+export type AnyCanonEntry = CharacterEntry | LocationEntry | SystemEntry | ArtifactEntry | RuleEntry | EventEntry | MediaEntry;

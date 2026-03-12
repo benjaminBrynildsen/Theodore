@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, BookOpen, Users, MapPin, Cog, Gem, Scale, Milestone, FileText, Loader2 } from 'lucide-react';
+import { Download, BookOpen, Users, MapPin, Cog, Gem, Scale, Milestone, FileText, Loader2, Film } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { cn } from '../../lib/utils';
@@ -84,7 +84,8 @@ export function StoryBibleExport() {
 
     const otherTypes = [
       { key: 'systems', type: 'system', label: 'Systems' },
-      { key: 'artifacts', type: 'artifact', label: 'Artifacts' },
+      { key: 'artifacts', type: 'artifact', label: 'Objects' },
+      { key: 'media', type: 'media', label: 'Media' },
       { key: 'rules', type: 'rule', label: 'Rules' },
       { key: 'events', type: 'event', label: 'Events' },
     ];
@@ -274,9 +275,10 @@ export function StoryBibleExport() {
   const sectionItems = [
     { key: 'overview', label: 'Project Overview', icon: BookOpen },
     { key: 'characters', label: 'Characters', icon: Users, count: canon.filter(e => e.type === 'character').length },
-    { key: 'locations', label: 'Locations', icon: MapPin, count: canon.filter(e => e.type === 'location').length },
+    { key: 'locations', label: 'Places', icon: MapPin, count: canon.filter(e => e.type === 'location').length },
     { key: 'systems', label: 'Systems', icon: Cog, count: canon.filter(e => e.type === 'system').length },
-    { key: 'artifacts', label: 'Artifacts', icon: Gem, count: canon.filter(e => e.type === 'artifact').length },
+    { key: 'artifacts', label: 'Objects', icon: Gem, count: canon.filter(e => e.type === 'artifact').length },
+    { key: 'media', label: 'Media', icon: Film, count: canon.filter(e => e.type === 'media').length },
     { key: 'rules', label: 'Rules', icon: Scale, count: canon.filter(e => e.type === 'rule').length },
     { key: 'events', label: 'Events', icon: Milestone, count: canon.filter(e => e.type === 'event').length },
     { key: 'chapterOutline', label: 'Chapter Outline', icon: FileText, count: chapters.length },
