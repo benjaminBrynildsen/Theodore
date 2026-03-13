@@ -306,7 +306,7 @@ export function AudioPlayerBar() {
   const isMuted = volume === 0;
 
   return (
-    <div className="fixed bottom-14 sm:bottom-0 inset-x-0 z-50 safe-area-bottom">
+    <div className="fixed bottom-14 sm:bottom-0 inset-x-0 z-40 sm:z-50 safe-area-bottom">
       <div className="bg-[#181818] text-white shadow-2xl">
         {/* Progress bar — touch-friendly on mobile */}
         <div

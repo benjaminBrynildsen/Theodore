@@ -495,14 +495,14 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
 
 // ========== MAIN SIDEBAR ==========
 
-export function LeftSidebar() {
+export function LeftSidebar({ forceOpen }: { forceOpen?: boolean } = {}) {
   const { leftSidebarOpen, getActiveProject, activeChapterId, editMode } = useStore();
   const project = getActiveProject();
 
-  if (!leftSidebarOpen || !project) return null;
+  if ((!forceOpen && !leftSidebarOpen) || !project) return null;
 
   return (
-    <aside className="w-96 h-full glass-subtle flex flex-col animate-fade-in border-r-0">
+    <aside className={cn('h-full glass-subtle flex flex-col animate-fade-in border-r-0', forceOpen ? 'w-full' : 'w-96')}>
       {editMode && activeChapterId ? (
         <EditModeSidebar projectId={project.id} chapterId={activeChapterId} />
       ) : activeChapterId ? (
