@@ -92,9 +92,8 @@ export function AudiobookPanel() {
     }).catch(() => {});
   }, []);
 
-  // Check music/SFX availability on mount
+  // Check SFX availability on mount
   useEffect(() => {
-    api.musicStatus().then(d => setMusicAvailable(d.available)).catch(() => setMusicAvailable(false));
     api.sfxStatus().then(d => setSfxAvailable(d.available)).catch(() => setSfxAvailable(false));
   }, []);
 
@@ -578,7 +577,7 @@ export function AudiobookPanel() {
           <Headphones size={18} />
           <h2 className="text-lg font-serif font-semibold">Audiobook Studio</h2>
         </div>
-        <p className="text-xs text-text-tertiary">Generate narrated audio with ElevenLabs voices — multi-voice character support</p>
+        <p className="text-xs text-text-tertiary">Generate narrated audio with ElevenLabs HD voices</p>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -624,137 +623,18 @@ export function AudiobookPanel() {
                 </div>
               </div>
 
-              {/* Character Voices */}
-              {characters.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Character Voices</label>
-                    <button
-                      onClick={autoAssignAll}
-                      className="flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-primary transition-colors"
-                    >
-                      <Wand2 size={10} />
-                      Auto-assign
-                    </button>
-                  </div>
-                  <div className="space-y-1.5">
-                    {characters.map(char => {
-                      const assignment = voiceAssignments.find(a => a.characterId === char.id);
-                      const isExpanded = expandedCharacter === char.id;
-                      const assignedVoiceName = assignment
-                        ? (allVoices.find(v => v.id === assignment.voiceId)?.name || getVoiceName(assignment.voiceId))
-                        : null;
-
-                      return (
-                        <div key={char.id} className="glass-pill rounded-xl overflow-hidden">
-                          <button
-                            onClick={() => setExpandedCharacter(isExpanded ? null : char.id)}
-                            className="w-full flex items-center gap-2 p-3 text-left hover:bg-white/40 transition-colors"
-                          >
-                            <User size={12} className="text-text-tertiary flex-shrink-0" />
-                            <span className="text-xs font-medium flex-1 truncate">{char.name}</span>
-                            {assignedVoiceName && (
-                              <span className="text-[10px] text-text-tertiary flex-shrink-0">{assignedVoiceName}</span>
-                            )}
-                            {isExpanded ? <ChevronUp size={12} className="text-text-tertiary" /> : <ChevronDown size={12} className="text-text-tertiary" />}
-                          </button>
-
-                          {isExpanded && (
-                            <div className="px-3 pb-3 pt-1">
-                              {assignment?.reason && (
-                                <p className="text-[10px] text-text-tertiary italic mb-2">{assignment.reason}</p>
-                              )}
-                              <div className="grid grid-cols-2 gap-1">
-                                {allVoices.map(voice => (
-                                  <button
-                                    key={voice.id}
-                                    onClick={() => { assignVoice(char.id, char.name, voice.id); previewVoice(voice.id); }}
-                                    className={cn(
-                                      'text-left p-2 rounded-lg text-[10px] transition-all relative group',
-                                      assignment?.voiceId === voice.id ? 'bg-text-primary text-text-inverse' : 'bg-black/5 hover:bg-black/10'
-                                    )}
-                                  >
-                                    <div className="flex items-center gap-1.5">
-                                      <div className="font-medium">{voice.name}</div>
-                                      {previewing === voice.id && <Volume2 size={8} className="animate-pulse" />}
-                                    </div>
-                                    <div className={cn(assignment?.voiceId === voice.id ? 'text-white/50' : 'text-text-tertiary')}>
-                                      {voice.desc}
-                                    </div>
-                                    {(voice.accent || voice.descriptive) && (
-                                      <div className="flex flex-wrap gap-0.5 mt-0.5">
-                                        {voice.accent && (
-                                          <span className={cn(
-                                            'inline-block px-1 py-0 rounded text-[8px]',
-                                            assignment?.voiceId === voice.id ? 'bg-white/20 text-white/70' : 'bg-black/8 text-text-tertiary'
-                                          )}>
-                                            {voice.accent}
-                                          </span>
-                                        )}
-                                        {voice.descriptive && (
-                                          <span className={cn(
-                                            'inline-block px-1 py-0 rounded text-[8px]',
-                                            assignment?.voiceId === voice.id ? 'bg-white/20 text-white/70' : 'bg-black/8 text-text-tertiary'
-                                          )}>
-                                            {voice.descriptive}
-                                          </span>
-                                        )}
-                                      </div>
-                                    )}
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); previewVoice(voice.id); }}
-                                      className={cn(
-                                        'absolute top-1.5 right-1.5 p-0.5 rounded transition-all',
-                                        previewing === voice.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                                        assignment?.voiceId === voice.id ? 'text-white/60 hover:text-white' : 'text-text-tertiary hover:text-text-primary'
-                                      )}
-                                    >
-                                      <Volume2 size={8} />
-                                    </button>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Settings row */}
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={multiVoice}
-                    onChange={e => audioStore.setMultiVoice(e.target.checked)}
-                    className="rounded border-black/20"
-                  />
-                  <span className="text-[10px] text-text-secondary">Multi-voice</span>
-                </label>
-                <select
-                  value={ttsModel}
-                  onChange={e => audioStore.setTtsModel(e.target.value as any)}
-                  className="text-[10px] bg-black/5 rounded-lg px-2 py-1 border-0"
-                >
-                  <option value="eleven_multilingual_v2">HD Quality</option>
-                  <option value="eleven_turbo_v2_5">Standard</option>
-                  <option value="eleven_flash_v2_5">Fast</option>
-                </select>
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-text-tertiary">{speed}x</span>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2.0"
-                    step="0.1"
-                    value={speed}
-                    onChange={e => audioStore.setSpeed(parseFloat(e.target.value))}
-                    className="w-16 h-1 accent-black"
-                  />
-                </div>
+              {/* Speed control */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-text-tertiary">Speed: {speed}x</span>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2.0"
+                  step="0.1"
+                  value={speed}
+                  onChange={e => audioStore.setSpeed(parseFloat(e.target.value))}
+                  className="w-24 h-1 accent-black"
+                />
               </div>
             </div>
           )}
@@ -1084,77 +964,42 @@ export function AudiobookPanel() {
           )}
         </div>
 
-        {/* Music & Sound Effects */}
+        {/* Sound Effects */}
         <div className="border-b border-black/5">
           <button
             onClick={() => setShowMusicConfig(v => !v)}
             className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-black/[0.02] transition-colors"
           >
             <span className="flex items-center gap-1.5 text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
-              <Music size={11} />
-              Music & Sounds
+              <Zap size={11} />
+              Sound Effects
             </span>
             {showMusicConfig ? <ChevronUp size={14} className="text-text-tertiary" /> : <ChevronDown size={14} className="text-text-tertiary" />}
           </button>
 
           {showMusicConfig && (
             <div className="px-5 pb-4 space-y-4">
-              {/* Music Volume */}
-              <div>
-                <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">Background Music</label>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => musicStore.setMusicVolume(musicStore.musicVolume > 0 ? 0 : 0.2)}
-                    className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary transition-colors"
-                  >
-                    {musicStore.musicVolume > 0 ? <Volume2 size={14} /> : <VolumeX size={14} />}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="0.5"
-                    step="0.05"
-                    value={musicStore.musicVolume}
-                    onChange={e => musicStore.setMusicVolume(parseFloat(e.target.value))}
-                    className="flex-1 h-1 accent-purple-600"
-                  />
-                  <span className="text-[10px] text-text-tertiary w-8 text-right">{Math.round(musicStore.musicVolume * 100)}%</span>
-                </div>
-                <p className="text-[9px] text-text-tertiary mt-1">Music auto-ducks behind narration voice</p>
-              </div>
-
-              {/* Status indicators */}
+              {/* SFX status */}
               <div className="flex items-center gap-3 text-[10px]">
-                <span className={cn('flex items-center gap-1', musicAvailable ? 'text-green-600' : 'text-text-tertiary')}>
-                  <Music size={9} />
-                  Music {musicAvailable ? 'Ready' : musicAvailable === false ? 'Unavailable' : '...'}
-                </span>
                 <span className={cn('flex items-center gap-1', sfxAvailable ? 'text-green-600' : 'text-text-tertiary')}>
-                  <Volume2 size={9} />
+                  <Zap size={9} />
                   SFX {sfxAvailable ? 'Ready' : sfxAvailable === false ? 'Unavailable' : '...'}
                 </span>
-                <span className="text-text-tertiary/60">3 credits/track · 1 credit/sfx</span>
+                <span className="text-text-tertiary/60">1 credit/sfx</span>
               </div>
 
-              {/* Per-chapter music generation */}
+              {/* Per-chapter SFX */}
               <div>
-                <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">Chapter Music</label>
+                <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">Scene Sound Effects</label>
                 <div className="space-y-1.5">
                   {chapters.map(ch => {
                     const scenes = (ch.scenes || []).filter((s: any) => s?.id && s.prose?.trim()).sort((a: any, b: any) => a.order - b.order);
                     const hasScenes = scenes.length > 0;
                     const isAnalyzing = analyzingChapter === ch.id;
 
-                    // For scene-based chapters
                     const analyzedCount = hasScenes ? scenes.filter((s: any) => s.emotionalMetadata && !isMetadataStale(s)).length : 0;
                     const allAnalyzed = hasScenes && analyzedCount === scenes.length;
-
-                    // Track counts — check both scene-level and chapter-level music
-                    const sceneMusicCount = scenes.filter((s: any) => musicStore.sceneTracks[s.id]?.tracks?.length > 0).length;
-                    const chapterMusic = musicStore.sceneTracks[`ch-${ch.id}`];
-                    const chapterTrack = chapterMusic?.tracks?.find(t => t.id === chapterMusic.activeTrackId);
-                    const hasAnyMusic = sceneMusicCount > 0 || !!chapterTrack;
-                    const isGenMusic = generatingMusic === ch.id || (hasScenes && scenes.some((s: any) => generatingMusic === s.id));
+                    const totalSfx = scenes.reduce((n: number, s: any) => n + (s.sfx?.length || 0), 0);
 
                     return (
                       <div key={ch.id} className="glass-pill rounded-xl overflow-hidden">
@@ -1163,24 +1008,13 @@ export function AudiobookPanel() {
                             <div className="text-xs font-medium truncate">Ch. {ch.number}: {ch.title}</div>
                             <div className="text-[9px] text-text-tertiary">
                               {hasScenes
-                                ? `${scenes.length} scenes · ${analyzedCount} analyzed · ${sceneMusicCount} tracks`
-                                : chapterTrack ? 'Music ready' : 'No music yet'
+                                ? `${scenes.length} scenes · ${totalSfx} sound effects`
+                                : 'No scenes'
                               }
                             </div>
                           </div>
                           <div className="flex items-center gap-1">
-                            {/* Play chapter music if available */}
-                            {chapterTrack && (
-                              <button
-                                onClick={() => previewMusic(chapterTrack.audioUrl)}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-50 text-purple-600 hover:bg-purple-100 transition-colors"
-                              >
-                                {musicStore.musicPlaying && musicAudioRef.current ? <Pause size={14} /> : <Play size={14} />}
-                                <Music size={12} />
-                              </button>
-                            )}
-
-                            {/* Analyze emotions (scene-based chapters) */}
+                            {/* Analyze emotions → generates ambient SFX suggestions */}
                             {hasScenes && (
                               <button
                                 onClick={() => analyzeChapter(ch.id)}
@@ -1191,126 +1025,53 @@ export function AudiobookPanel() {
                                     ? 'bg-purple-50 text-purple-600 hover:bg-purple-100'
                                     : 'bg-black/5 text-text-secondary hover:bg-black/10'
                                 )}
-                                title="Analyze scene emotions for music generation"
+                                title="Analyze scenes to auto-suggest ambient sound effects"
                               >
                                 {isAnalyzing ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
-                                {isAnalyzing ? 'Analyzing...' : allAnalyzed ? 'Re-analyze' : 'Analyze'}
-                              </button>
-                            )}
-
-                            {/* Generate music */}
-                            {musicAvailable && (
-                              <button
-                                onClick={async () => {
-                                  if (hasScenes) {
-                                    for (const scene of scenes) {
-                                      if (!musicStore.sceneTracks[scene.id]?.tracks?.length) {
-                                        await generateSceneMusic(ch.id, scene.id);
-                                      }
-                                    }
-                                  } else {
-                                    await generateChapterMusic(ch.id);
-                                  }
-                                }}
-                                disabled={isGenMusic}
-                                className={cn(
-                                  'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all disabled:opacity-50',
-                                  hasAnyMusic
-                                    ? 'bg-purple-50 text-purple-600 hover:bg-purple-100'
-                                    : 'bg-purple-600 text-white hover:bg-purple-700'
-                                )}
-                                title={hasScenes ? 'Generate music for all scenes' : 'Generate background music'}
-                              >
-                                {isGenMusic ? <Loader2 size={9} className="animate-spin" /> : <Music size={9} />}
-                                {isGenMusic ? 'Generating...' : hasAnyMusic ? 'Regenerate' : 'Generate'}
+                                {isAnalyzing ? 'Analyzing...' : allAnalyzed ? 'Re-analyze' : 'Auto-suggest SFX'}
                               </button>
                             )}
                           </div>
                         </div>
 
-                        {/* Scene emotion/music details */}
+                        {/* Scene SFX details */}
                         {hasScenes && (
                           <div className="px-3 pb-2 space-y-1.5">
                             {scenes.map((scene: any) => {
                               const em: SceneEmotionalMetadata | undefined = scene.emotionalMetadata;
-                              const sceneMusic = musicStore.sceneTracks[scene.id];
-                              const activeTrack = sceneMusic?.tracks?.find(t => t.id === sceneMusic.activeTrackId);
-                              const isSceneGenMusic = generatingMusic === scene.id;
                               const sfx = scene.sfx || [];
-                              const isThisPlaying = musicStore.musicPlaying && musicStore.currentMusicSceneId === scene.id;
 
                               return (
                                 <div key={scene.id} className="rounded-xl bg-white/50 overflow-hidden">
-                                  <div className="flex items-stretch">
-                                    <button
-                                      onClick={() => {
-                                        if (activeTrack) {
-                                          previewMusic(activeTrack.audioUrl);
-                                          musicStore.setCurrentMusicScene(scene.id);
-                                        } else if (musicAvailable) {
-                                          generateSceneMusic(ch.id, scene.id);
-                                        }
-                                      }}
-                                      disabled={isSceneGenMusic || (!activeTrack && !musicAvailable)}
-                                      className={cn(
-                                        'flex items-center justify-center w-10 h-10 rounded-full flex-shrink-0 transition-all disabled:opacity-30 my-auto mx-2',
-                                        activeTrack
-                                          ? 'bg-black text-white hover:bg-black/80'
-                                          : 'bg-black/10 text-black/40 hover:bg-black/20'
-                                      )}
-                                    >
-                                      {isSceneGenMusic ? (
-                                        <Loader2 size={18} className="animate-spin" />
-                                      ) : isThisPlaying ? (
-                                        <Pause size={18} />
-                                      ) : (
-                                        <Play size={18} className={activeTrack ? '' : 'opacity-50'} />
-                                      )}
-                                    </button>
-
-                                    <div className="flex-1 px-3 py-2 min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        {em && (
-                                          <span
-                                            className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-                                            style={{ backgroundColor: EMOTION_COLORS[em.primaryEmotion] || '#888' }}
-                                            title={`${em.primaryEmotion} (${em.intensity}%)`}
-                                          />
-                                        )}
-                                        <span className="text-[11px] font-medium flex-1 truncate">
-                                          {scene.title || `Scene ${scene.order}`}
-                                        </span>
-                                        {em && (
-                                          <span className="text-[9px] text-text-tertiary capitalize">{em.primaryEmotion}</span>
-                                        )}
-                                      </div>
-
+                                  <div className="px-3 py-2">
+                                    <div className="flex items-center gap-2">
                                       {em && (
-                                        <div className="flex items-center gap-1 mt-1 flex-wrap">
-                                          <span className="text-[8px] px-1 py-0.5 rounded bg-black/5 text-text-tertiary">{em.tempo}</span>
-                                          <span className="text-[8px] px-1 py-0.5 rounded bg-black/5 text-text-tertiary">{em.suggestedGenre}</span>
-                                          {em.moodTags.slice(0, 3).map(tag => (
-                                            <span key={tag} className="text-[8px] px-1 py-0.5 rounded bg-purple-50 text-purple-500">{tag}</span>
-                                          ))}
-                                          <div className="flex items-center gap-0.5 ml-auto">
-                                            <div className="w-10 h-1 bg-black/5 rounded-full overflow-hidden">
-                                              <div
-                                                className="h-full rounded-full transition-all"
-                                                style={{
-                                                  width: `${em.intensity}%`,
-                                                  backgroundColor: EMOTION_COLORS[em.primaryEmotion] || '#888',
-                                                }}
-                                              />
-                                            </div>
-                                          </div>
-                                        </div>
+                                        <span
+                                          className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                                          style={{ backgroundColor: EMOTION_COLORS[em.primaryEmotion] || '#888' }}
+                                          title={`${em.primaryEmotion} (${em.intensity}%)`}
+                                        />
+                                      )}
+                                      <span className="text-[11px] font-medium flex-1 truncate">
+                                        {scene.title || `Scene ${scene.order}`}
+                                      </span>
+                                      {em && (
+                                        <span className="text-[9px] text-text-tertiary capitalize">{em.primaryEmotion}</span>
                                       )}
                                     </div>
+
+                                    {em && (
+                                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                        {em.moodTags.slice(0, 3).map(tag => (
+                                          <span key={tag} className="text-[8px] px-1 py-0.5 rounded bg-purple-50 text-purple-500">{tag}</span>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
 
-                                  {sfxAvailable && sfx.length > 0 && (
+                                  {sfx.length > 0 && (
                                     <div className="border-t border-black/5 px-3 py-1.5 space-y-1">
-                                      {sfx.filter((s: any) => s.enabled !== false).map((s: any) => (
+                                      {sfx.map((s: any) => (
                                         <button
                                           key={s.id}
                                           onClick={() => {
@@ -1334,6 +1095,9 @@ export function AudiobookPanel() {
                                           )}>
                                             {s.position}
                                           </span>
+                                          {s.source === 'suggested' && (
+                                            <span className="text-[8px] px-1 py-0 rounded bg-purple-50 text-purple-400">auto</span>
+                                          )}
                                           {s.audioUrl && (
                                             <Volume2 size={8} className="text-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity" />
                                           )}
@@ -1358,7 +1122,7 @@ export function AudiobookPanel() {
                 </div>
 
                 {chapters.length === 0 && (
-                  <p className="text-[10px] text-text-tertiary text-center py-3">Write chapters to add music</p>
+                  <p className="text-[10px] text-text-tertiary text-center py-3">Write chapters to add sound effects</p>
                 )}
               </div>
             </div>
