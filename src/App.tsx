@@ -257,11 +257,19 @@ export default function App() {
         </div>
       )}
 
-      {/* Mobile drawer — Studio (audiobook panel) */}
+      {/* Mobile fullscreen — Studio (audiobook panel) */}
       {mobilePanel === 'studio' && (
-        <div className="sm:hidden fixed inset-0 z-40 flex justify-end">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setMobilePanel(null)} />
-          <div className="relative w-[85vw] max-w-[360px] h-full bg-bg shadow-2xl animate-slide-in-right overflow-y-auto pb-20">
+        <div className="sm:hidden fixed inset-0 z-40 bg-bg flex flex-col animate-fade-in">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-black/5">
+            <span className="text-sm font-semibold">Studio</span>
+            <button
+              onClick={() => setMobilePanel(null)}
+              className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
+            >
+              <span className="text-xs font-medium">Done</span>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto pb-20">
             <AudiobookPanel />
           </div>
         </div>
