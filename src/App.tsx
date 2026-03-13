@@ -12,6 +12,7 @@ import { useCreditsStore } from './store/credits';
 import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
+import { AudiobookPanel } from './components/features/AudiobookPanel';
 
 const ProjectView = lazy(async () => {
   const mod = await import('./components/views/ProjectView');
@@ -71,6 +72,8 @@ export default function App() {
     loadProjects,
     setCurrentUserId,
     rightSidebarOpen,
+    mobilePanel,
+    setMobilePanel,
   } = useStore();
   const { user, initialized, bootstrap } = useAuthStore();
   const hydrateCreditsFromUser = useCreditsStore((s) => s.hydrateFromUser);
@@ -243,6 +246,26 @@ export default function App() {
       
       {showWorkspaceChrome && <AudioPlayerBar />}
       <BottomNav />
+
+      {/* Mobile drawer — Left sidebar (chapters/canon) */}
+      {mobilePanel === 'left' && (
+        <div className="sm:hidden fixed inset-0 z-40 flex">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setMobilePanel(null)} />
+          <div className="relative w-[85vw] max-w-[360px] h-full bg-bg shadow-2xl animate-slide-in-left overflow-y-auto pb-20">
+            <LeftSidebar />
+          </div>
+        </div>
+      )}
+
+      {/* Mobile drawer — Studio (audiobook panel) */}
+      {mobilePanel === 'studio' && (
+        <div className="sm:hidden fixed inset-0 z-40 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setMobilePanel(null)} />
+          <div className="relative w-[85vw] max-w-[360px] h-full bg-bg shadow-2xl animate-slide-in-right overflow-y-auto pb-20">
+            <AudiobookPanel />
+          </div>
+        </div>
+      )}
       <Suspense fallback={null}>
         <UpgradeModal />
         <ImpactPanel />

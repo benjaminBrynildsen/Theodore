@@ -210,6 +210,9 @@ interface AppState {
   setShowAudiobook: (show: boolean) => void;
   showToolsView: boolean;
   setShowToolsView: (show: boolean) => void;
+  // Mobile drawer state
+  mobilePanel: 'left' | 'studio' | null;
+  setMobilePanel: (panel: 'left' | 'studio' | null) => void;
 }
 
 export const useStore = create<AppState>()(persist((set, get) => ({
@@ -762,6 +765,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   setShowAudiobook: (show) => set({ showAudiobook: show }),
   showToolsView: false,
   setShowToolsView: (show) => set({ showToolsView: show }),
+  mobilePanel: null,
+  setMobilePanel: (panel) => set({ mobilePanel: panel }),
 }), {
   name: 'theodore-app-store',
   storage: createJSONStorage(() => localStorage),

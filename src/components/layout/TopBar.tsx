@@ -132,14 +132,14 @@ export function TopBar() {
         </button>
       )}
 
-      {/* Settings — hidden on mobile (bottom nav handles it) */}
+      {/* Settings — visible on all screen sizes */}
       <button
         onClick={() => {
           setShowToolsView(false);
           setSettingsViewSection('writing');
           setShowSettingsView(true);
         }}
-        className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0 hidden sm:block"
+        className="p-1.5 rounded-xl text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all duration-200 flex-shrink-0"
         title="Settings"
       >
         <Settings size={18} />
