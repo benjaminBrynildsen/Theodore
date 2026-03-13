@@ -128,12 +128,12 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2.5 mt-4 mb-2" onMouseUp={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5 mt-4 mb-2" onMouseUp={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
       {sfx.map(s => (
         <div
           key={s.id}
           className={cn(
-            'inline-flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-medium border transition-all group shadow-sm',
+            'inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium border transition-all group shadow-sm',
             s.enabled ? POSITION_COLORS[s.position] : 'bg-black/5 text-text-tertiary border-black/10 line-through',
             playingId === s.id && 'ring-2 ring-green-400 shadow-md'
           )}
@@ -144,12 +144,12 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
             className="hover:opacity-70 transition-opacity"
             title={s.enabled ? 'Disable SFX' : 'Enable SFX'}
           >
-            {s.enabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            {s.enabled ? <Volume2 size={14} className="sm:w-4 sm:h-4" /> : <VolumeX size={14} className="sm:w-4 sm:h-4" />}
           </button>
 
           {/* Label */}
-          <span className="max-w-[180px] truncate">{s.prompt}</span>
-          <span className="opacity-50 text-xs">{POSITION_LABELS[s.position]}</span>
+          <span className="max-w-[120px] sm:max-w-[180px] truncate">{s.prompt}</span>
+          <span className="opacity-50 text-[10px] sm:text-xs">{POSITION_LABELS[s.position]}</span>
 
           {/* Generate / Play / Stop */}
           {s.enabled && !s.audioUrl && (
@@ -175,24 +175,24 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
           {/* Remove */}
           <button
             onClick={() => removeSFX(s.id)}
-            className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
+            className="opacity-40 sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-500 transition-all"
             title="Remove SFX"
           >
-            <X size={14} />
+            <X size={12} className="sm:w-3.5 sm:h-3.5" />
           </button>
         </div>
       ))}
 
       {/* Add SFX inline form */}
       {adding ? (
-        <div className="inline-flex items-center gap-2 bg-white rounded-full px-3.5 py-2 border border-black/10 shadow-sm">
+        <div className="inline-flex items-center gap-1.5 sm:gap-2 bg-white rounded-full px-2.5 sm:px-3.5 py-1.5 sm:py-2 border border-black/10 shadow-sm">
           <input
             type="text"
             value={newPrompt}
             onChange={e => setNewPrompt(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addSFX()}
             placeholder="rain, footsteps..."
-            className="text-sm w-32 bg-transparent border-0 outline-none placeholder:text-text-tertiary"
+            className="text-xs sm:text-sm w-24 sm:w-32 bg-transparent border-0 outline-none placeholder:text-text-tertiary"
             autoFocus
           />
           <select

@@ -1348,7 +1348,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                               isActive ? 'bg-black' : 'bg-black/5'
                             )} />
                             <div className={cn(
-                              'absolute -left-10 sm:-left-[5.5rem] z-10 transition-all duration-500 pointer-events-none',
+                              'absolute -left-10 sm:-left-[5.5rem] z-10 transition-all duration-500 pointer-events-none hidden sm:block',
                               isActive ? 'opacity-100' : 'opacity-0'
                             )} style={{ top: '50%', transform: 'translateY(-50%)', writingMode: 'vertical-lr' }}>
                               <span className="text-3xl font-black text-black uppercase tracking-[0.35em] whitespace-nowrap" style={{ transform: 'rotate(180deg)', display: 'block' }}>
@@ -1499,7 +1499,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                               isActive ? 'bg-black' : 'bg-black/5'
                             )} />
                             <div className={cn(
-                              'absolute -left-10 sm:-left-[5.5rem] z-10 transition-all duration-500 pointer-events-none',
+                              'absolute -left-10 sm:-left-[5.5rem] z-10 transition-all duration-500 pointer-events-none hidden sm:block',
                               isActive ? 'opacity-100' : 'opacity-0'
                             )} style={{ top: '50%', transform: 'translateY(-50%)', writingMode: 'vertical-lr' }}>
                               <span className="text-3xl font-black text-black uppercase tracking-[0.35em] whitespace-nowrap" style={{ transform: 'rotate(180deg)', display: 'block' }}>

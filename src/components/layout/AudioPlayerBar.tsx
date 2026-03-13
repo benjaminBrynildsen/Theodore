@@ -306,11 +306,11 @@ export function AudioPlayerBar() {
   const isMuted = volume === 0;
 
   return (
-    <div className="fixed bottom-0 inset-x-0 z-50 safe-area-bottom">
+    <div className="fixed bottom-14 sm:bottom-0 inset-x-0 z-50 safe-area-bottom">
       <div className="bg-[#181818] text-white shadow-2xl">
-        {/* Progress bar — thin line at top */}
+        {/* Progress bar — touch-friendly on mobile */}
         <div
-          className="h-1 bg-white/10 cursor-pointer relative group"
+          className="h-2 sm:h-1 bg-white/10 cursor-pointer relative group"
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             seekTo((e.clientX - rect.left) / rect.width);

@@ -883,26 +883,26 @@ export function AudiobookPanel() {
         {/* Chapter List */}
         <div className="p-5">
           <div className="space-y-2 mb-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Chapters</label>
               <div className="flex items-center gap-1.5">
                 <button
                   onClick={prepareAll}
                   disabled={preparingAll || taggingAll || taggingAllSFX || taggingDirections || planningSFX || chapters.length === 0}
-                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-fuchsia-500 text-white hover:shadow-md transition-all disabled:opacity-50 flex items-center gap-1.5"
+                  className="text-[11px] font-medium px-3 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-fuchsia-500 text-white hover:shadow-md transition-all disabled:opacity-50 flex items-center gap-1.5 flex-1 justify-center"
                   title="Tag dialogue, directions, inline SFX, and plan background/intro/outro sounds for all chapters"
                 >
                   {preparingAll || taggingAll || taggingAllSFX || taggingDirections || planningSFX ? (
-                    <Loader2 size={11} className="animate-spin" />
+                    <Loader2 size={12} className="animate-spin" />
                   ) : (
-                    <Wand2 size={11} />
+                    <Wand2 size={12} />
                   )}
                   {preparingAll ? 'Preparing...' : taggingAll ? 'Tagging dialogue...' : taggingAllSFX ? 'Tagging SFX...' : taggingDirections ? 'Adding directions...' : planningSFX ? 'Planning sounds...' : 'Prepare All'}
                 </button>
                 <button
                   onClick={generateAll}
                   disabled={generating !== null || chapters.length === 0}
-                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-50"
+                  className="text-[11px] font-medium px-3 py-2 rounded-lg bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-50 flex-1 text-center"
                 >
                   {generating ? 'Generating...' : 'Generate All'}
                 </button>
