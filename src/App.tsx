@@ -251,7 +251,7 @@ export default function App() {
       {mobilePanel === 'left' && (
         <div className="sm:hidden fixed inset-0 z-40 flex">
           <div className="absolute inset-0 bg-black/30" onClick={() => setMobilePanel(null)} />
-          <div className="relative w-[85vw] max-w-[360px] h-full bg-bg shadow-2xl animate-slide-in-left overflow-y-auto pb-20">
+          <div className="relative w-[85vw] max-w-[360px] h-full bg-bg shadow-2xl animate-slide-in-left overflow-y-auto pb-20 pt-[env(safe-area-inset-top)]">
             <LeftSidebar forceOpen />
           </div>
         </div>
