@@ -1,4 +1,4 @@
-import { PanelLeft, BookOpen, Headphones } from 'lucide-react';
+import { PenLine, BookOpen, Headphones } from 'lucide-react';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
 
@@ -16,8 +16,8 @@ export function BottomNav() {
             mobilePanel === 'left' ? 'text-text-primary' : 'text-text-tertiary active:text-text-primary'
           )}
         >
-          <PanelLeft size={20} strokeWidth={mobilePanel === 'left' ? 2.2 : 1.8} />
-          <span className="text-[10px] font-medium">Chapters</span>
+          <PenLine size={20} strokeWidth={mobilePanel === 'left' ? 2.2 : 1.8} />
+          <span className="text-[10px] font-medium">Edit</span>
         </button>
 
         {/* Reading mode */}
