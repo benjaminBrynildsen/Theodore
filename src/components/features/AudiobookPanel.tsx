@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Headphones, Play, Pause, Download, Loader2, Volume2, VolumeX, User, Wand2, RotateCcw, ChevronDown, ChevronUp, Clock, Trash2, Layers, Music, Sparkles, Zap, Tags } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Headphones, Play, Pause, Download, Loader2, Volume2, VolumeX, User, Wand2, RotateCcw, ChevronDown, ChevronUp, Clock, Trash2, Layers, Music, Sparkles, Zap, Tags, Mic } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useAudioStore } from '../../store/audio';
@@ -12,6 +13,9 @@ import type { CharacterEntry } from '../../types/canon';
 import { autoAssignVoice, autoAssignVoiceFromPool, voiceAssignmentReason } from '../../lib/voice-assign';
 import { analyzeChapterScenes, isMetadataStale } from '../../lib/emotion-analyzer';
 import { tagDialogue } from '../../lib/dialogue-tagger';
+import { tagSFX } from '../../lib/sfx-tagger';
+import { tagDirections } from '../../lib/direction-tagger';
+import { planChapterSFX, applySFXPlan } from '../../lib/scene-sfx-planner';
 import { buildSunoPrompt, estimateSceneDuration } from '../../lib/suno-prompt-builder';
 import { SceneSFXBadges } from './SceneSFXBadges';
 import type { SceneEmotionalMetadata } from '../../types/music';
@@ -46,6 +50,8 @@ export function AudiobookPanel() {
   const [showMusicConfig, setShowMusicConfig] = useState(true);
   const [analyzingChapter, setAnalyzingChapter] = useState<string | null>(null);
   const [taggingAll, setTaggingAll] = useState(false);
+  const [taggingAllSFX, setTaggingAllSFX] = useState(false);
+  const [taggingDirections, setTaggingDirections] = useState(false);
   const [generatingMusic, setGeneratingMusic] = useState<string | null>(null); // sceneId
   const [musicAvailable, setMusicAvailable] = useState<boolean | null>(null);
   const [sfxAvailable, setSfxAvailable] = useState<boolean | null>(null);
@@ -187,6 +193,183 @@ export function AudiobookPanel() {
       setTaggingAll(false);
     }
   }, [project, entries]);
+
+  // ========== Batch SFX Tagging ==========
+  const tagAllSFX = useCallback(async () => {
+    if (!project) return;
+    setTaggingAllSFX(true);
+    try {
+      const freshChapters = useStore.getState().chapters
+        .filter(c => c.projectId === project.id && c.prose)
+        .sort((a, b) => a.number - b.number);
+
+      const { updateScene, syncScenesToProse } = useStore.getState();
+      for (const chapter of freshChapters) {
+        const scenes = (chapter.scenes || []).filter(s => s.prose?.trim());
+        for (const scene of scenes) {
+          // Skip scenes that already have {sfx:} tags
+          if (/\{sfx:[^}]+\}/.test(scene.prose)) continue;
+          try {
+            const tagged = await tagSFX(scene.prose, project.id, chapter.id);
+            updateScene(chapter.id, scene.id, { prose: tagged });
+          } catch (e) {
+            console.error(`Failed to tag SFX for scene ${scene.id}:`, e);
+          }
+        }
+        syncScenesToProse(chapter.id);
+      }
+    } catch (e: any) {
+      audioStore.setError(`Batch SFX tagging failed: ${e.message}`);
+    } finally {
+      setTaggingAllSFX(false);
+    }
+  }, [project]);
+
+
+  const tagAllDirections = useCallback(async () => {
+    if (!project) return;
+    setTaggingDirections(true);
+    try {
+      const freshChapters = useStore.getState().chapters
+        .filter(c => c.projectId === project.id && c.prose)
+        .sort((a, b) => a.number - b.number);
+
+      console.log(`[Directions] Found ${freshChapters.length} chapters to process`);
+      const { updateScene, updateChapter, syncScenesToProse } = useStore.getState();
+      for (const chapter of freshChapters) {
+        const scenes = (chapter.scenes || []).filter(s => s.prose?.trim());
+        console.log(`[Directions] Chapter "${chapter.title}": ${scenes.length} scenes`);
+
+        // If no scenes, tag the chapter prose directly
+        if (scenes.length === 0 && chapter.prose?.trim()) {
+          console.log(`[Directions] No scenes — tagging chapter prose directly (${chapter.prose.length} chars)`);
+          try {
+            const tagged = await tagDirections(chapter.prose, project.id, chapter.id);
+            if (tagged !== chapter.prose) {
+              updateChapter(chapter.id, { prose: tagged });
+              console.log(`[Directions] Updated chapter "${chapter.title}" prose`);
+            }
+          } catch (e: any) {
+            console.error(`Failed to tag directions for chapter ${chapter.id}:`, e);
+            audioStore.setError(`Direction tagging failed: ${e.message}`);
+          }
+          continue;
+        }
+        for (const scene of scenes) {
+          // Skip scenes that already have direction tags
+          if (/\[(whispering|sighs|thoughtful|excited|angry|sarcastic|pause|laughs|gasps)\]/i.test(scene.prose)) {
+            console.log(`[Directions] Skipping scene ${scene.id} — already has tags`);
+            continue;
+          }
+          try {
+            console.log(`[Directions] Tagging scene "${scene.title}" (${scene.prose.length} chars)...`);
+            const tagged = await tagDirections(scene.prose, project.id, chapter.id);
+            console.log(`[Directions] Result: ${tagged.length} chars, original: ${scene.prose.length} chars`);
+            if (tagged !== scene.prose) {
+              updateScene(chapter.id, scene.id, { prose: tagged });
+              console.log(`[Directions] Updated scene "${scene.title}"`);
+            } else {
+              console.log(`[Directions] No changes for scene "${scene.title}"`);
+            }
+          } catch (e: any) {
+            console.error(`Failed to tag directions for scene ${scene.id}:`, e);
+            audioStore.setError(`Direction tagging failed: ${e.message}`);
+          }
+        }
+        syncScenesToProse(chapter.id);
+      }
+    } catch (e: any) {
+      audioStore.setError(`Batch direction tagging failed: ${e.message}`);
+    } finally {
+      setTaggingDirections(false);
+    }
+  }, [project]);
+
+  // ========== Auto SFX Planning ==========
+  const [planningSFX, setPlanningSFX] = useState(false);
+
+  /** Auto-plan background/intro/outro SFX for all scenes in a chapter.
+   *  force=true always re-plans; force=false skips if all scenes have BG SFX */
+  const planSFXForChapter = useCallback(async (chapterId: string, force = false) => {
+    const freshChapters = useStore.getState().chapters;
+    const chapter = freshChapters.find(c => c.id === chapterId);
+    const scenes = (chapter?.scenes || []).filter(s => s.prose?.trim());
+    if (scenes.length === 0) return;
+
+    if (!force) {
+      const allHaveBg = scenes.every(s => (s.sfx || []).some(sfx => sfx.position === 'background' && sfx.enabled));
+      const firstHasIntro = (scenes.sort((a, b) => a.order - b.order)[0]?.sfx || []).some(sfx => sfx.position === 'start');
+      const lastHasOutro = (scenes.sort((a, b) => a.order - b.order)[scenes.length - 1]?.sfx || []).some(sfx => sfx.position === 'end');
+      if (allHaveBg && firstHasIntro && lastHasOutro) {
+        console.log('[SFXPlanner] All scenes have BG + intro + outro — skipping');
+        return;
+      }
+    }
+
+    // When forcing, clear existing suggested SFX so the planner starts fresh
+    if (force) {
+      const { updateScene } = useStore.getState();
+      for (const scene of scenes) {
+        const existing = scene.sfx || [];
+        const manual = existing.filter(s => s.source === 'manual');
+        if (manual.length !== existing.length) {
+          updateScene(chapterId, scene.id, { sfx: manual });
+        }
+      }
+    }
+
+    console.log(`[SFXPlanner] Planning SFX for ${scenes.length} scenes in chapter "${chapter!.title}" (force=${force})`);
+    setPlanningSFX(true);
+    try {
+      // Re-read scenes after potential cleanup
+      const updatedChapters = useStore.getState().chapters;
+      const updatedChapter = updatedChapters.find(c => c.id === chapterId);
+      const updatedScenes = (updatedChapter?.scenes || []).filter(s => s.prose?.trim());
+
+      const plan = await planChapterSFX(updatedScenes, project!.id, chapterId);
+      console.log('[SFXPlanner] Plan:', plan);
+
+      const updates = applySFXPlan(updatedScenes, plan);
+      console.log('[SFXPlanner] Updates to apply:', updates.length);
+
+      const { updateScene } = useStore.getState();
+      for (const u of updates) {
+        updateScene(chapterId, u.sceneId, { sfx: u.sfx });
+      }
+    } catch (e: any) {
+      console.error('[SFXPlanner] Failed:', e);
+    } finally {
+      setPlanningSFX(false);
+    }
+  }, [project]);
+
+  // ========== Prepare All (tags + SFX planning in one click) ==========
+  const [preparingAll, setPreparingAll] = useState(false);
+
+  const prepareAll = useCallback(async () => {
+    if (!project) return;
+    setPreparingAll(true);
+    try {
+      // 1. Tag dialogue
+      await tagAllDialogue();
+      // 2. Tag directions
+      await tagAllDirections();
+      // 3. Tag inline SFX
+      await tagAllSFX();
+      // 4. Plan background/intro/outro SFX for every chapter
+      const freshChapters = useStore.getState().chapters
+        .filter(c => c.projectId === project.id && c.prose)
+        .sort((a, b) => a.number - b.number);
+      for (const ch of freshChapters) {
+        await planSFXForChapter(ch.id, true);
+      }
+    } catch (e: any) {
+      console.error('[PrepareAll] Failed:', e);
+      audioStore.setError(`Preparation failed: ${e.message}`);
+    } finally {
+      setPreparingAll(false);
+    }
+  }, [project, tagAllDialogue, tagAllDirections, tagAllSFX, planSFXForChapter]);
 
   // ========== Music Generation ==========
   const generateSceneMusic = useCallback(async (chapterId: string, sceneId: string) => {
@@ -447,6 +630,28 @@ export function AudiobookPanel() {
 
   // ========== Generation ==========
 
+  /** Show confirmation before generating */
+  const confirmGenerateScene = (chapterId: string, sceneId: string) => {
+    const chapter = chapters.find(c => c.id === chapterId);
+    const scene = (chapter?.scenes || []).find(s => s.id === sceneId);
+    if (!scene?.prose?.trim()) return;
+    const words = scene.prose.trim().split(/\s+/).length;
+    const label = `Scene ${scene.order}: ${scene.title || 'Untitled'}`;
+    if (window.confirm(`Generate audio for "${label}"?\n\n${words.toLocaleString()} words · ~${Math.ceil(words / 150)} min · ${ttsModel === 'eleven_v3' ? 'Eleven V3' : ttsModel}`)) {
+      generateScene(chapterId, sceneId);
+    }
+  };
+
+  const confirmGenerateChapter = (chapterId: string) => {
+    const chapter = chapters.find(c => c.id === chapterId);
+    if (!chapter?.prose) return;
+    const words = chapter.prose.trim().split(/\s+/).length;
+    const label = `Ch ${chapter.number}: ${chapter.title}`;
+    if (window.confirm(`Generate audio for "${label}"?\n\n${words.toLocaleString()} words · ~${Math.ceil(words / 150)} min · ${ttsModel === 'eleven_v3' ? 'Eleven V3' : ttsModel}`)) {
+      generateChapter(chapterId);
+    }
+  };
+
   /** Generate a single scene's audio */
   const generateScene = async (chapterId: string, sceneId: string) => {
     const freshChapters = useStore.getState().chapters;
@@ -460,8 +665,24 @@ export function AudiobookPanel() {
     audioStore.setError(null);
 
     try {
+      // Auto-plan SFX if this scene is missing background sounds
+      await planSFXForChapter(chapterId);
+
+      // Re-read scene data after SFX planning may have updated it
+      const updatedChapters = useStore.getState().chapters;
+      const updatedChapter = updatedChapters.find(c => c.id === chapterId);
+      const updatedScene = (updatedChapter?.scenes || []).find(s => s.id === sceneId);
+
       const { charVoiceMap, charDescriptions } = buildVoiceParams();
       const versionSuffix = `-v${Date.now()}`;
+
+      // Collect scene SFX for audio mixing
+      const sceneSFXData = ((updatedScene || scene).sfx || []).map(s => ({
+        prompt: s.prompt,
+        audioUrl: s.audioUrl,
+        position: s.position,
+        enabled: s.enabled,
+      }));
 
       const result = await api.ttsGenerate({
         chapterId: `${chapterId}-scene-${sceneId}${versionSuffix}`,
@@ -472,6 +693,7 @@ export function AudiobookPanel() {
         model: ttsModel,
         speed,
         multiVoice,
+        sceneSFX: sceneSFXData,
       });
 
       // Store as scene-level audio (keyed by sceneId)
@@ -503,8 +725,25 @@ export function AudiobookPanel() {
     audioStore.setError(null);
 
     try {
+      // Auto-plan SFX for all scenes before generating
+      await planSFXForChapter(chapterId);
+
       const { charVoiceMap, charDescriptions } = buildVoiceParams();
       const versionSuffix = `-v${Date.now()}`;
+
+      // Re-read chapter after SFX planning may have updated scenes
+      const updatedChapters = useStore.getState().chapters;
+      const updatedChapter = updatedChapters.find(c => c.id === chapterId) || chapter;
+
+      // Collect all scene SFX across the chapter for audio mixing
+      const allSceneSFX = (updatedChapter.scenes || []).flatMap(s =>
+        (s.sfx || []).map(sfx => ({
+          prompt: sfx.prompt,
+          audioUrl: sfx.audioUrl,
+          position: sfx.position,
+          enabled: sfx.enabled,
+        }))
+      );
 
       const result = await api.ttsGenerate({
         chapterId: `${chapterId}${versionSuffix}`,
@@ -515,6 +754,7 @@ export function AudiobookPanel() {
         model: ttsModel,
         speed,
         multiVoice,
+        sceneSFX: allSceneSFX,
       });
 
       audioStore.addChapterAudio(chapterId, {
@@ -577,7 +817,7 @@ export function AudiobookPanel() {
           <Headphones size={18} />
           <h2 className="text-lg font-serif font-semibold">Audiobook Studio</h2>
         </div>
-        <p className="text-xs text-text-tertiary">Generate narrated audio with ElevenLabs HD voices</p>
+        <p className="text-xs text-text-tertiary">Generate narrated audio with ElevenLabs V3 voices</p>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -642,25 +882,76 @@ export function AudiobookPanel() {
 
         {/* Chapter List */}
         <div className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Chapters</label>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={tagAllDialogue}
-                disabled={taggingAll || chapters.length === 0}
-                className="text-xs font-medium px-2.5 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all disabled:opacity-50 flex items-center gap-1"
-              >
-                {taggingAll ? <Loader2 size={10} className="animate-spin" /> : <Tags size={10} />}
-                {taggingAll ? 'Tagging...' : 'Tag All Dialogue'}
-              </button>
-              <button
-                onClick={generateAll}
-                disabled={generating !== null || chapters.length === 0}
-                className="text-xs font-medium px-3 py-1 rounded-lg bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-50"
-              >
-                {generating ? 'Generating...' : 'Generate All'}
-              </button>
+          <div className="space-y-2 mb-3">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Chapters</label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={prepareAll}
+                  disabled={preparingAll || taggingAll || taggingAllSFX || taggingDirections || planningSFX || chapters.length === 0}
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-fuchsia-500 text-white hover:shadow-md transition-all disabled:opacity-50 flex items-center gap-1.5"
+                  title="Tag dialogue, directions, inline SFX, and plan background/intro/outro sounds for all chapters"
+                >
+                  {preparingAll || taggingAll || taggingAllSFX || taggingDirections || planningSFX ? (
+                    <Loader2 size={11} className="animate-spin" />
+                  ) : (
+                    <Wand2 size={11} />
+                  )}
+                  {preparingAll ? 'Preparing...' : taggingAll ? 'Tagging dialogue...' : taggingAllSFX ? 'Tagging SFX...' : taggingDirections ? 'Adding directions...' : planningSFX ? 'Planning sounds...' : 'Prepare All'}
+                </button>
+                <button
+                  onClick={generateAll}
+                  disabled={generating !== null || chapters.length === 0}
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-50"
+                >
+                  {generating ? 'Generating...' : 'Generate All'}
+                </button>
+              </div>
             </div>
+            {/* Individual actions — collapsed by default */}
+            <details className="group">
+              <summary className="text-[9px] text-text-tertiary cursor-pointer hover:text-text-secondary select-none">
+                Individual actions...
+              </summary>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pt-1.5 border-t border-black/5">
+                <button
+                  onClick={tagAllDialogue}
+                  disabled={taggingAll || preparingAll || chapters.length === 0}
+                  className="text-[10px] font-medium px-2 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all disabled:opacity-50 flex items-center gap-1"
+                >
+                  {taggingAll ? <Loader2 size={9} className="animate-spin" /> : <Tags size={9} />}
+                  {taggingAll ? 'Tagging...' : 'Dialogue'}
+                </button>
+                <button
+                  onClick={tagAllDirections}
+                  disabled={taggingDirections || preparingAll || chapters.length === 0}
+                  className="text-[10px] font-medium px-2 py-1 rounded-lg bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100 transition-all disabled:opacity-50 flex items-center gap-1"
+                >
+                  {taggingDirections ? <Loader2 size={9} className="animate-spin" /> : <Mic size={9} />}
+                  {taggingDirections ? 'Tagging...' : 'Directions'}
+                </button>
+                <button
+                  onClick={tagAllSFX}
+                  disabled={taggingAllSFX || preparingAll || chapters.length === 0}
+                  className="text-[10px] font-medium px-2 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 transition-all disabled:opacity-50 flex items-center gap-1"
+                >
+                  {taggingAllSFX ? <Loader2 size={9} className="animate-spin" /> : <Volume2 size={9} />}
+                  {taggingAllSFX ? 'Tagging...' : 'Inline SFX'}
+                </button>
+                <button
+                  onClick={async () => {
+                    for (const ch of chapters) {
+                      await planSFXForChapter(ch.id, true);
+                    }
+                  }}
+                  disabled={planningSFX || preparingAll || chapters.length === 0}
+                  className="text-[10px] font-medium px-2 py-1 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-all disabled:opacity-50 flex items-center gap-1"
+                >
+                  {planningSFX ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
+                  {planningSFX ? 'Planning...' : 'Plan Sounds'}
+                </button>
+              </div>
+            </details>
           </div>
           <div className="space-y-1.5">
             {chapters.map(ch => {
@@ -690,7 +981,7 @@ export function AudiobookPanel() {
                         if (audio) {
                           window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch.id } }));
                         } else {
-                          generateChapter(ch.id);
+                          confirmGenerateChapter(ch.id);
                         }
                       }}
                       disabled={isGenerating}
@@ -787,7 +1078,7 @@ export function AudiobookPanel() {
                                     detail: { chapterId: `scene-${scene.id}` },
                                   }));
                                 } else {
-                                  generateScene(ch.id, scene.id);
+                                  confirmGenerateScene(ch.id, scene.id);
                                 }
                               }}
                               disabled={isSceneGenerating}
@@ -832,7 +1123,7 @@ export function AudiobookPanel() {
                             {/* Regenerate if already generated */}
                             {sceneAudio && (
                               <button
-                                onClick={() => generateScene(ch.id, scene.id)}
+                                onClick={() => confirmGenerateScene(ch.id, scene.id)}
                                 disabled={isSceneGenerating}
                                 className="p-1 rounded text-text-tertiary hover:text-text-primary transition-colors"
                                 title="Regenerate scene"
@@ -854,7 +1145,7 @@ export function AudiobookPanel() {
                       {/* Full chapter generation button */}
                       <div className="pt-1.5 border-t border-black/5 space-y-1">
                         <button
-                          onClick={() => generateChapter(ch.id)}
+                          onClick={() => confirmGenerateChapter(ch.id)}
                           disabled={isGenerating || !!generatingScene}
                           className={cn(
                             'w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-[11px] font-medium transition-all',
@@ -907,7 +1198,7 @@ export function AudiobookPanel() {
                               <span className="font-medium">v{v.version}</span>
                               {v.voiceConfig && (
                                 <span className={cn('ml-1.5', isActive ? 'text-white/50' : 'text-text-tertiary')}>
-                                  {v.voiceConfig.model === 'eleven_multilingual_v2' ? 'HD' : v.voiceConfig.model === 'eleven_turbo_v2_5' ? 'Std' : 'Fast'} · {v.voiceConfig.speed}x
+                                  {v.voiceConfig.model === 'eleven_v3' ? 'V3' : v.voiceConfig.model === 'eleven_multilingual_v2' ? 'HD' : v.voiceConfig.model === 'eleven_turbo_v2_5' ? 'Std' : 'Fast'} · {v.voiceConfig.speed}x
                                 </span>
                               )}
                             </div>

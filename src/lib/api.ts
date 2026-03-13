@@ -86,6 +86,7 @@ export const api = {
     model?: string;
     speed?: number;
     multiVoice?: boolean;
+    sceneSFX?: Array<{ prompt: string; audioUrl?: string; position: string; enabled: boolean }>;
   }) => request<{
     audioUrl: string;
     durationEstimate: number;

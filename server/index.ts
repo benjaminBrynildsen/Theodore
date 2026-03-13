@@ -1364,7 +1364,7 @@ app.post('/api/tts/generate', async (req, res) => {
     const auth = await getAuth(req);
     if (!auth) return res.status(401).json({ error: 'Not authenticated' });
 
-    const { chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle, model, speed, multiVoice } = req.body;
+    const { chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle, model, speed, multiVoice, sceneSFX } = req.body;
     if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
 
     // Credit check
@@ -1392,6 +1392,7 @@ app.post('/api/tts/generate', async (req, res) => {
       knownCharacters,
       characterDescriptions: characterDescriptions || {},
       narratorStyle: narratorStyle || undefined,
+      sceneSFX: sceneSFX || [],
     });
 
     // Deduct credits

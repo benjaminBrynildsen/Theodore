@@ -73,7 +73,7 @@ export const DEFAULT_FEMALE_VOICE = 'EXAVITQu4vr4xnSDxMaL'; // Sarah
 export const DEFAULT_NEUTRAL_VOICE = 'JBFqnCBsd6RMkjVDRZzb'; // George
 
 // ElevenLabs model options
-export type ElevenLabsModel = 'eleven_multilingual_v2' | 'eleven_turbo_v2_5' | 'eleven_flash_v2_5';
+export type ElevenLabsModel = 'eleven_v3' | 'eleven_multilingual_v2' | 'eleven_turbo_v2_5' | 'eleven_flash_v2_5';
 
 // Migration map: old OpenAI names + deprecated ElevenLabs IDs → valid voice IDs
 const LEGACY_VOICE_MAP: Record<string, string> = {

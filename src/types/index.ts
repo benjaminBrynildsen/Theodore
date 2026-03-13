@@ -87,7 +87,7 @@ export interface SceneSFX {
   id: string;
   prompt: string;         // e.g. "rain on a tin roof", "busy cafe ambiance"
   audioUrl?: string;       // cached URL after generation
-  position: 'start' | 'end' | 'background'; // when to play relative to scene
+  position: 'start' | 'end' | 'background' | 'inline'; // when to play relative to scene
   enabled: boolean;        // user can toggle off
   durationSeconds?: number;
   source?: 'manual' | 'suggested'; // how this SFX was created

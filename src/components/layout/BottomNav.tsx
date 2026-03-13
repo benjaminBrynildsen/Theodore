@@ -43,6 +43,11 @@ export function BottomNav() {
         audioStore.setGenerating(ch.id);
         audioStore.setError(null);
         audioStore.setCurrentChapter(ch.id);
+        const allSceneSFX = (ch.scenes || []).flatMap((s: any) =>
+          (s.sfx || []).map((sfx: any) => ({
+            prompt: sfx.prompt, audioUrl: sfx.audioUrl, position: sfx.position, enabled: sfx.enabled,
+          }))
+        );
         api.ttsGenerate({
           chapterId: ch.id,
           prose: ch.prose,
@@ -51,6 +56,7 @@ export function BottomNav() {
           model: audioStore.ttsModel,
           speed: audioStore.speed,
           multiVoice: audioStore.multiVoice,
+          sceneSFX: allSceneSFX,
         }).then(result => {
           audioStore.addChapterAudio(ch.id, {
             chapterId: ch.id,

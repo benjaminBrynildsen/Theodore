@@ -95,12 +95,16 @@ export function AudioPlayerBar() {
 
       if (scenes.length > 1) {
         const firstScene = scenes[0];
+        const firstSceneSFX = (firstScene.sfx || []).map((s: any) => ({
+          prompt: s.prompt, audioUrl: s.audioUrl, position: s.position, enabled: s.enabled,
+        }));
         const result = await api.ttsGenerate({
           chapterId: `${chapterId}-scene-${firstScene.id}${versionSuffix}`,
           prose: firstScene.prose,
           narratorVoice,
-          model: 'eleven_multilingual_v2',
+          model: 'eleven_v3',
           speed,
+          sceneSFX: firstSceneSFX,
         });
 
         const audio = audioRef.current;
@@ -119,12 +123,16 @@ export function AudioPlayerBar() {
         for (let i = 1; i < scenes.length; i++) {
           const scene = scenes[i];
           try {
+            const sceneSFXData = (scene.sfx || []).map((s: any) => ({
+              prompt: s.prompt, audioUrl: s.audioUrl, position: s.position, enabled: s.enabled,
+            }));
             const sceneResult = await api.ttsGenerate({
               chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
               prose: scene.prose,
               narratorVoice,
-              model: 'eleven_multilingual_v2',
+              model: 'eleven_v3',
               speed,
+              sceneSFX: sceneSFXData,
             });
             allUrls.push(sceneResult.audioUrl);
             allSceneIds.push(scene.id);
@@ -143,12 +151,18 @@ export function AudioPlayerBar() {
           generatedAt: new Date().toISOString(),
         });
       } else {
+        const allSceneSFX = (chapter.scenes || []).flatMap((s: any) =>
+          (s.sfx || []).map((sfx: any) => ({
+            prompt: sfx.prompt, audioUrl: sfx.audioUrl, position: sfx.position, enabled: sfx.enabled,
+          }))
+        );
         const result = await api.ttsGenerate({
           chapterId: `${chapterId}${versionSuffix}`,
           prose: chapter.prose,
           narratorVoice,
-          model: 'eleven_multilingual_v2',
+          model: 'eleven_v3',
           speed,
+          sceneSFX: allSceneSFX,
         });
 
         addChapterAudio(chapterId, {

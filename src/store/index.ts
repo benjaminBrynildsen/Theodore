@@ -777,10 +777,44 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   onRehydrateStorage: () => (state) => {
     // Sanitize chapters on rehydration — filter out corrupted scenes
     if (state?.chapters) {
-      state.chapters = state.chapters.filter(c => c && c.id).map(c => ({
-        ...c,
-        scenes: (c.scenes || []).filter((s: any) => s && s.id),
-      }));
+      let migrated = false;
+      const fixedChapters = state.chapters.filter(c => c && c.id).map(c => {
+        // Collect all prose text across the chapter for matching
+        const allProse = [c.prose || '', ...(c.scenes || []).map((s: any) => s.prose || '')].join(' ').toLowerCase();
+
+        return {
+          ...c,
+          scenes: (c.scenes || []).filter((s: any) => s && s.id).map((s: any) => {
+            if (s.sfx) {
+              const fixedSfx = s.sfx.map((sfx: any) => {
+                if (sfx.position === 'background') {
+                  // Check if this SFX prompt matches an inline {sfx:...} tag in the prose
+                  // Only convert if the prompt literally appears as a tag — don't touch true ambient sounds
+                  const promptLower = (sfx.prompt || '').toLowerCase().trim();
+                  const isInProse = allProse.includes(`{sfx:${promptLower}}`) ||
+                    (s.prose && s.prose.toLowerCase().includes(`{sfx:${promptLower}}`));
+
+                  if (isInProse) {
+                    migrated = true;
+                    return { ...sfx, position: 'inline' };
+                  }
+                }
+                return sfx;
+              });
+              return { ...s, sfx: fixedSfx };
+            }
+            return s;
+          }),
+        };
+      });
+      state.chapters = fixedChapters;
+      // Force persist the migration
+      if (migrated) {
+        setTimeout(() => {
+          useStore.setState({ chapters: fixedChapters });
+          console.log('[Store] Migrated inline SFX tags from background → inline');
+        }, 100);
+      }
     }
   },
 }));

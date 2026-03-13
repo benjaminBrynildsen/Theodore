@@ -1,8 +1,8 @@
 // ========== Scene SFX Badges ==========
 // Shows sound effect markers in the chapter/scene view with toggle controls
 
-import { useState } from 'react';
-import { Volume2, VolumeX, Plus, X, Loader2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Volume2, VolumeX, Plus, X, Loader2, Pause } from 'lucide-react';
 import { useStore } from '../../store';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
@@ -18,12 +18,14 @@ const POSITION_LABELS: Record<string, string> = {
   start: 'Intro',
   end: 'Outro',
   background: 'Background',
+  inline: 'One-shot',
 };
 
 const POSITION_COLORS: Record<string, string> = {
   start: 'bg-blue-50 text-blue-700 border-blue-200',
   end: 'bg-amber-50 text-amber-700 border-amber-200',
   background: 'bg-green-50 text-green-700 border-green-200',
+  inline: 'bg-purple-50 text-purple-700 border-purple-200',
 };
 
 export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
@@ -32,6 +34,8 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
   const [adding, setAdding] = useState(false);
   const [newPrompt, setNewPrompt] = useState('');
   const [newPosition, setNewPosition] = useState<'start' | 'end' | 'background'>('background');
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   if (sfx.length === 0 && !adding) return null;
 
@@ -43,6 +47,8 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
   };
 
   const removeSFX = (sfxId: string) => {
+    // Stop if currently playing
+    if (playingId === sfxId) stopPlayback();
     const updated = sfx.filter(s => s.id !== sfxId);
     updateScene(chapterId, sceneId, { sfx: updated });
   };
@@ -80,21 +86,56 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
     setAdding(false);
   };
 
+  const stopPlayback = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setPlayingId(null);
+  };
+
   const previewSFX = (sfxItem: SceneSFX) => {
     if (!sfxItem.audioUrl) return;
+
+    // If this one is already playing, stop it
+    if (playingId === sfxItem.id) {
+      stopPlayback();
+      return;
+    }
+
+    // Stop any currently playing audio
+    stopPlayback();
+
     const audio = new Audio(sfxItem.audioUrl);
     audio.volume = 0.5;
+
+    // Background SFX loops continuously
+    if (sfxItem.position === 'background') {
+      audio.loop = true;
+    }
+
+    audio.addEventListener('ended', () => {
+      // Only clear state for non-looping (intro/outro) sounds
+      if (!audio.loop) {
+        setPlayingId(null);
+        audioRef.current = null;
+      }
+    });
+
     audio.play();
+    audioRef.current = audio;
+    setPlayingId(sfxItem.id);
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+    <div className="flex flex-wrap items-center gap-2.5 mt-4 mb-2" onMouseUp={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
       {sfx.map(s => (
         <div
           key={s.id}
           className={cn(
-            'inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium border transition-all group',
-            s.enabled ? POSITION_COLORS[s.position] : 'bg-black/5 text-text-tertiary border-black/10 line-through'
+            'inline-flex items-center gap-2 px-3.5 py-2 rounded-full text-sm font-medium border transition-all group shadow-sm',
+            s.enabled ? POSITION_COLORS[s.position] : 'bg-black/5 text-text-tertiary border-black/10 line-through',
+            playingId === s.id && 'ring-2 ring-green-400 shadow-md'
           )}
         >
           {/* Toggle enabled */}
@@ -103,14 +144,14 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
             className="hover:opacity-70 transition-opacity"
             title={s.enabled ? 'Disable SFX' : 'Enable SFX'}
           >
-            {s.enabled ? <Volume2 size={9} /> : <VolumeX size={9} />}
+            {s.enabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
 
           {/* Label */}
-          <span className="max-w-[120px] truncate">{s.prompt}</span>
-          <span className="opacity-50 text-[8px]">{POSITION_LABELS[s.position]}</span>
+          <span className="max-w-[180px] truncate">{s.prompt}</span>
+          <span className="opacity-50 text-xs">{POSITION_LABELS[s.position]}</span>
 
-          {/* Generate / Play */}
+          {/* Generate / Play / Stop */}
           {s.enabled && !s.audioUrl && (
             <button
               onClick={() => generateSFXAudio(s)}
@@ -118,16 +159,16 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
               className="hover:opacity-70 transition-opacity"
               title="Generate audio"
             >
-              {generating === s.id ? <Loader2 size={8} className="animate-spin" /> : <Volume2 size={8} />}
+              {generating === s.id ? <Loader2 size={14} className="animate-spin" /> : <Volume2 size={14} />}
             </button>
           )}
           {s.audioUrl && s.enabled && (
             <button
               onClick={() => previewSFX(s)}
               className="hover:opacity-70 transition-opacity"
-              title="Preview"
+              title={playingId === s.id ? 'Stop' : (s.position === 'background' ? 'Play (loops)' : 'Preview')}
             >
-              <Volume2 size={8} />
+              {playingId === s.id ? <Pause size={14} /> : <Volume2 size={14} />}
             </button>
           )}
 
@@ -137,46 +178,46 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
             className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
             title="Remove SFX"
           >
-            <X size={8} />
+            <X size={14} />
           </button>
         </div>
       ))}
 
       {/* Add SFX inline form */}
       {adding ? (
-        <div className="inline-flex items-center gap-1 bg-white rounded-full px-2 py-1 border border-black/10 shadow-sm">
+        <div className="inline-flex items-center gap-2 bg-white rounded-full px-3.5 py-2 border border-black/10 shadow-sm">
           <input
             type="text"
             value={newPrompt}
             onChange={e => setNewPrompt(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addSFX()}
             placeholder="rain, footsteps..."
-            className="text-[10px] w-24 bg-transparent border-0 outline-none placeholder:text-text-tertiary"
+            className="text-sm w-32 bg-transparent border-0 outline-none placeholder:text-text-tertiary"
             autoFocus
           />
           <select
             value={newPosition}
             onChange={e => setNewPosition(e.target.value as any)}
-            className="text-[9px] bg-transparent border-0 outline-none text-text-tertiary"
+            className="text-xs bg-transparent border-0 outline-none text-text-tertiary"
           >
             <option value="background">BG</option>
             <option value="start">Intro</option>
             <option value="end">Outro</option>
           </select>
           <button onClick={addSFX} className="text-green-600 hover:text-green-700">
-            <Plus size={10} />
+            <Plus size={16} />
           </button>
           <button onClick={() => { setAdding(false); setNewPrompt(''); }} className="text-text-tertiary hover:text-text-primary">
-            <X size={10} />
+            <X size={16} />
           </button>
         </div>
       ) : (
         <button
           onClick={() => setAdding(true)}
-          className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded-full text-[9px] text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-all"
+          className="inline-flex items-center gap-1 px-3 py-2 rounded-full text-sm text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-all"
           title="Add sound effect"
         >
-          <Plus size={8} />
+          <Plus size={14} />
           SFX
         </button>
       )}

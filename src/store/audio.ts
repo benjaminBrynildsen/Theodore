@@ -88,7 +88,8 @@ function migrateModelId(model: string): ElevenLabsModel {
   const MODEL_MAP: Record<string, ElevenLabsModel> = {
     'gpt-4o-mini-tts': 'eleven_flash_v2_5',
     'tts-1': 'eleven_turbo_v2_5',
-    'tts-1-hd': 'eleven_multilingual_v2',
+    'tts-1-hd': 'eleven_v3',
+    'eleven_multilingual_v2': 'eleven_v3',
   };
   return MODEL_MAP[model] || (model as ElevenLabsModel);
 }
@@ -105,7 +106,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   narratorVoice: DEFAULT_NARRATOR_VOICE,
   characterVoices: {},
   multiVoice: true,
-  ttsModel: 'eleven_multilingual_v2',
+  ttsModel: 'eleven_v3',
   speed: 1.0,
   generating: null,
   error: null,

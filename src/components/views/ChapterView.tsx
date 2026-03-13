@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity, Tags } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity, Tags, Volume2, Wand2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { Badge } from '../ui/Badge';
 import { VersionTimeline } from '../features/VersionTimeline';
 import type { ProseSelection } from '../../types';
+import { isDirectionTag } from '../../lib/direction-tagger';
 import { TokenBudget } from '../credits/TokenBudget';
 import { DictationMode } from '../features/DictationMode';
 import { ProseXRay } from '../features/ProseXRay';
@@ -13,8 +14,10 @@ import { EmotionalXRay } from '../features/EmotionalXRay';
 import { SceneSFXBadges } from '../features/SceneSFXBadges';
 import { SmartResearch } from '../features/SmartResearch';
 import { VibeEditor } from '../editmode/VibeEditor';
-import { generateStream } from '../../lib/generate';
+import { generateStream, generateText } from '../../lib/generate';
 import { tagDialogue } from '../../lib/dialogue-tagger';
+import { tagSFX } from '../../lib/sfx-tagger';
+import { api } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { cn } from '../../lib/utils';
 import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
@@ -42,13 +45,12 @@ export function ChapterView({ chapter }: Props) {
   const [generatingSceneId, setGeneratingSceneId] = useState<string | null>(null);
   const [sceneGeneratedText, setSceneGeneratedText] = useState('');
   const [taggingSceneId, setTaggingSceneId] = useState<string | null>(null);
-  const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
-  const [editingChapterProse, setEditingChapterProse] = useState(false);
+  const [taggingSFXSceneId, setTaggingSFXSceneId] = useState<string | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const proseDisplayRef = useRef<HTMLDivElement>(null);
 
   const { getActiveProject, getProjectChapters, chapters: allChapters } = useStore();
-  const { getProjectEntries, activeEntryId, getEntry } = useCanonStore();
+  const { getProjectEntries, activeEntryId, getEntry, setActiveEntry } = useCanonStore();
   const { settings } = useSettingsStore();
 
   // Highlighted artifact name (from clicking an entry in the Artifacts tab)
@@ -324,6 +326,66 @@ export function ChapterView({ chapter }: Props) {
     }
   };
 
+  const handleTagSFX = async (scene: Scene) => {
+    if (!project || !scene.prose?.trim()) return;
+    setTaggingSFXSceneId(scene.id);
+    try {
+      // Tag inline one-shot SFX in the prose text
+      const tagged = await tagSFX(scene.prose, project.id, chapter.id);
+      updateScene(chapter.id, scene.id, { prose: tagged });
+      syncScenesToProse(chapter.id);
+
+      // Also suggest background ambient sounds for the scene
+      try {
+        const ambienceResult = await generateText({
+          prompt: `Read this scene and suggest 1-3 short ambient/background sound descriptions that would play continuously throughout. These are environmental sounds like rain, wind, city traffic, cafe chatter, forest birds, ocean waves, etc.
+
+Scene:
+${scene.prose.slice(0, 2000)}
+
+Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No explanation.`,
+          model: 'gpt-4.1-mini',
+          maxTokens: 200,
+          temperature: 0.3,
+          action: 'sfx-ambience',
+          projectId: project.id,
+          chapterId: chapter.id,
+        });
+
+        const parsed = JSON.parse(ambienceResult.text.trim());
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const existingSfx = scene.sfx || [];
+          const existingPrompts = new Set(existingSfx.map(s => s.prompt.toLowerCase()));
+
+          const newBgSfx = parsed
+            .filter((amb: string) => typeof amb === 'string' && !existingPrompts.has(amb.toLowerCase()))
+            .map((amb: string) => ({
+              id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              prompt: amb,
+              position: 'background' as const,
+              enabled: true,
+              source: 'suggested' as const,
+            }));
+
+          if (newBgSfx.length > 0) {
+            // Re-read scene to get latest sfx (inline tags may have been added above)
+            const freshScene = useStore.getState().chapters.find(c => c.id === chapter.id)?.scenes?.find(s => s.id === scene.id);
+            updateScene(chapter.id, scene.id, {
+              sfx: [...(freshScene?.sfx || []), ...newBgSfx],
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Ambient SFX suggestion failed (non-critical):', e);
+      }
+    } catch (e: any) {
+      console.error('SFX tagging failed:', e);
+      setGenerationError(`SFX tagging failed: ${e.message}`);
+    } finally {
+      setTaggingSFXSceneId(null);
+    }
+  };
+
   // Helper: compute character offset within proseDisplayRef for a given node+offset
   const computeProseOffset = useCallback((container: Node, offset: number): number => {
     const proseEl = proseDisplayRef.current;
@@ -367,8 +429,12 @@ export function ChapterView({ chapter }: Props) {
   }, []);
 
   // Inline edit: handle click (sentence) or drag-select (custom range)
-  const handleProseSelect = useCallback(() => {
+  const handleProseSelect = useCallback((e: React.MouseEvent) => {
     if (!inlineEditOpen || !proseDisplayRef.current) return;
+
+    // Don't select text when clicking on tag badges (character/sfx) — let handleProseClick handle those
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-tag]')) return;
 
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
@@ -448,37 +514,6 @@ export function ChapterView({ chapter }: Props) {
   }, [inlineEditOpen, chapter.prose, computeProseOffset, findSentenceAt]);
 
 
-  // Render prose with optional highlight for inline editing
-  const renderHighlightedProse = useCallback((text: string) => {
-    if (!editHighlight || !inlineEditOpen) return null;
-    const before = text.slice(0, editHighlight.start);
-    const highlighted = text.slice(editHighlight.start, editHighlight.end);
-    const after = text.slice(editHighlight.end);
-
-    const renderSection = (str: string) =>
-      str.split('\n\n').map((p, i) => (
-        <span key={i}>
-          {i > 0 && <><br /><br /></>}
-          {p.split('\n').map((line, j) => (
-            <span key={j}>
-              {j > 0 && <br />}
-              {line}
-            </span>
-          ))}
-        </span>
-      ));
-
-    return (
-      <div className="font-serif leading-[2] text-text-primary" style={{ fontSize: isFocusMode ? '1.25rem' : '1.125rem' }}>
-        {renderSection(before)}
-        <mark className="bg-emerald-100 text-emerald-900 rounded px-0.5 transition-all duration-500">
-          {renderSection(highlighted)}
-        </mark>
-        {renderSection(after)}
-      </div>
-    );
-  }, [editHighlight, inlineEditOpen, isFocusMode]);
-
   // Render prose with entity name highlights (for artifact tab clicks)
   const renderEntityHighlightedProse = useCallback((text: string, entityName: string, className?: string) => {
     const escaped = entityName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -502,11 +537,97 @@ export function ChapterView({ chapter }: Props) {
     });
   }, []);
 
-  // Render prose with [CharacterName] dialogue tags as inline colored badges
+  // Render prose with [CharacterName] dialogue tags and {sfx:description} inline SFX as colored badges
   const SPEAKER_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4', '#f97316'];
   const speakerColorMap = useRef(new Map<string, string>());
+  const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
+  const sfxCacheRef = useRef<Record<string, string>>({}); // description → audioUrl
+
+  // Event delegation: single click handler for all tags in prose containers
+  const handleProseClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const tagEl = target.closest('[data-tag]') as HTMLElement | null;
+    if (!tagEl) return;
+
+    const tagType = tagEl.dataset.tag;
+    const tagValue = tagEl.dataset.value;
+    if (!tagType || !tagValue) return;
+
+    if (tagType === 'character') {
+      if (!project) return;
+      const entries = getProjectEntries(project.id);
+      const match = entries.find(
+        en => en.type === 'character' && (en.name === tagValue || en.name.split(' ')[0] === tagValue)
+      );
+      if (match) setActiveEntry(match.id);
+    } else if (tagType === 'sfx') {
+      // Stop any current playback
+      if (sfxAudioRef.current) {
+        sfxAudioRef.current.pause();
+        sfxAudioRef.current = null;
+      }
+
+      const playAudio = (url: string) => {
+        const audio = new Audio(url);
+        audio.volume = 0.6;
+        audio.play();
+        sfxAudioRef.current = audio;
+      };
+
+      // Check ref cache
+      const cached = sfxCacheRef.current[tagValue];
+      if (cached) { playAudio(cached); return; }
+
+      // Check scene.sfx[] entries
+      const allScenes = chapter.scenes || [];
+      for (const scene of allScenes) {
+        const sfxMatch = scene.sfx?.find(s => s.prompt.toLowerCase().includes(tagValue.toLowerCase()) && s.audioUrl);
+        if (sfxMatch?.audioUrl) {
+          sfxCacheRef.current[tagValue] = sfxMatch.audioUrl;
+          playAudio(sfxMatch.audioUrl);
+          return;
+        }
+      }
+
+      // Generate on the fly, persist to scene.sfx[]
+      tagEl.classList.add('animate-pulse');
+      api.sfxGenerate({ prompt: tagValue, durationSeconds: 3 }).then(result => {
+        sfxCacheRef.current[tagValue] = result.audioUrl;
+        playAudio(result.audioUrl);
+
+        // Persist: find the scene this tag belongs in and save to sfx[]
+        const { updateScene } = useStore.getState();
+        for (const scene of allScenes) {
+          if (scene.prose?.includes(`{sfx:${tagValue}}`)) {
+            const existing = scene.sfx || [];
+            // Don't add duplicate
+            if (!existing.some(s => s.prompt === tagValue)) {
+              updateScene(chapter.id, scene.id, {
+                sfx: [...existing, {
+                  id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                  prompt: tagValue,
+                  audioUrl: result.audioUrl,
+                  durationSeconds: result.durationSeconds,
+                  position: 'inline' as const,
+                  enabled: true,
+                  source: 'suggested' as const,
+                }],
+              });
+            }
+            break;
+          }
+        }
+      }).catch(err => {
+        console.error(`[SFX] Generation failed for "${tagValue}":`, err);
+      }).finally(() => {
+        tagEl.classList.remove('animate-pulse');
+      });
+    }
+  }, [project, chapter.id, chapter.scenes, getProjectEntries, setActiveEntry]);
+
+  // Pure render function — no closures over handlers, uses data attributes for delegation
   const renderTaggedProse = useCallback((text: string) => {
-    const tagRegex = /\[([^\]]+)\]/g;
+    const tagRegex = /\[([^\]]+)\]|\{sfx:([^}]+)\}/g;
     const parts: (string | JSX.Element)[] = [];
     let lastIdx = 0;
     let match: RegExpExecArray | null;
@@ -514,20 +635,55 @@ export function ChapterView({ chapter }: Props) {
       if (match.index > lastIdx) {
         parts.push(text.slice(lastIdx, match.index));
       }
-      const name = match[1];
-      if (!speakerColorMap.current.has(name)) {
-        speakerColorMap.current.set(name, SPEAKER_COLORS[speakerColorMap.current.size % SPEAKER_COLORS.length]);
+      if (match[1]) {
+        const name = match[1];
+        if (isDirectionTag(name)) {
+          // Narration direction tag — pink/magenta badge like ElevenLabs UI
+          parts.push(
+            <span
+              key={`dir-${match.index}`}
+              data-tag="direction"
+              data-value={name}
+              className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold text-fuchsia-600 bg-fuchsia-50 border border-fuchsia-200 mx-0.5 align-baseline select-none"
+              title={`Direction: ${name}`}
+            >
+              [{name}]
+            </span>
+          );
+        } else {
+          // Character name tag
+          if (!speakerColorMap.current.has(name)) {
+            speakerColorMap.current.set(name, SPEAKER_COLORS[speakerColorMap.current.size % SPEAKER_COLORS.length]);
+          }
+          const color = speakerColorMap.current.get(name)!;
+          parts.push(
+            <span
+              key={`tag-${match.index}`}
+              data-tag="character"
+              data-value={name}
+              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white mr-1 align-baseline cursor-pointer hover:ring-2 hover:ring-white/50 hover:shadow-md transition-all"
+              style={{ backgroundColor: color }}
+              title={`View ${name}`}
+            >
+              {name}
+            </span>
+          );
+        }
+      } else if (match[2]) {
+        const desc = match[2];
+        parts.push(
+          <span
+            key={`sfx-${match.index}`}
+            data-tag="sfx"
+            data-value={desc}
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium border border-amber-300 bg-amber-50 text-amber-700 mx-0.5 align-baseline cursor-pointer hover:bg-amber-100 hover:shadow-md transition-all"
+            title={`Play: ${desc}`}
+          >
+            <Volume2 size={8} className="flex-shrink-0" />
+            {desc}
+          </span>
+        );
       }
-      const color = speakerColorMap.current.get(name)!;
-      parts.push(
-        <span
-          key={`tag-${match.index}`}
-          className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white mr-1 align-baseline"
-          style={{ backgroundColor: color }}
-        >
-          {name}
-        </span>
-      );
       lastIdx = match.index + match[0].length;
     }
     if (lastIdx < text.length) {
@@ -535,6 +691,37 @@ export function ChapterView({ chapter }: Props) {
     }
     return parts.length > 0 ? parts : text;
   }, []);
+
+  // Render prose with optional highlight for inline editing
+  const renderHighlightedProse = useCallback((text: string) => {
+    if (!editHighlight || !inlineEditOpen) return null;
+    const before = text.slice(0, editHighlight.start);
+    const highlighted = text.slice(editHighlight.start, editHighlight.end);
+    const after = text.slice(editHighlight.end);
+
+    const renderSection = (str: string) =>
+      str.split('\n\n').map((p, i) => (
+        <span key={i}>
+          {i > 0 && <><br /><br /></>}
+          {p.split('\n').map((line, j) => (
+            <span key={j}>
+              {j > 0 && <br />}
+              {renderTaggedProse(line)}
+            </span>
+          ))}
+        </span>
+      ));
+
+    return (
+      <div className="font-serif leading-[2] text-text-primary" style={{ fontSize: isFocusMode ? '1.25rem' : '1.125rem' }}>
+        {renderSection(before)}
+        <mark className="bg-emerald-100 text-emerald-900 rounded px-0.5 transition-all duration-500">
+          {renderSection(highlighted)}
+        </mark>
+        {renderSection(after)}
+      </div>
+    );
+  }, [editHighlight, inlineEditOpen, isFocusMode, renderTaggedProse]);
 
   // Edit mode scene state
   const scenes = (chapter.scenes || []).filter((s): s is Scene => Boolean(s?.id));
@@ -957,23 +1144,42 @@ export function ChapterView({ chapter }: Props) {
                             </div>
                             <div className="flex items-center gap-1.5 flex-shrink-0">
                               {scene.prose && (
-                                <button
-                                  onClick={() => handleTagScene(scene)}
-                                  disabled={!!taggingSceneId || !!generatingSceneId || generating}
-                                  className={cn(
-                                    'px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
-                                    taggingSceneId === scene.id
-                                      ? 'bg-blue-50 text-blue-500'
-                                      : 'bg-blue-50 text-blue-600 hover:bg-blue-100',
-                                  )}
-                                  title="Tag dialogue with character names"
-                                >
-                                  {taggingSceneId === scene.id ? (
-                                    <><Loader2 size={12} className="animate-spin" /> Tagging...</>
-                                  ) : (
-                                    <><Tags size={12} /> Tag</>
-                                  )}
-                                </button>
+                                <>
+                                  <button
+                                    onClick={() => handleTagScene(scene)}
+                                    disabled={!!taggingSceneId || !!taggingSFXSceneId || !!generatingSceneId || generating}
+                                    className={cn(
+                                      'px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
+                                      taggingSceneId === scene.id
+                                        ? 'bg-blue-50 text-blue-500'
+                                        : 'bg-blue-50 text-blue-600 hover:bg-blue-100',
+                                    )}
+                                    title="Tag dialogue with character names"
+                                  >
+                                    {taggingSceneId === scene.id ? (
+                                      <><Loader2 size={12} className="animate-spin" /> Tagging...</>
+                                    ) : (
+                                      <><Tags size={12} /> Tag</>
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={() => handleTagSFX(scene)}
+                                    disabled={!!taggingSceneId || !!taggingSFXSceneId || !!generatingSceneId || generating}
+                                    className={cn(
+                                      'px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
+                                      taggingSFXSceneId === scene.id
+                                        ? 'bg-amber-50 text-amber-500'
+                                        : 'bg-amber-50 text-amber-600 hover:bg-amber-100',
+                                    )}
+                                    title="Tag inline sound effects"
+                                  >
+                                    {taggingSFXSceneId === scene.id ? (
+                                      <><Loader2 size={12} className="animate-spin" /> SFX...</>
+                                    ) : (
+                                      <><Volume2 size={12} /> SFX</>
+                                    )}
+                                  </button>
+                                </>
                               )}
                               <button
                                 onClick={() => handleGenerateScene(scene)}
@@ -1155,16 +1361,72 @@ export function ChapterView({ chapter }: Props) {
                                 <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider flex-shrink-0">
                                   {scene.title || `Scene ${scene.order}`}
                                 </span>
+                                {scene.prose && (
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <button
+                                      onClick={() => handleTagScene(scene)}
+                                      disabled={!!taggingSceneId || !!taggingSFXSceneId}
+                                      className={cn(
+                                        'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
+                                        taggingSceneId === scene.id ? 'bg-blue-100 text-blue-500' : 'bg-blue-50 text-blue-600 hover:bg-blue-100',
+                                      )}
+                                      title="Tag dialogue"
+                                    >
+                                      {taggingSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Tags size={12} />}
+                                      Tag
+                                    </button>
+                                    <button
+                                      onClick={() => handleTagSFX(scene)}
+                                      disabled={!!taggingSceneId || !!taggingSFXSceneId}
+                                      className={cn(
+                                        'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
+                                        taggingSFXSceneId === scene.id ? 'bg-amber-100 text-amber-500' : 'bg-amber-50 text-amber-600 hover:bg-amber-100',
+                                      )}
+                                      title="Tag sound effects"
+                                    >
+                                      {taggingSFXSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Volume2 size={12} />}
+                                      SFX
+                                    </button>
+                                  </div>
+                                )}
                                 <div className="flex-1 border-t border-black/10" />
                               </div>
                             )}
                             {idx === 0 && scene.title && (
-                              <div className="pb-3 opacity-60">
+                              <div className="pb-3 flex items-center gap-2">
                                 <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider">{scene.title}</span>
+                                {scene.prose && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleTagScene(scene)}
+                                      disabled={!!taggingSceneId || !!taggingSFXSceneId}
+                                      className={cn(
+                                        'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
+                                        taggingSceneId === scene.id ? 'bg-blue-100 text-blue-500' : 'bg-blue-50 text-blue-600 hover:bg-blue-100',
+                                      )}
+                                      title="Tag dialogue"
+                                    >
+                                      {taggingSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Tags size={12} />}
+                                      Tag
+                                    </button>
+                                    <button
+                                      onClick={() => handleTagSFX(scene)}
+                                      disabled={!!taggingSceneId || !!taggingSFXSceneId}
+                                      className={cn(
+                                        'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
+                                        taggingSFXSceneId === scene.id ? 'bg-amber-100 text-amber-500' : 'bg-amber-50 text-amber-600 hover:bg-amber-100',
+                                      )}
+                                      title="Tag sound effects"
+                                    >
+                                      {taggingSFXSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Volume2 size={12} />}
+                                      SFX
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             )}
                             {scene.prose ? (
-                              <div>
+                              <div onClick={handleProseClick}>
                                 <div className={cn(
                                   'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
                                   isFocusMode ? 'text-xl' : 'text-lg',
@@ -1207,7 +1469,7 @@ export function ChapterView({ chapter }: Props) {
                     </div>
                   ) : (
                     /* No scenes: flat prose selectable view */
-                    <div className={cn(
+                    <div onClick={handleProseClick} className={cn(
                       'font-serif leading-[2] text-text-primary whitespace-pre-wrap',
                       isFocusMode ? 'text-xl' : 'text-lg',
                     )}>
@@ -1250,69 +1512,81 @@ export function ChapterView({ chapter }: Props) {
                                 <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider flex-shrink-0">
                                   {scene.title || `Scene ${scene.order}`}
                                 </span>
+                                {scene.prose && (
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <button
+                                      onClick={() => handleTagScene(scene)}
+                                      disabled={!!taggingSceneId || !!taggingSFXSceneId}
+                                      className={cn(
+                                        'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
+                                        taggingSceneId === scene.id ? 'bg-blue-100 text-blue-500' : 'bg-blue-50 text-blue-600 hover:bg-blue-100',
+                                      )}
+                                      title="Tag dialogue"
+                                    >
+                                      {taggingSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Tags size={12} />}
+                                      Tag
+                                    </button>
+                                    <button
+                                      onClick={() => handleTagSFX(scene)}
+                                      disabled={!!taggingSceneId || !!taggingSFXSceneId}
+                                      className={cn(
+                                        'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
+                                        taggingSFXSceneId === scene.id ? 'bg-amber-100 text-amber-500' : 'bg-amber-50 text-amber-600 hover:bg-amber-100',
+                                      )}
+                                      title="Tag sound effects"
+                                    >
+                                      {taggingSFXSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Volume2 size={12} />}
+                                      SFX
+                                    </button>
+                                  </div>
+                                )}
                                 <div className="flex-1 border-t border-black/10" />
                               </div>
                             )}
                             {idx === 0 && scene.title && (
-                              <div className="pb-3 opacity-60">
+                              <div className="pb-3 flex items-center gap-2">
                                 <span className="text-[10px] text-text-tertiary font-mono uppercase tracking-wider">{scene.title}</span>
+                                {scene.prose && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleTagScene(scene)}
+                                      disabled={!!taggingSceneId || !!taggingSFXSceneId}
+                                      className={cn(
+                                        'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
+                                        taggingSceneId === scene.id ? 'bg-blue-100 text-blue-500' : 'bg-blue-50 text-blue-600 hover:bg-blue-100',
+                                      )}
+                                      title="Tag dialogue"
+                                    >
+                                      {taggingSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Tags size={12} />}
+                                      Tag
+                                    </button>
+                                    <button
+                                      onClick={() => handleTagSFX(scene)}
+                                      disabled={!!taggingSceneId || !!taggingSFXSceneId}
+                                      className={cn(
+                                        'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
+                                        taggingSFXSceneId === scene.id ? 'bg-amber-100 text-amber-500' : 'bg-amber-50 text-amber-600 hover:bg-amber-100',
+                                      )}
+                                      title="Tag sound effects"
+                                    >
+                                      {taggingSFXSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Volume2 size={12} />}
+                                      SFX
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             )}
                             {scene.prose ? (
-                              highlightName ? (
-                                <div
-                                  className={cn(
-                                    'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
-                                    isFocusMode ? 'text-xl' : 'text-lg',
-                                    isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
-                                  )}
-                                >
-                                  {renderEntityHighlightedProse(scene.prose, highlightName)}
-                                </div>
-                              ) : editingSceneId === scene.id ? (
-                              <textarea
-                                autoFocus
-                                value={scene.prose}
-                                onChange={(e) => {
-                                  updateScene(chapter.id, scene.id, {
-                                    prose: e.target.value,
-                                    status: e.target.value.trim() ? 'edited' : 'outline',
-                                  });
-                                  syncScenesToProse(chapter.id);
-                                }}
-                                onBlur={() => setEditingSceneId(null)}
+                              <div
+                                onClick={handleProseClick}
                                 className={cn(
-                                  'w-full bg-transparent border-none outline-none resize-none overflow-hidden',
-                                  'font-serif leading-[2]',
-                                  'focus:ring-0',
-                                  'transition-all duration-500',
+                                  'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
                                   isFocusMode ? 'text-xl' : 'text-lg',
                                   isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
                                 )}
-                                ref={(el) => {
-                                  if (el) {
-                                    el.style.height = 'auto';
-                                    el.style.height = Math.max(80, el.scrollHeight) + 'px';
-                                  }
-                                }}
-                                onInput={(e) => {
-                                  const el = e.target as HTMLTextAreaElement;
-                                  el.style.height = 'auto';
-                                  el.style.height = Math.max(80, el.scrollHeight) + 'px';
-                                }}
-                              />
-                              ) : (
-                                <div
-                                  onClick={() => setEditingSceneId(scene.id)}
-                                  className={cn(
-                                    'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500 cursor-text',
-                                    isFocusMode ? 'text-xl' : 'text-lg',
-                                    isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
-                                  )}
-                                >
-                                  {renderTaggedProse(scene.prose)}
-                                </div>
-                              )
+                              >
+                                {highlightName ? renderEntityHighlightedProse(scene.prose, highlightName) : renderTaggedProse(scene.prose)}
+                              </div>
                             ) : (
                               <div className={cn('py-6 flex items-center gap-3 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>
                                 <p className="text-sm text-text-tertiary italic flex-1">No prose yet</p>
@@ -1330,6 +1604,12 @@ export function ChapterView({ chapter }: Props) {
                                 </button>
                               </div>
                             )}
+                            {/* Ambient SFX badges at bottom of scene */}
+                            <SceneSFXBadges
+                              chapterId={chapter.id}
+                              sceneId={scene.id}
+                              sfx={scene.sfx || []}
+                            />
                             {generatingSceneId === scene.id && sceneGeneratedText && (
                               <div className="font-serif text-lg leading-[2] text-text-primary whitespace-pre-wrap animate-fade-in pb-4">
                                 {sceneGeneratedText}
@@ -1347,30 +1627,11 @@ export function ChapterView({ chapter }: Props) {
                     )} style={{ minHeight: '500px' }}>
                       {renderEntityHighlightedProse(chapter.prose, highlightName)}
                     </div>
-                  ) : editingChapterProse ? (
-                    <textarea
-                      ref={editorRef}
-                      autoFocus
-                      value={chapter.prose}
-                      onChange={(e) => updateChapter(chapter.id, {
-                        prose: e.target.value,
-                        status: 'human-edited',
-                        updatedAt: new Date().toISOString(),
-                      })}
-                      onBlur={() => setEditingChapterProse(false)}
-                      className={cn(
-                        'w-full bg-transparent border-none outline-none resize-none',
-                        'font-serif leading-[2] text-text-primary',
-                        'focus:ring-0',
-                        isFocusMode ? 'text-xl' : 'text-lg'
-                      )}
-                      style={{ minHeight: '500px' }}
-                    />
                   ) : (
                     <div
-                      onClick={() => setEditingChapterProse(true)}
+                      onClick={handleProseClick}
                       className={cn(
-                        'font-serif leading-[2] text-text-primary whitespace-pre-wrap cursor-text',
+                        'font-serif leading-[2] text-text-primary whitespace-pre-wrap',
                         isFocusMode ? 'text-xl' : 'text-lg'
                       )}
                       style={{ minHeight: '500px' }}
