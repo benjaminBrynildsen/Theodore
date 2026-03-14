@@ -347,13 +347,8 @@ function buildCanonUpdate(bodyRaw: unknown, projectId: string) {
 }
 
 // ========== Health ==========
-app.get('/api/health', async (_req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ status: 'ok', database: 'connected' });
-  } catch (e: any) {
-    res.status(500).json({ status: 'error', database: e.message });
-  }
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok' });
 });
 
 // ========== Billing ==========
