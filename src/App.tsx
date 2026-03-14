@@ -271,10 +271,12 @@ export default function App() {
               <span className="text-xs font-medium">Done</span>
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto pb-16">
             <AudiobookPanel />
           </div>
-          <MobilePlayerBar onExpand={() => setMobilePlayerExpanded(true)} />
+          <div className="flex-shrink-0 mb-14">
+            <MobilePlayerBar onExpand={() => setMobilePlayerExpanded(true)} />
+          </div>
         </div>
       )}
       {mobilePlayerExpanded && (
