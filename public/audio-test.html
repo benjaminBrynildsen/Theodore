@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audio Playback Test</title>
+  <style>
+    body { font-family: system-ui; padding: 20px; max-width: 500px; margin: 0 auto; }
+    button { padding: 12px 24px; font-size: 16px; margin: 8px 4px; border-radius: 8px; border: 1px solid #ccc; }
+    .pass { color: green; font-weight: bold; }
+    .fail { color: red; font-weight: bold; }
+    #log { background: #f5f5f5; padding: 12px; border-radius: 8px; font-size: 13px; white-space: pre-wrap; margin-top: 16px; max-height: 400px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <h2>🔊 Audio Playback Test</h2>
+  <p>Tests the exact same flow as the Theodore player.</p>
+  
+  <div>
+    <button id="unlock">1. Unlock Audio (tap first)</button>
+    <button id="play">2. Play Test Audio</button>
+    <button id="toggle">3. Toggle Play/Pause</button>
+  </div>
+  
+  <div id="status">Status: waiting...</div>
+  <div id="log"></div>
+
+  <script>
+    const log = (msg) => {
+      const el = document.getElementById('log');
+      el.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
+      el.scrollTop = el.scrollHeight;
+      console.log(msg);
+    };
+    const status = (msg, ok) => {
+      document.getElementById('status').innerHTML = 
+        `Status: <span class="${ok ? 'pass' : 'fail'}">${msg}</span>`;
+    };
+
+    // Create Audio element exactly like AudioPlayerBar
+    const audio = new Audio();
+    let pendingPlay = null;
+    let unlocked = false;
+
+    audio.addEventListener('loadedmetadata', () => {
+      log('✅ loadedmetadata: duration=' + audio.duration);
+    });
+    audio.addEventListener('canplaythrough', () => {
+      log('✅ canplaythrough');
+    });
+    audio.addEventListener('playing', () => {
+      log('✅ PLAYING! Audio is actually playing');
+      status('PLAYING', true);
+    });
+    audio.addEventListener('error', (e) => {
+      log('❌ ERROR: ' + (audio.error?.message || 'code=' + audio.error?.code));
+      status('ERROR: ' + (audio.error?.message || 'code=' + audio.error?.code), false);
+    });
+    audio.addEventListener('pause', () => {
+      log('⏸ paused');
+    });
+
+    // Step 1: Unlock (iOS requirement)
+    document.getElementById('unlock').addEventListener('click', () => {
+      log('Attempting iOS unlock...');
+      audio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwMHAAAAAAD/+1DEAAAH+ANoUAAABHwJcigAAAQCAABpAAAAMEBgaBoGAIAgGP/BwEP/EAQBAEAQBA7+sEAQBAEAR/WCAIAgCAI3rBAEAQBAEb//5cEP/BAEAQBAdYIAgCAIAjf/+XBD/wQBAEAQHf/lBD/+UEAx//9YIAgCAIAge//+sEAQDH///WCAIAgCB7///rBAEAwAAAAAAA';
+      audio.play().then(() => {
+        audio.pause();
+        audio.src = '';
+        unlocked = true;
+        log('✅ iOS audio UNLOCKED');
+        status('Unlocked', true);
+      }).catch((err) => {
+        log('❌ Unlock failed: ' + err.message);
+        status('Unlock failed: ' + err.message, false);
+      });
+    });
+
+    // Step 2: Play — fetch a real audio file and play it
+    document.getElementById('play').addEventListener('click', async () => {
+      log('Fetching audio file list...');
+      
+      // Try to find an existing audio file
+      try {
+        const res = await fetch('/uploads/audio/');
+        if (res.ok) {
+          log('Found uploads directory');
+        }
+      } catch(e) {}
+      
+      // Use a known test file or generate via TTS
+      // First, let's just try playing any existing audio URL
+      const testUrl = prompt('Paste an audio URL (e.g., /uploads/audio/ch-xxx.mp3):', '/uploads/audio/');
+      if (!testUrl) return;
+      
+      log('Setting src: ' + testUrl);
+      audio.src = testUrl;
+      audio.load();
+      log('Called load()');
+      
+      audio.play().then(() => {
+        pendingPlay = null;
+        log('✅ play() succeeded');
+        status('Playing!', true);
+      }).catch((err) => {
+        pendingPlay = testUrl;
+        log('⚠️ play() blocked: ' + err.message);
+        log('URL queued — tap "Toggle Play/Pause" to play with user gesture');
+        status('Blocked — tap Toggle to play', false);
+      });
+    });
+
+    // Step 3: Toggle play/pause (user gesture)
+    document.getElementById('toggle').addEventListener('click', () => {
+      if (pendingPlay) {
+        log('Playing pending URL: ' + pendingPlay);
+        if (!audio.src || !audio.src.includes(pendingPlay.replace(/^\//, ''))) {
+          audio.src = pendingPlay;
+          audio.load();
+        }
+        pendingPlay = null;
+        audio.play().then(() => {
+          log('✅ Pending play succeeded!');
+          status('Playing!', true);
+        }).catch(err => {
+          log('❌ Pending play FAILED: ' + err.message);
+          status('Failed: ' + err.message, false);
+        });
+        return;
+      }
+
+      if (audio.paused) {
+        audio.play().then(() => {
+          log('✅ Resumed');
+          status('Playing', true);
+        }).catch(err => {
+          log('❌ Resume failed: ' + err.message);
+          status('Failed: ' + err.message, false);
+        });
+      } else {
+        audio.pause();
+        log('⏸ Paused');
+        status('Paused', true);
+      }
+    });
+  </script>
+</body>
+</html>
