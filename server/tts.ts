@@ -844,13 +844,14 @@ async function resolveInlineSFX(prompt: string, sceneSFX: SceneSFXInput[]): Prom
 
   // No match found — generate a short SFX on the fly
   try {
-    const { generateSFX } = await import('./sfx.js');
+    console.log(`[TTS] Generating inline SFX on-the-fly: "${prompt}"`);
     const result = await generateSFX({ prompt, durationSeconds: 3 });
+    console.log(`[TTS] Inline SFX generated: ${result.audioUrl}`);
     if (result.audioUrl) {
       return await downloadSFXFile(result.audioUrl);
     }
-  } catch (e) {
-    console.warn(`[TTS] Could not generate inline SFX for "${prompt}":`, e);
+  } catch (e: any) {
+    console.error(`[TTS] Failed to generate inline SFX for "${prompt}":`, e.message || e);
   }
 
   return null;
