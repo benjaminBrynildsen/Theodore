@@ -725,7 +725,15 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const textContent = seg.text.replace(/\[[^\]]+\]/g, '').replace(/[\u{1F600}-\u{1F9FF}]/gu, '').trim();
     if (!textContent) continue;
 
-    const buf = await callElevenLabsTTS(seg.text, seg.voice, model, speed, seg.tone);
+    // If there are pending SFX (inline sound effects), add natural pauses
+    // around them so narration doesn't feel rushed
+    let ttsText = seg.text;
+    if (pendingSFX.length > 0 && speechBuffers.length > 0) {
+      // Add a pause at the start of text following an SFX marker
+      ttsText = '... ' + ttsText;
+    }
+
+    const buf = await callElevenLabsTTS(ttsText, seg.voice, model, speed, seg.tone);
 
     // Attach any pending SFX to play at the START of this speech segment
     for (const sfxPrompt of pendingSFX) {
@@ -1052,9 +1060,9 @@ async function mixAllSFX(
 
     // Mix all tracks — boost volumes to compensate for amix averaging (divides by N)
     const totalInputs = inputIdx;
-    // Background: want ~40% of narration — clearly audible ambient bed.
-    // amix divides by N, narration boosted by N, so bg = 0.40 * N effective.
-    const bgVol = (0.40 * totalInputs).toFixed(2);
+    // Background: want ~50% of narration — prominent ambient bed.
+    // amix divides by N, narration boosted by N, so bg = 0.50 * N effective.
+    const bgVol = (0.50 * totalInputs).toFixed(2);
     for (let i = 0; i < filterParts.length; i++) {
       filterParts[i] = filterParts[i].replace('__BG_VOL__', bgVol);
     }
