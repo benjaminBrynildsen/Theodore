@@ -246,71 +246,63 @@ export function AudioPlayerBar() {
     return () => window.removeEventListener('theodore:seekAudio', handler);
   }, [seekTo]);
 
-  // Sync play/pause from external state changes
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !currentAudio) return;
-    if (playing && audio.paused) {
-      if (!audio.src || audio.src !== currentAudio.audioUrl) {
-        audio.src = currentAudio.audioUrl;
-        audio.load();
-      }
-      audio.play();
-    } else if (!playing && !audio.paused) {
-      audio.pause();
-    }
-  }, [playing, currentAudio]);
+  // Removed: play/pause sync via useEffect — now handled by theodore:togglePlayback event
+  // to preserve iOS user gesture context
 
-  const playChapter = useCallback((chapterId: string) => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const cached = chapterAudio[chapterId];
-    if (!cached) {
-      generateAndPlay(chapterId);
-      return;
-    }
-
-    if (currentChapterId === chapterId) {
-      if (playing) {
-        audio.pause();
-        setPlaying(false);
-      } else {
-        audio.play();
-        setPlaying(true);
-      }
-      return;
-    }
-
-    sceneIndexRef.current = 0;
-    audio.src = cached.sceneAudioUrls?.[0] || cached.audioUrl;
-    audio.load();
-    audio.play();
-    setCurrentChapter(chapterId);
-    setPlaying(true);
-  }, [chapterAudio, currentChapterId, playing, generateAndPlay]);
-
-  // Listen for play requests (play cached audio or generate if missing)
+  // Listen for play requests — reads fresh state from store to avoid stale closures
   useEffect(() => {
     const handler = (e: Event) => {
       const { chapterId } = (e as CustomEvent).detail;
-      if (chapterId) playChapter(chapterId);
+      if (!chapterId) return;
+
+      const audio = audioRef.current;
+      if (!audio) return;
+
+      const state = useAudioStore.getState();
+      const cached = state.chapterAudio[chapterId];
+
+      if (!cached) {
+        generateAndPlay(chapterId);
+        return;
+      }
+
+      if (state.currentChapterId === chapterId) {
+        if (state.playing) {
+          audio.pause();
+          setPlaying(false);
+        } else {
+          audio.play().catch(() => {});
+          setPlaying(true);
+        }
+        return;
+      }
+
+      sceneIndexRef.current = 0;
+      audio.src = cached.sceneAudioUrls?.[0] || cached.audioUrl;
+      audio.load();
+      audio.play().catch(() => {});
+      setCurrentChapter(chapterId);
+      setPlaying(true);
     };
     window.addEventListener('theodore:playChapter', handler);
     return () => window.removeEventListener('theodore:playChapter', handler);
-  }, [playChapter]);
+  }, [generateAndPlay]);
 
   const skipPrev = useCallback(() => {
     if (!currentChapterId) return;
     const idx = chapters.findIndex(c => c.id === currentChapterId);
-    if (idx > 0) playChapter(chapters[idx - 1].id);
-  }, [currentChapterId, chapters, playChapter]);
+    if (idx > 0) {
+      window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: chapters[idx - 1].id } }));
+    }
+  }, [currentChapterId, chapters]);
 
   const skipNext = useCallback(() => {
     if (!currentChapterId) return;
     const idx = chapters.findIndex(c => c.id === currentChapterId);
-    if (idx < chapters.length - 1) playChapter(chapters[idx + 1].id);
-  }, [currentChapterId, chapters, playChapter]);
+    if (idx < chapters.length - 1) {
+      window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: chapters[idx + 1].id } }));
+    }
+  }, [currentChapterId, chapters]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -326,12 +318,10 @@ export function AudioPlayerBar() {
   }, []);
 
   // ========== Visibility ==========
-  // Hide bottom bar when sidebar player is showing
-  // Always mount (for event listeners + audio element), just hide visually
-  const shouldShow = miniPlayerVisible && project && chapters.length > 0 && (currentChapterId || generating);
-  if (sidebarPlayerVisible) return null;
+  // Component must always stay mounted so audio element + event listeners persist
+  const shouldShow = !sidebarPlayerVisible && miniPlayerVisible && project && chapters.length > 0 && (currentChapterId || generating);
 
-  if (!shouldShow) return null;
+  if (!shouldShow) return <></>;
 
   const chapterIdx = currentChapterId ? chapters.findIndex(c => c.id === currentChapterId) : -1;
   const chapterImage = currentChapter?.imageUrl;
@@ -413,7 +403,7 @@ export function AudioPlayerBar() {
             </button>
             <button
               onClick={() => {
-                if (currentChapterId) playChapter(currentChapterId);
+                if (currentChapterId) window.dispatchEvent(new CustomEvent('theodore:togglePlayback'));
               }}
               disabled={!currentChapterId || !!generating}
               className="p-2.5 rounded-full bg-white text-[#181818] hover:scale-105 disabled:opacity-50 transition-all"
