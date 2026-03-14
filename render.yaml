@@ -41,6 +41,10 @@ services:
     preDeployCommand: npm run db:push
     startCommand: npm run server
     healthCheckPath: /api/health
+    disk:
+      name: theodore-uploads
+      mountPath: /opt/render/project/src/uploads
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
