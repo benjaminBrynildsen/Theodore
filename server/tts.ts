@@ -670,10 +670,9 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     segments = parseDialogue(req.prose, req.knownCharacters);
     segments = applyVoiceMap(segments, voiceMap);
   } else {
+    // Single-voice mode: parse for SFX markers only, force narrator voice on everything
     segments = parseDialogue(req.prose, []);
-    segments = applyVoiceMap(segments, voiceMap);
-    // Ensure all segments have narrator voice
-    segments = segments.map(s => s.voice ? s : { ...s, voice: voiceMap.narrator });
+    segments = segments.map(s => ({ ...s, voice: voiceMap.narrator }));
   }
 
   // Log routing
