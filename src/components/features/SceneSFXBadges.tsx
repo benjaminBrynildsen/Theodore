@@ -94,9 +94,7 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
     setPlayingId(null);
   };
 
-  const previewSFX = (sfxItem: SceneSFX) => {
-    if (!sfxItem.audioUrl) return;
-
+  const previewSFX = async (sfxItem: SceneSFX) => {
     // If this one is already playing, stop it
     if (playingId === sfxItem.id) {
       stopPlayback();
@@ -105,6 +103,44 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
 
     // Stop any currently playing audio
     stopPlayback();
+
+    let url = sfxItem.audioUrl;
+
+    // If no audio URL or file is missing (404), auto-regenerate
+    if (url) {
+      try {
+        const check = await fetch(url, { method: 'HEAD' });
+        if (!check.ok) {
+          console.log(`[SFX] File missing (${check.status}), regenerating: ${sfxItem.prompt}`);
+          url = '';
+        }
+      } catch {
+        url = '';
+      }
+    }
+
+    if (!url) {
+      // Auto-regenerate the SFX
+      setGenerating(sfxItem.id);
+      try {
+        const result = await api.sfxGenerate({
+          prompt: sfxItem.prompt,
+          durationSeconds: sfxItem.durationSeconds || (sfxItem.position === 'background' ? 8 : 4),
+        });
+        url = result.audioUrl;
+        // Update the scene store with new URL
+        const updated = sfx.map(s =>
+          s.id === sfxItem.id ? { ...s, audioUrl: result.audioUrl, durationSeconds: result.durationSeconds } : s
+        );
+        updateScene(chapterId, sceneId, { sfx: updated });
+      } catch (e: any) {
+        console.error('SFX regeneration failed:', e);
+        setGenerating(null);
+        return;
+      } finally {
+        setGenerating(null);
+      }
+    }
 
     // Use DOM audio element for iOS Safari compatibility
     let audio = document.getElementById('theodore-sfx-preview') as HTMLAudioElement;
@@ -115,7 +151,7 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
       document.body.appendChild(audio);
     }
 
-    audio.src = sfxItem.audioUrl;
+    audio.src = url;
     audio.volume = 1.0;
     audio.currentTime = 0;
 

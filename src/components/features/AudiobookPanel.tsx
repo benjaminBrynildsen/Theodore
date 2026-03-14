@@ -1365,21 +1365,27 @@ export function AudiobookPanel() {
                                       {sfx.map((s: any) => (
                                         <button
                                           key={s.id}
-                                          onClick={() => {
-                                            if (s.audioUrl) {
-                                              // Use DOM audio element for iOS compatibility
-                                              let audio = document.getElementById('theodore-sfx-preview') as HTMLAudioElement;
-                                              if (!audio) {
-                                                audio = document.createElement('audio');
-                                                audio.id = 'theodore-sfx-preview';
-                                                audio.setAttribute('playsinline', '');
-                                                document.body.appendChild(audio);
-                                              }
-                                              audio.src = s.audioUrl;
-                                              audio.volume = 1.0;
-                                              audio.currentTime = 0;
-                                              audio.play().catch(() => {});
+                                          onClick={async () => {
+                                            let url = s.audioUrl;
+                                            // Check if file exists, skip silently if not
+                                            if (url) {
+                                              try {
+                                                const check = await fetch(url, { method: 'HEAD' });
+                                                if (!check.ok) url = '';
+                                              } catch { url = ''; }
                                             }
+                                            if (!url) return; // File missing, nothing to preview
+                                            let audio = document.getElementById('theodore-sfx-preview') as HTMLAudioElement;
+                                            if (!audio) {
+                                              audio = document.createElement('audio');
+                                              audio.id = 'theodore-sfx-preview';
+                                              audio.setAttribute('playsinline', '');
+                                              document.body.appendChild(audio);
+                                            }
+                                            audio.src = url;
+                                            audio.volume = 1.0;
+                                            audio.currentTime = 0;
+                                            audio.play().catch(() => {});
                                           }}
                                           className="w-full flex items-center gap-2 text-left group hover:bg-black/5 rounded-lg px-1.5 py-0.5 transition-colors"
                                         >
