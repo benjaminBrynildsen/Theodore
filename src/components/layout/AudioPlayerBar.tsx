@@ -23,12 +23,31 @@ export function AudioPlayerBar() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeUpdateRef = useRef(0);
   const sceneIndexRef = useRef(0);
+  const pendingPlayRef = useRef<string | null>(null); // URL queued for play (iOS fallback)
 
   // ========== Audio element ==========
   useEffect(() => {
     const audio = new Audio();
     audio.volume = volume;
     audioRef.current = audio;
+
+    // iOS Safari requires audio.play() from a user gesture to "unlock" the element.
+    // We play a silent data URI on first touch/click so subsequent programmatic plays work.
+    const unlockAudio = () => {
+      if (audio.dataset?.unlocked) return;
+      // Tiny silent MP3 (< 1KB)
+      audio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwMHAAAAAAD/+1DEAAAH+ANoUAAABHwJcigAAAQCAABpAAAAMEBgaBoGAIAgGP/BwEP/EAQBAEAQBA7+sEAQBAEAR/WCAIAgCAI3rBAEAQBAEb//5cEP/BAEAQBAdYIAgCAIAjf/+XBD/wQBAEAQHf/lBD/+UEAx//9YIAgCAIAge//+sEAQDH///WCAIAgCB7///rBAEAwAAAAAAA';
+      audio.play().then(() => {
+        audio.pause();
+        audio.src = '';
+        audio.dataset.unlocked = '1';
+        console.log('[AudioPlayer] iOS audio unlocked');
+      }).catch(() => {});
+      document.removeEventListener('touchstart', unlockAudio, true);
+      document.removeEventListener('click', unlockAudio, true);
+    };
+    document.addEventListener('touchstart', unlockAudio, true);
+    document.addEventListener('click', unlockAudio, true);
 
     audio.addEventListener('ended', () => {
       const state = useAudioStore.getState();
@@ -68,7 +87,12 @@ export function AudioPlayerBar() {
       }
     });
 
-    return () => { audio.pause(); audio.src = ''; };
+    return () => {
+      audio.pause();
+      audio.src = '';
+      document.removeEventListener('touchstart', unlockAudio, true);
+      document.removeEventListener('click', unlockAudio, true);
+    };
   }, []);
 
   // Sync volume
@@ -82,10 +106,24 @@ export function AudioPlayerBar() {
       const audio = audioRef.current;
       if (!audio) return;
 
+      // If there's a pending play URL (from iOS autoplay block), load it now
+      if (pendingPlayRef.current) {
+        const url = pendingPlayRef.current;
+        pendingPlayRef.current = null;
+        if (!audio.src || !audio.src.includes(url.replace(/^\//, ''))) {
+          audio.src = url;
+          audio.load();
+        }
+        audio.play().then(() => console.log('[AudioPlayer] Pending play succeeded'))
+          .catch((err) => console.error('[AudioPlayer] Pending play failed:', err));
+        setPlaying(true);
+        return;
+      }
+
       // If no src set yet, try to load from store
       const state = useAudioStore.getState();
       const chId = state.currentChapterId;
-      if (!audio.src && chId) {
+      if ((!audio.src || audio.src === window.location.href) && chId) {
         const cached = state.chapterAudio[chId];
         if (cached) {
           audio.src = cached.sceneAudioUrls?.[0] || cached.audioUrl;
@@ -93,10 +131,11 @@ export function AudioPlayerBar() {
         }
       }
 
-      if (!audio.src) return;
+      if (!audio.src || audio.src === window.location.href) return;
 
       if (audio.paused) {
-        audio.play().catch((err) => console.error('[AudioPlayer] play failed:', err));
+        audio.play().then(() => console.log('[AudioPlayer] Toggle play succeeded'))
+          .catch((err) => console.error('[AudioPlayer] Toggle play failed:', err));
         setPlaying(true);
       } else {
         audio.pause();
@@ -142,7 +181,12 @@ export function AudioPlayerBar() {
         if (audio) {
           audio.src = result.audioUrl;
           audio.load();
-          audio.play();
+          audio.play().then(() => {
+            pendingPlayRef.current = null;
+          }).catch(() => {
+            pendingPlayRef.current = result.audioUrl;
+            console.warn('[AudioPlayer] Post-generate play blocked, queued for user gesture');
+          });
           setPlaying(true);
         }
 
@@ -207,7 +251,12 @@ export function AudioPlayerBar() {
         if (audio) {
           audio.src = result.audioUrl;
           audio.load();
-          audio.play();
+          audio.play().then(() => {
+            pendingPlayRef.current = null;
+          }).catch(() => {
+            pendingPlayRef.current = result.audioUrl;
+            console.warn('[AudioPlayer] Post-generate play blocked, queued for user gesture');
+          });
           setPlaying(true);
         }
       }
@@ -278,9 +327,17 @@ export function AudioPlayerBar() {
       }
 
       sceneIndexRef.current = 0;
-      audio.src = cached.sceneAudioUrls?.[0] || cached.audioUrl;
+      const url = cached.sceneAudioUrls?.[0] || cached.audioUrl;
+      audio.src = url;
       audio.load();
-      audio.play().catch(() => {});
+      audio.play().then(() => {
+        pendingPlayRef.current = null;
+        console.log('[AudioPlayer] Playing:', url);
+      }).catch((err) => {
+        // iOS blocked autoplay — queue for next user gesture via togglePlayback
+        console.warn('[AudioPlayer] play() blocked, queuing for user gesture:', err.message);
+        pendingPlayRef.current = url;
+      });
       setCurrentChapter(chapterId);
       setPlaying(true);
     };
