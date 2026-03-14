@@ -635,20 +635,27 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   }
 
   // Auto-generate audio for enabled SFX without audioUrl
-  for (const s of allSFX) {
-    if (!s.enabled || !s.prompt) continue;
-    // Regenerate if no audioUrl OR if the file no longer exists (ephemeral disk on Render)
-    const needsGeneration = !s.audioUrl || !fs.existsSync(path.join(process.cwd(), s.audioUrl));
-    if (needsGeneration) {
-      try {
-        console.log(`[TTS] Auto-generating SFX audio for: "${s.prompt}" (${s.position})${s.audioUrl ? ' [file missing]' : ''}`);
-        const duration = s.position === 'background' ? 30 : 5;
+  // Generate missing SFX in parallel with a timeout to avoid blocking TTS
+  const sfxToGenerate = allSFX.filter(s => {
+    if (!s.enabled || !s.prompt) return false;
+    return !s.audioUrl || !fs.existsSync(path.join(process.cwd(), s.audioUrl));
+  });
+  if (sfxToGenerate.length > 0) {
+    console.log(`[TTS] Auto-generating ${sfxToGenerate.length} SFX clips in parallel...`);
+    const sfxResults = await Promise.allSettled(
+      sfxToGenerate.map(async (s) => {
+        const duration = s.position === 'background' ? 8 : 4;
+        console.log(`[TTS] Generating SFX: "${s.prompt}" (${s.position}, ${duration}s)`);
         const result = await generateSFX({ prompt: s.prompt, durationSeconds: duration });
         s.audioUrl = result.audioUrl;
-        console.log(`[TTS] Auto-generated SFX: "${s.prompt}" → ${result.audioUrl}`);
-      } catch (e: any) {
-        console.error(`[TTS] Failed to auto-generate SFX "${s.prompt}":`, e.message);
-        s.audioUrl = ''; // Clear so it doesn't pass the filter below
+        console.log(`[TTS] SFX ready: "${s.prompt}" → ${result.audioUrl}`);
+      })
+    );
+    for (let i = 0; i < sfxResults.length; i++) {
+      if (sfxResults[i].status === 'rejected') {
+        const s = sfxToGenerate[i];
+        console.error(`[TTS] SFX failed: "${s.prompt}":`, (sfxResults[i] as PromiseRejectedResult).reason?.message);
+        s.audioUrl = '';
       }
     }
   }
@@ -968,7 +975,7 @@ async function mixAllSFX(
         // Loop bg to cover narration duration, then trim (avoids infinite aloop issues)
         const paddedDuration = clipDuration + silenceGap;
         const loopCount = Math.max(1, Math.ceil(narrationDuration / paddedDuration));
-        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration)},volume=__BG_VOL__[bg${inputIdx}]`);
+        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration)},dynaudnorm=p=0.9:m=3,volume=__BG_VOL__[bg${inputIdx}]`);
         mixLabels.push(`[bg${inputIdx}]`);
         inputIdx++;
         console.log(`[TTS] BG SFX looping ${loopCount}x (${paddedDuration.toFixed(1)}s each) for ${narrationDuration.toFixed(1)}s narration`);
@@ -1047,7 +1054,7 @@ async function mixAllSFX(
     // Inline SFX: want ~15% of narration — present but not jarring
     const inlVol = (0.15 * totalInputs).toFixed(2);
     for (let i = 0; i < filterParts.length; i++) {
-      filterParts[i] = filterParts[i].replace(/volume=0\.5,adelay/g, `volume=${inlVol},adelay`);
+      filterParts[i] = filterParts[i].replace(/volume=0\.5,adelay/g, `dynaudnorm=p=0.9:m=3,volume=${inlVol},adelay`);
     }
     // Intro/Outro: want ~15% of narration — gentle transitions
     const introOutroVol = (0.15 * totalInputs).toFixed(2);
