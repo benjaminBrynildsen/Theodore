@@ -979,7 +979,7 @@ export function AudiobookPanel() {
                     <button
                       onClick={() => {
                         if (audio) {
-                          window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch.id } }));
+                          window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch.id } }));
                         } else {
                           confirmGenerateChapter(ch.id);
                         }
@@ -1184,7 +1184,7 @@ export function AudiobookPanel() {
                             <button
                               onClick={() => {
                                 audioStore.setActiveVersion(ch.id, v.version);
-                                window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch.id } }));
+                                window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch.id } }));
                               }}
                               className="p-1 rounded-full hover:bg-white/20 transition-colors"
                             >
