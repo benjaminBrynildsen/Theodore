@@ -1365,16 +1365,9 @@ export function AudiobookPanel() {
                                       {sfx.map((s: any) => (
                                         <button
                                           key={s.id}
-                                          onClick={async () => {
-                                            let url = s.audioUrl;
-                                            // Check if file exists, skip silently if not
-                                            if (url) {
-                                              try {
-                                                const check = await fetch(url, { method: 'HEAD' });
-                                                if (!check.ok) url = '';
-                                              } catch { url = ''; }
-                                            }
-                                            if (!url) return; // File missing, nothing to preview
+                                          onClick={() => {
+                                            if (!s.audioUrl) return;
+                                            // Play synchronously in user gesture context (iOS requirement)
                                             let audio = document.getElementById('theodore-sfx-preview') as HTMLAudioElement;
                                             if (!audio) {
                                               audio = document.createElement('audio');
@@ -1382,7 +1375,7 @@ export function AudiobookPanel() {
                                               audio.setAttribute('playsinline', '');
                                               document.body.appendChild(audio);
                                             }
-                                            audio.src = url;
+                                            audio.src = s.audioUrl;
                                             audio.volume = 1.0;
                                             audio.currentTime = 0;
                                             audio.play().catch(() => {});

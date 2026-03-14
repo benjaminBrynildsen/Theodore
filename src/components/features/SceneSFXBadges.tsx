@@ -94,7 +94,7 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
     setPlayingId(null);
   };
 
-  const previewSFX = async (sfxItem: SceneSFX) => {
+  const previewSFX = (sfxItem: SceneSFX) => {
     // If this one is already playing, stop it
     if (playingId === sfxItem.id) {
       stopPlayback();
@@ -104,45 +104,14 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
     // Stop any currently playing audio
     stopPlayback();
 
-    let url = sfxItem.audioUrl;
-
-    // If no audio URL or file is missing (404), auto-regenerate
-    if (url) {
-      try {
-        const check = await fetch(url, { method: 'HEAD' });
-        if (!check.ok) {
-          console.log(`[SFX] File missing (${check.status}), regenerating: ${sfxItem.prompt}`);
-          url = '';
-        }
-      } catch {
-        url = '';
-      }
+    if (!sfxItem.audioUrl) {
+      // No URL at all — trigger generation
+      generateSFXAudio(sfxItem);
+      return;
     }
 
-    if (!url) {
-      // Auto-regenerate the SFX
-      setGenerating(sfxItem.id);
-      try {
-        const result = await api.sfxGenerate({
-          prompt: sfxItem.prompt,
-          durationSeconds: sfxItem.durationSeconds || (sfxItem.position === 'background' ? 8 : 4),
-        });
-        url = result.audioUrl;
-        // Update the scene store with new URL
-        const updated = sfx.map(s =>
-          s.id === sfxItem.id ? { ...s, audioUrl: result.audioUrl, durationSeconds: result.durationSeconds } : s
-        );
-        updateScene(chapterId, sceneId, { sfx: updated });
-      } catch (e: any) {
-        console.error('SFX regeneration failed:', e);
-        setGenerating(null);
-        return;
-      } finally {
-        setGenerating(null);
-      }
-    }
-
-    // Use DOM audio element for iOS Safari compatibility
+    // Play immediately in the user gesture context (required for iOS Safari)
+    // Use a persistent DOM audio element
     let audio = document.getElementById('theodore-sfx-preview') as HTMLAudioElement;
     if (!audio) {
       audio = document.createElement('audio');
@@ -151,11 +120,9 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
       document.body.appendChild(audio);
     }
 
-    audio.src = url;
+    audio.src = sfxItem.audioUrl;
     audio.volume = 1.0;
     audio.currentTime = 0;
-
-    // Background SFX loops continuously
     audio.loop = sfxItem.position === 'background';
 
     audio.onended = () => {
@@ -165,7 +132,18 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
       }
     };
 
-    audio.play().catch(() => {});
+    // On error (404/missing file), auto-regenerate
+    audio.onerror = () => {
+      console.log(`[SFX] File missing, regenerating: ${sfxItem.prompt}`);
+      setPlayingId(null);
+      audioRef.current = null;
+      generateSFXAudio(sfxItem);
+    };
+
+    audio.play().catch(() => {
+      // iOS blocked — try regenerating
+      generateSFXAudio(sfxItem);
+    });
     audioRef.current = audio;
     setPlayingId(sfxItem.id);
   };
