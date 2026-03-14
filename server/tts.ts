@@ -966,9 +966,13 @@ async function mixAllSFX(
         }
 
         inputs.push('-i', bgPath);
-        filterParts.push(`[${inputIdx}:a]aloop=loop=-1:size=2e+09,volume=__BG_VOL__[bg${inputIdx}]`);
+        // Loop bg to cover narration duration, then trim (avoids infinite aloop issues)
+        const paddedDuration = clipDuration + silenceGap;
+        const loopCount = Math.max(1, Math.ceil(narrationDuration / paddedDuration));
+        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration)},volume=__BG_VOL__[bg${inputIdx}]`);
         mixLabels.push(`[bg${inputIdx}]`);
         inputIdx++;
+        console.log(`[TTS] BG SFX looping ${loopCount}x (${paddedDuration.toFixed(1)}s each) for ${narrationDuration.toFixed(1)}s narration`);
       } else {
         console.error(`[TTS] BG SFX file not found or empty: ${bgSFX[i].audioUrl}`);
       }
