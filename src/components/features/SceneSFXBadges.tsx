@@ -106,34 +106,41 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
     // Stop any currently playing audio
     stopPlayback();
 
-    const audio = new Audio(sfxItem.audioUrl);
-    audio.volume = 0.5;
-
-    // Background SFX loops continuously
-    if (sfxItem.position === 'background') {
-      audio.loop = true;
+    // Use DOM audio element for iOS Safari compatibility
+    let audio = document.getElementById('theodore-sfx-preview') as HTMLAudioElement;
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.id = 'theodore-sfx-preview';
+      audio.setAttribute('playsinline', '');
+      document.body.appendChild(audio);
     }
 
-    audio.addEventListener('ended', () => {
-      // Only clear state for non-looping (intro/outro) sounds
+    audio.src = sfxItem.audioUrl;
+    audio.volume = 1.0;
+    audio.currentTime = 0;
+
+    // Background SFX loops continuously
+    audio.loop = sfxItem.position === 'background';
+
+    audio.onended = () => {
       if (!audio.loop) {
         setPlayingId(null);
         audioRef.current = null;
       }
-    });
+    };
 
-    audio.play();
+    audio.play().catch(() => {});
     audioRef.current = audio;
     setPlayingId(sfxItem.id);
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5 mt-4 mb-2" onMouseUp={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+    <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 mt-4 mb-2" onMouseUp={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
       {sfx.map(s => (
         <div
           key={s.id}
           className={cn(
-            'inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium border transition-all group shadow-sm',
+            'inline-flex items-center gap-2 px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-full text-sm font-medium border transition-all group shadow-sm',
             s.enabled ? POSITION_COLORS[s.position] : 'bg-black/5 text-text-tertiary border-black/10 line-through',
             playingId === s.id && 'ring-2 ring-green-400 shadow-md'
           )}
@@ -144,12 +151,12 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
             className="hover:opacity-70 transition-opacity"
             title={s.enabled ? 'Disable SFX' : 'Enable SFX'}
           >
-            {s.enabled ? <Volume2 size={14} className="sm:w-4 sm:h-4" /> : <VolumeX size={14} className="sm:w-4 sm:h-4" />}
+            {s.enabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
 
           {/* Label */}
-          <span className="max-w-[120px] sm:max-w-[180px] truncate">{s.prompt}</span>
-          <span className="opacity-50 text-[10px] sm:text-xs">{POSITION_LABELS[s.position]}</span>
+          <span className="max-w-[140px] sm:max-w-[200px] truncate">{s.prompt}</span>
+          <span className="opacity-50 text-xs">{POSITION_LABELS[s.position]}</span>
 
           {/* Generate / Play / Stop */}
           {s.enabled && !s.audioUrl && (
@@ -159,7 +166,7 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
               className="hover:opacity-70 transition-opacity"
               title="Generate audio"
             >
-              {generating === s.id ? <Loader2 size={14} className="animate-spin" /> : <Volume2 size={14} />}
+              {generating === s.id ? <Loader2 size={16} className="animate-spin" /> : <Volume2 size={16} />}
             </button>
           )}
           {s.audioUrl && s.enabled && (
@@ -168,7 +175,7 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
               className="hover:opacity-70 transition-opacity"
               title={playingId === s.id ? 'Stop' : (s.position === 'background' ? 'Play (loops)' : 'Preview')}
             >
-              {playingId === s.id ? <Pause size={14} /> : <Volume2 size={14} />}
+              {playingId === s.id ? <Pause size={16} /> : <Volume2 size={16} />}
             </button>
           )}
 
@@ -178,7 +185,7 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
             className="opacity-40 sm:opacity-0 sm:group-hover:opacity-100 hover:text-red-500 transition-all"
             title="Remove SFX"
           >
-            <X size={12} className="sm:w-3.5 sm:h-3.5" />
+            <X size={14} />
           </button>
         </div>
       ))}
