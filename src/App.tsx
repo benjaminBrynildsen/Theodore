@@ -13,7 +13,7 @@ import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
-import { NowPlayingPanel } from './components/features/NowPlayingPanel';
+import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/MobilePlayer';
 
 const ProjectView = lazy(async () => {
   const mod = await import('./components/views/ProjectView');
@@ -85,6 +85,7 @@ export default function App() {
   const hasActiveProject = !!activeProjectId && projects.some((p) => p.id === activeProjectId);
   const showWorkspaceChrome = !showSettingsView && !showToolsView && currentView !== 'home' && hasActiveProject;
   const [showAuth, setShowAuth] = useState(false);
+  const [mobilePlayerExpanded, setMobilePlayerExpanded] = useState(false);
   const [showGuestChat, setShowGuestChat] = useState(false);
   const [returnToChatAfterAuth, setReturnToChatAfterAuth] = useState(false);
   const [showPostAuthChat, setShowPostAuthChat] = useState(false);
@@ -270,13 +271,14 @@ export default function App() {
               <span className="text-xs font-medium">Done</span>
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto pb-20">
-            <div className="min-h-[60vh]">
-              <NowPlayingPanel />
-            </div>
+          <div className="flex-1 overflow-y-auto">
             <AudiobookPanel />
           </div>
+          <MobilePlayerBar onExpand={() => setMobilePlayerExpanded(true)} />
         </div>
+      )}
+      {mobilePlayerExpanded && (
+        <MobilePlayerFullscreen onCollapse={() => setMobilePlayerExpanded(false)} />
       )}
       <Suspense fallback={null}>
         <UpgradeModal />
