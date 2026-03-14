@@ -641,21 +641,26 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     return !s.audioUrl || !fs.existsSync(path.join(process.cwd(), s.audioUrl));
   });
   if (sfxToGenerate.length > 0) {
-    console.log(`[TTS] Auto-generating ${sfxToGenerate.length} SFX clips in parallel...`);
-    const sfxResults = await Promise.allSettled(
-      sfxToGenerate.map(async (s) => {
-        const duration = s.position === 'background' ? 8 : 4;
+    console.log(`[TTS] Auto-generating ${sfxToGenerate.length} SFX clips sequentially...`);
+    for (const s of sfxToGenerate) {
+      const duration = s.position === 'background' ? 8 : 4;
+      try {
         console.log(`[TTS] Generating SFX: "${s.prompt}" (${s.position}, ${duration}s)`);
         const result = await generateSFX({ prompt: s.prompt, durationSeconds: duration });
         s.audioUrl = result.audioUrl;
         console.log(`[TTS] SFX ready: "${s.prompt}" → ${result.audioUrl}`);
-      })
-    );
-    for (let i = 0; i < sfxResults.length; i++) {
-      if (sfxResults[i].status === 'rejected') {
-        const s = sfxToGenerate[i];
-        console.error(`[TTS] SFX failed: "${s.prompt}":`, (sfxResults[i] as PromiseRejectedResult).reason?.message);
-        s.audioUrl = '';
+      } catch (e: any) {
+        console.error(`[TTS] SFX failed: "${s.prompt}": ${e.message}, retrying in 2s...`);
+        // Retry once after a short delay
+        try {
+          await new Promise(r => setTimeout(r, 2000));
+          const result = await generateSFX({ prompt: s.prompt, durationSeconds: duration });
+          s.audioUrl = result.audioUrl;
+          console.log(`[TTS] SFX retry succeeded: "${s.prompt}" → ${result.audioUrl}`);
+        } catch (e2: any) {
+          console.error(`[TTS] SFX retry also failed: "${s.prompt}": ${e2.message}`);
+          s.audioUrl = '';
+        }
       }
     }
   }
@@ -974,11 +979,13 @@ async function mixAllSFX(
         inputs.push('-i', bgPath);
         // Loop bg to cover narration duration, then trim (avoids infinite aloop issues)
         const paddedDuration = clipDuration + silenceGap;
-        const loopCount = Math.max(1, Math.ceil(narrationDuration / paddedDuration));
-        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration)},dynaudnorm=p=0.9:m=3,volume=__BG_VOL__[bg${inputIdx}]`);
+        // aloop loop=N means N additional plays (total = N+1), add extra padding to be safe
+        const totalPlays = Math.ceil(narrationDuration / paddedDuration) + 1;
+        const loopCount = Math.max(1, totalPlays);
+        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration + 2)},dynaudnorm=p=0.9:m=3,volume=__BG_VOL__[bg${inputIdx}]`);
         mixLabels.push(`[bg${inputIdx}]`);
         inputIdx++;
-        console.log(`[TTS] BG SFX looping ${loopCount}x (${paddedDuration.toFixed(1)}s each) for ${narrationDuration.toFixed(1)}s narration`);
+        console.log(`[TTS] BG SFX looping ${loopCount}+1 plays (${paddedDuration.toFixed(1)}s each) for ${narrationDuration.toFixed(1)}s narration`);
       } else {
         console.error(`[TTS] BG SFX file not found or empty: ${bgSFX[i].audioUrl}`);
       }
