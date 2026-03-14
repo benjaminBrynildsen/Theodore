@@ -706,6 +706,9 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       continue;
     }
     if (!seg.text.trim()) continue;
+    // ElevenLabs rejects inputs that are empty after stripping speaker tags/emojis
+    const textContent = seg.text.replace(/\[[^\]]+\]/g, '').replace(/[\u{1F600}-\u{1F9FF}]/gu, '').trim();
+    if (!textContent) continue;
 
     const buf = await callElevenLabsTTS(seg.text, seg.voice, model, speed, seg.tone);
 
