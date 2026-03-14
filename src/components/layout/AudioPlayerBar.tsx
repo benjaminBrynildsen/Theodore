@@ -79,6 +79,17 @@ export function AudioPlayerBar() {
       }
     });
     audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
+    audio.addEventListener('error', () => {
+      const state = useAudioStore.getState();
+      const chId = state.currentChapterId;
+      if (chId) {
+        console.error('[AudioPlayer] Audio load failed for', chId, '— file may have been deleted after redeploy');
+        setPlaying(false);
+        setError('Audio file expired — please regenerate this chapter');
+        // Remove stale cached audio so UI shows generate button instead of play
+        useAudioStore.getState().removeChapterAudio?.(chId);
+      }
+    });
     audio.addEventListener('timeupdate', () => {
       const now = Date.now();
       if (now - timeUpdateRef.current > 250) {
@@ -334,7 +345,6 @@ export function AudioPlayerBar() {
         pendingPlayRef.current = null;
         console.log('[AudioPlayer] Playing:', url);
       }).catch((err) => {
-        // iOS blocked autoplay — queue for next user gesture via togglePlayback
         console.warn('[AudioPlayer] play() blocked, queuing for user gesture:', err.message);
         pendingPlayRef.current = url;
       });
