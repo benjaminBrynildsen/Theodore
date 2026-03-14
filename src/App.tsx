@@ -271,7 +271,9 @@ export default function App() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto pb-20">
-            <NowPlayingPanel />
+            <div className="min-h-[60vh]">
+              <NowPlayingPanel />
+            </div>
             <AudiobookPanel />
           </div>
         </div>
