@@ -271,7 +271,7 @@ export default function App() {
               <span className="text-xs font-medium">Done</span>
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto pb-16">
+          <div className="flex-1 overflow-y-auto pb-16 min-h-0 [&>div]:h-auto [&>div]:min-h-0">
             <AudiobookPanel />
           </div>
           <div className="flex-shrink-0 mb-14">
