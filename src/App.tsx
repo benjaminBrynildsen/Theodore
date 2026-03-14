@@ -13,6 +13,7 @@ import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
+import { NowPlayingPanel } from './components/features/NowPlayingPanel';
 
 const ProjectView = lazy(async () => {
   const mod = await import('./components/views/ProjectView');
@@ -270,6 +271,7 @@ export default function App() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto pb-20">
+            <NowPlayingPanel />
             <AudiobookPanel />
           </div>
         </div>
