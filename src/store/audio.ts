@@ -105,7 +105,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   chapterAudio: {},
   narratorVoice: DEFAULT_NARRATOR_VOICE,
   characterVoices: {},
-  multiVoice: true,
+  multiVoice: false,
   ttsModel: 'eleven_v3',
   speed: 1.0,
   generating: null,
