@@ -2,138 +2,122 @@
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Audio Playback Test</title>
+  <title>Audio Playback Test v2</title>
   <style>
     body { font-family: system-ui; padding: 20px; max-width: 500px; margin: 0 auto; }
-    button { padding: 12px 24px; font-size: 16px; margin: 8px 4px; border-radius: 8px; border: 1px solid #ccc; }
+    button { padding: 14px 24px; font-size: 16px; margin: 8px 4px; border-radius: 8px; border: 1px solid #ccc; background: #f0f0f0; }
+    button.primary { background: #111; color: white; border: none; }
     .pass { color: green; font-weight: bold; }
     .fail { color: red; font-weight: bold; }
     #log { background: #f5f5f5; padding: 12px; border-radius: 8px; font-size: 13px; white-space: pre-wrap; margin-top: 16px; max-height: 400px; overflow-y: auto; }
   </style>
 </head>
 <body>
-  <h2>🔊 Audio Playback Test</h2>
-  <p>Tests the exact same flow as the Theodore player.</p>
+  <h2>🔊 Audio Test v2 — DOM Element</h2>
+  <p>Uses a real &lt;audio&gt; DOM element instead of new Audio().</p>
+  
+  <!-- Real DOM audio element — this is the key difference for iOS -->
+  <audio id="player" preload="none" playsinline webkit-playsinline></audio>
   
   <div>
-    <button id="unlock">1. Unlock Audio (tap first)</button>
-    <button id="play">2. Play Test Audio</button>
-    <button id="toggle">3. Toggle Play/Pause</button>
+    <button id="generate" class="primary">1. Generate & Play (uses 1 credit)</button>
+    <button id="toggle">2. Toggle Play/Pause</button>
   </div>
   
-  <div id="status">Status: waiting...</div>
+  <div id="status" style="margin-top:12px; font-size: 15px;">Status: waiting...</div>
   <div id="log"></div>
 
   <script>
+    const logEl = document.getElementById('log');
     const log = (msg) => {
-      const el = document.getElementById('log');
-      el.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
-      el.scrollTop = el.scrollHeight;
-      console.log(msg);
+      logEl.textContent += new Date().toLocaleTimeString() + ' ' + msg + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log('[AudioTest]', msg);
     };
     const status = (msg, ok) => {
       document.getElementById('status').innerHTML = 
         `Status: <span class="${ok ? 'pass' : 'fail'}">${msg}</span>`;
     };
 
-    // Create Audio element exactly like AudioPlayerBar
-    const audio = new Audio();
-    let pendingPlay = null;
-    let unlocked = false;
+    const audio = document.getElementById('player');
 
-    audio.addEventListener('loadedmetadata', () => {
-      log('✅ loadedmetadata: duration=' + audio.duration);
-    });
-    audio.addEventListener('canplaythrough', () => {
-      log('✅ canplaythrough');
-    });
-    audio.addEventListener('playing', () => {
-      log('✅ PLAYING! Audio is actually playing');
-      status('PLAYING', true);
-    });
-    audio.addEventListener('error', (e) => {
-      log('❌ ERROR: ' + (audio.error?.message || 'code=' + audio.error?.code));
-      status('ERROR: ' + (audio.error?.message || 'code=' + audio.error?.code), false);
-    });
-    audio.addEventListener('pause', () => {
-      log('⏸ paused');
-    });
+    audio.addEventListener('loadedmetadata', () => log('✅ loadedmetadata: duration=' + audio.duration));
+    audio.addEventListener('canplaythrough', () => log('✅ canplaythrough — ready to play'));
+    audio.addEventListener('playing', () => { log('✅ PLAYING!'); status('PLAYING', true); });
+    audio.addEventListener('error', () => log('❌ ERROR: code=' + (audio.error?.code) + ' ' + (audio.error?.message || '')));
+    audio.addEventListener('pause', () => log('⏸ paused'));
+    audio.addEventListener('waiting', () => log('⏳ waiting/buffering...'));
+    audio.addEventListener('stalled', () => log('⚠️ stalled'));
 
-    // Step 1: Unlock (iOS requirement)
-    document.getElementById('unlock').addEventListener('click', () => {
-      log('Attempting iOS unlock...');
-      audio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwMHAAAAAAD/+1DEAAAH+ANoUAAABHwJcigAAAQCAABpAAAAMEBgaBoGAIAgGP/BwEP/EAQBAEAQBA7+sEAQBAEAR/WCAIAgCAI3rBAEAQBAEb//5cEP/BAEAQBAdYIAgCAIAjf/+XBD/wQBAEAQHf/lBD/+UEAx//9YIAgCAIAge//+sEAQDH///WCAIAgCB7///rBAEAwAAAAAAA';
-      audio.play().then(() => {
-        audio.pause();
-        audio.src = '';
-        unlocked = true;
-        log('✅ iOS audio UNLOCKED');
-        status('Unlocked', true);
-      }).catch((err) => {
-        log('❌ Unlock failed: ' + err.message);
-        status('Unlock failed: ' + err.message, false);
-      });
-    });
-
-    // Step 2: Play — fetch a real audio file and play it
-    document.getElementById('play').addEventListener('click', async () => {
-      log('Fetching audio file list...');
+    // Step 1: Generate a tiny clip and play it (user gesture → play)
+    document.getElementById('generate').addEventListener('click', async () => {
+      log('Generating tiny test audio...');
+      status('Generating...', true);
       
-      // Try to find an existing audio file
       try {
-        const res = await fetch('/uploads/audio/');
-        if (res.ok) {
-          log('Found uploads directory');
+        const res = await fetch('/api/tts/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            chapterId: 'audio-test-' + Date.now(),
+            prose: 'Testing audio playback on mobile.',
+            narratorVoice: 'nPczCjzI2devNBz1zQrb',
+            characterVoices: {},
+            model: 'eleven_flash_v2_5',
+            speed: 1.0,
+            multiVoice: false,
+          }),
+        });
+        
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          log('❌ Generate failed: ' + (err.error || res.status));
+          status('Generate failed', false);
+          return;
         }
-      } catch(e) {}
-      
-      // Use a known test file or generate via TTS
-      // First, let's just try playing any existing audio URL
-      const testUrl = prompt('Paste an audio URL (e.g., /uploads/audio/ch-xxx.mp3):', '/uploads/audio/');
-      if (!testUrl) return;
-      
-      log('Setting src: ' + testUrl);
-      audio.src = testUrl;
-      audio.load();
-      log('Called load()');
-      
-      audio.play().then(() => {
-        pendingPlay = null;
-        log('✅ play() succeeded');
-        status('Playing!', true);
-      }).catch((err) => {
-        pendingPlay = testUrl;
-        log('⚠️ play() blocked: ' + err.message);
-        log('URL queued — tap "Toggle Play/Pause" to play with user gesture');
-        status('Blocked — tap Toggle to play', false);
-      });
+        
+        const data = await res.json();
+        log('✅ Generated: ' + data.audioUrl);
+        
+        // Now set src and play — but we lost user gesture context (async fetch)
+        // So just set src and let user tap Toggle to play
+        audio.src = data.audioUrl;
+        audio.load();
+        log('Set src and called load()');
+        
+        // Try to play (might fail on iOS since we're post-async)
+        try {
+          await audio.play();
+          log('✅ Auto-play succeeded!');
+          status('Playing!', true);
+        } catch (err) {
+          log('⚠️ Auto-play blocked: ' + err.message);
+          log('👆 Tap "Toggle Play/Pause" to start playback');
+          status('Tap Toggle to play', false);
+        }
+      } catch (err) {
+        log('❌ Network error: ' + err.message);
+        status('Network error', false);
+      }
     });
 
-    // Step 3: Toggle play/pause (user gesture)
+    // Step 2: Toggle — direct user gesture, should always work
     document.getElementById('toggle').addEventListener('click', () => {
-      if (pendingPlay) {
-        log('Playing pending URL: ' + pendingPlay);
-        if (!audio.src || !audio.src.includes(pendingPlay.replace(/^\//, ''))) {
-          audio.src = pendingPlay;
-          audio.load();
-        }
-        pendingPlay = null;
-        audio.play().then(() => {
-          log('✅ Pending play succeeded!');
-          status('Playing!', true);
-        }).catch(err => {
-          log('❌ Pending play FAILED: ' + err.message);
-          status('Failed: ' + err.message, false);
-        });
+      log('Toggle clicked. src=' + (audio.src ? 'set' : 'empty') + ', paused=' + audio.paused);
+      
+      if (!audio.src || audio.src === window.location.href) {
+        log('❌ No audio loaded — generate first');
+        status('No audio loaded', false);
         return;
       }
-
+      
       if (audio.paused) {
         audio.play().then(() => {
-          log('✅ Resumed');
-          status('Playing', true);
+          log('✅ Play succeeded via user gesture!');
+          status('Playing!', true);
         }).catch(err => {
-          log('❌ Resume failed: ' + err.message);
+          log('❌ Play FAILED even with user gesture: ' + err.message);
           status('Failed: ' + err.message, false);
         });
       } else {
@@ -142,6 +126,9 @@
         status('Paused', true);
       }
     });
+    
+    log('Ready. Using <audio> DOM element (not new Audio())');
+    log('audio.paused=' + audio.paused + ', audio.src=' + (audio.src || '(empty)'));
   </script>
 </body>
 </html>

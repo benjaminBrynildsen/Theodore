@@ -25,31 +25,22 @@ export function AudioPlayerBar() {
   const sceneIndexRef = useRef(0);
   const pendingPlayRef = useRef<string | null>(null); // URL queued for play (iOS fallback)
 
-  // ========== Audio element ==========
+  // ========== Audio element setup (attach to hidden DOM <audio>) ==========
   useEffect(() => {
-    const audio = new Audio();
+    // Use a real DOM <audio> element — iOS Safari doesn't support new Audio()
+    let audio = document.getElementById('theodore-audio') as HTMLAudioElement;
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.id = 'theodore-audio';
+      audio.preload = 'none';
+      audio.setAttribute('playsinline', '');
+      audio.setAttribute('webkit-playsinline', '');
+      document.body.appendChild(audio);
+    }
     audio.volume = volume;
     audioRef.current = audio;
 
-    // iOS Safari requires audio.play() from a user gesture to "unlock" the element.
-    // We play a silent data URI on first touch/click so subsequent programmatic plays work.
-    const unlockAudio = () => {
-      if (audio.dataset?.unlocked) return;
-      // Tiny silent MP3 (< 1KB)
-      audio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwMHAAAAAAD/+1DEAAAH+ANoUAAABHwJcigAAAQCAABpAAAAMEBgaBoGAIAgGP/BwEP/EAQBAEAQBA7+sEAQBAEAR/WCAIAgCAI3rBAEAQBAEb//5cEP/BAEAQBAdYIAgCAIAjf/+XBD/wQBAEAQHf/lBD/+UEAx//9YIAgCAIAge//+sEAQDH///WCAIAgCB7///rBAEAwAAAAAAA';
-      audio.play().then(() => {
-        audio.pause();
-        audio.src = '';
-        audio.dataset.unlocked = '1';
-        console.log('[AudioPlayer] iOS audio unlocked');
-      }).catch(() => {});
-      document.removeEventListener('touchstart', unlockAudio, true);
-      document.removeEventListener('click', unlockAudio, true);
-    };
-    document.addEventListener('touchstart', unlockAudio, true);
-    document.addEventListener('click', unlockAudio, true);
-
-    audio.addEventListener('ended', () => {
+    const onEnded = () => {
       const state = useAudioStore.getState();
       const chId = state.currentChapterId;
       const cached = chId ? state.chapterAudio[chId] : null;
@@ -77,32 +68,36 @@ export function AudioPlayerBar() {
         audio.play();
         setPlaying(true);
       }
-    });
-    audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
-    audio.addEventListener('error', () => {
+    };
+    const onLoadedMetadata = () => setDuration(audio.duration);
+    const onError = () => {
       const state = useAudioStore.getState();
       const chId = state.currentChapterId;
-      if (chId) {
-        console.error('[AudioPlayer] Audio load failed for', chId, '— file may have been deleted after redeploy');
+      if (chId && audio.src && audio.src !== window.location.href) {
+        console.error('[AudioPlayer] Audio load failed for', chId);
         setPlaying(false);
         setError('Audio file expired — please regenerate this chapter');
-        // Remove stale cached audio so UI shows generate button instead of play
         useAudioStore.getState().removeChapterAudio?.(chId);
       }
-    });
-    audio.addEventListener('timeupdate', () => {
+    };
+    const onTimeUpdate = () => {
       const now = Date.now();
       if (now - timeUpdateRef.current > 250) {
         timeUpdateRef.current = now;
         setCurrentTime(audio.currentTime);
       }
-    });
+    };
+
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('error', onError);
+    audio.addEventListener('timeupdate', onTimeUpdate);
 
     return () => {
-      audio.pause();
-      audio.src = '';
-      document.removeEventListener('touchstart', unlockAudio, true);
-      document.removeEventListener('click', unlockAudio, true);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('error', onError);
+      audio.removeEventListener('timeupdate', onTimeUpdate);
     };
   }, []);
 
