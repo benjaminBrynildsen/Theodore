@@ -252,8 +252,10 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
       if (persistedState.ttsModel) {
         persistedState.ttsModel = migrateModelId(persistedState.ttsModel);
       }
+      // Force multiVoice off (character voices not ready yet)
+      persistedState.multiVoice = false;
     }
     return persistedState;
   },
-  version: 2,
+  version: 3,
 }));

@@ -1039,9 +1039,9 @@ async function mixAllSFX(
 
     // Mix all tracks — boost volumes to compensate for amix averaging (divides by N)
     const totalInputs = inputIdx;
-    // Background: want ~10% of narration — subtle ambient bed, not competing with voice.
-    // amix divides by N, narration boosted by N, so bg = 0.10 * N effective.
-    const bgVol = (0.10 * totalInputs).toFixed(2);
+    // Background: want ~20% of narration — noticeable ambient bed, not competing with voice.
+    // amix divides by N, narration boosted by N, so bg = 0.20 * N effective.
+    const bgVol = (0.20 * totalInputs).toFixed(2);
     for (let i = 0; i < filterParts.length; i++) {
       filterParts[i] = filterParts[i].replace('__BG_VOL__', bgVol);
     }
