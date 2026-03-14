@@ -76,16 +76,22 @@ export function AudioPlayerBar() {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
-  // Sync play/pause state from store to audio element (for MobilePlayer controls)
+  // Handle play/pause toggle from MobilePlayer (preserves user gesture for iOS)
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !audio.src) return;
-    if (playing && audio.paused) {
-      audio.play().catch(() => {});
-    } else if (!playing && !audio.paused) {
-      audio.pause();
-    }
-  }, [playing]);
+    const handler = () => {
+      const audio = audioRef.current;
+      if (!audio || !audio.src) return;
+      if (audio.paused) {
+        audio.play().catch(() => {});
+        setPlaying(true);
+      } else {
+        audio.pause();
+        setPlaying(false);
+      }
+    };
+    window.addEventListener('theodore:togglePlayback', handler);
+    return () => window.removeEventListener('theodore:togglePlayback', handler);
+  }, []);
 
   // ========== Generate & play ==========
 

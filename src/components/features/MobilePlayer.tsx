@@ -72,7 +72,9 @@ export function MobilePlayerBar({ onExpand }: { onExpand: () => void }) {
         <div
           onClick={(e) => {
             e.stopPropagation();
-            if (currentChapterId) setPlaying(!playing);
+            if (currentChapterId) {
+              window.dispatchEvent(new CustomEvent('theodore:togglePlayback'));
+            }
           }}
           className="w-8 h-8 flex items-center justify-center flex-shrink-0"
         >
@@ -203,7 +205,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
           <SkipBack size={28} fill="currentColor" />
         </button>
         <button
-          onClick={() => { if (currentChapterId) setPlaying(!playing); }}
+          onClick={() => { if (currentChapterId) window.dispatchEvent(new CustomEvent('theodore:togglePlayback')); }}
           disabled={!currentChapterId || !!generating}
           className="w-16 h-16 rounded-full bg-text-primary text-text-inverse flex items-center justify-center disabled:opacity-40 transition-all shadow-lg active:scale-95"
         >
