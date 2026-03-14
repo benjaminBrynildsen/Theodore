@@ -80,9 +80,23 @@ export function AudioPlayerBar() {
   useEffect(() => {
     const handler = () => {
       const audio = audioRef.current;
-      if (!audio || !audio.src) return;
+      if (!audio) return;
+
+      // If no src set yet, try to load from store
+      const state = useAudioStore.getState();
+      const chId = state.currentChapterId;
+      if (!audio.src && chId) {
+        const cached = state.chapterAudio[chId];
+        if (cached) {
+          audio.src = cached.sceneAudioUrls?.[0] || cached.audioUrl;
+          audio.load();
+        }
+      }
+
+      if (!audio.src) return;
+
       if (audio.paused) {
-        audio.play().catch(() => {});
+        audio.play().catch((err) => console.error('[AudioPlayer] play failed:', err));
         setPlaying(true);
       } else {
         audio.pause();
@@ -313,9 +327,11 @@ export function AudioPlayerBar() {
 
   // ========== Visibility ==========
   // Hide bottom bar when sidebar player is showing
+  // Always mount (for event listeners + audio element), just hide visually
+  const shouldShow = miniPlayerVisible && project && chapters.length > 0 && (currentChapterId || generating);
   if (sidebarPlayerVisible) return null;
-  if (!miniPlayerVisible || !project || chapters.length === 0) return null;
-  if (!currentChapterId && !generating) return null;
+
+  if (!shouldShow) return null;
 
   const chapterIdx = currentChapterId ? chapters.findIndex(c => c.id === currentChapterId) : -1;
   const chapterImage = currentChapter?.imageUrl;
