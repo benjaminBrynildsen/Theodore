@@ -1360,6 +1360,9 @@ app.get('/api/tts/voices', async (_req, res) => {
 });
 
 app.post('/api/tts/generate', async (req, res) => {
+  // TTS generation can take 2-3 minutes with SFX mixing
+  req.setTimeout(300000); // 5 min
+  res.setTimeout(300000);
   try {
     const auth = await getAuth(req);
     if (!auth) return res.status(401).json({ error: 'Not authenticated' });
