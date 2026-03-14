@@ -76,6 +76,17 @@ export function AudioPlayerBar() {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
+  // Sync play/pause state from store to audio element (for MobilePlayer controls)
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !audio.src) return;
+    if (playing && audio.paused) {
+      audio.play().catch(() => {});
+    } else if (!playing && !audio.paused) {
+      audio.pause();
+    }
+  }, [playing]);
+
   // ========== Generate & play ==========
 
   const generateAndPlay = useCallback(async (chapterId: string) => {
