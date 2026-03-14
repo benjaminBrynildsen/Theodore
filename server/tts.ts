@@ -968,7 +968,7 @@ async function mixAllSFX(
         // Loop bg to cover narration duration, then trim (avoids infinite aloop issues)
         const paddedDuration = clipDuration + silenceGap;
         const loopCount = Math.max(1, Math.ceil(narrationDuration / paddedDuration));
-        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration)},volume=__BG_VOL__[bg${inputIdx}]`);
+        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration)},loudnorm=I=-24:TP=-2:LRA=7,volume=__BG_VOL__[bg${inputIdx}]`);
         mixLabels.push(`[bg${inputIdx}]`);
         inputIdx++;
         console.log(`[TTS] BG SFX looping ${loopCount}x (${paddedDuration.toFixed(1)}s each) for ${narrationDuration.toFixed(1)}s narration`);
@@ -1044,10 +1044,11 @@ async function mixAllSFX(
     for (let i = 0; i < filterParts.length; i++) {
       filterParts[i] = filterParts[i].replace('__BG_VOL__', bgVol);
     }
-    // Inline SFX: want ~25% of narration — noticeable but not jarring
-    const inlVol = (0.25 * totalInputs).toFixed(2);
+    // Inline SFX: want ~15% of narration — present but not jarring, normalize loudness first
+    const inlVol = (0.15 * totalInputs).toFixed(2);
     for (let i = 0; i < filterParts.length; i++) {
-      filterParts[i] = filterParts[i].replace(/volume=0\.5,adelay/g, `volume=${inlVol},adelay`);
+      // Add loudnorm before volume to normalize SFX clips that come in at different levels
+      filterParts[i] = filterParts[i].replace(/volume=0\.5,adelay/g, `loudnorm=I=-24:TP=-2:LRA=7,volume=${inlVol},adelay`);
     }
     // Intro/Outro: want ~15% of narration — gentle transitions
     const introOutroVol = (0.15 * totalInputs).toFixed(2);
