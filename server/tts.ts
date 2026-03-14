@@ -636,15 +636,19 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
 
   // Auto-generate audio for enabled SFX without audioUrl
   for (const s of allSFX) {
-    if (s.enabled && !s.audioUrl && s.prompt) {
+    if (!s.enabled || !s.prompt) continue;
+    // Regenerate if no audioUrl OR if the file no longer exists (ephemeral disk on Render)
+    const needsGeneration = !s.audioUrl || !fs.existsSync(path.join(process.cwd(), s.audioUrl));
+    if (needsGeneration) {
       try {
-        console.log(`[TTS] Auto-generating SFX audio for: "${s.prompt}" (${s.position})`);
+        console.log(`[TTS] Auto-generating SFX audio for: "${s.prompt}" (${s.position})${s.audioUrl ? ' [file missing]' : ''}`);
         const duration = s.position === 'background' ? 30 : 5;
         const result = await generateSFX({ prompt: s.prompt, durationSeconds: duration });
         s.audioUrl = result.audioUrl;
         console.log(`[TTS] Auto-generated SFX: "${s.prompt}" → ${result.audioUrl}`);
       } catch (e: any) {
         console.error(`[TTS] Failed to auto-generate SFX "${s.prompt}":`, e.message);
+        s.audioUrl = ''; // Clear so it doesn't pass the filter below
       }
     }
   }
