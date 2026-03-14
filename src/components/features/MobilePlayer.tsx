@@ -40,13 +40,11 @@ export function MobilePlayerBar({ onExpand }: { onExpand: () => void }) {
 
   if (!project) return null;
 
-  // Show bar if there's audio activity (current track or generating)
   const hasActivity = currentChapterId || generating;
-  if (!hasActivity) return null;
 
   const trackName = currentChapter
     ? `Chapter ${currentChapter.number} · ${currentChapter.title || project.title}`
-    : generating ? 'Generating...' : project.title;
+    : generating ? 'Generating...' : 'No track playing';
 
   return (
     <div className="flex-shrink-0">
