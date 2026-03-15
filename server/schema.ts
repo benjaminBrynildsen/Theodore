@@ -116,6 +116,38 @@ export const canonSnapshots = pgTable('canon_snapshots', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ========== Audio Generations ==========
+export const audioGenerations = pgTable('audio_generations', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  chapterId: text('chapter_id').notNull(),
+  sceneId: text('scene_id'), // null for full-chapter generations
+  version: integer('version').notNull().default(1),
+  audioUrl: text('audio_url').notNull(),
+  durationSeconds: real('duration_seconds'),
+  segments: integer('segments'),
+  voiceConfig: jsonb('voice_config').$type<Record<string, any>>().default({}), // narrator, model, speed, etc.
+  sfxConfig: jsonb('sfx_config').$type<any[]>().default([]), // scene SFX used
+  creditsUsed: integer('credits_used').notNull().default(0),
+  isActive: boolean('is_active').notNull().default(true), // current active version
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ========== SFX Library ==========
+export const sfxLibrary = pgTable('sfx_library', {
+  id: serial('id').primaryKey(),
+  prompt: text('prompt').notNull(),
+  audioUrl: text('audio_url').notNull(),
+  durationSeconds: real('duration_seconds'),
+  position: text('position').notNull().default('background'), // background, start, end, inline
+  source: text('source').notNull().default('elevenlabs'), // elevenlabs, uploaded, theodore
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }), // null = shared/system
+  isPublic: boolean('is_public').notNull().default(true),
+  usageCount: integer('usage_count').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),

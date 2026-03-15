@@ -6,7 +6,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { and, eq, or } from 'drizzle-orm';
 import { db, pool } from './db.js';
-import { projects, chapters, canonEntries, users, creditTransactions } from './schema.js';
+import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary } from './schema.js';
 import {
   clearAllUserSessions,
   createSession,
@@ -1435,6 +1435,60 @@ app.post('/api/tts/generate', async (req, res) => {
         metadata: { narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate },
       });
 
+      // Save audio generation to DB for persistence
+      // Determine projectId and sceneId from chapterId
+      const isScene = chapterId.startsWith('scene-');
+      const realChapterId = isScene ? undefined : chapterId;
+      const sceneId = isScene ? chapterId.replace('scene-', '') : undefined;
+      
+      // Look up project from chapter
+      let projectId = '';
+      if (realChapterId) {
+        const [ch] = await db.select({ projectId: chapters.projectId }).from(chapters).where(eq(chapters.id, realChapterId));
+        projectId = ch?.projectId || '';
+      } else if (sceneId) {
+        // Scene IDs are stored in chapters.scenes JSON - search all user chapters
+        const userChapters = await db.select().from(chapters);
+        for (const ch of userChapters) {
+          const scenes = (ch.scenes || []) as any[];
+          if (scenes.some((s: any) => s.id === sceneId)) {
+            projectId = ch.projectId;
+            realChapterId && (undefined); // already set
+            break;
+          }
+        }
+      }
+
+      // Deactivate previous versions for this chapter/scene
+      if (projectId) {
+        await db.update(audioGenerations)
+          .set({ isActive: false })
+          .where(eq(audioGenerations.chapterId, chapterId));
+        
+        // Get next version number
+        const existing = await db.select({ version: audioGenerations.version })
+          .from(audioGenerations)
+          .where(eq(audioGenerations.chapterId, chapterId))
+          .orderBy(audioGenerations.version);
+        const nextVersion = existing.length > 0 ? Math.max(...existing.map(e => e.version)) + 1 : 1;
+
+        await db.insert(audioGenerations).values({
+          userId: auth.user.id,
+          projectId,
+          chapterId,
+          sceneId: sceneId || null,
+          version: nextVersion,
+          audioUrl: result.audioUrl,
+          durationSeconds: result.durationEstimate,
+          segments: result.segments,
+          voiceConfig: { narratorVoice, model, speed, multiVoice },
+          sfxConfig: sceneSFX || [],
+          creditsUsed: result.creditsUsed,
+          isActive: true,
+        });
+        console.log(`[TTS] Saved audio generation v${nextVersion} for ${chapterId}`);
+      }
+
       job.status = 'complete';
       job.result = {
         audioUrl: result.audioUrl,
@@ -1469,6 +1523,88 @@ app.get('/api/tts/job/:jobId', async (req, res) => {
     res.json({ status: 'error', error: job.error });
   } else {
     res.json({ status: job.status });
+  }
+});
+
+// ========== Audio Generation History ==========
+
+// Get all audio generations for a project
+app.get('/api/audio/generations/:projectId', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth) return res.status(401).json({ error: 'Not authenticated' });
+
+    const rows = await db.select().from(audioGenerations)
+      .where(eq(audioGenerations.projectId, req.params.projectId))
+      .orderBy(audioGenerations.chapterId, audioGenerations.version);
+
+    res.json({ generations: rows });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Set active version for a chapter/scene
+app.put('/api/audio/generations/:id/activate', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth) return res.status(401).json({ error: 'Not authenticated' });
+
+    const [gen] = await db.select().from(audioGenerations).where(eq(audioGenerations.id, parseInt(req.params.id)));
+    if (!gen) return res.status(404).json({ error: 'Generation not found' });
+
+    // Deactivate all versions for this chapter
+    await db.update(audioGenerations)
+      .set({ isActive: false })
+      .where(eq(audioGenerations.chapterId, gen.chapterId));
+
+    // Activate the selected version
+    await db.update(audioGenerations)
+      .set({ isActive: true })
+      .where(eq(audioGenerations.id, gen.id));
+
+    res.json({ ok: true, audioUrl: gen.audioUrl });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ========== SFX Library ==========
+
+// Get SFX library
+app.get('/api/sfx/library', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth) return res.status(401).json({ error: 'Not authenticated' });
+
+    const rows = await db.select().from(sfxLibrary)
+      .orderBy(sfxLibrary.usageCount);
+
+    res.json({ sfx: rows });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Search SFX library by prompt similarity
+app.get('/api/sfx/library/search', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth) return res.status(401).json({ error: 'Not authenticated' });
+
+    const query = (req.query.q as string || '').toLowerCase().trim();
+    if (!query) return res.json({ sfx: [] });
+
+    // Simple keyword search
+    const rows = await db.select().from(sfxLibrary);
+    const matches = rows.filter(s => 
+      s.prompt.toLowerCase().includes(query) || 
+      query.split(' ').some(word => s.prompt.toLowerCase().includes(word))
+    ).sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0));
+
+    res.json({ sfx: matches.slice(0, 10) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -1559,6 +1695,33 @@ app.post('/api/sfx/generate', async (req, res) => {
       return res.status(503).json({ error: 'SFX generation not configured. Set ELEVENLABS_API_KEY.' });
     }
 
+    // Check SFX library first for a matching prompt
+    const normalizedPrompt = prompt.toLowerCase().trim();
+    const libraryEntries = await db.select().from(sfxLibrary);
+    const match = libraryEntries.find(s => {
+      const libPrompt = s.prompt.toLowerCase().trim();
+      return libPrompt === normalizedPrompt || 
+        libPrompt.includes(normalizedPrompt) || 
+        normalizedPrompt.includes(libPrompt);
+    });
+
+    if (match && match.audioUrl) {
+      // Check if the file still exists
+      const filePath = path.join(process.cwd(), match.audioUrl);
+      if (fs.existsSync(filePath)) {
+        console.log(`[SFX] Library hit: "${prompt}" → ${match.audioUrl}`);
+        await db.update(sfxLibrary)
+          .set({ usageCount: (match.usageCount || 0) + 1 })
+          .where(eq(sfxLibrary.id, match.id));
+        return res.json({
+          audioUrl: match.audioUrl,
+          durationSeconds: match.durationSeconds || durationSeconds,
+          creditsUsed: 0,
+          fromLibrary: true,
+        });
+      }
+    }
+
     // Credit check
     const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -1578,6 +1741,32 @@ app.post('/api/sfx/generate', async (req, res) => {
       model: 'elevenlabs-sfx',
       metadata: { prompt, durationSeconds: result.durationSeconds },
     });
+
+    // Save to SFX library for reuse
+    // Check if a similar prompt already exists
+    const existingLib = await db.select().from(sfxLibrary);
+    const normalizedForSave = prompt.toLowerCase().trim();
+    const existing = existingLib.find(s => s.prompt.toLowerCase().trim() === normalizedForSave);
+    
+    if (existing) {
+      // Update usage count
+      await db.update(sfxLibrary)
+        .set({ usageCount: (existing.usageCount || 0) + 1 })
+        .where(eq(sfxLibrary.id, existing.id));
+    } else {
+      // Add to library
+      await db.insert(sfxLibrary).values({
+        prompt: prompt.trim(),
+        audioUrl: result.audioUrl,
+        durationSeconds: result.durationSeconds,
+        position: durationSeconds > 10 ? 'background' : 'inline',
+        source: 'elevenlabs',
+        userId: auth.user.id,
+        isPublic: true,
+        usageCount: 1,
+      });
+      console.log(`[SFX] Added to library: "${prompt}" → ${result.audioUrl}`);
+    }
 
     res.json({
       ...result,
