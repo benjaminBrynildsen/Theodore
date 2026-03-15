@@ -780,15 +780,19 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   const filepath = path.join(AUDIO_DIR, filename);
   try {
     ensureAudioDir();
+    const logMsg = `[${new Date().toISOString()}] Writing ${(combined.length / 1024).toFixed(0)}KB to ${filepath}\n`;
+    fs.appendFileSync(path.join(AUDIO_DIR, 'write.log'), logMsg);
     console.log(`[TTS] Writing ${(combined.length / 1024).toFixed(0)}KB to ${filepath}`);
     fs.writeFileSync(filepath, combined);
     const exists = fs.existsSync(filepath);
     const stat = exists ? fs.statSync(filepath) : null;
+    const successMsg = `[${new Date().toISOString()}] Saved: ${filepath} (exists=${exists}, size=${stat?.size || 0})\n`;
+    fs.appendFileSync(path.join(AUDIO_DIR, 'write.log'), successMsg);
     console.log(`[TTS] Saved audio: ${filepath} (exists=${exists}, size=${stat?.size || 0})`);
   } catch (writeErr: any) {
+    const errMsg = `[${new Date().toISOString()}] FAILED: ${writeErr.message} | AUDIO_DIR=${AUDIO_DIR} | filepath=${filepath} | combined.length=${combined.length}\n`;
+    try { fs.appendFileSync(path.join(AUDIO_DIR, 'write.log'), errMsg); } catch {}
     console.error(`[TTS] FAILED to write audio file: ${writeErr.message}`);
-    console.error(`[TTS] AUDIO_DIR=${AUDIO_DIR}, filepath=${filepath}`);
-    console.error(`[TTS] combined.length=${combined.length}, type=${typeof combined}`);
   }
 
   const durationEstimate = Math.round(req.prose.length / CHARS_PER_SECOND / speed);
