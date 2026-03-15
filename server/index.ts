@@ -1500,11 +1500,13 @@ app.post('/api/tts/generate', async (req, res) => {
       console.log(`[TTS] Job ${jobId}: Complete → ${result.audioUrl}`);
     } catch (e: any) {
       console.error(`[TTS] Job ${jobId}: Error:`, e.message);
+      try { fs.appendFileSync(path.join(process.cwd(), 'uploads', 'audio', 'error.log'), `[${new Date().toISOString()}] Job ${jobId} inner error: ${e.message}\n${e.stack || ''}\n`); } catch {}
       job.status = 'error';
       job.error = e.message || 'Audio generation failed';
     }
   } catch (e: any) {
     console.error('TTS generation error:', e);
+    try { fs.appendFileSync(path.join(process.cwd(), 'uploads', 'audio', 'error.log'), `[${new Date().toISOString()}] TTS outer error: ${e.message}\n${e.stack || ''}\n`); } catch {}
     if (e.message?.includes('ELEVENLABS_API_KEY')) {
       return res.status(503).json({ error: 'TTS not configured. Add ELEVENLABS_API_KEY to enable audio generation.' });
     }

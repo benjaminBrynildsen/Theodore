@@ -620,8 +620,16 @@ async function callElevenLabsTTSChunked(
  * If multiVoice is true, parses dialogue and uses character voices.
  * Otherwise generates the whole chapter with the narrator voice.
  */
+const LOG_FILE = path.join(process.cwd(), 'uploads', 'audio', 'tts.log');
+function ttsLog(msg: string) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  console.log(`[TTS] ${msg}`);
+  try { fs.appendFileSync(LOG_FILE, line); } catch {}
+}
+
 export async function generateChapterAudio(req: TTSRequest & { knownCharacters?: string[] }): Promise<TTSResult> {
   ensureAudioDir();
+  ttsLog(`START generateChapterAudio chapterId=${req.chapterId} prose=${req.prose.length}chars`);
 
   const model = req.model || 'eleven_v3';
   const speed = req.speed || 1.0;
@@ -750,6 +758,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
 
   // Concatenate speech into one buffer
   let combined = Buffer.concat(speechBuffers);
+  ttsLog(`SPEECH CONCAT: ${speechBuffers.length} buffers → ${combined.length} bytes`);
 
   // Resolve inline SFX audio files and compute byte offsets → time offsets
   // Then overlay them + background SFX in a single ffmpeg pass
@@ -767,7 +776,9 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
 
   // Mix everything with ffmpeg: inline SFX overlays + background loops + intro/outro
   if (inlineSFXFiles.length > 0 || backgroundSFX.length > 0 || introSFX.length > 0 || outroSFX.length > 0) {
+    ttsLog(`MIXING SFX: inline=${inlineSFXFiles.length} bg=${backgroundSFX.length} intro=${introSFX.length} outro=${outroSFX.length}`);
     combined = await mixAllSFX(combined, speechBuffers, inlineSFXFiles, backgroundSFX, introSFX, outroSFX);
+    ttsLog(`MIX COMPLETE: combined.length=${combined.length}`);
     // Clean up temp inline SFX files
     for (const f of inlineSFXFiles) {
       try { fs.unlinkSync(f.audioUrl); } catch {}
@@ -775,10 +786,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   }
 
   // Save to file
-  // Log to persistent disk IMMEDIATELY to verify we reach this code
-  const debugLogPath = path.join(process.cwd(), 'uploads', 'audio', 'debug.log');
-  try { fs.mkdirSync(path.join(process.cwd(), 'uploads', 'audio'), { recursive: true }); } catch {}
-  fs.appendFileSync(debugLogPath, `[${new Date().toISOString()}] REACHED SAVE POINT | chapterId=${req.chapterId} | combined.length=${combined.length}\n`);
+  ttsLog(`REACHED SAVE POINT | chapterId=${req.chapterId} | combined.length=${combined.length}`);
 
   const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
   const filename = `ch-${hash}.mp3`;
