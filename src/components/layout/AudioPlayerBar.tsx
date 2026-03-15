@@ -53,8 +53,53 @@ export function AudioPlayerBar() {
         return;
       }
 
-      setPlaying(false);
       sceneIndexRef.current = 0;
+
+      // Auto-play next scene/chapter
+      // If current is a scene (scene-{id}), find the next scene in the same chapter
+      if (chId?.startsWith('scene-')) {
+        const sceneId = chId.replace('scene-', '');
+        const store = useStore.getState();
+        const chapters = store.chapters
+          .filter(c => c.projectId === store.activeProjectId && c.prose)
+          .sort((a, b) => a.number - b.number);
+        // Find which chapter contains this scene
+        for (const ch of chapters) {
+          const scenes = (ch as any).scenes || [];
+          const sceneIdx = scenes.findIndex((s: any) => s.id === sceneId);
+          if (sceneIdx >= 0) {
+            // Try next scene in same chapter
+            const nextScene = scenes[sceneIdx + 1];
+            if (nextScene && state.chapterAudio[`scene-${nextScene.id}`]) {
+              setCurrentChapter(`scene-${nextScene.id}`);
+              const nextAudio = state.chapterAudio[`scene-${nextScene.id}`];
+              audio.src = nextAudio.audioUrl;
+              audio.load();
+              audio.play();
+              setPlaying(true);
+              return;
+            }
+            // Try first scene of next chapter
+            const chIdx = chapters.indexOf(ch);
+            const nextCh = chapters[chIdx + 1];
+            if (nextCh) {
+              const nextScenes = (nextCh as any).scenes || [];
+              if (nextScenes.length > 0 && state.chapterAudio[`scene-${nextScenes[0].id}`]) {
+                setCurrentChapter(`scene-${nextScenes[0].id}`);
+                const nextAudio = state.chapterAudio[`scene-${nextScenes[0].id}`];
+                audio.src = nextAudio.audioUrl;
+                audio.load();
+                audio.play();
+                setPlaying(true);
+                return;
+              }
+            }
+            break;
+          }
+        }
+      }
+
+      // Fall back to next chapter (for full-chapter audio)
       const chs = useStore.getState().chapters
         .filter(c => c.projectId === useStore.getState().activeProjectId && c.prose)
         .sort((a, b) => a.number - b.number);
@@ -67,7 +112,10 @@ export function AudioPlayerBar() {
         audio.load();
         audio.play();
         setPlaying(true);
+        return;
       }
+
+      setPlaying(false);
     };
     const onLoadedMetadata = () => setDuration(audio.duration);
     const onError = () => {
