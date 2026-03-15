@@ -1080,36 +1080,38 @@ async function mixAllSFX(
       }
     }
 
-    // Mix all tracks — boost volumes to compensate for amix averaging (divides by N)
+    // With normalize=0, amix sums inputs directly (no division by N)
+    // So volume values are direct: 1.0 = full, 0.5 = half, etc.
     const totalInputs = inputIdx;
-    // Background: want ~50% of narration — prominent ambient bed.
-    // amix divides by N, narration boosted by N, so bg = 0.50 * N effective.
-    const bgVol = (0.50 * totalInputs).toFixed(2);
+    // Background: 40% of narration volume
+    const bgVol = '0.40';
     for (let i = 0; i < filterParts.length; i++) {
       filterParts[i] = filterParts[i].replace('__BG_VOL__', bgVol);
     }
-    // Inline SFX: want ~15% of narration — present but not jarring
-    const inlVol = (0.15 * totalInputs).toFixed(2);
+    // Inline SFX: 60% — punchy but not overpowering
+    const inlVol = '0.60';
     for (let i = 0; i < filterParts.length; i++) {
       filterParts[i] = filterParts[i].replace(/volume=0\.5,adelay/g, `acompressor=threshold=-20dB:ratio=4:makeup=8dB,volume=${inlVol},adelay`);
     }
-    // Intro/Outro: want ~15% of narration — gentle transitions
-    const introOutroVol = (0.15 * totalInputs).toFixed(2);
+    // Intro/Outro: 30% — gentle transitions
+    const introOutroVol = '0.30';
     for (let i = 0; i < filterParts.length; i++) {
       filterParts[i] = filterParts[i].replace('__INTRO_VOL__', introOutroVol);
       filterParts[i] = filterParts[i].replace('__OUTRO_VOL__', introOutroVol);
     }
-    // Delay narration by intro duration and boost volume
+    // Narration at full volume (1.0)
     if (introDelayMs > 0) {
-      filterParts.unshift(`[0:a]volume=${totalInputs}.0,adelay=${introDelayMs}|${introDelayMs}[narr]`);
+      filterParts.unshift(`[0:a]volume=1.0,adelay=${introDelayMs}|${introDelayMs}[narr]`);
     } else {
-      filterParts.unshift(`[0:a]volume=${totalInputs}.0[narr]`);
+      filterParts.unshift(`[0:a]volume=1.0[narr]`);
     }
     const allMixInputs = `[narr]${mixLabels.join('')}`;
     // duration=first: runs until the first input (narration) ends
     // Since narration is adelay'd by introDelayMs, intro plays during that leading silence
     // Background aloop is infinite so we MUST use duration=first, not longest
-    filterParts.push(`${allMixInputs}amix=inputs=${totalInputs}:duration=first:dropout_transition=2[out]`);
+    // normalize=0 prevents amix from redistributing volume when tracks end (causes distortion)
+    // dropout_transition=0 prevents volume ramping when inputs drop out
+    filterParts.push(`${allMixInputs}amix=inputs=${totalInputs}:duration=first:dropout_transition=0:normalize=0[out]`);
 
     const filterComplex = filterParts.join(';');
     console.log(`[TTS] ffmpeg filter_complex: ${filterComplex}`);
