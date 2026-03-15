@@ -351,6 +351,25 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Debug TTS test endpoint (remove after debugging)
+app.get('/api/debug/tts-test', async (req, res) => {
+  if (req.query.key !== 'theodore-debug-2026') return res.status(403).json({ error: 'forbidden' });
+  try {
+    const { generateChapterAudio } = await import('./tts.js');
+    const result = await generateChapterAudio({
+      chapterId: 'debug-test-' + Date.now(),
+      prose: 'The rain fell softly on the old cobblestones.',
+      narratorVoice: 'XrExE9yKIg1WjnnlVkGX',
+      speed: 1,
+      multiVoice: false,
+      sceneSFX: [],
+    });
+    res.json({ ok: true, audioUrl: result.audioUrl, duration: result.durationEstimate, size: result.segments });
+  } catch (e: any) {
+    res.json({ ok: false, error: e.message, stack: e.stack?.split('\n').slice(0, 5) });
+  }
+});
+
 // ========== Billing ==========
 app.get('/api/billing/plans', (_req, res) => {
   res.json({
