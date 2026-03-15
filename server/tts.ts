@@ -775,6 +775,11 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   }
 
   // Save to file
+  // Log to persistent disk IMMEDIATELY to verify we reach this code
+  const debugLogPath = path.join(process.cwd(), 'uploads', 'audio', 'debug.log');
+  try { fs.mkdirSync(path.join(process.cwd(), 'uploads', 'audio'), { recursive: true }); } catch {}
+  fs.appendFileSync(debugLogPath, `[${new Date().toISOString()}] REACHED SAVE POINT | chapterId=${req.chapterId} | combined.length=${combined.length}\n`);
+
   const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
   const filename = `ch-${hash}.mp3`;
   const filepath = path.join(AUDIO_DIR, filename);
@@ -998,7 +1003,8 @@ async function mixAllSFX(
         // aloop loop=N means N additional plays (total = N+1), add extra padding to be safe
         const totalPlays = Math.ceil(narrationDuration / paddedDuration) + 1;
         const loopCount = Math.max(1, totalPlays);
-        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration + 2)},volume=__BG_VOL__[bg${inputIdx}]`);
+        // loudnorm normalizes both quiet and loud SFX to -20 LUFS before volume scaling
+        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration + 2)},loudnorm=I=-20:TP=-1:LRA=11:print_format=none,volume=__BG_VOL__[bg${inputIdx}]`);
         mixLabels.push(`[bg${inputIdx}]`);
         inputIdx++;
         console.log(`[TTS] BG SFX looping ${loopCount}+1 plays (${paddedDuration.toFixed(1)}s each) for ${narrationDuration.toFixed(1)}s narration`);
@@ -1077,7 +1083,7 @@ async function mixAllSFX(
     // Inline SFX: want ~15% of narration — present but not jarring
     const inlVol = (0.15 * totalInputs).toFixed(2);
     for (let i = 0; i < filterParts.length; i++) {
-      filterParts[i] = filterParts[i].replace(/volume=0\.5,adelay/g, `volume=${inlVol},adelay`);
+      filterParts[i] = filterParts[i].replace(/volume=0\.5,adelay/g, `loudnorm=I=-20:TP=-1:LRA=11:print_format=none,volume=${inlVol},adelay`);
     }
     // Intro/Outro: want ~15% of narration — gentle transitions
     const introOutroVol = (0.15 * totalInputs).toFixed(2);
