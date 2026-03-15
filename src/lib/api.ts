@@ -100,7 +100,7 @@ export const api = {
     }
 
     // Poll for completion every 2 seconds
-    const maxAttempts = 120; // 4 minutes max
+    const maxAttempts = 300; // 10 minutes max
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, 2000));
       const status = await request<{
