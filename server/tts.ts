@@ -778,9 +778,18 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
   const filename = `ch-${hash}.mp3`;
   const filepath = path.join(AUDIO_DIR, filename);
-  ensureAudioDir();
-  fs.writeFileSync(filepath, combined);
-  console.log(`[TTS] Saved audio: ${filepath} (${(combined.length / 1024).toFixed(0)}KB)`);
+  try {
+    ensureAudioDir();
+    console.log(`[TTS] Writing ${(combined.length / 1024).toFixed(0)}KB to ${filepath}`);
+    fs.writeFileSync(filepath, combined);
+    const exists = fs.existsSync(filepath);
+    const stat = exists ? fs.statSync(filepath) : null;
+    console.log(`[TTS] Saved audio: ${filepath} (exists=${exists}, size=${stat?.size || 0})`);
+  } catch (writeErr: any) {
+    console.error(`[TTS] FAILED to write audio file: ${writeErr.message}`);
+    console.error(`[TTS] AUDIO_DIR=${AUDIO_DIR}, filepath=${filepath}`);
+    console.error(`[TTS] combined.length=${combined.length}, type=${typeof combined}`);
+  }
 
   const durationEstimate = Math.round(req.prose.length / CHARS_PER_SECOND / speed);
 
