@@ -1354,9 +1354,28 @@ app.get('/api/tts/voices', async (_req, res) => {
   }
 });
 
+// ========== Async TTS Job System ==========
+// Jobs run in the background to avoid Render's 30-second proxy timeout
+
+interface TTSJob {
+  id: string;
+  status: 'pending' | 'processing' | 'complete' | 'error';
+  result?: any;
+  error?: string;
+  createdAt: number;
+}
+
+const ttsJobs = new Map<string, TTSJob>();
+
+// Clean up old jobs every 10 minutes
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000; // 30 min
+  for (const [id, job] of ttsJobs) {
+    if (job.createdAt < cutoff) ttsJobs.delete(id);
+  }
+}, 10 * 60 * 1000);
+
 app.post('/api/tts/generate', async (req, res) => {
-  // TTS generation can take 2-3 minutes with SFX mixing
-  req.setTimeout(300000); // 5 min
   try {
     const auth = await getAuth(req);
     if (!auth) return res.status(401).json({ error: 'Not authenticated' });
@@ -1369,57 +1388,87 @@ app.post('/api/tts/generate', async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.creditsRemaining < 2) return res.status(402).json({ error: 'Insufficient credits for audio generation' });
 
-    // Build voice map
+    // Create job and return immediately
+    const jobId = `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const job: TTSJob = { id: jobId, status: 'pending', createdAt: Date.now() };
+    ttsJobs.set(jobId, job);
+
+    // Return job ID immediately (beats the 30-second timeout)
+    res.json({ jobId, status: 'pending' });
+
+    // Run generation in background
+    job.status = 'processing';
+
     const voiceMap = {
-      narrator: (narratorVoice || 'XrExE9yKIg1WjnnlVkGX') as ElevenLabsVoice, // default: Matilda
+      narrator: (narratorVoice || 'XrExE9yKIg1WjnnlVkGX') as ElevenLabsVoice,
       characters: (characterVoices || {}) as Record<string, ElevenLabsVoice>,
     };
-
-    // Get known character names for dialogue attribution
     const knownCharacters = Object.keys(characterVoices || {});
-    console.log(`[TTS] Generating for ${chapterId}, multiVoice: ${multiVoice}, narrator: ${narratorVoice}, characters: ${knownCharacters.length > 0 ? knownCharacters.join(', ') : 'none'}`);
+    console.log(`[TTS] Job ${jobId}: Generating for ${chapterId}, multiVoice: ${multiVoice}, narrator: ${narratorVoice}`);
 
-    const result = await generateChapterAudio({
-      chapterId,
-      prose,
-      voiceMap,
-      model: model || 'eleven_multilingual_v2',
-      speed: speed || 1.0,
-      multiVoice: multiVoice ?? true,
-      knownCharacters,
-      characterDescriptions: characterDescriptions || {},
-      narratorStyle: narratorStyle || undefined,
-      sceneSFX: sceneSFX || [],
-    });
+    try {
+      const result = await generateChapterAudio({
+        chapterId,
+        prose,
+        voiceMap,
+        model: model || 'eleven_multilingual_v2',
+        speed: speed || 1.0,
+        multiVoice: multiVoice ?? false,
+        knownCharacters,
+        characterDescriptions: characterDescriptions || {},
+        narratorStyle: narratorStyle || undefined,
+        sceneSFX: sceneSFX || [],
+      });
 
-    // Deduct credits
-    await db.update(users).set({
-      creditsRemaining: user.creditsRemaining - result.creditsUsed,
-    }).where(eq(users.id, auth.user.id));
+      // Deduct credits
+      await db.update(users).set({
+        creditsRemaining: user.creditsRemaining - result.creditsUsed,
+      }).where(eq(users.id, auth.user.id));
 
-    // Log transaction
-    await db.insert(creditTransactions).values({
-      userId: auth.user.id,
-      action: 'generate-audio',
-      creditsUsed: result.creditsUsed,
-      model: model || 'eleven_multilingual_v2',
-      chapterId,
-      metadata: { narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate },
-    });
+      // Log transaction
+      await db.insert(creditTransactions).values({
+        userId: auth.user.id,
+        action: 'generate-audio',
+        creditsUsed: result.creditsUsed,
+        model: model || 'eleven_multilingual_v2',
+        chapterId,
+        metadata: { narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate },
+      });
 
-    res.json({
-      audioUrl: result.audioUrl,
-      durationEstimate: result.durationEstimate,
-      segments: result.segments,
-      creditsUsed: result.creditsUsed,
-      creditsRemaining: user.creditsRemaining - result.creditsUsed,
-    });
+      job.status = 'complete';
+      job.result = {
+        audioUrl: result.audioUrl,
+        durationEstimate: result.durationEstimate,
+        segments: result.segments,
+        creditsUsed: result.creditsUsed,
+        creditsRemaining: user.creditsRemaining - result.creditsUsed,
+      };
+      console.log(`[TTS] Job ${jobId}: Complete → ${result.audioUrl}`);
+    } catch (e: any) {
+      console.error(`[TTS] Job ${jobId}: Error:`, e.message);
+      job.status = 'error';
+      job.error = e.message || 'Audio generation failed';
+    }
   } catch (e: any) {
     console.error('TTS generation error:', e);
     if (e.message?.includes('ELEVENLABS_API_KEY')) {
       return res.status(503).json({ error: 'TTS not configured. Add ELEVENLABS_API_KEY to enable audio generation.' });
     }
     res.status(500).json({ error: e.message || 'Audio generation failed' });
+  }
+});
+
+// Poll for job completion
+app.get('/api/tts/job/:jobId', async (req, res) => {
+  const job = ttsJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+
+  if (job.status === 'complete') {
+    res.json({ status: 'complete', ...job.result });
+  } else if (job.status === 'error') {
+    res.json({ status: 'error', error: job.error });
+  } else {
+    res.json({ status: job.status });
   }
 });
 

@@ -76,7 +76,7 @@ export const api = {
 
   // ========== TTS / Audiobook ==========
   ttsVoices: () => request<{ voices: Array<{ id: string; name: string; desc: string; gender: string; tone: string; previewUrl?: string }> }>('/tts/voices'),
-  ttsGenerate: (data: {
+  ttsGenerate: async (data: {
     chapterId: string;
     prose: string;
     narratorVoice: string;
@@ -87,13 +87,49 @@ export const api = {
     speed?: number;
     multiVoice?: boolean;
     sceneSFX?: Array<{ prompt: string; audioUrl?: string; position: string; enabled: boolean }>;
-  }) => request<{
-    audioUrl: string;
-    durationEstimate: number;
-    segments: number;
-    creditsUsed: number;
-    creditsRemaining: number;
-  }>('/tts/generate', { method: 'POST', body: JSON.stringify(data) }),
+  }) => {
+    // Async job-based generation: submit job, then poll for completion
+    const jobResponse = await request<{ jobId: string; status: string }>(
+      '/tts/generate',
+      { method: 'POST', body: JSON.stringify(data) }
+    );
+
+    if (!jobResponse.jobId) {
+      // Fallback: server returned result directly (shouldn't happen but just in case)
+      return jobResponse as any;
+    }
+
+    // Poll for completion every 2 seconds
+    const maxAttempts = 120; // 4 minutes max
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const status = await request<{
+        status: string;
+        audioUrl?: string;
+        durationEstimate?: number;
+        segments?: number;
+        creditsUsed?: number;
+        creditsRemaining?: number;
+        error?: string;
+      }>(`/tts/job/${jobResponse.jobId}`);
+
+      if (status.status === 'complete') {
+        return {
+          audioUrl: status.audioUrl!,
+          durationEstimate: status.durationEstimate!,
+          segments: status.segments!,
+          creditsUsed: status.creditsUsed!,
+          creditsRemaining: status.creditsRemaining!,
+        };
+      }
+
+      if (status.status === 'error') {
+        throw new Error(status.error || 'Audio generation failed');
+      }
+    }
+
+    throw new Error('Audio generation timed out');
+  },
 
   ttsPreview: (voice: string, text?: string) =>
     fetch(`/api/tts/preview`, {
