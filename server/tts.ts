@@ -644,7 +644,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     console.log(`[TTS] Auto-generating ${sfxToGenerate.length} SFX clips in parallel...`);
     await Promise.allSettled(
       sfxToGenerate.map(async (s) => {
-        const duration = s.position === 'background' ? 8 : 4;
+        const duration = s.position === 'background' ? 15 : 4;
         try {
           console.log(`[TTS] Generating SFX: "${s.prompt}" (${s.position}, ${duration}s)`);
           const result = await generateSFX({ prompt: s.prompt, durationSeconds: duration });
@@ -778,7 +778,9 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
   const filename = `ch-${hash}.mp3`;
   const filepath = path.join(AUDIO_DIR, filename);
+  ensureAudioDir();
   fs.writeFileSync(filepath, combined);
+  console.log(`[TTS] Saved audio: ${filepath} (${(combined.length / 1024).toFixed(0)}KB)`);
 
   const durationEstimate = Math.round(req.prose.length / CHARS_PER_SECOND / speed);
 
