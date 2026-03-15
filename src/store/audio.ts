@@ -51,6 +51,16 @@ interface AudioState {
   setSpeed: (speed: number) => void;
   setGenerating: (id: string | null) => void;
   setError: (error: string | null) => void;
+  hydrateFromServer: (generations: Array<{
+    chapterId: string;
+    version: number;
+    audioUrl: string;
+    durationSeconds: number | null;
+    segments: number | null;
+    isActive: boolean;
+    createdAt: string;
+    voiceConfig: Record<string, any>;
+  }>) => void;
 }
 
 /** Migrate old ChapterAudio entries that lack version fields */
@@ -222,6 +232,43 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   setSpeed: (speed) => set({ speed }),
   setGenerating: (id) => set({ generating: id, miniPlayerVisible: id ? true : get().miniPlayerVisible }),
   setError: (error) => set({ error }),
+  hydrateFromServer: (generations) => set((state) => {
+    const updated = { ...state.chapterAudio };
+    
+    // Group by chapterId
+    const byChapter = new Map<string, typeof generations>();
+    for (const gen of generations) {
+      if (!byChapter.has(gen.chapterId)) byChapter.set(gen.chapterId, []);
+      byChapter.get(gen.chapterId)!.push(gen);
+    }
+
+    for (const [chapterId, gens] of byChapter) {
+      const sorted = gens.sort((a, b) => a.version - b.version);
+      const activeGen = sorted.find(g => g.isActive) || sorted[sorted.length - 1];
+      
+      const versions: AudioVersion[] = sorted.map(g => ({
+        version: g.version,
+        audioUrl: g.audioUrl,
+        durationEstimate: g.durationSeconds || 0,
+        generatedAt: g.createdAt,
+      }));
+
+      // Only update if we don't already have this chapter locally, or server has newer versions
+      const existing = updated[chapterId];
+      if (!existing || versions.length > (existing.versions?.length || 0)) {
+        updated[chapterId] = {
+          audioUrl: activeGen.audioUrl,
+          durationEstimate: activeGen.durationSeconds || 0,
+          generatedAt: activeGen.createdAt,
+          segments: activeGen.segments || 1,
+          activeVersion: activeGen.version,
+          versions,
+        };
+      }
+    }
+
+    return { chapterAudio: updated };
+  }),
 }), {
   name: 'theodore-audio',
   partialize: (state) => ({

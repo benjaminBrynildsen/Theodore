@@ -103,6 +103,17 @@ export function AudiobookPanel() {
     api.sfxStatus().then(d => setSfxAvailable(d.available)).catch(() => setSfxAvailable(false));
   }, []);
 
+  // Load audio generations from server (hydrate store)
+  useEffect(() => {
+    if (!project?.id) return;
+    api.audioGenerations(project.id).then(data => {
+      if (data.generations.length > 0) {
+        audioStore.hydrateFromServer(data.generations);
+        console.log(`[Studio] Loaded ${data.generations.length} audio generations from server`);
+      }
+    }).catch(e => console.warn('[Studio] Failed to load audio generations:', e.message));
+  }, [project?.id]);
+
   // ========== Emotion Analysis ==========
   const analyzeChapter = useCallback(async (chapterId: string) => {
     const freshChapters = useStore.getState().chapters;

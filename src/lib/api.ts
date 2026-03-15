@@ -166,6 +166,55 @@ export const api = {
     creditsRemaining: number;
   }>('/sfx/generate', { method: 'POST', body: JSON.stringify(data) }),
 
+  // ========== Audio Generations (Server-side storage) ==========
+  audioGenerations: (projectId: string) => request<{
+    generations: Array<{
+      id: number;
+      userId: string;
+      projectId: string;
+      chapterId: string;
+      sceneId: string | null;
+      version: number;
+      audioUrl: string;
+      durationSeconds: number | null;
+      segments: number | null;
+      voiceConfig: Record<string, any>;
+      sfxConfig: any[];
+      creditsUsed: number;
+      isActive: boolean;
+      createdAt: string;
+    }>;
+  }>(`/audio/generations/${projectId}`),
+
+  audioActivateVersion: (id: number) => request<{ ok: boolean; audioUrl: string }>(
+    `/audio/generations/${id}/activate`,
+    { method: 'PUT' }
+  ),
+
+  sfxLibrary: () => request<{
+    sfx: Array<{
+      id: number;
+      prompt: string;
+      audioUrl: string;
+      durationSeconds: number | null;
+      position: string;
+      source: string;
+      usageCount: number;
+    }>;
+  }>('/sfx/library'),
+
+  sfxLibrarySearch: (query: string) => request<{
+    sfx: Array<{
+      id: number;
+      prompt: string;
+      audioUrl: string;
+      durationSeconds: number | null;
+      position: string;
+      source: string;
+      usageCount: number;
+    }>;
+  }>(`/sfx/library/search?q=${encodeURIComponent(query)}`),
+
   // ========== Billing ==========
   billingPlans: () => request<any>('/billing/plans'),
   billingStatus: () => request<any>('/billing/status'),
