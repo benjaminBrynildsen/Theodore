@@ -635,34 +635,27 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   }
 
   // Auto-generate audio for enabled SFX without audioUrl
-  // Generate missing SFX in parallel with a timeout to avoid blocking TTS
+  // Generate missing SFX in parallel to minimize total wait time
   const sfxToGenerate = allSFX.filter(s => {
     if (!s.enabled || !s.prompt) return false;
     return !s.audioUrl || !fs.existsSync(path.join(process.cwd(), s.audioUrl));
   });
   if (sfxToGenerate.length > 0) {
-    console.log(`[TTS] Auto-generating ${sfxToGenerate.length} SFX clips sequentially...`);
-    for (const s of sfxToGenerate) {
-      const duration = s.position === 'background' ? 8 : 4;
-      try {
-        console.log(`[TTS] Generating SFX: "${s.prompt}" (${s.position}, ${duration}s)`);
-        const result = await generateSFX({ prompt: s.prompt, durationSeconds: duration });
-        s.audioUrl = result.audioUrl;
-        console.log(`[TTS] SFX ready: "${s.prompt}" → ${result.audioUrl}`);
-      } catch (e: any) {
-        console.error(`[TTS] SFX failed: "${s.prompt}": ${e.message}, retrying in 2s...`);
-        // Retry once after a short delay
+    console.log(`[TTS] Auto-generating ${sfxToGenerate.length} SFX clips in parallel...`);
+    await Promise.allSettled(
+      sfxToGenerate.map(async (s) => {
+        const duration = s.position === 'background' ? 8 : 4;
         try {
-          await new Promise(r => setTimeout(r, 2000));
+          console.log(`[TTS] Generating SFX: "${s.prompt}" (${s.position}, ${duration}s)`);
           const result = await generateSFX({ prompt: s.prompt, durationSeconds: duration });
           s.audioUrl = result.audioUrl;
-          console.log(`[TTS] SFX retry succeeded: "${s.prompt}" → ${result.audioUrl}`);
-        } catch (e2: any) {
-          console.error(`[TTS] SFX retry also failed: "${s.prompt}": ${e2.message}`);
+          console.log(`[TTS] SFX ready: "${s.prompt}" → ${result.audioUrl}`);
+        } catch (e: any) {
+          console.error(`[TTS] SFX failed: "${s.prompt}": ${e.message}`);
           s.audioUrl = '';
         }
-      }
-    }
+      })
+    );
   }
 
   const sceneSFX = allSFX.filter(s => s.enabled && s.audioUrl);
