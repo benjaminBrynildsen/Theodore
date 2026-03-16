@@ -4,6 +4,7 @@ import type { Project, Chapter, Scene, EditChatMessage, ProseSelection } from '.
 import { api } from '../lib/api';
 import { useCanonStore } from './canon';
 import { scanMetadataOccurrences, type MetadataScanResult } from '../lib/metadata-scan';
+import { refineEntitiesWithAI, type RefinedEntity } from '../lib/ai-entity-refine';
 import { analyzeSceneEmotion, hashProse, isMetadataStale } from '../lib/emotion-analyzer';
 import {
   isLikelyCharacterNoise,
@@ -108,7 +109,9 @@ function persistScannedMetadataToCanon(
       if (existingKeys.has(key)) continue;
 
       const entry = createAutoCanonEntry(projectId, type, name);
-      entry.description = entry.description || 'Auto-detected from chapter prose.';
+      // Use AI-generated description if available
+      const aiDesc = scan.entityDescriptions?.[name];
+      entry.description = aiDesc || entry.description || 'Auto-detected from chapter prose.';
       entry.tags = Array.from(new Set([...(entry.tags || []), ...AUTO_METADATA_TAGS, `chapter-${chapterNumber}`]));
       const detectionNote = `Auto-detected in Chapter ${chapterNumber} on ${detectedAt}.`;
       entry.notes = entry.notes ? `${entry.notes}\n${detectionNote}` : detectionNote;
@@ -159,7 +162,7 @@ interface AppState {
   deleteChapter: (id: string) => Promise<void>;
   setActiveChapter: (id: string | null) => void;
   getProjectChapters: (projectId: string) => Chapter[];
-  rescanChapterMetadata: (chapterId: string) => void;
+  rescanChapterMetadata: (chapterId: string) => Promise<void>;
 
   // Canon (kept for compat — real canon is in canon store)
   canonEntries: any[];
@@ -477,7 +480,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   setActiveChapter: (id) => set({ activeChapterId: id, ...(id ? { leftSidebarOpen: true, rightSidebarOpen: true } : {}) }),
   getProjectChapters: (projectId) => get().chapters.filter((c) => c.projectId === projectId).sort((a, b) => a.number - b.number),
 
-  rescanChapterMetadata: (chapterId) => {
+  rescanChapterMetadata: async (chapterId) => {
     const chapter = get().chapters.find((c) => c.id === chapterId);
     if (!chapter?.prose) return;
 
@@ -491,7 +494,6 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     for (const entry of projectEntries) {
       if (!entry.tags?.includes('auto-detected')) continue;
       const isThisChapter = entry.tags?.includes(chapterTag);
-      // Also nuke entries that are common words — check if name appears lowercased in prose
       const lower = entry.name.toLowerCase();
       const isSingleWord = !entry.name.includes(' ');
       const isCommonWord = isSingleWord && (
@@ -505,14 +507,83 @@ export const useStore = create<AppState>()(persist((set, get) => ({
       }
     }
 
-    // 2. Re-run the scan with the cleaned canon list
+    // 2. Re-run the regex scan with the cleaned canon list
     const freshCanon = canonStore.getProjectEntries(chapter.projectId);
     const scan = scanMetadataOccurrences(chapter.prose, freshCanon);
 
-    // 3. Persist new entries
+    // 3. AI refinement — send regex candidates to LLM for proper classification + alias detection
+    try {
+      const refinement = await refineEntitiesWithAI(
+        chapter.prose,
+        scan.newEntities,
+        { projectId: chapter.projectId, chapterId },
+      );
+
+      // Replace regex candidates with AI-refined results
+      const refined: MetadataScanResult['newEntities'] = {
+        characters: [],
+        locations: [],
+        systems: [],
+        artifacts: [],
+        media: [],
+      };
+      const aliases: Record<string, string[]> = {};
+      const descriptions: Record<string, string> = {};
+
+      for (const entity of refinement.entities) {
+        if (entity.type === 'none') continue;
+        refined[entity.type === 'character' ? 'characters' :
+               entity.type === 'location' ? 'locations' :
+               entity.type === 'system' ? 'systems' :
+               entity.type === 'artifact' ? 'artifacts' : 'media'].push(entity.name);
+        if (entity.aliases?.length) {
+          aliases[entity.name] = entity.aliases;
+        }
+        if (entity.description) {
+          descriptions[entity.name] = entity.description;
+        }
+      }
+
+      scan.newEntities = refined;
+      scan.characterAliases = aliases;
+      scan.entityDescriptions = descriptions;
+
+      console.info('[AI Entity Refine] Refined candidates:', {
+        before: {
+          characters: refinement.entities.filter((e) => e.type !== 'none').length + refinement.entities.filter((e) => e.type === 'none').length,
+          rejected: refinement.entities.filter((e) => e.type === 'none').map((e) => e.name),
+          reclassified: refinement.entities.filter((e) => e.type !== 'none').map((e) => `${e.name} → ${e.type}`),
+        },
+        aliases,
+      });
+    } catch (err) {
+      console.warn('[AI Entity Refine] Failed, using regex results:', err);
+    }
+
+    // 4. Persist new entries (now with AI descriptions and aliases)
     const createdIds = persistScannedMetadataToCanon(chapter.projectId, chapter.number, scan);
 
-    // 4. Collect all candidate ref IDs
+    // 5. Update aliases on newly created character entries
+    if (scan.characterAliases) {
+      const latestCanon = canonStore.getProjectEntries(chapter.projectId);
+      for (const [charName, charAliases] of Object.entries(scan.characterAliases)) {
+        if (!charAliases.length) continue;
+        const entry = latestCanon.find(
+          (e) => e.type === 'character' && e.name.toLowerCase() === charName.toLowerCase(),
+        );
+        if (entry && entry.type === 'character') {
+          const existing = (entry as any).character?.aliases || [];
+          const merged = Array.from(new Set([...existing, ...charAliases]));
+          if (merged.length > existing.length) {
+            canonStore.updateEntry(entry.id, {
+              character: { ...(entry as any).character, aliases: merged },
+            } as any);
+          }
+        }
+      }
+    }
+
+    // 6. Collect all candidate ref IDs
     const mentionRefs = (scan.existingMentions || []).map((m: any) => m.canonId);
     const manualRefs = (chapter.referencedCanonIds || []).filter((id: string) => {
       const entry = freshCanon.find((e) => e.id === id);
@@ -520,7 +591,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     });
     const allRefs = Array.from(new Set([...manualRefs, ...mentionRefs, ...createdIds]));
 
-    // 5. Dedup: if "Jack" and "Jack Russo" are both referenced character entries,
+    // 7. Dedup: if "Jack" and "Jack Russo" are both referenced character entries,
     //    suppress the shorter name so only the full name shows
     const refEntries = allRefs
       .map((id) => ({ id, entry: canonStore.getEntry(id) || freshCanon.find((e) => e.id === id) }))
@@ -532,7 +603,6 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         if (short.id === long.id) continue;
         const shortName = short.entry!.name.toLowerCase();
         const longName = long.entry!.name.toLowerCase();
-        // "jack" is a substring of "jack russo" → suppress "jack"
         if (longName.includes(shortName) && longName.length > shortName.length) {
           suppressedIds.add(short.id);
         }

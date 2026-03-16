@@ -133,6 +133,7 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
   const { entries, getProjectEntries } = useCanonStore();
   const { settings } = useSettingsStore();
   const [activeSection, setActiveSection] = useState<'edit' | 'scenes' | 'artifacts'>('edit');
+  const [rescanning, setRescanning] = useState(false);
 
   const chapter = chapters.find(c => c.id === chapterId);
   if (!chapter) return null;
@@ -435,11 +436,19 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
           <div className="space-y-3 animate-fade-in">
             <div className="flex justify-end px-1">
               <button
-                onClick={() => useStore.getState().rescanChapterMetadata(chapterId)}
-                className="flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-primary transition-colors px-2 py-1 rounded-lg hover:bg-black/5"
+                onClick={async () => {
+                  setRescanning(true);
+                  try {
+                    await useStore.getState().rescanChapterMetadata(chapterId);
+                  } finally {
+                    setRescanning(false);
+                  }
+                }}
+                disabled={rescanning}
+                className="flex items-center gap-1 text-[10px] text-text-tertiary hover:text-text-primary transition-colors px-2 py-1 rounded-lg hover:bg-black/5 disabled:opacity-50"
               >
-                <Search size={10} />
-                Rescan
+                {rescanning ? <Loader2 size={10} className="animate-spin" /> : <Search size={10} />}
+                {rescanning ? 'Scanning...' : 'Rescan'}
               </button>
             </div>
             {chapterEntries.length === 0 ? (

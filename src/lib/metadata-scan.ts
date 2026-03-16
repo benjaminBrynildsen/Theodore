@@ -26,6 +26,10 @@ export interface MetadataScanResult {
     artifacts: string[];
     media: string[];
   };
+  /** AI-detected aliases keyed by canonical character name */
+  characterAliases?: Record<string, string[]>;
+  /** AI-generated descriptions keyed by entity name */
+  entityDescriptions?: Record<string, string>;
 }
 
 function escapeRegExp(value: string): string {
