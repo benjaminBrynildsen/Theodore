@@ -122,10 +122,21 @@ export function AudioPlayerBar() {
       const state = useAudioStore.getState();
       const chId = state.currentChapterId;
       if (chId && audio.src && audio.src !== window.location.href) {
-        console.error('[AudioPlayer] Audio load failed for', chId);
+        console.error('[AudioPlayer] Audio load failed for', chId, 'src:', audio.src);
         setPlaying(false);
-        setError('Audio file expired — please regenerate this chapter');
-        useAudioStore.getState().removeChapterAudio?.(chId);
+        // Retry once after a short delay (handles temporary 502s during deploys)
+        const src = audio.src;
+        setTimeout(() => {
+          console.log('[AudioPlayer] Retrying audio load...');
+          audio.src = '';
+          audio.src = src;
+          audio.load();
+          // If retry also fails, show error but DON'T delete the audio record
+          audio.onerror = () => {
+            console.error('[AudioPlayer] Retry failed for', chId);
+            setError('Audio temporarily unavailable — try again in a moment');
+          };
+        }, 2000);
       }
     };
     const onTimeUpdate = () => {
