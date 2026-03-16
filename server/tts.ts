@@ -1037,14 +1037,15 @@ async function mixAllSFX(
         fs.writeFileSync(introPath, buf);
         const introDuration = await getAudioDuration(introPath);
         // Trim to max 5 seconds, fade in 1.5s, fade out last 1.5s, 20% volume
-        const trimDur = Math.min(introDuration, 5);
-        const fadeOutStart = Math.max(0, trimDur - 1.5);
+        // Play intro SFX once (no loop, no trim). Narration starts after max(introDuration, 5s).
+        const fadeOutStart = Math.max(0, introDuration - 1.5);
         inputs.push('-i', introPath);
-        filterParts.push(`[${inputIdx}:a]atrim=0:${trimDur},asetpts=PTS-STARTPTS,acompressor=threshold=-20dB:ratio=4:makeup=4dB,volume=__INTRO_VOL__,afade=t=in:st=0:d=1.5,afade=t=out:st=${fadeOutStart}:d=1.5[intro${inputIdx}]`);
+        filterParts.push(`[${inputIdx}:a]asetpts=PTS-STARTPTS,acompressor=threshold=-20dB:ratio=4:makeup=4dB,volume=__INTRO_VOL__,afade=t=in:st=0:d=1.5,afade=t=out:st=${fadeOutStart}:d=1.5[intro${inputIdx}]`);
         mixLabels.push(`[intro${inputIdx}]`);
-        introDelayMs += Math.round(trimDur * 1000);
+        // Narration starts at 5s minimum, or after intro ends if longer than 5s
+        introDelayMs += Math.round(Math.max(5, introDuration) * 1000);
         inputIdx++;
-        console.log(`[TTS] Intro SFX: "${introSFXList[i].prompt}" ${trimDur.toFixed(1)}s before narration`);
+        console.log(`[TTS] Intro SFX: "${introSFXList[i].prompt}" ${introDuration.toFixed(1)}s (one-shot, narration at ${Math.max(5, introDuration).toFixed(1)}s)`);
       }
     }
 
@@ -1082,7 +1083,14 @@ async function mixAllSFX(
             return `adelay=${parseInt(d1) + introDelayMs}|${parseInt(d2) + introDelayMs}`;
           });
         }
-        // Background SFX loops from the very start (plays during intro too) — no shift needed
+        // Shift background SFX to start after intro ends
+        if (filterParts[i].includes('[bg')) {
+          // Add adelay to bg filter — insert before acompressor
+          filterParts[i] = filterParts[i].replace(
+            /acompressor/,
+            `adelay=${introDelayMs}|${introDelayMs},acompressor`,
+          );
+        }
       }
     }
 
