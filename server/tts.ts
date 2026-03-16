@@ -1040,7 +1040,6 @@ async function mixAllSFX(
         const introPath = path.join(tmpDir, `intro-${i}.mp3`);
         fs.writeFileSync(introPath, buf);
         const introDuration = await getAudioDuration(introPath);
-        // Trim to max 5 seconds, fade in 1.5s, fade out last 1.5s, 20% volume
         // Play intro SFX once (no loop, no trim). Narration starts after max(introDuration, 5s).
         const fadeOutStart = Math.max(0, introDuration - 1.5);
         inputs.push('-i', introPath);

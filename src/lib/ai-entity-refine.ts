@@ -102,7 +102,9 @@ Classify each candidate and detect any character aliases. Respond with JSON only
       chapterId: options?.chapterId,
     });
 
-    const parsed = JSON.parse(result.text.trim()) as RefinementResult;
+    // Strip markdown fences if present
+    const raw = result.text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(raw) as RefinementResult;
     if (!parsed.entities || !Array.isArray(parsed.entities)) {
       console.warn('[AI Entity Refine] Invalid response shape, falling back');
       return fallback(candidates);
