@@ -53,7 +53,7 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
     updateScene(chapterId, sceneId, { sfx: updated });
   };
 
-  const generateSFXAudio = async (sfxItem: SceneSFX) => {
+  const generateSFXAudio = async (sfxItem: SceneSFX, autoPlay = false) => {
     if (sfxItem.audioUrl) return; // already generated
     setGenerating(sfxItem.id);
     try {
@@ -61,10 +61,17 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
         prompt: sfxItem.prompt,
         durationSeconds: sfxItem.durationSeconds,
       });
-      const updated = sfx.map(s =>
+      const updatedSfx = sfx.map(s =>
         s.id === sfxItem.id ? { ...s, audioUrl: result.audioUrl, durationSeconds: result.durationSeconds } : s
       );
-      updateScene(chapterId, sceneId, { sfx: updated });
+      updateScene(chapterId, sceneId, { sfx: updatedSfx });
+
+      // Auto-play after generation if requested
+      if (autoPlay && result.audioUrl) {
+        setTimeout(() => {
+          previewSFX({ ...sfxItem, audioUrl: result.audioUrl, durationSeconds: result.durationSeconds });
+        }, 100);
+      }
     } catch (e: any) {
       console.error('SFX generation failed:', e);
     } finally {
@@ -105,8 +112,8 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
     stopPlayback();
 
     if (!sfxItem.audioUrl) {
-      // No URL at all — trigger generation
-      generateSFXAudio(sfxItem);
+      // No URL at all — generate then auto-play
+      generateSFXAudio(sfxItem, true);
       return;
     }
 

@@ -653,9 +653,13 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     await Promise.allSettled(
       sfxToGenerate.map(async (s) => {
         const duration = s.position === 'background' ? 15 : 4;
+        // For intro SFX, prefix prompt to ensure one-shot sound (not looping ambient)
+        const sfxPrompt = s.position === 'start'
+          ? `Single one-shot sound effect, not looping: ${s.prompt}`
+          : s.prompt;
         try {
-          console.log(`[TTS] Generating SFX: "${s.prompt}" (${s.position}, ${duration}s)`);
-          const result = await generateSFX({ prompt: s.prompt, durationSeconds: duration });
+          console.log(`[TTS] Generating SFX: "${sfxPrompt}" (${s.position}, ${duration}s)`);
+          const result = await generateSFX({ prompt: sfxPrompt, durationSeconds: duration });
           s.audioUrl = result.audioUrl;
           console.log(`[TTS] SFX ready: "${s.prompt}" → ${result.audioUrl}`);
         } catch (e: any) {

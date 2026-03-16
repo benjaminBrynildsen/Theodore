@@ -220,8 +220,8 @@ async function runSceneTagging(chapterId: string, scenes: Scene[]): Promise<void
           prompt: `Read this scene and suggest sound effects for audiobook production.
 
 You need to provide:
-1. **intro** — 1 short sound that plays at the VERY START of the scene to set the mood/location (e.g. "car engine idling", "birds chirping at dawn", "bar chatter and clinking glasses", "wind howling"). This is the first thing the listener hears before narration begins.
-2. **background** — 1-3 ambient/environmental sounds that loop throughout the scene (e.g. "gentle rain", "distant traffic", "crackling fireplace").
+1. **intro** — 1 short ONE-SHOT sound (2-4 seconds) that plays ONCE at the very start to establish the scene (e.g. "a single car door slamming shut", "a rooster crowing once at dawn", "the clink of a glass being set on a bar", "a gust of wind through trees"). This must NOT be a looping/ambient sound — it should be a distinct, singular moment that sets the mood. Think: a specific sound event, not ongoing atmosphere.
+2. **background** — 1-3 ambient/environmental sounds that LOOP throughout the scene (e.g. "gentle rain", "distant traffic", "crackling fireplace"). These are ongoing atmospheric sounds.
 
 Scene:
 ${scene.prose.slice(0, 2000)}
