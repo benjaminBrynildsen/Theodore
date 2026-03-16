@@ -399,14 +399,13 @@ app.get('/api/debug/disk', async (req, res) => {
 app.get('/api/debug/book-stats', async (req, res) => {
   if (req.query.key !== 'theodore-debug-2026') return res.status(403).json({ error: 'forbidden' });
   try {
-    const allProjects = await db.select().from(projects);
+    const allProjects = await db.select({ id: projects.id, title: projects.title }).from(projects);
     const allChapters = await db.select().from(chapters);
     const stats = allProjects.map(p => {
       const pChapters = allChapters.filter(c => c.projectId === p.id).sort((a: any, b: any) => a.number - b.number);
       return {
         id: p.id,
         title: p.title,
-        genre: (p as any).genre,
         chapterCount: pChapters.length,
         chapters: pChapters.map(c => {
           const scenes = (c.scenes || []) as any[];
