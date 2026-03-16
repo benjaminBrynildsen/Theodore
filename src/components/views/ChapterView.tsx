@@ -19,6 +19,7 @@ import { tagDialogue } from '../../lib/dialogue-tagger';
 import { tagSFX } from '../../lib/sfx-tagger';
 import { api } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
+import { runPostGenerationPipeline } from '../../lib/post-generation-pipeline';
 import { cn } from '../../lib/utils';
 import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
 
@@ -130,6 +131,11 @@ export function ChapterView({ chapter }: Props) {
         });
         setGenerating(false);
         setGeneratedText('');
+
+        // Auto-run post-generation pipeline (scenes, tags, entity scan)
+        runPostGenerationPipeline(chapter.id).catch((e) =>
+          console.warn('[PostGen] Pipeline error (non-blocking):', e),
+        );
       },
       (error) => {
         console.error('Generation error:', error);
