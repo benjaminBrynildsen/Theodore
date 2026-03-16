@@ -190,28 +190,35 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
             {s.enabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
           </button>
 
-          {/* Label */}
-          <span className="max-w-[140px] sm:max-w-[200px] truncate">{s.prompt}</span>
+          {/* Label — clickable to preview */}
+          <button
+            className="max-w-[140px] sm:max-w-[200px] truncate text-left hover:opacity-70 transition-opacity"
+            onClick={() => {
+              if (generating === s.id) return;
+              if (!s.audioUrl) generateSFXAudio(s, true);
+              else previewSFX(s);
+            }}
+          >
+            {s.prompt}
+          </button>
           <span className="opacity-50 text-xs">{POSITION_LABELS[s.position]}</span>
 
-          {/* Generate / Play / Stop */}
-          {s.enabled && !s.audioUrl && (
+          {/* Generate / Play / Stop — single button handles all states */}
+          {s.enabled && (
             <button
-              onClick={() => generateSFXAudio(s)}
+              onClick={() => {
+                if (generating === s.id) return;
+                if (!s.audioUrl) {
+                  generateSFXAudio(s, true);
+                } else {
+                  previewSFX(s);
+                }
+              }}
               disabled={generating === s.id}
               className="hover:opacity-70 transition-opacity"
-              title="Generate audio"
+              title={generating === s.id ? 'Generating...' : !s.audioUrl ? 'Generate & play' : playingId === s.id ? 'Stop' : 'Preview'}
             >
-              {generating === s.id ? <Loader2 size={16} className="animate-spin" /> : <Volume2 size={16} />}
-            </button>
-          )}
-          {s.audioUrl && s.enabled && (
-            <button
-              onClick={() => previewSFX(s)}
-              className="hover:opacity-70 transition-opacity"
-              title={playingId === s.id ? 'Stop' : (s.position === 'background' ? 'Play (loops)' : 'Preview')}
-            >
-              {playingId === s.id ? <Pause size={16} /> : <Volume2 size={16} />}
+              {generating === s.id ? <Loader2 size={16} className="animate-spin" /> : playingId === s.id ? <Pause size={16} /> : <Volume2 size={16} />}
             </button>
           )}
 
