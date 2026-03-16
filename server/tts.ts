@@ -918,10 +918,12 @@ async function getAudioDuration(filePath: string): Promise<number> {
 
 /**
  * Single ffmpeg pass to mix all audio layers:
- * - Inline SFX: overlaid at specific timestamps (50% volume)
- * - Background SFX: looped for full duration (5% volume)
- * - Intro SFX: plays from start with fade-in, lower volume (15%), fades out after 5s
- * - Outro SFX: plays at end with fade-out (15%)
+ * - Narration: full volume (1.0), delayed by intro duration
+ * - Background SFX: looped for full duration, 40% vol, 2s fade-in, 3s fade-out, acompressor
+ * - Inline SFX: overlaid at segment boundaries, 50% vol, acompressor
+ * - Intro SFX: plays for up to 5s BEFORE narration starts, 60% vol, 1.5s fade-in/out, acompressor
+ * - Outro SFX: starts 5s before narration ends, 60% vol, 2s fade-out, acompressor
+ * - amix normalize=0 prevents volume redistribution when tracks end (no distortion)
  */
 async function mixAllSFX(
   narrationBuf: Buffer,
@@ -965,12 +967,13 @@ async function mixAllSFX(
     const mixLabels: string[] = [];
     let inputIdx = 1;
 
-    // Inline SFX: overlay at specific time, play once, 50% volume
+    // Inline SFX: overlay at specific time with a brief gap before narration resumes
     for (const sfx of inlineSFX) {
       inputs.push('-i', sfx.audioUrl);
       const timeOffset = segTimeOffsets[sfx.atSpeechIndex] || 0;
-      const ms = Math.round(timeOffset * 1000);
-      filterParts.push(`[${inputIdx}:a]volume=0.5,adelay=${ms}|${ms}[inl${inputIdx}]`);
+      // Place SFX slightly before the segment starts (0.3s overlap with end of prev segment)
+      const ms = Math.max(0, Math.round((timeOffset - 0.3) * 1000));
+      filterParts.push(`[${inputIdx}:a]acompressor=threshold=-20dB:ratio=4:makeup=4dB,volume=__INL_VOL__,adelay=${ms}|${ms}[inl${inputIdx}]`);
       mixLabels.push(`[inl${inputIdx}]`);
       inputIdx++;
     }
@@ -1006,13 +1009,15 @@ async function mixAllSFX(
         }
 
         inputs.push('-i', bgPath);
-        // Loop bg to cover narration duration, then trim (avoids infinite aloop issues)
+        // Loop bg to cover full output (intro delay + narration), then trim
         const paddedDuration = clipDuration + silenceGap;
-        // aloop loop=N means N additional plays (total = N+1), add extra padding to be safe
-        const totalPlays = Math.ceil(narrationDuration / paddedDuration) + 1;
+        // aloop loop=N means N additional plays (total = N+1), add extra for safety
+        const totalOutputDuration = narrationDuration + 15; // generous buffer for intro delay
+        const totalPlays = Math.ceil(totalOutputDuration / paddedDuration) + 1;
         const loopCount = Math.max(1, totalPlays);
         // acompressor evens out volume differences between SFX clips without buffering entire stream
-        const bgTrimDur = Math.ceil(narrationDuration + 2);
+        // Trim must cover intro delay + narration duration so bg doesn't cut out early
+        const bgTrimDur = Math.ceil(narrationDuration + 10); // extra buffer, will be trimmed by amix duration=first
         filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${bgTrimDur},acompressor=threshold=-20dB:ratio=4:makeup=4dB,volume=__BG_VOL__,afade=t=in:st=0:d=2,afade=t=out:st=${Math.max(0, bgTrimDur - 3)}:d=3[bg${inputIdx}]`);
         mixLabels.push(`[bg${inputIdx}]`);
         inputIdx++;
@@ -1065,17 +1070,17 @@ async function mixAllSFX(
     // Also shift all inline SFX and outro by the intro delay
     if (introDelayMs > 0) {
       for (let i = 0; i < filterParts.length; i++) {
-        // Shift inline SFX delays (they should play relative to narration, not intro)
-        const inlMatch = filterParts[i].match(/^(\[\d+:a\]volume=0\.5,adelay=)(\d+)\|(\d+)(\[inl\d+\])$/);
-        if (inlMatch) {
-          const newDelay = parseInt(inlMatch[2]) + introDelayMs;
-          filterParts[i] = `${inlMatch[1]}${newDelay}|${newDelay}${inlMatch[4]}`;
+        // Shift inline SFX delays (they should play relative to narration start, not absolute start)
+        if (filterParts[i].includes('[inl')) {
+          filterParts[i] = filterParts[i].replace(/adelay=(\d+)\|(\d+)/, (_, d1, d2) => {
+            return `adelay=${parseInt(d1) + introDelayMs}|${parseInt(d2) + introDelayMs}`;
+          });
         }
         // Shift outro delays
-        const outroMatch = filterParts[i].match(/^(\[\d+:a\]volume=__OUTRO_VOL__,adelay=)(\d+)\|(\d+)(,.+\[outro\d+\])$/);
-        if (outroMatch) {
-          const newDelay = parseInt(outroMatch[2]) + introDelayMs;
-          filterParts[i] = `${outroMatch[1]}${newDelay}|${newDelay}${outroMatch[4]}`;
+        if (filterParts[i].includes('[outro')) {
+          filterParts[i] = filterParts[i].replace(/adelay=(\d+)\|(\d+)/, (_, d1, d2) => {
+            return `adelay=${parseInt(d1) + introDelayMs}|${parseInt(d2) + introDelayMs}`;
+          });
         }
         // Background SFX loops from the very start (plays during intro too) — no shift needed
       }
@@ -1084,21 +1089,18 @@ async function mixAllSFX(
     // With normalize=0, amix sums inputs directly (no division by N)
     // So volume values are direct: 1.0 = full, 0.5 = half, etc.
     const totalInputs = inputIdx;
-    // Background: 40% of narration volume
+    // Background: 40% of narration volume — ambient bed
     const bgVol = '0.40';
+    // Inline SFX: 50% — present but doesn't overpower narration
+    const inlVol = '0.50';
+    // Intro/Outro: 60% — noticeable transition, plays alone or under quiet narration
+    const introOutroVol = '0.60';
     for (let i = 0; i < filterParts.length; i++) {
-      filterParts[i] = filterParts[i].replace('__BG_VOL__', bgVol);
-    }
-    // Inline SFX: 60% — punchy but not overpowering
-    const inlVol = '0.60';
-    for (let i = 0; i < filterParts.length; i++) {
-      filterParts[i] = filterParts[i].replace(/volume=0\.5,adelay/g, `acompressor=threshold=-20dB:ratio=4:makeup=8dB,volume=${inlVol},adelay`);
-    }
-    // Intro/Outro: 30% — gentle transitions
-    const introOutroVol = '0.30';
-    for (let i = 0; i < filterParts.length; i++) {
-      filterParts[i] = filterParts[i].replace('__INTRO_VOL__', introOutroVol);
-      filterParts[i] = filterParts[i].replace('__OUTRO_VOL__', introOutroVol);
+      filterParts[i] = filterParts[i]
+        .replace(/__BG_VOL__/g, bgVol)
+        .replace(/__INL_VOL__/g, inlVol)
+        .replace(/__INTRO_VOL__/g, introOutroVol)
+        .replace(/__OUTRO_VOL__/g, introOutroVol);
     }
     // Narration at full volume (1.0)
     if (introDelayMs > 0) {
@@ -1111,7 +1113,9 @@ async function mixAllSFX(
     // Since narration is adelay'd by introDelayMs, intro plays during that leading silence
     // Background aloop is infinite so we MUST use duration=first, not longest
     // normalize=0 prevents amix from redistributing volume when tracks end (causes distortion)
-    // dropout_transition=0 prevents volume ramping when inputs drop out
+    // dropout_transition=0 prevents volume ramping when inputs drop out  
+    // duration=first: narration (first input) determines total length
+    // Narration includes introDelayMs of leading silence, so intro SFX plays during that gap
     filterParts.push(`${allMixInputs}amix=inputs=${totalInputs}:duration=first:dropout_transition=0:normalize=0[out]`);
 
     const filterComplex = filterParts.join(';');
