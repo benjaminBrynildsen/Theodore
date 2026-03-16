@@ -112,9 +112,9 @@ export function ChapterView({ chapter }: Props) {
       },
       (usage) => {
         // Generation complete — save to chapter
-        updateChapter(chapter.id, {
+        const generationPayload = {
           prose: accumulated,
-          status: 'draft-generated',
+          status: 'draft-generated' as const,
           aiIntentMetadata: {
             model: usage.creditsUsed ? settings.ai?.preferredModel || 'gpt-4.1' : 'unknown',
             generatedAt: new Date().toISOString(),
@@ -128,7 +128,14 @@ export function ChapterView({ chapter }: Props) {
               targetWords: chunkProfile.words,
             },
           },
-        });
+        };
+        updateChapter(chapter.id, generationPayload);
+
+        // Immediately save prose to server (don't rely on debounce which can be cancelled)
+        api.updateChapter(chapter.id, { prose: accumulated, status: 'draft-generated' }).catch((e) =>
+          console.error('[Generation] Immediate prose save failed:', e),
+        );
+
         setGenerating(false);
         setGeneratedText('');
 
@@ -207,8 +214,9 @@ export function ChapterView({ chapter }: Props) {
         const trimmed = extension.trim();
         if (trimmed) {
           const joiner = baseProse.endsWith('\n') ? '\n' : '\n\n';
+          const extendedProse = `${baseProse}${joiner}${trimmed}`;
           updateChapter(chapter.id, {
-            prose: `${baseProse}${joiner}${trimmed}`,
+            prose: extendedProse,
             status: 'human-edited',
             aiIntentMetadata: {
               ...((latest?.aiIntentMetadata || chapter.aiIntentMetadata || {}) as Record<string, any>),
@@ -221,6 +229,10 @@ export function ChapterView({ chapter }: Props) {
               },
             } as any,
           });
+          // Immediately save extended prose to server
+          api.updateChapter(chapter.id, { prose: extendedProse, status: 'human-edited' }).catch((e) =>
+            console.error('[Extend] Immediate prose save failed:', e),
+          );
         }
         setGeneratedText('');
         setExtending(false);

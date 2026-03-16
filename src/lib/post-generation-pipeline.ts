@@ -60,6 +60,9 @@ export function schedulePostEditPipeline(chapterId: string, editedSceneId?: stri
 
 /** Run the full post-generation pipeline for a chapter. */
 export async function runPostGenerationPipeline(chapterId: string): Promise<void> {
+  // Wait for the initial prose save debounce to fire (500ms debounce + buffer)
+  await new Promise((r) => setTimeout(r, 800));
+
   const store = useStore.getState();
   const chapter = store.chapters.find((c) => c.id === chapterId);
   if (!chapter?.prose?.trim()) return;
