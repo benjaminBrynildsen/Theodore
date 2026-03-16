@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../store/settings';
 import { generateText } from '../../lib/generate';
 import { buildSelectionEditPrompt } from '../../lib/prompt-builder';
 import { generateId, cn } from '../../lib/utils';
+import { schedulePostEditPipeline } from '../../lib/post-generation-pipeline';
 import type { Chapter, EditChatMessage } from '../../types';
 
 interface Props {
@@ -164,6 +165,9 @@ export function VibeEditor({ chapter, onClose }: Props) {
         });
         setSelection(null);
 
+        // Trigger post-edit pipeline
+        schedulePostEditPipeline(chapter.id);
+
         const assistantMsg: EditChatMessage = {
           id: generateId(),
           role: 'assistant',
@@ -175,6 +179,9 @@ export function VibeEditor({ chapter, onClose }: Props) {
         // Full prose rewrite
         setProse(responseText);
         setHighlightRange(null);
+
+        // Trigger post-edit pipeline
+        schedulePostEditPipeline(chapter.id);
 
         const assistantMsg: EditChatMessage = {
           id: generateId(),

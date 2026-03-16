@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../store/settings';
 import { generateText } from '../../lib/generate';
 import { buildSelectionEditPrompt } from '../../lib/prompt-builder';
 import { generateId, cn } from '../../lib/utils';
+import { schedulePostEditPipeline } from '../../lib/post-generation-pipeline';
 import type { EditChatMessage, ProseSelection } from '../../types';
 export type { ProseSelection };
 
@@ -155,9 +156,15 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
           timestamp: new Date().toISOString(),
         };
         setMessages(prev => [...prev, assistantMsg]);
+
+        // Trigger post-edit pipeline
+        schedulePostEditPipeline(chapterId);
       } else if (responseText && !currentSelection) {
         // Full prose edit
         onProseUpdate(responseText, 0, 0);
+
+        // Trigger post-edit pipeline
+        schedulePostEditPipeline(chapterId);
 
         const assistantMsg: EditChatMessage = {
           id: generateId(),

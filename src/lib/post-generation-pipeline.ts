@@ -14,6 +14,50 @@ import { tagSFX } from './sfx-tagger';
 import { generateId } from './utils';
 import type { Scene } from '../types';
 
+/**
+ * Lightweight post-edit pipeline — runs after AI-driven edits.
+ * Only re-scans entities (fast) and re-tags the affected scene's dialogue.
+ * Debounced to avoid firing on rapid successive edits.
+ */
+const postEditTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export function schedulePostEditPipeline(chapterId: string, editedSceneId?: string): void {
+  const existing = postEditTimers.get(chapterId);
+  if (existing) clearTimeout(existing);
+
+  postEditTimers.set(chapterId, setTimeout(async () => {
+    postEditTimers.delete(chapterId);
+    console.info('[PostEdit Pipeline] Running for chapter', chapterId);
+
+    try {
+      // Re-scan entities (picks up new characters, locations, etc. from edits)
+      await runEntityScan(chapterId);
+
+      // If a specific scene was edited, re-tag just that scene
+      if (editedSceneId) {
+        const store = useStore.getState();
+        const chapter = store.chapters.find((c) => c.id === chapterId);
+        const scene = chapter?.scenes?.find((s) => s.id === editedSceneId);
+        if (chapter && scene?.prose?.trim()) {
+          const project = store.projects.find((p) => p.id === chapter.projectId);
+          if (project) {
+            const characterEntries = useCanonStore.getState().getProjectEntries(project.id).filter((e) => e.type === 'character');
+            const characterNames = characterEntries.map((e) => e.name);
+
+            const tagged = await tagDialogue(scene.prose, characterNames, project.id, chapter.id);
+            store.updateScene(chapter.id, scene.id, { prose: tagged });
+            store.syncScenesToProse(chapterId);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[PostEdit Pipeline] Error (non-blocking):', e);
+    }
+
+    console.info('[PostEdit Pipeline] Complete');
+  }, 3000)); // 3 second debounce
+}
+
 /** Run the full post-generation pipeline for a chapter. */
 export async function runPostGenerationPipeline(chapterId: string): Promise<void> {
   const store = useStore.getState();
@@ -167,15 +211,20 @@ async function runSceneTagging(chapterId: string, scenes: Scene[]): Promise<void
       const sfxTagged = await tagSFX(tagged, project.id, chapter.id);
       store.updateScene(chapter.id, scene.id, { prose: sfxTagged });
 
-      // Ambient SFX suggestions
+      // Intro + ambient SFX suggestions
       try {
-        const ambienceResult = await generateText({
-          prompt: `Read this scene and suggest 1-3 short ambient/background sound descriptions that would play continuously throughout. These are environmental sounds like rain, wind, city traffic, cafe chatter, forest birds, ocean waves, etc.
+        const sfxResult = await generateText({
+          prompt: `Read this scene and suggest sound effects for audiobook production.
+
+You need to provide:
+1. **intro** — 1 short sound that plays at the VERY START of the scene to set the mood/location (e.g. "car engine idling", "birds chirping at dawn", "bar chatter and clinking glasses", "wind howling"). This is the first thing the listener hears before narration begins.
+2. **background** — 1-3 ambient/environmental sounds that loop throughout the scene (e.g. "gentle rain", "distant traffic", "crackling fireplace").
 
 Scene:
 ${scene.prose.slice(0, 2000)}
 
-Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No explanation.`,
+Return ONLY valid JSON, no markdown fences:
+{ "intro": "sound description", "background": ["ambient sound 1", "ambient sound 2"] }`,
           model: 'gpt-4.1-mini',
           maxTokens: 200,
           temperature: 0.3,
@@ -184,29 +233,45 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
           chapterId: chapter.id,
         });
 
-        const parsed = JSON.parse(ambienceResult.text.trim());
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const existingSfx = scene.sfx || [];
-          const existingPrompts = new Set(existingSfx.map((s) => s.prompt.toLowerCase()));
-          const newBgSfx = parsed
-            .filter((amb: string) => typeof amb === 'string' && !existingPrompts.has(amb.toLowerCase()))
-            .map((amb: string) => ({
-              id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              prompt: amb,
-              position: 'background' as const,
-              enabled: true,
-              source: 'suggested' as const,
-            }));
+        const parsed = JSON.parse(sfxResult.text.trim()) as { intro?: string; background?: string[] };
+        const existingSfx = scene.sfx || [];
+        const existingPrompts = new Set(existingSfx.map((s) => s.prompt.toLowerCase()));
+        const newSfx: typeof existingSfx = [];
 
-          if (newBgSfx.length > 0) {
-            const freshScene = useStore.getState().chapters.find((c) => c.id === chapter.id)?.scenes?.find((s) => s.id === scene.id);
-            store.updateScene(chapter.id, scene.id, {
-              sfx: [...(freshScene?.sfx || []), ...newBgSfx],
-            });
+        // Add intro SFX
+        if (parsed.intro && !existingPrompts.has(parsed.intro.toLowerCase())) {
+          newSfx.push({
+            id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            prompt: parsed.intro,
+            position: 'start' as const,
+            enabled: true,
+            source: 'suggested' as const,
+          });
+        }
+
+        // Add background/ambient SFX
+        if (Array.isArray(parsed.background)) {
+          for (const amb of parsed.background) {
+            if (typeof amb === 'string' && !existingPrompts.has(amb.toLowerCase())) {
+              newSfx.push({
+                id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                prompt: amb,
+                position: 'background' as const,
+                enabled: true,
+                source: 'suggested' as const,
+              });
+            }
           }
         }
+
+        if (newSfx.length > 0) {
+          const freshScene = useStore.getState().chapters.find((c) => c.id === chapter.id)?.scenes?.find((s) => s.id === scene.id);
+          store.updateScene(chapter.id, scene.id, {
+            sfx: [...(freshScene?.sfx || []), ...newSfx],
+          });
+        }
       } catch {
-        // Ambient suggestions are non-critical
+        // SFX suggestions are non-critical
       }
     } catch (e) {
       console.warn(`[PostGen] Tagging failed for scene "${scene.title}":`, e);
