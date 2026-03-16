@@ -4,7 +4,7 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { db, pool } from './db.js';
 import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary } from './schema.js';
 import {
@@ -399,10 +399,12 @@ app.get('/api/debug/disk', async (req, res) => {
 app.get('/api/debug/book-stats', async (req, res) => {
   if (req.query.key !== 'theodore-debug-2026') return res.status(403).json({ error: 'forbidden' });
   try {
-    const allProjects = await db.select({ id: projects.id, title: projects.title }).from(projects);
-    const allChapters = await db.select().from(chapters);
-    const stats = allProjects.map(p => {
-      const pChapters = allChapters.filter(c => c.projectId === p.id).sort((a: any, b: any) => a.number - b.number);
+    const allProjects = await db.execute<{id: string; title: string}>(sql`SELECT id, title FROM projects`);
+    const allChapters = await db.execute<any>(sql`SELECT id, project_id, number, title, prose, scenes FROM chapters`);
+    const projectRows = allProjects.rows || allProjects;
+    const chapterRows = allChapters.rows || allChapters;
+    const stats = (projectRows as any[]).map((p: any) => {
+      const pChapters = (chapterRows as any[]).filter((c: any) => c.project_id === p.id).sort((a: any, b: any) => a.number - b.number);
       return {
         id: p.id,
         title: p.title,
