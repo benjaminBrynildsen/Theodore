@@ -1012,7 +1012,8 @@ async function mixAllSFX(
         const totalPlays = Math.ceil(narrationDuration / paddedDuration) + 1;
         const loopCount = Math.max(1, totalPlays);
         // acompressor evens out volume differences between SFX clips without buffering entire stream
-        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${Math.ceil(narrationDuration + 2)},acompressor=threshold=-20dB:ratio=4:makeup=8dB,volume=__BG_VOL__[bg${inputIdx}]`);
+        const bgTrimDur = Math.ceil(narrationDuration + 2);
+        filterParts.push(`[${inputIdx}:a]aloop=loop=${loopCount}:size=2e+09,atrim=0:${bgTrimDur},acompressor=threshold=-20dB:ratio=4:makeup=4dB,volume=__BG_VOL__,afade=t=in:st=0:d=2,afade=t=out:st=${Math.max(0, bgTrimDur - 3)}:d=3[bg${inputIdx}]`);
         mixLabels.push(`[bg${inputIdx}]`);
         inputIdx++;
         console.log(`[TTS] BG SFX looping ${loopCount}+1 plays (${paddedDuration.toFixed(1)}s each) for ${narrationDuration.toFixed(1)}s narration`);
@@ -1034,7 +1035,7 @@ async function mixAllSFX(
         const trimDur = Math.min(introDuration, 5);
         const fadeOutStart = Math.max(0, trimDur - 1.5);
         inputs.push('-i', introPath);
-        filterParts.push(`[${inputIdx}:a]atrim=0:${trimDur},asetpts=PTS-STARTPTS,volume=__INTRO_VOL__,afade=t=in:st=0:d=1.5,afade=t=out:st=${fadeOutStart}:d=1.5[intro${inputIdx}]`);
+        filterParts.push(`[${inputIdx}:a]atrim=0:${trimDur},asetpts=PTS-STARTPTS,acompressor=threshold=-20dB:ratio=4:makeup=4dB,volume=__INTRO_VOL__,afade=t=in:st=0:d=1.5,afade=t=out:st=${fadeOutStart}:d=1.5[intro${inputIdx}]`);
         mixLabels.push(`[intro${inputIdx}]`);
         introDelayMs += Math.round(trimDur * 1000);
         inputIdx++;
@@ -1051,7 +1052,7 @@ async function mixAllSFX(
         inputs.push('-i', outroPath);
         // Start 5 seconds before end of narration
         const outroStart = Math.max(0, Math.round((narrationDuration - 5) * 1000));
-        filterParts.push(`[${inputIdx}:a]volume=__OUTRO_VOL__,adelay=${outroStart}|${outroStart},afade=t=out:st=3:d=2[outro${inputIdx}]`);
+        filterParts.push(`[${inputIdx}:a]acompressor=threshold=-20dB:ratio=4:makeup=4dB,volume=__OUTRO_VOL__,adelay=${outroStart}|${outroStart},afade=t=out:st=3:d=2[outro${inputIdx}]`);
         mixLabels.push(`[outro${inputIdx}]`);
         inputIdx++;
         console.log(`[TTS] Outro SFX: "${outroSFXList[i].prompt}" at ${outroStart}ms`);
