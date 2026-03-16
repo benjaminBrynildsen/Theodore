@@ -66,11 +66,26 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
       );
       updateScene(chapterId, sceneId, { sfx: updatedSfx });
 
-      // Auto-play after generation if requested
+      // Auto-play after generation
       if (autoPlay && result.audioUrl) {
-        setTimeout(() => {
-          previewSFX({ ...sfxItem, audioUrl: result.audioUrl, durationSeconds: result.durationSeconds });
-        }, 100);
+        // Play directly — don't go through previewSFX which has stale state
+        stopPlayback();
+        let audio = document.getElementById('theodore-sfx-preview') as HTMLAudioElement;
+        if (!audio) {
+          audio = document.createElement('audio');
+          audio.id = 'theodore-sfx-preview';
+          audio.setAttribute('playsinline', '');
+          document.body.appendChild(audio);
+        }
+        audio.src = result.audioUrl;
+        audio.volume = 1.0;
+        audio.currentTime = 0;
+        audio.loop = sfxItem.position === 'background';
+        audio.onended = () => { if (!audio.loop) { setPlayingId(null); audioRef.current = null; } };
+        audio.onerror = () => { setPlayingId(null); audioRef.current = null; };
+        audio.play().catch(() => {});
+        audioRef.current = audio;
+        setPlayingId(sfxItem.id);
       }
     } catch (e: any) {
       console.error('SFX generation failed:', e);

@@ -1376,9 +1376,28 @@ export function AudiobookPanel() {
                                       {sfx.map((s: any) => (
                                         <button
                                           key={s.id}
-                                          onClick={() => {
-                                            if (!s.audioUrl) return;
-                                            // Play synchronously in user gesture context (iOS requirement)
+                                          onClick={async () => {
+                                            let audioUrl = s.audioUrl;
+                                            // Generate if missing
+                                            if (!audioUrl) {
+                                              try {
+                                                const result = await api.sfxGenerate({ prompt: s.prompt, durationSeconds: s.durationSeconds });
+                                                audioUrl = result.audioUrl;
+                                                // Update the scene SFX with the new URL
+                                                const freshChapter = useStore.getState().chapters.find(c => c.id === ch.id);
+                                                const freshScene = freshChapter?.scenes?.find(sc => sc.id === scene.id);
+                                                if (freshScene) {
+                                                  const updatedSfx = (freshScene.sfx || []).map(x =>
+                                                    x.id === s.id ? { ...x, audioUrl: result.audioUrl, durationSeconds: result.durationSeconds } : x
+                                                  );
+                                                  useStore.getState().updateScene(ch.id, scene.id, { sfx: updatedSfx });
+                                                }
+                                              } catch (e) {
+                                                console.error('SFX generation failed:', e);
+                                                return;
+                                              }
+                                            }
+                                            // Play
                                             let audio = document.getElementById('theodore-sfx-preview') as HTMLAudioElement;
                                             if (!audio) {
                                               audio = document.createElement('audio');
@@ -1386,7 +1405,7 @@ export function AudiobookPanel() {
                                               audio.setAttribute('playsinline', '');
                                               document.body.appendChild(audio);
                                             }
-                                            audio.src = s.audioUrl;
+                                            audio.src = audioUrl;
                                             audio.volume = 1.0;
                                             audio.currentTime = 0;
                                             audio.play().catch(() => {});
