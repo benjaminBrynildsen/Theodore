@@ -28,6 +28,7 @@ export async function tagSFX(
 8. Add 3-8 tags per scene maximum — only the most impactful moments
 9. If {sfx:...} tags already exist, leave them unchanged
 10. Place tags BEFORE the sentence or clause where the sound occurs
+11. Do NOT place any {sfx:} tags in the first paragraph — the scene intro sound effect already covers the opening atmosphere
 
 ## Example
 Input: He dribbled the ball twice, then launched from the three-point line. The ball swished through the net. "Nothing but net!" TJ shouted, his sneakers squeaking on the court as he celebrated.
