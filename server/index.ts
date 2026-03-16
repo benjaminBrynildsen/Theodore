@@ -395,6 +395,44 @@ app.get('/api/debug/disk', async (req, res) => {
   res.json({ files, ttsLog, errorLog });
 });
 
+// Debug: book stats for credit estimation
+app.get('/api/debug/book-stats', async (req, res) => {
+  if (req.query.key !== 'theodore-debug-2026') return res.status(403).json({ error: 'forbidden' });
+  try {
+    const allProjects = await db.select().from(projects);
+    const allChapters = await db.select().from(chapters);
+    const stats = allProjects.map(p => {
+      const pChapters = allChapters.filter(c => c.projectId === p.id).sort((a: any, b: any) => a.number - b.number);
+      return {
+        id: p.id,
+        title: p.title,
+        genre: (p as any).genre,
+        chapterCount: pChapters.length,
+        chapters: pChapters.map(c => {
+          const scenes = (c.scenes || []) as any[];
+          const proseLen = (c.prose || '').length;
+          return {
+            id: c.id,
+            number: c.number,
+            title: c.title,
+            proseChars: proseLen,
+            sceneCount: scenes.length,
+            scenes: scenes.map((s: any) => ({
+              id: s.id,
+              title: s.title,
+              proseChars: (s.prose || '').length,
+              sfxCount: (s.sfx || []).filter((x: any) => x.enabled).length,
+            })),
+          };
+        }),
+      };
+    });
+    res.json({ projects: stats });
+  } catch (e: any) {
+    res.json({ error: e.message });
+  }
+});
+
 // ========== Billing ==========
 app.get('/api/billing/plans', (_req, res) => {
   res.json({
