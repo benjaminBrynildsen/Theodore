@@ -992,29 +992,29 @@ async function mixAllSFX(
         fs.writeFileSync(bgRawPath, buf);
         console.log(`[TTS] BG SFX raw: ${bgRawPath} (${(buf.length / 1024).toFixed(0)}KB)`);
 
-        // Add silence gap between loop repetitions: fade out → silence → fade in
+        // Crossfade loop: no silence gaps — ambient BG should be seamless
         const clipDuration = await getAudioDuration(bgRawPath);
-        const silenceGap = Math.min(6, Math.max(3, Math.round(clipDuration * 0.75)));
         try {
+          // Apply short crossfade at boundaries for seamless looping
           await new Promise<void>((resolve, reject) => {
             const padArgs = [
               '-i', bgRawPath,
-              '-af', `afade=t=in:st=0:d=0.8,afade=t=out:st=${Math.max(0, clipDuration - 1.5)}:d=1.5,apad=pad_dur=${silenceGap}`,
+              '-af', `afade=t=in:st=0:d=1.5,afade=t=out:st=${Math.max(0, clipDuration - 1.5)}:d=1.5`,
               '-y', bgPath,
             ];
             const proc = require('child_process').spawn('ffmpeg', padArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
             proc.on('close', (code: number) => code === 0 ? resolve() : reject(new Error(`pad exit ${code}`)));
             proc.on('error', reject);
           });
-          console.log(`[TTS] BG SFX padded: ${clipDuration.toFixed(1)}s + ${silenceGap}s gap`);
+          console.log(`[TTS] BG SFX crossfade-ready: ${clipDuration.toFixed(1)}s (seamless loop)`);
         } catch (e) {
-          console.warn(`[TTS] BG padding failed, using raw:`, e);
+          console.warn(`[TTS] BG crossfade failed, using raw:`, e);
           fs.copyFileSync(bgRawPath, bgPath);
         }
 
         inputs.push('-i', bgPath);
         // Loop bg to cover full output (intro delay + narration), then trim
-        const paddedDuration = clipDuration + silenceGap;
+        const paddedDuration = clipDuration;
         // aloop loop=N means N additional plays (total = N+1), add extra for safety
         const totalOutputDuration = narrationDuration + 15; // generous buffer for intro delay
         const totalPlays = Math.ceil(totalOutputDuration / paddedDuration) + 1;
