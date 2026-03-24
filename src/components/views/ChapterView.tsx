@@ -17,6 +17,7 @@ import { VibeEditor } from '../editmode/VibeEditor';
 import { generateStream, generateText } from '../../lib/generate';
 import { tagDialogue } from '../../lib/dialogue-tagger';
 import { tagSFX } from '../../lib/sfx-tagger';
+import { FEATURES } from '../../lib/feature-flags';
 import { api } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { runPostGenerationPipeline } from '../../lib/post-generation-pipeline';
@@ -345,6 +346,7 @@ export function ChapterView({ chapter }: Props) {
   };
 
   const handleTagSFX = async (scene: Scene) => {
+    if (!FEATURES.SFX_ENABLED) return; // V2
     if (!project || !scene.prose?.trim()) return;
     setTaggingSFXSceneId(scene.id);
     try {
@@ -689,18 +691,22 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
         }
       } else if (match[2]) {
         const desc = match[2];
-        parts.push(
-          <span
-            key={`sfx-${match.index}`}
-            data-tag="sfx"
-            data-value={desc}
-            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium border border-amber-300 bg-amber-50 text-amber-700 mx-0.5 align-baseline cursor-pointer hover:bg-amber-100 hover:shadow-md transition-all"
-            title={`Play: ${desc}`}
-          >
-            <Volume2 size={8} className="flex-shrink-0" />
-            {desc}
-          </span>
-        );
+        // V1: hide inline SFX badges (V2: re-enable via FEATURES.SFX_ENABLED)
+        if (FEATURES.SFX_ENABLED) {
+          parts.push(
+            <span
+              key={`sfx-${match.index}`}
+              data-tag="sfx"
+              data-value={desc}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium border border-amber-300 bg-amber-50 text-amber-700 mx-0.5 align-baseline cursor-pointer hover:bg-amber-100 hover:shadow-md transition-all"
+              title={`Play: ${desc}`}
+            >
+              <Volume2 size={8} className="flex-shrink-0" />
+              {desc}
+            </span>
+          );
+        }
+        // When disabled, the {sfx:...} tag is simply stripped from display
       }
       lastIdx = match.index + match[0].length;
     }
@@ -1181,7 +1187,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                     )}
                                   </button>
                                   <button
-                                    onClick={() => handleTagSFX(scene)}
+                                    onClick={() => handleTagSFX(scene)} style={FEATURES.SFX_ENABLED ? {} : { display: "none" }}
                                     disabled={!!taggingSceneId || !!taggingSFXSceneId || !!generatingSceneId || generating}
                                     className={cn(
                                       'px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all',
@@ -1394,7 +1400,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                       Tag
                                     </button>
                                     <button
-                                      onClick={() => handleTagSFX(scene)}
+                                      onClick={() => handleTagSFX(scene)} style={FEATURES.SFX_ENABLED ? {} : { display: "none" }}
                                       disabled={!!taggingSceneId || !!taggingSFXSceneId}
                                       className={cn(
                                         'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
@@ -1428,7 +1434,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                       Tag
                                     </button>
                                     <button
-                                      onClick={() => handleTagSFX(scene)}
+                                      onClick={() => handleTagSFX(scene)} style={FEATURES.SFX_ENABLED ? {} : { display: "none" }}
                                       disabled={!!taggingSceneId || !!taggingSFXSceneId}
                                       className={cn(
                                         'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
@@ -1452,11 +1458,11 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                 )}>
                                   {highlightName ? renderEntityHighlightedProse(scene.prose, highlightName) : renderTaggedProse(scene.prose)}
                                 </div>
-                                <SceneSFXBadges
+                                {FEATURES.SFX_ENABLED && <SceneSFXBadges
                                   chapterId={chapter.id}
                                   sceneId={scene.id}
                                   sfx={scene.sfx || []}
-                                />
+                                />}
                               </div>
                             ) : (
                               <div className={cn('py-6 flex items-center gap-3 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>
@@ -1545,7 +1551,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                       Tag
                                     </button>
                                     <button
-                                      onClick={() => handleTagSFX(scene)}
+                                      onClick={() => handleTagSFX(scene)} style={FEATURES.SFX_ENABLED ? {} : { display: "none" }}
                                       disabled={!!taggingSceneId || !!taggingSFXSceneId}
                                       className={cn(
                                         'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
@@ -1579,7 +1585,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                       Tag
                                     </button>
                                     <button
-                                      onClick={() => handleTagSFX(scene)}
+                                      onClick={() => handleTagSFX(scene)} style={FEATURES.SFX_ENABLED ? {} : { display: "none" }}
                                       disabled={!!taggingSceneId || !!taggingSFXSceneId}
                                       className={cn(
                                         'px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all',
@@ -1623,11 +1629,11 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                               </div>
                             )}
                             {/* Ambient SFX badges at bottom of scene */}
-                            <SceneSFXBadges
+                            {FEATURES.SFX_ENABLED && <SceneSFXBadges
                               chapterId={chapter.id}
                               sceneId={scene.id}
                               sfx={scene.sfx || []}
-                            />
+                            />}
                             {generatingSceneId === scene.id && sceneGeneratedText && (
                               <div className="font-serif text-lg leading-[2] text-text-primary whitespace-pre-wrap animate-fade-in pb-4">
                                 {sceneGeneratedText}

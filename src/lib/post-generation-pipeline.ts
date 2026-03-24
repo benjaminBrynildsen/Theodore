@@ -11,6 +11,7 @@ import { generateText } from './generate';
 import { buildSceneDecompositionPrompt, buildSceneProseSplitPrompt } from './prompt-builder';
 import { tagDialogue } from './dialogue-tagger';
 import { tagSFX } from './sfx-tagger';
+import { FEATURES } from './feature-flags';
 import { generateId } from './utils';
 import type { Scene } from '../types';
 
@@ -210,14 +211,15 @@ async function runSceneTagging(chapterId: string, scenes: Scene[]): Promise<void
       const tagged = await tagDialogue(scene.prose, characterNames, project.id, chapter.id);
       store.updateScene(chapter.id, scene.id, { prose: tagged });
 
-      // SFX tagging
-      const sfxTagged = await tagSFX(tagged, project.id, chapter.id);
-      store.updateScene(chapter.id, scene.id, { prose: sfxTagged });
+      // SFX tagging (V2 — disabled for V1)
+      if (FEATURES.SFX_ENABLED) {
+        const sfxTagged = await tagSFX(tagged, project.id, chapter.id);
+        store.updateScene(chapter.id, scene.id, { prose: sfxTagged });
 
-      // Intro + ambient SFX suggestions
-      try {
-        const sfxResult = await generateText({
-          prompt: `Read this scene and suggest sound effects for audiobook production.
+        // Intro + ambient SFX suggestions
+        try {
+          const sfxResult = await generateText({
+            prompt: `Read this scene and suggest sound effects for audiobook production.
 
 You need to provide:
 1. **intro** — 1 short ONE-SHOT sound (2-4 seconds) that plays ONCE at the very start to establish the scene (e.g. "a single car door slamming shut", "a rooster crowing once at dawn", "the clink of a glass being set on a bar", "a gust of wind through trees"). This must NOT be a looping/ambient sound — it should be a distinct, singular moment that sets the mood. Think: a specific sound event, not ongoing atmosphere.
@@ -228,53 +230,54 @@ ${scene.prose.slice(0, 2000)}
 
 Return ONLY valid JSON, no markdown fences:
 { "intro": "sound description", "background": ["ambient sound 1", "ambient sound 2"] }`,
-          model: 'gpt-4.1-mini',
-          maxTokens: 200,
-          temperature: 0.3,
-          action: 'sfx-ambience',
-          projectId: project.id,
-          chapterId: chapter.id,
-        });
-
-        const parsed = JSON.parse(sfxResult.text.trim()) as { intro?: string; background?: string[] };
-        const existingSfx = scene.sfx || [];
-        const existingPrompts = new Set(existingSfx.map((s) => s.prompt.toLowerCase()));
-        const newSfx: typeof existingSfx = [];
-
-        // Add intro SFX
-        if (parsed.intro && !existingPrompts.has(parsed.intro.toLowerCase())) {
-          newSfx.push({
-            id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-            prompt: parsed.intro,
-            position: 'start' as const,
-            enabled: true,
-            source: 'suggested' as const,
+            model: 'gpt-4.1-mini',
+            maxTokens: 200,
+            temperature: 0.3,
+            action: 'sfx-ambience',
+            projectId: project.id,
+            chapterId: chapter.id,
           });
-        }
 
-        // Add background/ambient SFX
-        if (Array.isArray(parsed.background)) {
-          for (const amb of parsed.background) {
-            if (typeof amb === 'string' && !existingPrompts.has(amb.toLowerCase())) {
-              newSfx.push({
-                id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                prompt: amb,
-                position: 'background' as const,
-                enabled: true,
-                source: 'suggested' as const,
-              });
+          const parsed = JSON.parse(sfxResult.text.trim()) as { intro?: string; background?: string[] };
+          const existingSfx = scene.sfx || [];
+          const existingPrompts = new Set(existingSfx.map((s) => s.prompt.toLowerCase()));
+          const newSfx: typeof existingSfx = [];
+
+          // Add intro SFX
+          if (parsed.intro && !existingPrompts.has(parsed.intro.toLowerCase())) {
+            newSfx.push({
+              id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              prompt: parsed.intro,
+              position: 'start' as const,
+              enabled: true,
+              source: 'suggested' as const,
+            });
+          }
+
+          // Add background/ambient SFX
+          if (Array.isArray(parsed.background)) {
+            for (const amb of parsed.background) {
+              if (typeof amb === 'string' && !existingPrompts.has(amb.toLowerCase())) {
+                newSfx.push({
+                  id: `sfx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                  prompt: amb,
+                  position: 'background' as const,
+                  enabled: true,
+                  source: 'suggested' as const,
+                });
+              }
             }
           }
-        }
 
-        if (newSfx.length > 0) {
-          const freshScene = useStore.getState().chapters.find((c) => c.id === chapter.id)?.scenes?.find((s) => s.id === scene.id);
-          store.updateScene(chapter.id, scene.id, {
-            sfx: [...(freshScene?.sfx || []), ...newSfx],
-          });
+          if (newSfx.length > 0) {
+            const freshScene = useStore.getState().chapters.find((c) => c.id === chapter.id)?.scenes?.find((s) => s.id === scene.id);
+            store.updateScene(chapter.id, scene.id, {
+              sfx: [...(freshScene?.sfx || []), ...newSfx],
+            });
+          }
+        } catch {
+          // SFX suggestions are non-critical
         }
-      } catch {
-        // SFX suggestions are non-critical
       }
     } catch (e) {
       console.warn(`[PostGen] Tagging failed for scene "${scene.title}":`, e);

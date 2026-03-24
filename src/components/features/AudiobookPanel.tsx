@@ -18,6 +18,7 @@ import { tagDirections } from '../../lib/direction-tagger';
 import { planChapterSFX, applySFXPlan } from '../../lib/scene-sfx-planner';
 import { buildSunoPrompt, estimateSceneDuration } from '../../lib/suno-prompt-builder';
 import { SceneSFXBadges } from './SceneSFXBadges';
+import { FEATURES } from '../../lib/feature-flags';
 import type { SceneEmotionalMetadata } from '../../types/music';
 import { EMOTION_COLORS } from '../../types/music';
 
@@ -98,9 +99,11 @@ export function AudiobookPanel() {
     }).catch(() => {});
   }, []);
 
-  // Check SFX availability on mount
+  // Check SFX availability on mount (V2)
   useEffect(() => {
-    api.sfxStatus().then(d => setSfxAvailable(d.available)).catch(() => setSfxAvailable(false));
+    if (FEATURES.SFX_ENABLED) {
+      api.sfxStatus().then(d => setSfxAvailable(d.available)).catch(() => setSfxAvailable(false));
+    }
   }, []);
 
   // Load audio generations from server (hydrate store)
@@ -140,8 +143,8 @@ export function AudiobookPanel() {
       for (const [sceneId, metadata] of results) {
         updateScene(chapterId, sceneId, { emotionalMetadata: metadata });
 
-        // Auto-create background SFX from ambient suggestions
-        if (metadata.suggestedAmbience?.length) {
+        // Auto-create background SFX from ambient suggestions (V2)
+        if (FEATURES.SFX_ENABLED && metadata.suggestedAmbience?.length) {
           const scene = chapter.scenes!.find(s => s.id === sceneId);
           const existingSfx = scene?.sfx || [];
           const existingPrompts = new Set(existingSfx.map(s => s.prompt.toLowerCase()));
@@ -207,6 +210,7 @@ export function AudiobookPanel() {
 
   // ========== Batch SFX Tagging ==========
   const tagAllSFX = useCallback(async () => {
+    if (!FEATURES.SFX_ENABLED) return; // V2
     if (!project) return;
     setTaggingAllSFX(true);
     try {
@@ -302,6 +306,7 @@ export function AudiobookPanel() {
   /** Auto-plan background/intro/outro SFX for all scenes in a chapter.
    *  force=true always re-plans; force=false skips if all scenes have BG SFX */
   const planSFXForChapter = useCallback(async (chapterId: string, force = false) => {
+    if (!FEATURES.SFX_ENABLED) return; // V2
     const freshChapters = useStore.getState().chapters;
     const chapter = freshChapters.find(c => c.id === chapterId);
     const scenes = (chapter?.scenes || []).filter(s => s.prose?.trim());
@@ -941,26 +946,30 @@ export function AudiobookPanel() {
                   {taggingDirections ? <Loader2 size={9} className="animate-spin" /> : <Mic size={9} />}
                   {taggingDirections ? 'Tagging...' : 'Directions'}
                 </button>
-                <button
-                  onClick={tagAllSFX}
-                  disabled={taggingAllSFX || preparingAll || chapters.length === 0}
-                  className="text-[10px] font-medium px-2 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 transition-all disabled:opacity-50 flex items-center gap-1"
-                >
-                  {taggingAllSFX ? <Loader2 size={9} className="animate-spin" /> : <Volume2 size={9} />}
-                  {taggingAllSFX ? 'Tagging...' : 'Inline SFX'}
-                </button>
-                <button
-                  onClick={async () => {
-                    for (const ch of chapters) {
-                      await planSFXForChapter(ch.id, true);
-                    }
-                  }}
-                  disabled={planningSFX || preparingAll || chapters.length === 0}
-                  className="text-[10px] font-medium px-2 py-1 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-all disabled:opacity-50 flex items-center gap-1"
-                >
-                  {planningSFX ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
-                  {planningSFX ? 'Planning...' : 'Plan Sounds'}
-                </button>
+                {FEATURES.SFX_ENABLED && (
+                  <button
+                    onClick={tagAllSFX}
+                    disabled={taggingAllSFX || preparingAll || chapters.length === 0}
+                    className="text-[10px] font-medium px-2 py-1 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 transition-all disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {taggingAllSFX ? <Loader2 size={9} className="animate-spin" /> : <Volume2 size={9} />}
+                    {taggingAllSFX ? 'Tagging...' : 'Inline SFX'}
+                  </button>
+                )}
+                {FEATURES.SFX_ENABLED && (
+                  <button
+                    onClick={async () => {
+                      for (const ch of chapters) {
+                        await planSFXForChapter(ch.id, true);
+                      }
+                    }}
+                    disabled={planningSFX || preparingAll || chapters.length === 0}
+                    className="text-[10px] font-medium px-2 py-1 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-all disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {planningSFX ? <Loader2 size={9} className="animate-spin" /> : <Sparkles size={9} />}
+                    {planningSFX ? 'Planning...' : 'Plan Sounds'}
+                  </button>
+                )}
               </div>
             </details>
           </div>
@@ -1146,7 +1155,7 @@ export function AudiobookPanel() {
                           {/* SFX badges for this scene — always show when available */}
                           {sfxAvailable && (
                             <div className="px-2.5 pb-1">
-                              <SceneSFXBadges chapterId={ch.id} sceneId={scene.id} sfx={sceneSfx} />
+                              {FEATURES.SFX_ENABLED && <SceneSFXBadges chapterId={ch.id} sceneId={scene.id} sfx={sceneSfx} />}
                             </div>
                           )}
                           </div>
@@ -1281,17 +1290,17 @@ export function AudiobookPanel() {
 
           {showMusicConfig && (
             <div className="px-5 pb-4 space-y-4">
-              {/* SFX status */}
-              <div className="flex items-center gap-3 text-[10px]">
+              {/* SFX status (V2) */}
+              {FEATURES.SFX_ENABLED && <div className="flex items-center gap-3 text-[10px]">
                 <span className={cn('flex items-center gap-1', sfxAvailable ? 'text-green-600' : 'text-text-tertiary')}>
                   <Zap size={9} />
                   SFX {sfxAvailable ? 'Ready' : sfxAvailable === false ? 'Unavailable' : '...'}
                 </span>
                 <span className="text-text-tertiary/60">1 credit/sfx</span>
-              </div>
+              </div>}
 
-              {/* Per-chapter SFX */}
-              <div>
+              {/* Per-chapter SFX (V2) */}
+              {FEATURES.SFX_ENABLED && <div>
                 <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">Scene Sound Effects</label>
                 <div className="space-y-1.5">
                   {chapters.map(ch => {
@@ -1438,7 +1447,7 @@ export function AudiobookPanel() {
 
                                   {sfxAvailable && (
                                     <div className="px-3 pb-1.5">
-                                      <SceneSFXBadges chapterId={ch.id} sceneId={scene.id} sfx={sfx} />
+                                      {FEATURES.SFX_ENABLED && <SceneSFXBadges chapterId={ch.id} sceneId={scene.id} sfx={sfx} />}
                                     </div>
                                   )}
                                 </div>
@@ -1454,7 +1463,7 @@ export function AudiobookPanel() {
                 {chapters.length === 0 && (
                   <p className="text-[10px] text-text-tertiary text-center py-3">Write chapters to add sound effects</p>
                 )}
-              </div>
+              </div>}
             </div>
           )}
         </div>
