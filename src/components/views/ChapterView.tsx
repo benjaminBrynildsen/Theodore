@@ -13,6 +13,7 @@ import { ProseXRay } from '../features/ProseXRay';
 import { EmotionalXRay } from '../features/EmotionalXRay';
 import { SceneSFXBadges } from '../features/SceneSFXBadges';
 import { SmartResearch } from '../features/SmartResearch';
+import { DirectionTagPicker } from '../features/DirectionTagPicker';
 import { VibeEditor } from '../editmode/VibeEditor';
 import { generateStream, generateText } from '../../lib/generate';
 import { tagDialogue } from '../../lib/dialogue-tagger';
@@ -48,6 +49,7 @@ export function ChapterView({ chapter }: Props) {
   const [sceneGeneratedText, setSceneGeneratedText] = useState('');
   const [taggingSceneId, setTaggingSceneId] = useState<string | null>(null);
   const [taggingSFXSceneId, setTaggingSFXSceneId] = useState<string | null>(null);
+  const [showDirectionPicker, setShowDirectionPicker] = useState<{ sceneId: string; position?: { x: number; y: number } } | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const proseDisplayRef = useRef<HTMLDivElement>(null);
 
@@ -405,6 +407,35 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       setTaggingSFXSceneId(null);
     }
   };
+
+  // Insert a direction tag into a scene's prose at the beginning (or cursor position in edit mode)
+  const handleInsertDirection = useCallback((tag: string, sceneId?: string) => {
+    if (!sceneId && !chapter.scenes?.length) {
+      // No scenes — insert at start of chapter prose
+      const newProse = `[${tag}] ${chapter.prose}`;
+      updateChapter(chapter.id, { prose: newProse });
+      return;
+    }
+    const targetSceneId = sceneId || showDirectionPicker?.sceneId;
+    if (!targetSceneId) return;
+    const scene = chapter.scenes?.find(s => s.id === targetSceneId);
+    if (!scene?.prose) return;
+
+    // If textarea is focused and has a selection, insert at cursor
+    if (editorRef.current && document.activeElement === editorRef.current) {
+      const ta = editorRef.current;
+      const pos = ta.selectionStart || 0;
+      const text = scene.prose;
+      const newProse = text.slice(0, pos) + `[${tag}] ` + text.slice(pos);
+      updateScene(chapter.id, targetSceneId, { prose: newProse });
+      syncScenesToProse(chapter.id);
+    } else {
+      // Insert at the very beginning of the scene prose
+      const newProse = `[${tag}] ${scene.prose}`;
+      updateScene(chapter.id, targetSceneId, { prose: newProse });
+      syncScenesToProse(chapter.id);
+    }
+  }, [chapter, showDirectionPicker, updateChapter, updateScene, syncScenesToProse]);
 
   // Helper: compute character offset within proseDisplayRef for a given node+offset
   const computeProseOffset = useCallback((container: Node, offset: number): number => {
@@ -1203,6 +1234,13 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                       <><Volume2 size={12} /> SFX</>
                                     )}
                                   </button>
+                                  <button
+                                    onClick={(e) => setShowDirectionPicker({ sceneId: scene.id, position: { x: e.clientX, y: e.clientY } })}
+                                    className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100"
+                                    title="Insert voice direction tag"
+                                  >
+                                    <Mic size={12} /> Direct
+                                  </button>
                                 </>
                               )}
                               <button
@@ -1411,6 +1449,13 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                       {taggingSFXSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Volume2 size={12} />}
                                       SFX
                                     </button>
+                                    <button
+                                      onClick={(e) => setShowDirectionPicker({ sceneId: scene.id, position: { x: e.clientX, y: e.clientY } })}
+                                      className="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100"
+                                      title="Insert voice direction tag"
+                                    >
+                                      <Mic size={12} /> Direct
+                                    </button>
                                   </div>
                                 )}
                                 <div className="flex-1 border-t border-black/10" />
@@ -1444,6 +1489,13 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                     >
                                       {taggingSFXSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Volume2 size={12} />}
                                       SFX
+                                    </button>
+                                    <button
+                                      onClick={(e) => setShowDirectionPicker({ sceneId: scene.id, position: { x: e.clientX, y: e.clientY } })}
+                                      className="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100"
+                                      title="Insert voice direction tag"
+                                    >
+                                      <Mic size={12} /> Direct
                                     </button>
                                   </div>
                                 )}
@@ -1562,6 +1614,13 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                       {taggingSFXSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Volume2 size={12} />}
                                       SFX
                                     </button>
+                                    <button
+                                      onClick={(e) => setShowDirectionPicker({ sceneId: scene.id, position: { x: e.clientX, y: e.clientY } })}
+                                      className="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100"
+                                      title="Insert voice direction tag"
+                                    >
+                                      <Mic size={12} /> Direct
+                                    </button>
                                   </div>
                                 )}
                                 <div className="flex-1 border-t border-black/10" />
@@ -1595,6 +1654,13 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                     >
                                       {taggingSFXSceneId === scene.id ? <Loader2 size={12} className="animate-spin" /> : <Volume2 size={12} />}
                                       SFX
+                                    </button>
+                                    <button
+                                      onClick={(e) => setShowDirectionPicker({ sceneId: scene.id, position: { x: e.clientX, y: e.clientY } })}
+                                      className="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100"
+                                      title="Insert voice direction tag"
+                                    >
+                                      <Mic size={12} /> Direct
                                     </button>
                                   </div>
                                 )}
@@ -1683,6 +1749,15 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
 
       {/* Dictation Mode */}
       {showDictation && <DictationMode chapterId={chapter.id} />}
+
+      {/* Direction Tag Picker */}
+      {showDirectionPicker && (
+        <DirectionTagPicker
+          onInsert={(tag) => handleInsertDirection(tag, showDirectionPicker.sceneId)}
+          onClose={() => setShowDirectionPicker(null)}
+          position={showDirectionPicker.position}
+        />
+      )}
 
       {/* Version Timeline */}
       {showHistory && chapter.prose && (
