@@ -484,6 +484,67 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     setShowDirectionPicker(null);
   }, [inlineEditOpen]);
 
+  // Handle drop of a dragged direction tag to reposition it
+  const handleDirectionDrop = useCallback((e: React.DragEvent, sceneId: string) => {
+    const data = e.dataTransfer.getData('application/x-direction-tag');
+    if (!data) return;
+    e.preventDefault();
+
+    const { tag, offset: oldOffset, length: tagLength } = JSON.parse(data);
+    const scene = chapter.scenes?.find(s => s.id === sceneId);
+    if (!scene?.prose) return;
+
+    // Find drop position using caretRangeFromPoint
+    let dropOffset = 0;
+    let range: Range | null = null;
+    if ('caretRangeFromPoint' in document) {
+      range = (document as any).caretRangeFromPoint(e.clientX, e.clientY);
+    }
+    if (range) {
+      const proseContainer = (e.currentTarget as HTMLElement).querySelector('.font-serif') || e.currentTarget;
+      const treeWalker = document.createTreeWalker(proseContainer, NodeFilter.SHOW_TEXT);
+      let found = false;
+      while (treeWalker.nextNode()) {
+        if (treeWalker.currentNode === range.startContainer) {
+          dropOffset += range.startOffset;
+          found = true;
+          break;
+        }
+        dropOffset += (treeWalker.currentNode.textContent || '').length;
+      }
+      if (!found) return;
+    } else {
+      return;
+    }
+
+    // Remove the tag from old position and insert at new position
+    let prose = scene.prose;
+    // Remove old tag (with trailing space if present)
+    const oldTag = prose.slice(oldOffset, oldOffset + tagLength);
+    if (oldTag !== `[${tag}]`) return; // safety check
+    const trailingSpace = prose[oldOffset + tagLength] === ' ' ? 1 : 0;
+    prose = prose.slice(0, oldOffset) + prose.slice(oldOffset + tagLength + trailingSpace);
+
+    // Adjust drop offset if it was after the removed tag
+    let adjustedDrop = dropOffset;
+    if (dropOffset > oldOffset) {
+      adjustedDrop -= (tagLength + trailingSpace);
+    }
+    adjustedDrop = Math.max(0, Math.min(adjustedDrop, prose.length));
+
+    // Insert at new position
+    prose = prose.slice(0, adjustedDrop) + `[${tag}] ` + prose.slice(adjustedDrop);
+
+    updateScene(chapter.id, sceneId, { prose });
+    syncScenesToProse(chapter.id);
+  }, [chapter, updateScene, syncScenesToProse]);
+
+  const handleDirectionDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('application/x-direction-tag')) {
+      e.preventDefault(); // allow drop
+    }
+  }, []);
+
   // Helper: compute character offset within proseDisplayRef for a given node+offset
   const computeProseOffset = useCallback((container: Node, offset: number): number => {
     const proseEl = proseDisplayRef.current;
@@ -737,13 +798,20 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
         const name = match[1];
         if (isDirectionTag(name)) {
           // Narration direction tag — pink/magenta badge like ElevenLabs UI
+          const dirCharOffset = match.index;
           parts.push(
             <span
               key={`dir-${match.index}`}
               data-tag="direction"
               data-value={name}
-              className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold text-fuchsia-600 bg-fuchsia-50 border border-fuchsia-200 mx-0.5 align-baseline select-none"
-              title={`Direction: ${name}`}
+              data-offset={dirCharOffset}
+              draggable
+              onDragStart={(ev) => {
+                ev.dataTransfer.setData('text/plain', `[${name}]`);
+                ev.dataTransfer.setData('application/x-direction-tag', JSON.stringify({ tag: name, offset: dirCharOffset, length: match![0].length }));
+              }}
+              className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold text-fuchsia-600 bg-fuchsia-50 border border-fuchsia-200 mx-0.5 align-baseline select-none cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
+              title={`Direction: ${name} (drag to reposition)`}
             >
               [{name}]
             </span>
@@ -1549,7 +1617,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                               </div>
                             )}
                             {scene.prose ? (
-                              <div onClick={(e) => { handleProseClick(e); handleProseTapForDirection(e, scene.id); }}>
+                              <div onClick={(e) => { handleProseClick(e); handleProseTapForDirection(e, scene.id); }} onDrop={(e) => handleDirectionDrop(e, scene.id)} onDragOver={handleDirectionDragOver}>
                                 <div className={cn(
                                   'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
                                   isFocusMode ? 'text-xl' : 'text-lg',
@@ -1722,6 +1790,8 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                             {scene.prose ? (
                               <div
                                 onClick={(e) => { handleProseClick(e); handleProseTapForDirection(e, scene.id); }}
+                                onDrop={(e) => handleDirectionDrop(e, scene.id)}
+                                onDragOver={handleDirectionDragOver}
                                 className={cn(
                                   'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
                                   isFocusMode ? 'text-xl' : 'text-lg',
@@ -1809,7 +1879,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       {/* Dictation Mode */}
       {showDictation && <DictationMode chapterId={chapter.id} />}
 
-      {/* Floating 🎭 direction insert button */}
+      {/* Floating + direction insert button */}
       {directionInsertBtn && !showDirectionPicker && (
         <button
           onClick={() => {
@@ -1817,10 +1887,10 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             setDirectionInsertBtn(null);
           }}
           style={{ position: 'fixed', left: directionInsertBtn.x, top: directionInsertBtn.y, zIndex: 9999 }}
-          className="w-8 h-8 rounded-full bg-fuchsia-500 text-white shadow-lg flex items-center justify-center text-sm hover:bg-fuchsia-600 active:scale-95 transition-all animate-fade-in"
-          title="Insert direction tag here"
+          className="w-7 h-7 rounded-full bg-fuchsia-500 text-white shadow-lg flex items-center justify-center hover:bg-fuchsia-600 active:scale-90 transition-all"
+          title="Add voice direction"
         >
-          🎭
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
         </button>
       )}
 
