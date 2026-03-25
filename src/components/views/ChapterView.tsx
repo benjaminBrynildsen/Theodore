@@ -432,12 +432,33 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     // Don't interfere with inline editing
     if (inlineEditOpen) return;
 
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return;
-    const range = sel.getRangeAt(0);
-    if (!sel.isCollapsed) return; // user is selecting text, not tapping
+    const clientX = e.clientX;
+    const clientY = e.clientY;
 
-    // Compute character offset within the clicked prose container
+    // Use caretRangeFromPoint (works on mobile Safari/Chrome)
+    let range: Range | null = null;
+    if ('caretRangeFromPoint' in document) {
+      range = (document as any).caretRangeFromPoint(clientX, clientY);
+    } else if ('caretPositionFromPoint' in document) {
+      const pos = (document as any).caretPositionFromPoint(clientX, clientY);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+
+    if (!range) {
+      // Fallback: just use selection
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
+        range = sel.getRangeAt(0);
+      }
+    }
+
+    if (!range) return;
+
+    // Compute character offset within the scene prose
     const proseContainer = (e.currentTarget as HTMLElement).querySelector('.font-serif') || e.currentTarget;
     const treeWalker = document.createTreeWalker(proseContainer, NodeFilter.SHOW_TEXT);
     let charOffset = 0;
@@ -450,15 +471,14 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       }
       charOffset += (treeWalker.currentNode.textContent || '').length;
     }
-    if (!found) return;
+    if (!found) charOffset = 0; // fallback to start
 
     // Show the 🎭 button near the tap
-    const rect = range.getBoundingClientRect();
     setDirectionInsertBtn({
       sceneId,
       charOffset,
-      x: rect.left,
-      y: rect.top - 36,
+      x: clientX - 16,
+      y: clientY - 44,
     });
     // Clear any open picker
     setShowDirectionPicker(null);
