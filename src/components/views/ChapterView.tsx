@@ -781,6 +781,15 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       }).finally(() => {
         tagEl.classList.remove('animate-pulse');
       });
+    } else if (tagType === 'insert-direction') {
+      // + button clicked — find which scene this is in and open picker
+      const sceneEl = tagEl.closest('[data-scene-id]') as HTMLElement | null;
+      const sceneId = sceneEl?.dataset.sceneId;
+      const offset = parseInt(tagEl.dataset.offset || '0', 10);
+      if (sceneId) {
+        setShowDirectionPicker({ sceneId, charOffset: offset });
+        setDirectionInsertBtn(null);
+      }
     }
   }, [project, chapter.id, chapter.scenes, getProjectEntries, setActiveEntry]);
 
@@ -859,7 +868,59 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     if (lastIdx < text.length) {
       parts.push(text.slice(lastIdx));
     }
-    return parts.length > 0 ? parts : text;
+
+    // Now insert + buttons at sentence boundaries for direction tag insertion
+    const finalParts: (string | JSX.Element)[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (typeof part === 'string') {
+        // Split at sentence boundaries (after . ! ? followed by space)
+        const sentences = part.split(/(?<=[.!?])\s+/);
+        for (let j = 0; j < sentences.length; j++) {
+          finalParts.push(sentences[j]);
+          // Add a + button between sentences (not after the last one)
+          if (j < sentences.length - 1) {
+            // Calculate the character offset for this insertion point
+            // We need the offset in the original text
+            const precedingText = sentences.slice(0, j + 1).join(' ');
+            const offsetInPart = precedingText.length;
+            // Find this part's start offset in the original text
+            let partStart = 0;
+            let found = false;
+            for (let k = 0; k < i; k++) {
+              const p = parts[k];
+              if (typeof p === 'string') partStart += p.length;
+              else {
+                // Tag — find its length in original text
+                const val = (p as any).props?.['data-value'];
+                const tagType = (p as any).props?.['data-tag'];
+                if (tagType === 'direction') partStart += `[${val}]`.length;
+                else if (tagType === 'character') partStart += `[${val}]`.length;
+                else if (tagType === 'sfx') partStart += `{sfx:${val}}`.length;
+              }
+            }
+            const insertOffset = partStart + offsetInPart + 1; // +1 for the space
+
+            finalParts.push(' ');
+            finalParts.push(
+              <button
+                key={`insert-${i}-${j}`}
+                data-tag="insert-direction"
+                data-offset={insertOffset}
+                className="inline-flex items-center justify-center w-4 h-4 rounded-full text-fuchsia-400 hover:bg-fuchsia-100 hover:text-fuchsia-600 active:bg-fuchsia-200 transition-all mx-0.5 align-baseline text-[10px] font-bold"
+                title="Add voice direction"
+              >
+                +
+              </button>
+            );
+          }
+        }
+      } else {
+        finalParts.push(part);
+      }
+    }
+
+    return finalParts.length > 0 ? finalParts : text;
   }, []);
 
   // Render prose with optional highlight for inline editing
@@ -1879,20 +1940,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       {/* Dictation Mode */}
       {showDictation && <DictationMode chapterId={chapter.id} />}
 
-      {/* Floating + direction insert button */}
-      {directionInsertBtn && !showDirectionPicker && (
-        <button
-          onClick={() => {
-            setShowDirectionPicker({ sceneId: directionInsertBtn.sceneId, charOffset: directionInsertBtn.charOffset });
-            setDirectionInsertBtn(null);
-          }}
-          style={{ position: 'fixed', left: directionInsertBtn.x, top: directionInsertBtn.y, zIndex: 9999 }}
-          className="w-7 h-7 rounded-full bg-fuchsia-500 text-white shadow-lg flex items-center justify-center hover:bg-fuchsia-600 active:scale-90 transition-all"
-          title="Add voice direction"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
-        </button>
-      )}
+      {/* Direction insert button removed — using inline + buttons in prose */}
 
       {/* Version Timeline */}
       {showHistory && chapter.prose && (
