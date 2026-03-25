@@ -1275,8 +1275,8 @@ export function AudiobookPanel() {
           )}
         </div>
 
-        {/* Sound Effects */}
-        <div className="border-b border-black/5">
+        {/* Sound Effects (V2) */}
+        {FEATURES.SFX_ENABLED && <div className="border-b border-black/5">
           <button
             onClick={() => setShowMusicConfig(v => !v)}
             className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-black/[0.02] transition-colors"
@@ -1466,7 +1466,7 @@ export function AudiobookPanel() {
               </div>}
             </div>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );
