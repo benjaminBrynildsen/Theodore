@@ -710,6 +710,19 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
 
     const tagType = tagEl.dataset.tag;
     const tagValue = tagEl.dataset.value;
+
+    // Handle insert-direction (+ button) — no value needed
+    if (tagType === 'insert-direction') {
+      const sceneEl = tagEl.closest('[data-scene-id]') as HTMLElement | null;
+      const sceneId = sceneEl?.dataset.sceneId;
+      const offset = parseInt(tagEl.dataset.offset || '0', 10);
+      if (sceneId) {
+        setShowDirectionPicker({ sceneId, charOffset: offset });
+        setDirectionInsertBtn(null);
+      }
+      return;
+    }
+
     if (!tagType || !tagValue) return;
 
     if (tagType === 'character') {
@@ -781,15 +794,6 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       }).finally(() => {
         tagEl.classList.remove('animate-pulse');
       });
-    } else if (tagType === 'insert-direction') {
-      // + button clicked — find which scene this is in and open picker
-      const sceneEl = tagEl.closest('[data-scene-id]') as HTMLElement | null;
-      const sceneId = sceneEl?.dataset.sceneId;
-      const offset = parseInt(tagEl.dataset.offset || '0', 10);
-      if (sceneId) {
-        setShowDirectionPicker({ sceneId, charOffset: offset });
-        setDirectionInsertBtn(null);
-      }
     }
   }, [project, chapter.id, chapter.scenes, getProjectEntries, setActiveEntry]);
 
@@ -907,7 +911,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 key={`insert-${i}-${j}`}
                 data-tag="insert-direction"
                 data-offset={insertOffset}
-                className="inline-flex items-center justify-center w-4 h-4 rounded-full text-fuchsia-400 hover:bg-fuchsia-100 hover:text-fuchsia-600 active:bg-fuchsia-200 transition-all mx-0.5 align-baseline text-[10px] font-bold"
+                className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-fuchsia-50 border border-fuchsia-200 text-fuchsia-400 hover:bg-fuchsia-100 hover:text-fuchsia-600 active:bg-fuchsia-300 transition-all mx-0.5 align-middle text-[11px] font-bold"
                 title="Add voice direction"
               >
                 +
@@ -1678,7 +1682,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                               </div>
                             )}
                             {scene.prose ? (
-                              <div onClick={(e) => { handleProseClick(e); handleProseTapForDirection(e, scene.id); }} onDrop={(e) => handleDirectionDrop(e, scene.id)} onDragOver={handleDirectionDragOver}>
+                              <div onClick={(e) => { handleProseClick(e); }} onDrop={(e) => handleDirectionDrop(e, scene.id)} onDragOver={handleDirectionDragOver}>
                                 <div className={cn(
                                   'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
                                   isFocusMode ? 'text-xl' : 'text-lg',
@@ -1850,7 +1854,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                             )}
                             {scene.prose ? (
                               <div
-                                onClick={(e) => { handleProseClick(e); handleProseTapForDirection(e, scene.id); }}
+                                onClick={(e) => { handleProseClick(e); }}
                                 onDrop={(e) => handleDirectionDrop(e, scene.id)}
                                 onDragOver={handleDirectionDragOver}
                                 className={cn(
