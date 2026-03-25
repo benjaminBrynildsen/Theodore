@@ -49,7 +49,8 @@ export function ChapterView({ chapter }: Props) {
   const [sceneGeneratedText, setSceneGeneratedText] = useState('');
   const [taggingSceneId, setTaggingSceneId] = useState<string | null>(null);
   const [taggingSFXSceneId, setTaggingSFXSceneId] = useState<string | null>(null);
-  const [showDirectionPicker, setShowDirectionPicker] = useState<{ sceneId: string; position?: { x: number; y: number } } | null>(null);
+  const [showDirectionPicker, setShowDirectionPicker] = useState<{ sceneId: string; charOffset: number } | null>(null);
+  const [directionInsertBtn, setDirectionInsertBtn] = useState<{ sceneId: string; charOffset: number; x: number; y: number } | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const proseDisplayRef = useRef<HTMLDivElement>(null);
 
@@ -408,34 +409,60 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     }
   };
 
-  // Insert a direction tag into a scene's prose at the beginning (or cursor position in edit mode)
+  // Insert a direction tag into a scene's prose at a specific character offset
   const handleInsertDirection = useCallback((tag: string, sceneId?: string) => {
-    if (!sceneId && !chapter.scenes?.length) {
-      // No scenes — insert at start of chapter prose
-      const newProse = `[${tag}] ${chapter.prose}`;
-      updateChapter(chapter.id, { prose: newProse });
-      return;
-    }
     const targetSceneId = sceneId || showDirectionPicker?.sceneId;
     if (!targetSceneId) return;
     const scene = chapter.scenes?.find(s => s.id === targetSceneId);
     if (!scene?.prose) return;
 
-    // If textarea is focused and has a selection, insert at cursor
-    if (editorRef.current && document.activeElement === editorRef.current) {
-      const ta = editorRef.current;
-      const pos = ta.selectionStart || 0;
-      const text = scene.prose;
-      const newProse = text.slice(0, pos) + `[${tag}] ` + text.slice(pos);
-      updateScene(chapter.id, targetSceneId, { prose: newProse });
-      syncScenesToProse(chapter.id);
-    } else {
-      // Insert at the very beginning of the scene prose
-      const newProse = `[${tag}] ${scene.prose}`;
-      updateScene(chapter.id, targetSceneId, { prose: newProse });
-      syncScenesToProse(chapter.id);
+    const offset = showDirectionPicker?.charOffset ?? 0;
+    const text = scene.prose;
+    const newProse = text.slice(0, offset) + `[${tag}] ` + text.slice(offset);
+    updateScene(chapter.id, targetSceneId, { prose: newProse });
+    syncScenesToProse(chapter.id);
+    setDirectionInsertBtn(null);
+  }, [chapter, showDirectionPicker, updateScene, syncScenesToProse]);
+
+  // Handle tap on scene prose to show the 🎭 direction insert button
+  const handleProseTapForDirection = useCallback((e: React.MouseEvent, sceneId: string) => {
+    // Don't interfere with tag badge clicks
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-tag]')) return;
+    // Don't interfere with inline editing
+    if (inlineEditOpen) return;
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    if (!sel.isCollapsed) return; // user is selecting text, not tapping
+
+    // Compute character offset within the clicked prose container
+    const proseContainer = (e.currentTarget as HTMLElement).querySelector('.font-serif') || e.currentTarget;
+    const treeWalker = document.createTreeWalker(proseContainer, NodeFilter.SHOW_TEXT);
+    let charOffset = 0;
+    let found = false;
+    while (treeWalker.nextNode()) {
+      if (treeWalker.currentNode === range.startContainer) {
+        charOffset += range.startOffset;
+        found = true;
+        break;
+      }
+      charOffset += (treeWalker.currentNode.textContent || '').length;
     }
-  }, [chapter, showDirectionPicker, updateChapter, updateScene, syncScenesToProse]);
+    if (!found) return;
+
+    // Show the 🎭 button near the tap
+    const rect = range.getBoundingClientRect();
+    setDirectionInsertBtn({
+      sceneId,
+      charOffset,
+      x: rect.left,
+      y: rect.top - 36,
+    });
+    // Clear any open picker
+    setShowDirectionPicker(null);
+  }, [inlineEditOpen]);
 
   // Helper: compute character offset within proseDisplayRef for a given node+offset
   const computeProseOffset = useCallback((container: Node, offset: number): number => {
@@ -1502,7 +1529,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                               </div>
                             )}
                             {scene.prose ? (
-                              <div onClick={handleProseClick}>
+                              <div onClick={(e) => { handleProseClick(e); handleProseTapForDirection(e, scene.id); }}>
                                 <div className={cn(
                                   'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
                                   isFocusMode ? 'text-xl' : 'text-lg',
@@ -1674,7 +1701,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                             )}
                             {scene.prose ? (
                               <div
-                                onClick={handleProseClick}
+                                onClick={(e) => { handleProseClick(e); handleProseTapForDirection(e, scene.id); }}
                                 className={cn(
                                   'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
                                   isFocusMode ? 'text-xl' : 'text-lg',
@@ -1761,6 +1788,21 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
 
       {/* Dictation Mode */}
       {showDictation && <DictationMode chapterId={chapter.id} />}
+
+      {/* Floating 🎭 direction insert button */}
+      {directionInsertBtn && !showDirectionPicker && (
+        <button
+          onClick={() => {
+            setShowDirectionPicker({ sceneId: directionInsertBtn.sceneId, charOffset: directionInsertBtn.charOffset });
+            setDirectionInsertBtn(null);
+          }}
+          style={{ position: 'fixed', left: directionInsertBtn.x, top: directionInsertBtn.y, zIndex: 9999 }}
+          className="w-8 h-8 rounded-full bg-fuchsia-500 text-white shadow-lg flex items-center justify-center text-sm hover:bg-fuchsia-600 active:scale-95 transition-all animate-fade-in"
+          title="Insert direction tag here"
+        >
+          🎭
+        </button>
+      )}
 
       {/* Version Timeline */}
       {showHistory && chapter.prose && (

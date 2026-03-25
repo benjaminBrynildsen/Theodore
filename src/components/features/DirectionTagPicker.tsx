@@ -1,7 +1,7 @@
 // ========== Direction Tag Picker ==========
 // Simple inline picker for inserting [direction] tags into prose
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { DIRECTION_TAG_GROUPS } from '../../lib/direction-tagger';
 import { cn } from '../../lib/utils';
@@ -21,9 +21,19 @@ const QUICK_TAGS = [
 export function DirectionTagPicker({ onInsert, onClose }: Props) {
   const [showAll, setShowAll] = useState(false);
   const [custom, setCustom] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [onClose]);
 
   return (
-    <div className="mt-2 p-3 bg-white rounded-xl border border-black/10 shadow-lg space-y-2">
+    <div ref={ref} className="mt-2 p-3 bg-white rounded-xl border border-black/10 shadow-lg space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-semibold text-text-secondary">Insert Direction</span>
         <button onClick={onClose} className="p-0.5 rounded hover:bg-black/5"><X size={12} /></button>
