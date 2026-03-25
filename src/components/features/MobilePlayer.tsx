@@ -42,9 +42,24 @@ export function MobilePlayerBar({ onExpand }: { onExpand: () => void }) {
 
   const hasActivity = currentChapterId || generating;
 
+  const activeChapterId = useStore.getState().activeChapterId;
+  const activeSceneId = useStore.getState().activeSceneId;
+  const activeChapter = currentChapter || chapters.find(c => c.id === activeChapterId);
+  const activeScene = activeChapter?.scenes?.find((s: any) => s.id === activeSceneId);
+  const activeAudio = activeChapter ? chapterAudio[activeChapter.id] : null;
+  const activeVersion = activeAudio?.activeVersion;
+
   const trackName = currentChapter
     ? `Chapter ${currentChapter.number} · ${currentChapter.title || project.title}`
-    : generating ? 'Generating...' : 'No track playing';
+    : generating ? 'Generating...'
+    : activeChapter
+      ? [
+          project.title,
+          `Ch. ${activeChapter.number}`,
+          activeScene ? (activeScene as any).title : null,
+          activeVersion ? `v${activeVersion}` : null,
+        ].filter(Boolean).join(' · ')
+      : project.title;
 
   return (
     <div className="flex-shrink-0">
@@ -65,7 +80,9 @@ export function MobilePlayerBar({ onExpand }: { onExpand: () => void }) {
         {/* Track info */}
         <div className="flex-1 min-w-0 text-left">
           <div className="text-[13px] font-semibold text-text-primary truncate">{trackName}</div>
-          <div className="text-[11px] text-text-tertiary truncate">{project.title}</div>
+          <div className="text-[11px] text-text-tertiary truncate">
+            {currentChapter ? project.title : activeChapter ? `${activeChapter.title || ''}` : project.title}
+          </div>
         </div>
 
         {/* Play/pause */}
