@@ -1515,6 +1515,12 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                   sceneId={scene.id}
                                   sfx={scene.sfx || []}
                                 />}
+                                {showDirectionPicker?.sceneId === scene.id && (
+                                  <DirectionTagPicker
+                                    onInsert={(tag) => handleInsertDirection(tag, scene.id)}
+                                    onClose={() => setShowDirectionPicker(null)}
+                                  />
+                                )}
                               </div>
                             ) : (
                               <div className={cn('py-6 flex items-center gap-3 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>
@@ -1700,6 +1706,12 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                               sceneId={scene.id}
                               sfx={scene.sfx || []}
                             />}
+                            {showDirectionPicker?.sceneId === scene.id && (
+                              <DirectionTagPicker
+                                onInsert={(tag) => handleInsertDirection(tag, scene.id)}
+                                onClose={() => setShowDirectionPicker(null)}
+                              />
+                            )}
                             {generatingSceneId === scene.id && sceneGeneratedText && (
                               <div className="font-serif text-lg leading-[2] text-text-primary whitespace-pre-wrap animate-fade-in pb-4">
                                 {sceneGeneratedText}
@@ -1749,15 +1761,6 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
 
       {/* Dictation Mode */}
       {showDictation && <DictationMode chapterId={chapter.id} />}
-
-      {/* Direction Tag Picker */}
-      {showDirectionPicker && (
-        <DirectionTagPicker
-          onInsert={(tag) => handleInsertDirection(tag, showDirectionPicker.sceneId)}
-          onClose={() => setShowDirectionPicker(null)}
-          position={showDirectionPicker.position}
-        />
-      )}
 
       {/* Version Timeline */}
       {showHistory && chapter.prose && (
