@@ -23,13 +23,18 @@ export function DirectionTagPicker({ onInsert, onClose }: Props) {
   const [custom, setCustom] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
+  // Close on outside click (delayed to avoid closing on the same click that opened it)
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const timer = setTimeout(() => {
+      document.addEventListener('click', handler);
+    }, 100);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', handler);
+    };
   }, [onClose]);
 
   return (

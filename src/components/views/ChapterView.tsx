@@ -713,6 +713,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
 
     // Handle insert-direction (+ button) — no value needed
     if (tagType === 'insert-direction') {
+      e.stopPropagation();
       const sceneEl = tagEl.closest('[data-scene-id]') as HTMLElement | null;
       const sceneId = sceneEl?.dataset.sceneId;
       const offset = parseInt(tagEl.dataset.offset || '0', 10);
