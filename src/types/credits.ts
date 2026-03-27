@@ -47,34 +47,34 @@ export interface CreditTransaction {
   timestamp: string;
 }
 
-// Cost estimates per action (in credits, 1 credit = 1,000 tokens)
+// Cost estimates per action (credits)
 export const CREDIT_COSTS: Record<CreditAction, { min: number; max: number; typical: number; label: string }> = {
-  'chat-message':              { min: 1,  max: 3,   typical: 2,   label: 'Chat message' },
-  'generate-premise':          { min: 2,  max: 5,   typical: 3,   label: 'Generate premise' },
-  'generate-chapter-full':     { min: 15, max: 40,  typical: 25,  label: 'Write full chapter' },
-  'generate-chapter-outline':  { min: 5,  max: 12,  typical: 8,   label: 'Scene outline' },
-  'generate-dialogue':         { min: 8,  max: 20,  typical: 12,  label: 'Dialogue first' },
-  'generate-action-skeleton':  { min: 5,  max: 15,  typical: 10,  label: 'Action skeleton' },
-  'polish-rewrite':            { min: 10, max: 25,  typical: 15,  label: 'Polish / rewrite' },
-  'canon-validation':          { min: 1,  max: 3,   typical: 2,   label: 'Canon validation' },
-  'red-team-review':           { min: 3,  max: 8,   typical: 5,   label: 'Red team review' },
-  'plan-project':              { min: 5,  max: 15,  typical: 10,  label: 'Plan project' },
+  'chat-message':              { min: 2,  max: 8,   typical: 5,   label: 'Chat message' },
+  'generate-premise':          { min: 5,  max: 15,  typical: 10,  label: 'Generate premise' },
+  'generate-chapter-full':     { min: 20, max: 60,  typical: 30,  label: 'Write full chapter' },
+  'generate-chapter-outline':  { min: 8,  max: 20,  typical: 12,  label: 'Scene outline' },
+  'generate-dialogue':         { min: 10, max: 30,  typical: 18,  label: 'Dialogue first' },
+  'generate-action-skeleton':  { min: 8,  max: 20,  typical: 12,  label: 'Action skeleton' },
+  'polish-rewrite':            { min: 15, max: 40,  typical: 25,  label: 'Polish / rewrite' },
+  'canon-validation':          { min: 3,  max: 8,   typical: 5,   label: 'Canon validation' },
+  'red-team-review':           { min: 5,  max: 15,  typical: 8,   label: 'Red team review' },
+  'plan-project':              { min: 8,  max: 25,  typical: 15,  label: 'Plan project' },
 };
-
-export const BILLING_COST_PER_CREDIT_USD = 0.0001;
-export const BILLING_MARKUP_MULTIPLE = 10;
 
 export const PAID_TIER_CREDITS: Record<'writer' | 'author' | 'studio', number> = {
-  writer: 10000,
-  author: 30000,
-  studio: 100000,
+  writer: 2500,
+  author: 7500,
+  studio: 25000,
 };
 
-function monthlyPriceForCredits(credits: number): string {
-  const internalCost = credits * BILLING_COST_PER_CREDIT_USD;
-  const retail = internalCost * BILLING_MARKUP_MULTIPLE;
-  return `$${Math.round(retail).toLocaleString()}/mo`;
-}
+export const FREE_TIER_CREDITS = 100;
+export const FREE_TIER_NAME = 'Dreamer';
+
+const TIER_PRICES: Record<'writer' | 'author' | 'studio', number> = {
+  writer: 10,
+  author: 30,
+  studio: 99,
+};
 
 export const PLAN_DETAILS: Record<PlanTier, {
   name: string;
@@ -84,31 +84,31 @@ export const PLAN_DETAILS: Record<PlanTier, {
   features: string[];
 }> = {
   free: {
-    name: 'Free',
+    name: FREE_TIER_NAME,
     price: '$0',
-    credits: 500,
+    credits: FREE_TIER_CREDITS,
     description: 'Try Theodore',
-    features: ['500 credits/month', '1 active project', 'Standard models'],
+    features: [`${FREE_TIER_CREDITS} credits/month`, '~3 AI chapters', '1 active project'],
   },
   writer: {
     name: 'Writer',
-    price: monthlyPriceForCredits(PAID_TIER_CREDITS.writer),
+    price: `$${TIER_PRICES.writer}/mo`,
     credits: PAID_TIER_CREDITS.writer,
     description: 'For consistent drafting',
-    features: ['10,000 credits/month', 'Unlimited projects', 'Model selection', 'Priority generation'],
+    features: ['2,500 credits/month', '~83 AI chapters', '~5 audio narrations', 'Unlimited projects'],
   },
   author: {
     name: 'Author',
-    price: monthlyPriceForCredits(PAID_TIER_CREDITS.author),
+    price: `$${TIER_PRICES.author}/mo`,
     credits: PAID_TIER_CREDITS.author,
-    description: 'For high-volume output',
-    features: ['30,000 credits/month', 'Unlimited projects', 'Premium models', 'Priority generation', 'Export tools'],
+    description: 'For serious writers',
+    features: ['7,500 credits/month', '~250 AI chapters', '~15 audio narrations', 'Unlimited projects', 'Premium models'],
   },
   studio: {
     name: 'Studio',
-    price: monthlyPriceForCredits(PAID_TIER_CREDITS.studio),
+    price: `$${TIER_PRICES.studio}/mo`,
     credits: PAID_TIER_CREDITS.studio,
-    description: 'For teams and heavy production',
-    features: ['100,000 credits/month', 'Unlimited projects', 'Fastest queue', 'Priority support', 'Advanced exports'],
+    description: 'Full production house',
+    features: ['25,000 credits/month', '~833 AI chapters', '~50 audio narrations', 'Unlimited projects', 'Priority support'],
   },
 };

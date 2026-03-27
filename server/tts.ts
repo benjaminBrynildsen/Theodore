@@ -90,7 +90,10 @@ export interface TTSResult {
 
 const AUDIO_DIR = path.join(process.cwd(), 'uploads', 'audio');
 const CHARS_PER_SECOND = 14;
-const CREDITS_PER_CHAPTER = 2;
+
+// Credit cost is now character-based — imported from billing.ts at call site
+// Legacy constant kept for reference only
+const CREDITS_PER_CHAPTER_LEGACY = 2;
 
 const ELEVENLABS_API = 'https://api.elevenlabs.io/v1';
 
@@ -816,11 +819,15 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
 
   const durationEstimate = Math.round(req.prose.length / CHARS_PER_SECOND / speed);
 
+  // Character-based credit cost: 100 credits per 1,000 characters
+  const charCount = req.prose.length;
+  const creditsUsed = Math.max(100, Math.ceil(charCount / 1000) * 100);
+
   return {
     audioUrl: `/uploads/audio/${filename}`,
     durationEstimate,
     segments: speechBuffers.length,
-    creditsUsed: CREDITS_PER_CHAPTER,
+    creditsUsed,
   };
 }
 

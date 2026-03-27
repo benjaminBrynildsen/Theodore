@@ -95,7 +95,7 @@ export function IllustrateButton({ target, targetId, projectId, currentImageUrl,
               className={cn('w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all',
                 generating ? 'bg-purple-100 text-purple-700' : 'bg-purple-600 text-white hover:bg-purple-700'
               )}>
-              {generating ? <><Loader2 size={12} className="animate-spin" /> Generating...</> : <><Sparkles size={12} /> Generate (5 credits)</>}
+              {generating ? <><Loader2 size={12} className="animate-spin" /> Generating...</> : <><Sparkles size={12} /> Generate (25 credits)</>}
             </button>
           </div>
         )}
@@ -230,7 +230,7 @@ export function IllustrateButton({ target, targetId, projectId, currentImageUrl,
             ) : (
               <>
                 <Sparkles size={14} />
-                Generate (5 credits)
+                Generate (25 credits)
               </>
             )}
           </button>

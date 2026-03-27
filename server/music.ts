@@ -7,7 +7,7 @@ import path from 'path';
 import crypto from 'crypto';
 
 const MUSIC_DIR = path.join(process.cwd(), 'uploads', 'music');
-const CREDITS_PER_TRACK = 3;
+const CREDITS_PER_TRACK = 100;
 const ELEVENLABS_API = 'https://api.elevenlabs.io/v1';
 
 export interface MusicGenerateRequest {

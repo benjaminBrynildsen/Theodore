@@ -8,7 +8,7 @@ import crypto from 'crypto';
 
 const SFX_DIR = path.join(process.cwd(), 'uploads', 'sfx');
 const ELEVENLABS_API = 'https://api.elevenlabs.io/v1';
-const CREDITS_PER_SFX = 1;
+const CREDITS_PER_SFX = 40;
 
 export interface SFXGenerateRequest {
   prompt: string; // e.g. "rain on a tin roof", "busy cafe ambient noise"

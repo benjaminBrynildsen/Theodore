@@ -45,9 +45,9 @@ interface CreditsState {
 export const useCreditsStore = create<CreditsState>((set, get) => ({
   plan: {
     tier: 'free',
-    creditsTotal: 500,
+    creditsTotal: 100,
     creditsUsed: 0,
-    creditsRemaining: 500,
+    creditsRemaining: 100,
   },
   transactions: [],
   showUpgradeModal: false,
@@ -106,9 +106,9 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
       set({
         plan: {
           tier: 'free',
-          creditsTotal: 500,
+          creditsTotal: 100,
           creditsUsed: 0,
-          creditsRemaining: 500,
+          creditsRemaining: 100,
           renewsAt: undefined,
           stripeCustomerId: undefined,
           stripeSubscriptionId: undefined,
@@ -127,7 +127,7 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
       rawTier === 'writer' || rawTier === 'author' || rawTier === 'studio' || rawTier === 'free'
         ? rawTier
         : 'free';
-    const creditsTotal = Math.max(0, Number(user.creditsTotal ?? 500));
+    const creditsTotal = Math.max(0, Number(user.creditsTotal ?? 100));
     const creditsRemaining = Math.max(0, Number(user.creditsRemaining ?? creditsTotal));
     set((s) => ({
       plan: {
@@ -200,7 +200,7 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
         break;
       case 'customer.subscription.deleted':
         set((s) => ({
-          plan: { ...s.plan, tier: 'free', creditsTotal: 500, creditsRemaining: 500 - s.plan.creditsUsed },
+          plan: { ...s.plan, tier: 'free', creditsTotal: 100, creditsRemaining: 100 - s.plan.creditsUsed },
         }));
         break;
       case 'invoice.payment_succeeded':

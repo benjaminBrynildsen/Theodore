@@ -115,7 +115,7 @@ export async function generateImage(req: ImageGenRequest): Promise<ImageGenResul
     imageUrl,
     prompt: fullPrompt,
     model,
-    creditsUsed: 5, // Image gen costs ~5 credits
+    creditsUsed: 25, // Image gen: 25 credits
   };
 }
 

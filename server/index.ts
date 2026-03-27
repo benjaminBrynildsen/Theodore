@@ -28,7 +28,7 @@ import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_V
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
-import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs } from './billing.js';
+import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN } from './billing.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001');
@@ -113,8 +113,7 @@ async function getUserByStripeIds(customerId?: string | null, subscriptionId?: s
 
 function getTierCredits(tier: string): number {
   if (isPaidPlanTier(tier)) return getPaidTierConfig(tier)?.credits || 0;
-  if (tier === 'free') return 500;
-  return 500;
+  return FREE_TIER_CREDITS;
 }
 
 function resolveFrontendOrigin(req: express.Request): string {
@@ -440,11 +439,11 @@ app.get('/api/billing/plans', (_req, res) => {
     paidTiers: listPaidTierConfigs(),
     free: {
       tier: 'free',
-      name: 'Free',
-      credits: 500,
+      name: FREE_TIER_NAME,
+      credits: FREE_TIER_CREDITS,
       priceUsd: 0,
       priceCents: 0,
-      summary: '500 credits / month',
+      summary: `${FREE_TIER_CREDITS} credits / month`,
     },
   });
 });
@@ -630,7 +629,7 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
           : 'free';
         const creditsTotal = getTierCredits(nextPlan);
         const creditsRemaining = nextPlan === 'free'
-          ? Math.min(500, Math.max(user.creditsRemaining, 0))
+          ? Math.min(FREE_TIER_CREDITS, Math.max(user.creditsRemaining, 0))
           : (nextPlan !== user.plan ? creditsTotal : Math.min(Math.max(user.creditsRemaining, 0), creditsTotal));
 
         await db.update(users).set({
@@ -708,8 +707,8 @@ app.post('/api/auth/register', async (req, res) => {
         emailVerifiedAt: now,
         name: name || null,
         plan: 'free',
-        creditsRemaining: 500,
-        creditsTotal: 500,
+        creditsRemaining: FREE_TIER_CREDITS,
+        creditsTotal: FREE_TIER_CREDITS,
       }).returning();
       user = inserted;
     } else {
@@ -1296,8 +1295,7 @@ app.post('/api/generate/image', async (req, res) => {
     const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Check credits (image gen costs 5 credits)
-    if (user.creditsRemaining < 5) {
+    if (user.creditsRemaining < IMAGE_CREDITS_PER_GEN) {
       return res.status(402).json({ error: 'INSUFFICIENT_CREDITS', message: 'Not enough credits for image generation.' });
     }
 
@@ -1469,7 +1467,8 @@ app.post('/api/tts/generate', async (req, res) => {
     // Credit check
     const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.creditsRemaining < 2) return res.status(402).json({ error: 'Insufficient credits for audio generation' });
+    // Minimum TTS cost is 100 credits (1K chars)
+    if (user.creditsRemaining < 100) return res.status(402).json({ error: 'Insufficient credits for audio generation' });
 
     // Create job and return immediately
     const jobId = `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1735,7 +1734,7 @@ app.post('/api/music/generate', async (req, res) => {
     // Credit check
     const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.creditsRemaining < 3) return res.status(402).json({ error: 'Insufficient credits for music generation' });
+    if (user.creditsRemaining < MUSIC_CREDITS_PER_TRACK) return res.status(402).json({ error: 'Insufficient credits for music generation' });
 
     const result = await generateSceneMusic({ sceneId, prompt, genre, durationHint });
 
@@ -1810,7 +1809,7 @@ app.post('/api/sfx/generate', async (req, res) => {
     // Credit check
     const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.creditsRemaining < 1) return res.status(402).json({ error: 'Insufficient credits for SFX generation' });
+    if (user.creditsRemaining < SFX_CREDITS_PER_GEN) return res.status(402).json({ error: 'Insufficient credits for SFX generation' });
 
     const result = await generateSFX({ prompt, durationSeconds });
 
