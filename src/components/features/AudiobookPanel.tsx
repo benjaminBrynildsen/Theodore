@@ -951,19 +951,21 @@ export function AudiobookPanel() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Chapters</label>
               <div className="flex items-center gap-1.5">
-                <button
-                  onClick={prepareAll}
-                  disabled={preparingAll || taggingAll || taggingAllSFX || taggingDirections || planningSFX || chapters.length === 0}
-                  className="text-[11px] font-medium px-3 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-fuchsia-500 text-white hover:shadow-md transition-all disabled:opacity-50 flex items-center gap-1.5 flex-1 justify-center"
-                  title="Tag dialogue, directions, inline SFX, and plan background/intro/outro sounds for all chapters"
-                >
-                  {preparingAll || taggingAll || taggingAllSFX || taggingDirections || planningSFX ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Wand2 size={12} />
-                  )}
-                  {preparingAll ? 'Preparing...' : taggingAll ? 'Tagging dialogue...' : taggingAllSFX ? 'Tagging SFX...' : taggingDirections ? 'Adding directions...' : planningSFX ? 'Planning sounds...' : 'Prepare All'}
-                </button>
+                {FEATURES.MULTI_VOICE_ENABLED && (
+                  <button
+                    onClick={prepareAll}
+                    disabled={preparingAll || taggingAll || taggingAllSFX || taggingDirections || planningSFX || chapters.length === 0}
+                    className="text-[11px] font-medium px-3 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-fuchsia-500 text-white hover:shadow-md transition-all disabled:opacity-50 flex items-center gap-1.5 flex-1 justify-center"
+                    title="Tag dialogue, directions, inline SFX, and plan background/intro/outro sounds for all chapters"
+                  >
+                    {preparingAll || taggingAll || taggingAllSFX || taggingDirections || planningSFX ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Wand2 size={12} />
+                    )}
+                    {preparingAll ? 'Preparing...' : taggingAll ? 'Tagging dialogue...' : taggingAllSFX ? 'Tagging SFX...' : taggingDirections ? 'Adding directions...' : planningSFX ? 'Planning sounds...' : 'Prepare All'}
+                  </button>
+                )}
                 <button
                   onClick={generateAll}
                   disabled={generating !== null || chapters.length === 0}
@@ -973,28 +975,33 @@ export function AudiobookPanel() {
                 </button>
               </div>
             </div>
-            {/* Individual actions — collapsed by default */}
+            {/* Individual actions — collapsed by default (V2 features) */}
+            {(FEATURES.MULTI_VOICE_ENABLED || FEATURES.SFX_ENABLED) && (
             <details className="group">
               <summary className="text-[9px] text-text-tertiary cursor-pointer hover:text-text-secondary select-none">
                 Individual actions...
               </summary>
               <div className="flex flex-wrap items-center gap-1.5 mt-1.5 pt-1.5 border-t border-black/5">
-                <button
-                  onClick={tagAllDialogue}
-                  disabled={taggingAll || preparingAll || chapters.length === 0}
-                  className="text-[10px] font-medium px-2 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all disabled:opacity-50 flex items-center gap-1"
-                >
-                  {taggingAll ? <Loader2 size={9} className="animate-spin" /> : <Tags size={9} />}
-                  {taggingAll ? 'Tagging...' : 'Dialogue'}
-                </button>
-                <button
-                  onClick={tagAllDirections}
-                  disabled={taggingDirections || preparingAll || chapters.length === 0}
-                  className="text-[10px] font-medium px-2 py-1 rounded-lg bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100 transition-all disabled:opacity-50 flex items-center gap-1"
-                >
-                  {taggingDirections ? <Loader2 size={9} className="animate-spin" /> : <Mic size={9} />}
-                  {taggingDirections ? 'Tagging...' : 'Directions'}
-                </button>
+                {FEATURES.MULTI_VOICE_ENABLED && (
+                  <button
+                    onClick={tagAllDialogue}
+                    disabled={taggingAll || preparingAll || chapters.length === 0}
+                    className="text-[10px] font-medium px-2 py-1 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {taggingAll ? <Loader2 size={9} className="animate-spin" /> : <Tags size={9} />}
+                    {taggingAll ? 'Tagging...' : 'Dialogue'}
+                  </button>
+                )}
+                {FEATURES.MULTI_VOICE_ENABLED && (
+                  <button
+                    onClick={tagAllDirections}
+                    disabled={taggingDirections || preparingAll || chapters.length === 0}
+                    className="text-[10px] font-medium px-2 py-1 rounded-lg bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100 transition-all disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {taggingDirections ? <Loader2 size={9} className="animate-spin" /> : <Mic size={9} />}
+                    {taggingDirections ? 'Tagging...' : 'Directions'}
+                  </button>
+                )}
                 {FEATURES.SFX_ENABLED && (
                   <button
                     onClick={tagAllSFX}
@@ -1021,6 +1028,7 @@ export function AudiobookPanel() {
                 )}
               </div>
             </details>
+            )}
           </div>
           <div className="space-y-1.5">
             {chapters.map(ch => {
