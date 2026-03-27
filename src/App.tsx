@@ -95,6 +95,23 @@ export default function App() {
     bootstrap();
   }, [bootstrap]);
 
+  // Handle Stripe billing redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const billingResult = params.get('billing');
+    if (billingResult === 'success' || billingResult === 'cancel') {
+      // Clean URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete('billing');
+      url.searchParams.delete('session_id');
+      window.history.replaceState({}, '', url.pathname + url.search);
+      // Re-fetch user data to get updated plan
+      if (billingResult === 'success') {
+        bootstrap();
+      }
+    }
+  }, [bootstrap]);
+
   // Bind app data to authenticated user
   useEffect(() => {
     const userId = user?.id || null;
