@@ -25,6 +25,62 @@ import { runPostGenerationPipeline } from '../../lib/post-generation-pipeline';
 import { cn } from '../../lib/utils';
 import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
 
+/** Standalone + button for inserting direction tags — handles mobile touch properly */
+function DirectionInsertButton({ editHighlight, scenes, onOpen }: {
+  editHighlight: { start: number; end: number };
+  scenes: Scene[];
+  onOpen: (sceneId: string, charOffset: number) => void;
+}) {
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const btn = btnRef.current;
+    if (!btn) return;
+
+    const handler = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Map chapter offset to scene offset
+      const offset = editHighlight.start;
+      let targetSceneId = '';
+      let sceneOffset = 0;
+      let runningOffset = 0;
+      const sorted = [...scenes].sort((a: any, b: any) => a.order - b.order);
+      for (const s of sorted) {
+        const len = ((s as any).prose || '').length;
+        if (offset <= runningOffset + len) {
+          targetSceneId = (s as any).id;
+          sceneOffset = offset - runningOffset;
+          break;
+        }
+        runningOffset += len + 2;
+      }
+      if (targetSceneId) {
+        onOpen(targetSceneId, sceneOffset);
+      }
+    };
+
+    // Use native event listeners for reliable mobile handling
+    btn.addEventListener('touchend', handler, { passive: false });
+    btn.addEventListener('click', handler);
+    return () => {
+      btn.removeEventListener('touchend', handler);
+      btn.removeEventListener('click', handler);
+    };
+  }, [editHighlight, scenes, onOpen]);
+
+  return (
+    <button
+      ref={btnRef}
+      className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-fuchsia-500 text-white active:bg-fuchsia-700 transition-all mx-1 align-middle text-base font-bold shadow-lg"
+      style={{ WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' }}
+    >
+      +
+    </button>
+  );
+}
+
 interface Props {
   chapter: Chapter;
 }
@@ -839,37 +895,11 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       <div className="font-serif leading-[2] text-text-primary" style={{ fontSize: isFocusMode ? '1.25rem' : '1.125rem' }}>
         {renderSection(before)}
         <span className="relative">
-          <button
-            data-tag="insert-direction-highlight"
-            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-fuchsia-500 text-white hover:bg-fuchsia-600 active:scale-90 transition-all mx-1 align-middle text-sm font-bold shadow-md"
-            title="Add voice direction"
-            onMouseUp={(e) => e.stopPropagation()}
-            onTouchEnd={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              // Find which scene this is in based on editHighlight offset
-              const scenes = chapter.scenes || [];
-              let offset = editHighlight!.start;
-              let targetSceneId = '';
-              let sceneOffset = 0;
-              // Map chapter offset to scene offset
-              let runningOffset = 0;
-              for (const s of [...scenes].sort((a, b) => a.order - b.order)) {
-                const len = (s.prose || '').length;
-                if (offset <= runningOffset + len) {
-                  targetSceneId = s.id;
-                  sceneOffset = offset - runningOffset;
-                  break;
-                }
-                runningOffset += len + 2; // +2 for \n\n between scenes
-              }
-              if (targetSceneId) {
-                setShowDirectionPicker({ sceneId: targetSceneId, charOffset: sceneOffset });
-              }
-            }}
-          >
-            +
-          </button>
+          <DirectionInsertButton
+            editHighlight={editHighlight!}
+            scenes={chapter.scenes || []}
+            onOpen={(sceneId, charOffset) => setShowDirectionPicker({ sceneId, charOffset })}
+          />
           <mark className="bg-emerald-100 text-emerald-900 rounded px-0.5 transition-all duration-500">
             {renderSection(highlighted)}
           </mark>
