@@ -894,16 +894,9 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     return (
       <div className="font-serif leading-[2] text-text-primary" style={{ fontSize: isFocusMode ? '1.25rem' : '1.125rem' }}>
         {renderSection(before)}
-        <span className="relative">
-          <DirectionInsertButton
-            editHighlight={editHighlight!}
-            scenes={chapter.scenes || []}
-            onOpen={(sceneId, charOffset) => setShowDirectionPicker({ sceneId, charOffset })}
-          />
-          <mark className="bg-emerald-100 text-emerald-900 rounded px-0.5 transition-all duration-500">
-            {renderSection(highlighted)}
-          </mark>
-        </span>
+        <mark className="bg-emerald-100 text-emerald-900 rounded px-0.5 transition-all duration-500">
+          {renderSection(highlighted)}
+        </mark>
         {renderSection(after)}
       </div>
     );

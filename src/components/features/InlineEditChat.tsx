@@ -8,7 +8,117 @@ import { buildSelectionEditPrompt } from '../../lib/prompt-builder';
 import { generateId, cn } from '../../lib/utils';
 import { schedulePostEditPipeline } from '../../lib/post-generation-pipeline';
 import type { EditChatMessage, ProseSelection } from '../../types';
+import { DIRECTION_TAG_GROUPS } from '../../lib/direction-tagger';
+import { Mic } from 'lucide-react';
 export type { ProseSelection };
+
+const QUICK_DIRECTIONS = ['sighs', 'laughs', 'gasps', 'scoffs', 'chuckles', 'whispering', 'shouting', 'pause', 'sarcastic', 'angry', 'tender', 'nervous'];
+
+/** Inline direction tag inserter — shown in the selection card */
+function DirectionInsertRow({ chapterId, prose, selection, onProseUpdate }: {
+  chapterId: string;
+  prose: string;
+  selection: ProseSelection;
+  onProseUpdate: (prose: string, highlightStart: number, highlightEnd: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [custom, setCustom] = useState('');
+
+  const insertTag = (tag: string) => {
+    const offset = selection.startOffset;
+    const newProse = prose.slice(0, offset) + `[${tag}] ` + prose.slice(offset);
+    const tagLen = tag.length + 3; // [tag] + space
+    onProseUpdate(newProse, offset, selection.endOffset + tagLen);
+    setOpen(false);
+    setShowAll(false);
+    setCustom('');
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mt-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-fuchsia-50 text-fuchsia-600 hover:bg-fuchsia-100 active:bg-fuchsia-200 transition-all"
+        style={{ WebkitTapHighlightColor: 'transparent' }}
+      >
+        <Mic size={11} />
+        Add Voice Direction
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 p-2.5 bg-fuchsia-50 rounded-lg border border-fuchsia-200 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold text-fuchsia-600 uppercase tracking-wider">Voice Direction</span>
+        <button onClick={() => { setOpen(false); setShowAll(false); }} className="text-fuchsia-400 hover:text-fuchsia-600 p-0.5">
+          <X size={11} />
+        </button>
+      </div>
+
+      {/* Quick tags */}
+      <div className="flex flex-wrap gap-1">
+        {QUICK_DIRECTIONS.map(tag => (
+          <button
+            key={tag}
+            onClick={() => insertTag(tag)}
+            className="px-2 py-1 rounded-md text-[11px] font-medium bg-white text-fuchsia-600 border border-fuchsia-200 hover:bg-fuchsia-100 active:bg-fuchsia-200 transition-colors"
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            [{tag}]
+          </button>
+        ))}
+      </div>
+
+      {/* Show all */}
+      {!showAll ? (
+        <button onClick={() => setShowAll(true)} className="text-[10px] text-fuchsia-500 hover:text-fuchsia-700">
+          Show all tags →
+        </button>
+      ) : (
+        <div className="space-y-2 pt-1 border-t border-fuchsia-200">
+          {Object.entries(DIRECTION_TAG_GROUPS).map(([group, tags]) => (
+            <div key={group}>
+              <div className="text-[9px] font-semibold text-fuchsia-400 uppercase tracking-wider mb-1">{group}</div>
+              <div className="flex flex-wrap gap-1">
+                {tags.map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => insertTag(tag)}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-white text-fuchsia-600 border border-fuchsia-200 hover:bg-fuchsia-100 active:bg-fuchsia-200 transition-colors"
+                    style={{ WebkitTapHighlightColor: 'transparent' }}
+                  >
+                    [{tag}]
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Custom */}
+      <form
+        onSubmit={e => { e.preventDefault(); if (custom.trim()) insertTag(custom.trim().toLowerCase()); }}
+        className="flex items-center gap-2 pt-1 border-t border-fuchsia-200"
+      >
+        <input
+          type="text"
+          value={custom}
+          onChange={e => setCustom(e.target.value)}
+          placeholder="Custom tag..."
+          className="flex-1 text-xs px-2 py-1.5 bg-white rounded-md border border-fuchsia-200 outline-none focus:border-fuchsia-400"
+        />
+        {custom.trim() && (
+          <button type="submit" className="text-[10px] font-medium px-2 py-1 bg-fuchsia-500 text-white rounded hover:bg-fuchsia-600">
+            Insert
+          </button>
+        )}
+      </form>
+    </div>
+  );
+}
 
 interface UndoEntry {
   id: string;
@@ -327,6 +437,12 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
           <p className="text-[10px] text-blue-500 mt-1">
             {selection.text.split(/\s+/).length} words · click elsewhere to deselect
           </p>
+          <DirectionInsertRow
+            chapterId={chapterId}
+            prose={prose}
+            selection={selection}
+            onProseUpdate={onProseUpdate}
+          />
         </div>
       )}
 
