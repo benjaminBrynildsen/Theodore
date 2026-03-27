@@ -4,6 +4,7 @@ import { Headphones, Play, Pause, Download, Loader2, Volume2, VolumeX, User, Wan
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useAudioStore } from '../../store/audio';
+import { useCreditsStore } from '../../store/credits';
 import { useMusicStore } from '../../store/music';
 import { cn } from '../../lib/utils';
 import { api } from '../../lib/api';
@@ -419,6 +420,18 @@ export function AudiobookPanel() {
         durationHint: duration,
       });
 
+      // Update credit display
+      if (result.creditsUsed != null) {
+        useCreditsStore.getState().recordUsage({
+          action: 'generate-music',
+          creditsUsed: result.creditsUsed,
+          tokensInput: 0,
+          tokensOutput: 0,
+          model: 'elevenlabs-music',
+          creditsRemaining: result.creditsRemaining ?? null,
+        });
+      }
+
       musicStore.addTrack(sceneId, {
         id: `track-${Date.now()}`,
         sceneId,
@@ -460,6 +473,18 @@ export function AudiobookPanel() {
         genre: 'cinematic',
         durationHint: Math.min(duration, 90), // max 90s to conserve credits
       });
+
+      // Update credit display
+      if (result.creditsUsed != null) {
+        useCreditsStore.getState().recordUsage({
+          action: 'generate-music',
+          creditsUsed: result.creditsUsed,
+          tokensInput: 0,
+          tokensOutput: 0,
+          model: 'elevenlabs-music',
+          creditsRemaining: result.creditsRemaining ?? null,
+        });
+      }
 
       musicStore.addTrack(musicKey, {
         id: `track-${Date.now()}`,
@@ -712,6 +737,18 @@ export function AudiobookPanel() {
         sceneSFX: sceneSFXData,
       });
 
+      // Update credit display
+      if (result.creditsUsed != null) {
+        useCreditsStore.getState().recordUsage({
+          action: 'generate-audio',
+          creditsUsed: result.creditsUsed,
+          tokensInput: 0,
+          tokensOutput: 0,
+          model: ttsModel,
+          creditsRemaining: result.creditsRemaining ?? null,
+        });
+      }
+
       // Store as scene-level audio (keyed by sceneId)
       audioStore.addChapterAudio(`scene-${sceneId}`, {
         chapterId: `scene-${sceneId}`,
@@ -772,6 +809,18 @@ export function AudiobookPanel() {
         multiVoice,
         sceneSFX: allSceneSFX,
       });
+
+      // Update credit display
+      if (result.creditsUsed != null) {
+        useCreditsStore.getState().recordUsage({
+          action: 'generate-audio',
+          creditsUsed: result.creditsUsed,
+          tokensInput: 0,
+          tokensOutput: 0,
+          model: ttsModel,
+          creditsRemaining: result.creditsRemaining ?? null,
+        });
+      }
 
       audioStore.addChapterAudio(chapterId, {
         chapterId,
@@ -1392,6 +1441,17 @@ export function AudiobookPanel() {
                                               try {
                                                 const result = await api.sfxGenerate({ prompt: s.prompt, durationSeconds: s.durationSeconds });
                                                 audioUrl = result.audioUrl;
+                                                // Update credit display
+                                                if (result.creditsUsed) {
+                                                  useCreditsStore.getState().recordUsage({
+                                                    action: 'generate-sfx',
+                                                    creditsUsed: result.creditsUsed,
+                                                    tokensInput: 0,
+                                                    tokensOutput: 0,
+                                                    model: 'elevenlabs-sfx',
+                                                    creditsRemaining: result.creditsRemaining ?? null,
+                                                  });
+                                                }
                                                 // Update the scene SFX with the new URL
                                                 const freshChapter = useStore.getState().chapters.find(c => c.id === ch.id);
                                                 const freshScene = freshChapter?.scenes?.find(sc => sc.id === scene.id);

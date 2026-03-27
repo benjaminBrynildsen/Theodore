@@ -1293,7 +1293,7 @@ app.post('/api/generate/image', async (req, res) => {
     const { prompt, aspectRatio, style, projectId, target, targetId } = req.body;
     if (!prompt && !target) return res.status(400).json({ error: 'Missing prompt or target' });
 
-    const user = await getUserById(auth.user.id);
+    const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     // Check credits (image gen costs 5 credits)

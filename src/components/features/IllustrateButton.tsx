@@ -3,6 +3,7 @@ import { ImageIcon, Loader2, Sparkles, X } from 'lucide-react';
 import { generateImageApi, IMAGE_STYLES, ASPECT_RATIOS } from '../../lib/image-gen';
 import type { ImageGenOptions } from '../../lib/image-gen';
 import { cn } from '../../lib/utils';
+import { useCreditsStore } from '../../store/credits';
 
 interface Props {
   target: 'character' | 'location' | 'scene' | 'cover' | 'page';
@@ -37,6 +38,17 @@ export function IllustrateButton({ target, targetId, projectId, currentImageUrl,
         options.prompt = customPrompt.trim();
       }
       const result = await generateImageApi(options);
+      // Update credit display
+      if (result.creditsUsed != null) {
+        useCreditsStore.getState().recordUsage({
+          action: 'generate-image',
+          creditsUsed: result.creditsUsed,
+          tokensInput: 0,
+          tokensOutput: 0,
+          model: 'gemini-image',
+          creditsRemaining: result.creditsRemaining ?? null,
+        });
+      }
       setGeneratedImage(result.imageUrl);
       onImageGenerated?.(result.imageUrl);
       setShowOptions(false);
