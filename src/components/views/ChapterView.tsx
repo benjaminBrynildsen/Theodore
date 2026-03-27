@@ -843,6 +843,8 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             data-tag="insert-direction-highlight"
             className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-fuchsia-500 text-white hover:bg-fuchsia-600 active:scale-90 transition-all mx-1 align-middle text-sm font-bold shadow-md"
             title="Add voice direction"
+            onMouseUp={(e) => e.stopPropagation()}
+            onTouchEnd={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               // Find which scene this is in based on editHighlight offset
