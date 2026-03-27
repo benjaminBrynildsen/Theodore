@@ -50,7 +50,6 @@ export function ChapterView({ chapter }: Props) {
   const [taggingSceneId, setTaggingSceneId] = useState<string | null>(null);
   const [taggingSFXSceneId, setTaggingSFXSceneId] = useState<string | null>(null);
   const [showDirectionPicker, setShowDirectionPicker] = useState<{ sceneId: string; charOffset: number } | null>(null);
-  const [directionInsertBtn, setDirectionInsertBtn] = useState<{ sceneId: string; charOffset: number; x: number; y: number } | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const proseDisplayRef = useRef<HTMLDivElement>(null);
 
@@ -421,69 +420,9 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     const newProse = text.slice(0, offset) + `[${tag}] ` + text.slice(offset);
     updateScene(chapter.id, targetSceneId, { prose: newProse });
     syncScenesToProse(chapter.id);
-    setDirectionInsertBtn(null);
   }, [chapter, showDirectionPicker, updateScene, syncScenesToProse]);
 
   // Handle tap on scene prose to show the 🎭 direction insert button
-  const handleProseTapForDirection = useCallback((e: React.MouseEvent, sceneId: string) => {
-    // Don't interfere with tag badge clicks
-    const target = e.target as HTMLElement;
-    if (target.closest('[data-tag]')) return;
-    // Don't interfere with inline editing
-    if (inlineEditOpen) return;
-
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-
-    // Use caretRangeFromPoint (works on mobile Safari/Chrome)
-    let range: Range | null = null;
-    if ('caretRangeFromPoint' in document) {
-      range = (document as any).caretRangeFromPoint(clientX, clientY);
-    } else if ('caretPositionFromPoint' in document) {
-      const pos = (document as any).caretPositionFromPoint(clientX, clientY);
-      if (pos) {
-        range = document.createRange();
-        range.setStart(pos.offsetNode, pos.offset);
-        range.collapse(true);
-      }
-    }
-
-    if (!range) {
-      // Fallback: just use selection
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0 && sel.isCollapsed) {
-        range = sel.getRangeAt(0);
-      }
-    }
-
-    if (!range) return;
-
-    // Compute character offset within the scene prose
-    const proseContainer = (e.currentTarget as HTMLElement).querySelector('.font-serif') || e.currentTarget;
-    const treeWalker = document.createTreeWalker(proseContainer, NodeFilter.SHOW_TEXT);
-    let charOffset = 0;
-    let found = false;
-    while (treeWalker.nextNode()) {
-      if (treeWalker.currentNode === range.startContainer) {
-        charOffset += range.startOffset;
-        found = true;
-        break;
-      }
-      charOffset += (treeWalker.currentNode.textContent || '').length;
-    }
-    if (!found) charOffset = 0; // fallback to start
-
-    // Show the 🎭 button near the tap
-    setDirectionInsertBtn({
-      sceneId,
-      charOffset,
-      x: clientX - 16,
-      y: clientY - 44,
-    });
-    // Clear any open picker
-    setShowDirectionPicker(null);
-  }, [inlineEditOpen]);
-
   // Handle drop of a dragged direction tag to reposition it
   const handleDirectionDrop = useCallback((e: React.DragEvent, sceneId: string) => {
     const data = e.dataTransfer.getData('application/x-direction-tag');
@@ -719,7 +658,6 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       const offset = parseInt(tagEl.dataset.offset || '0', 10);
       if (sceneId) {
         setShowDirectionPicker({ sceneId, charOffset: offset });
-        setDirectionInsertBtn(null);
       }
       return;
     }
@@ -874,58 +812,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       parts.push(text.slice(lastIdx));
     }
 
-    // Now insert + buttons at sentence boundaries for direction tag insertion
-    const finalParts: (string | JSX.Element)[] = [];
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      if (typeof part === 'string') {
-        // Split at sentence boundaries (after . ! ? followed by space)
-        const sentences = part.split(/(?<=[.!?])\s+/);
-        for (let j = 0; j < sentences.length; j++) {
-          finalParts.push(sentences[j]);
-          // Add a + button between sentences (not after the last one)
-          if (j < sentences.length - 1) {
-            // Calculate the character offset for this insertion point
-            // We need the offset in the original text
-            const precedingText = sentences.slice(0, j + 1).join(' ');
-            const offsetInPart = precedingText.length;
-            // Find this part's start offset in the original text
-            let partStart = 0;
-            let found = false;
-            for (let k = 0; k < i; k++) {
-              const p = parts[k];
-              if (typeof p === 'string') partStart += p.length;
-              else {
-                // Tag — find its length in original text
-                const val = (p as any).props?.['data-value'];
-                const tagType = (p as any).props?.['data-tag'];
-                if (tagType === 'direction') partStart += `[${val}]`.length;
-                else if (tagType === 'character') partStart += `[${val}]`.length;
-                else if (tagType === 'sfx') partStart += `{sfx:${val}}`.length;
-              }
-            }
-            const insertOffset = partStart + offsetInPart + 1; // +1 for the space
-
-            finalParts.push(' ');
-            finalParts.push(
-              <button
-                key={`insert-${i}-${j}`}
-                data-tag="insert-direction"
-                data-offset={insertOffset}
-                className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-fuchsia-50 border border-fuchsia-200 text-fuchsia-400 hover:bg-fuchsia-100 hover:text-fuchsia-600 active:bg-fuchsia-300 transition-all mx-0.5 align-middle text-[11px] font-bold"
-                title="Add voice direction"
-              >
-                +
-              </button>
-            );
-          }
-        }
-      } else {
-        finalParts.push(part);
-      }
-    }
-
-    return finalParts.length > 0 ? finalParts : text;
+    return parts.length > 0 ? parts : text;
   }, []);
 
   // Render prose with optional highlight for inline editing
@@ -951,13 +838,44 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     return (
       <div className="font-serif leading-[2] text-text-primary" style={{ fontSize: isFocusMode ? '1.25rem' : '1.125rem' }}>
         {renderSection(before)}
-        <mark className="bg-emerald-100 text-emerald-900 rounded px-0.5 transition-all duration-500">
-          {renderSection(highlighted)}
-        </mark>
+        <span className="relative">
+          <button
+            data-tag="insert-direction-highlight"
+            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-fuchsia-500 text-white hover:bg-fuchsia-600 active:scale-90 transition-all mx-1 align-middle text-sm font-bold shadow-md"
+            title="Add voice direction"
+            onClick={(e) => {
+              e.stopPropagation();
+              // Find which scene this is in based on editHighlight offset
+              const scenes = chapter.scenes || [];
+              let offset = editHighlight!.start;
+              let targetSceneId = '';
+              let sceneOffset = 0;
+              // Map chapter offset to scene offset
+              let runningOffset = 0;
+              for (const s of [...scenes].sort((a, b) => a.order - b.order)) {
+                const len = (s.prose || '').length;
+                if (offset <= runningOffset + len) {
+                  targetSceneId = s.id;
+                  sceneOffset = offset - runningOffset;
+                  break;
+                }
+                runningOffset += len + 2; // +2 for \n\n between scenes
+              }
+              if (targetSceneId) {
+                setShowDirectionPicker({ sceneId: targetSceneId, charOffset: sceneOffset });
+              }
+            }}
+          >
+            +
+          </button>
+          <mark className="bg-emerald-100 text-emerald-900 rounded px-0.5 transition-all duration-500">
+            {renderSection(highlighted)}
+          </mark>
+        </span>
         {renderSection(after)}
       </div>
     );
-  }, [editHighlight, inlineEditOpen, isFocusMode, renderTaggedProse]);
+  }, [editHighlight, inlineEditOpen, isFocusMode, renderTaggedProse, chapter.scenes]);
 
   // Edit mode scene state
   const scenes = (chapter.scenes || []).filter((s): s is Scene => Boolean(s?.id));
