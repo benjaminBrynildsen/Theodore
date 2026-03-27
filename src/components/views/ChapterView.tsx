@@ -1489,7 +1489,15 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 >
                   {/* If we have a highlight, render with mark */}
                   {editHighlight ? (
-                    renderHighlightedProse(chapter.prose)
+                    <>
+                      {renderHighlightedProse(chapter.prose)}
+                      {showDirectionPicker && (
+                        <DirectionTagPicker
+                          onInsert={(tag) => handleInsertDirection(tag, showDirectionPicker.sceneId)}
+                          onClose={() => setShowDirectionPicker(null)}
+                        />
+                      )}
+                    </>
                   ) : scenes.length > 0 ? (
                     /* Scenes: continuous selectable view */
                     <div className="relative">
