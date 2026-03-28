@@ -350,6 +350,29 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+// One-time cleanup: remove *** scene separators from chapter prose
+app.post('/api/admin/cleanup-separators', async (req, res) => {
+  try {
+    const secret = req.headers['x-admin-secret'];
+    if (secret !== process.env.OPENAI_API_KEY?.slice(-8)) return res.status(403).json({ error: 'Forbidden' });
+    const allChapters = await db.select().from(chapters);
+    let updated = 0;
+    for (const ch of allChapters) {
+      const scenes = ch.scenes as any[];
+      if (!scenes?.length) continue;
+      const text = JSON.stringify(scenes);
+      if (!text.includes('***')) continue;
+      const cleaned = scenes.map((s: any) => ({
+        ...s,
+        prose: s.prose ? s.prose.replace(/\n\n\*\*\*\n\n/g, '\n\n').replace(/\*\*\*/g, '') : s.prose
+      }));
+      await db.update(chapters).set({ scenes: cleaned }).where(eq(chapters.id, ch.id));
+      updated++;
+    }
+    res.json({ updated, total: allChapters.length });
+  } catch (e: any) { respondInternalError(res, 'api', e); }
+});
+
 // Debug TTS test endpoint (remove after debugging)
 app.get('/api/debug/tts-test', async (req, res) => {
   if (req.query.key !== 'theodore-debug-2026') return res.status(403).json({ error: 'forbidden' });
