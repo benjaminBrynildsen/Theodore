@@ -1814,7 +1814,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
           {chapter.prose?.trim() && project?.subtype !== 'childrens-book' && (
             <div className="flex justify-center py-12">
               <button
-                onClick={handleExtend}
+                onClick={(e) => { e.stopPropagation(); handleExtend(); }}
                 disabled={extending || generating}
                 className={cn(
                   'px-6 py-3 rounded-xl text-sm font-medium flex items-center gap-2 transition-all',
@@ -1824,7 +1824,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 )}
               >
                 {extending ? <Loader2 size={16} className="animate-spin" /> : <Expand size={16} />}
-                {extending ? 'Extending...' : 'Continue Writing'}
+                {extending ? 'Extending...' : 'Extend Chapter'}
               </button>
             </div>
           )}
