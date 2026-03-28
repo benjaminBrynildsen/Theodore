@@ -893,58 +893,6 @@ export function AudiobookPanel() {
           </div>
         )}
 
-        {/* Voice Configuration */}
-        <div className="border-b border-black/5">
-          <button
-            onClick={() => setShowVoiceConfig(v => !v)}
-            className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-black/[0.02] transition-colors"
-          >
-            <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Voice Configuration</span>
-            {showVoiceConfig ? <ChevronUp size={14} className="text-text-tertiary" /> : <ChevronDown size={14} className="text-text-tertiary" />}
-          </button>
-
-          {showVoiceConfig && (
-            <div className="px-5 pb-4 space-y-4">
-              {/* Narrator Voice */}
-              <div>
-                <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">Narration</label>
-                <div className="grid grid-cols-2 gap-1.5 max-h-64 overflow-y-auto pr-1">
-                  {narratorVoices.map(voice => (
-                    <button
-                      key={voice.id}
-                      onClick={() => { audioStore.setNarratorVoice(voice.id); previewVoice(voice.id); }}
-                      className={cn(
-                        'text-left p-2.5 rounded-xl transition-all text-xs relative group',
-                        narratorVoice === voice.id ? 'bg-text-primary text-text-inverse' : 'glass-pill hover:bg-white/60'
-                      )}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-medium">{voice.name}</span>
-                        {previewing === voice.id && <Volume2 size={9} className="animate-pulse" />}
-                      </div>
-                      <div className={cn('text-[10px]', narratorVoice === voice.id ? 'text-white/60' : 'text-text-tertiary')}>{voice.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Speed control */}
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-text-tertiary">Speed: {speed}x</span>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="2.0"
-                  step="0.1"
-                  value={speed}
-                  onChange={e => audioStore.setSpeed(parseFloat(e.target.value))}
-                  className="w-24 h-1 accent-black"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* Chapter List */}
         <div className="p-5">
           <div className="space-y-2 mb-3">
@@ -1034,7 +982,6 @@ export function AudiobookPanel() {
             {chapters.map(ch => {
               const audio = chapterAudio[ch.id];
               const isGenerating = generating === ch.id;
-              const isPlaying = audioStore.playing && audioStore.currentChapterId === ch.id;
               const wordCount = ch.prose.split(/\s+/).length;
               const estMinutes = Math.ceil(wordCount / 150);
               const versions = audio?.versions || [];
@@ -1043,6 +990,18 @@ export function AudiobookPanel() {
               const isScenesExpanded = expandedScenes === ch.id;
               const scenes = (ch.scenes || []).filter((s: any) => s?.id && s.prose?.trim()).sort((a: any, b: any) => a.order - b.order);
               const hasScenes = scenes.length > 0;
+              // Check if all scenes have been individually generated
+              const allScenesGenerated = hasScenes && scenes.length > 0 && scenes.every((s: any) => !!chapterAudio[`scene-${s.id}`]);
+              // Chapter is playable if it has full-chapter audio OR all scenes are generated
+              const isPlayable = !!audio || allScenesGenerated;
+              const isPlaying = audioStore.playing && (
+                audioStore.currentChapterId === ch.id ||
+                (allScenesGenerated && scenes.some((s: any) => audioStore.currentChapterId === `scene-${s.id}`))
+              );
+              // Total duration from scene audio when no full-chapter audio
+              const scenesTotalDuration = allScenesGenerated && !audio
+                ? scenes.reduce((sum: number, s: any) => sum + (chapterAudio[`scene-${s.id}`]?.durationEstimate || 0), 0)
+                : 0;
 
               return (
                 <div key={ch.id} className="rounded-xl overflow-hidden">
@@ -1057,6 +1016,10 @@ export function AudiobookPanel() {
                       onClick={() => {
                         if (audio) {
                           window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch.id } }));
+                        } else if (allScenesGenerated) {
+                          // Play from scene 1 when all scenes are generated but no full-chapter audio
+                          const firstSceneId = `scene-${scenes[0].id}`;
+                          window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: firstSceneId } }));
                         } else {
                           confirmGenerateChapter(ch.id);
                         }
@@ -1064,12 +1027,12 @@ export function AudiobookPanel() {
                       disabled={isGenerating}
                       className={cn(
                         'w-9 h-9 rounded-full flex items-center justify-center transition-all flex-shrink-0',
-                        audio ? 'bg-text-primary text-text-inverse hover:shadow-md' : 'bg-black/5 hover:bg-black/10'
+                        isPlayable ? 'bg-text-primary text-text-inverse hover:shadow-md' : 'bg-black/5 hover:bg-black/10'
                       )}
                     >
                       {isGenerating ? (
                         <Loader2 size={14} className="animate-spin" />
-                      ) : audio ? (
+                      ) : isPlayable ? (
                         isPlaying ? <Pause size={14} /> : <Play size={14} />
                       ) : (
                         <Headphones size={14} className="text-text-tertiary" />
@@ -1081,8 +1044,9 @@ export function AudiobookPanel() {
                         <span>
                           {isGenerating ? 'Generating...' :
                            audio ? `Audio ready · ~${formatTime(audio.durationEstimate)}` :
+                           allScenesGenerated ? `All scenes ready · ~${formatTime(scenesTotalDuration)}` :
                            `${wordCount.toLocaleString()} words · ~${estMinutes} min`}
-                          {hasScenes && !audio && ` · ${scenes.length} scenes`}
+                          {hasScenes && !isPlayable && ` · ${scenes.length} scenes`}
                         </span>
                         {scenes.some((s: any) => musicStore.sceneTracks[s.id]?.tracks?.length > 0) && (
                           <Music size={9} className="text-purple-400" title="Has background music" />
@@ -1328,6 +1292,58 @@ export function AudiobookPanel() {
                 <Download size={16} />
                 Download All ({audioCount} chapters)
               </button>
+            </div>
+          )}
+        </div>
+
+        {/* Voice Configuration */}
+        <div className="border-b border-black/5">
+          <button
+            onClick={() => setShowVoiceConfig(v => !v)}
+            className="w-full flex items-center justify-between px-5 py-3 text-left hover:bg-black/[0.02] transition-colors"
+          >
+            <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Voice Configuration</span>
+            {showVoiceConfig ? <ChevronUp size={14} className="text-text-tertiary" /> : <ChevronDown size={14} className="text-text-tertiary" />}
+          </button>
+
+          {showVoiceConfig && (
+            <div className="px-5 pb-4 space-y-4">
+              {/* Narrator Voice */}
+              <div>
+                <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">Narration</label>
+                <div className="grid grid-cols-2 gap-1.5 max-h-64 overflow-y-auto pr-1">
+                  {narratorVoices.map(voice => (
+                    <button
+                      key={voice.id}
+                      onClick={() => { audioStore.setNarratorVoice(voice.id); previewVoice(voice.id); }}
+                      className={cn(
+                        'text-left p-2.5 rounded-xl transition-all text-xs relative group',
+                        narratorVoice === voice.id ? 'bg-text-primary text-text-inverse' : 'glass-pill hover:bg-white/60'
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium">{voice.name}</span>
+                        {previewing === voice.id && <Volume2 size={9} className="animate-pulse" />}
+                      </div>
+                      <div className={cn('text-[10px]', narratorVoice === voice.id ? 'text-white/60' : 'text-text-tertiary')}>{voice.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Speed control */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-text-tertiary">Speed: {speed}x</span>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2.0"
+                  step="0.1"
+                  value={speed}
+                  onChange={e => audioStore.setSpeed(parseFloat(e.target.value))}
+                  className="w-24 h-1 accent-black"
+                />
+              </div>
             </div>
           )}
         </div>
