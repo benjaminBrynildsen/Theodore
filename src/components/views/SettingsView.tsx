@@ -188,17 +188,6 @@ function WritingStyleSection() {
         ]}
       />
       <SegmentedControl
-        value={s.sceneBreakStyle}
-        onChange={(v) => updateWritingStyle({ sceneBreakStyle: v })}
-        label="Scene Break Marker"
-        options={[
-          { value: '***', label: '***' },
-          { value: '---', label: '---' },
-          { value: '· · ·', label: '· · ·' },
-          { value: 'blank', label: 'Blank' },
-        ]}
-      />
-      <SegmentedControl
         value={s.chapterStartStyle}
         onChange={(v) => updateWritingStyle({ chapterStartStyle: v })}
         label="Chapter Opening Style"
