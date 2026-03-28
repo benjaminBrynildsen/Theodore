@@ -1867,6 +1867,24 @@ const uploadsPath = path.resolve(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsPath)) fs.mkdirSync(uploadsPath, { recursive: true });
 app.use('/uploads', express.static(uploadsPath));
 
+// Temp admin: add credits
+app.post('/api/admin/add-credits', async (req, res) => {
+  try {
+    const secret = req.headers['x-admin-secret'];
+    if (secret !== process.env.OPENAI_API_KEY?.slice(-8)) return res.status(403).json({ error: 'Forbidden' });
+    const { email, projectTitle, amount } = req.body;
+    if ((!email && !projectTitle) || !amount) return res.status(400).json({ error: '(email or projectTitle) and amount required' });
+    let targetEmail = email;
+    if (!targetEmail && projectTitle) {
+      const found = await db.execute(sql`SELECT u.email FROM users u JOIN projects p ON p.user_id = u.id WHERE p.title = ${projectTitle} LIMIT 1`);
+      if (!found.rows.length) return res.status(404).json({ error: 'No user found for that project' });
+      targetEmail = (found.rows[0] as any).email;
+    }
+    const result = await db.execute(sql`UPDATE users SET credits_remaining = credits_remaining + ${amount}, credits_total = credits_total + ${amount} WHERE email = ${targetEmail} RETURNING email, credits_remaining, credits_total`);
+    res.json({ updated: result.rows });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 // ========== Serve static in production ==========
 const distPath = path.resolve(process.cwd(), 'dist');
 app.use(express.static(distPath));
