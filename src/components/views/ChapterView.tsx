@@ -1809,6 +1809,25 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
               )}
             </div>
           )}
+
+          {/* Extend button at end of chapter */}
+          {chapter.prose?.trim() && project?.subtype !== 'childrens-book' && (
+            <div className="flex justify-center py-12">
+              <button
+                onClick={handleExtend}
+                disabled={extending || generating}
+                className={cn(
+                  'px-6 py-3 rounded-xl text-sm font-medium flex items-center gap-2 transition-all',
+                  extending || generating
+                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                    : 'bg-text-primary text-text-inverse hover:shadow-lg hover:scale-105',
+                )}
+              >
+                {extending ? <Loader2 size={16} className="animate-spin" /> : <Expand size={16} />}
+                {extending ? 'Extending...' : 'Continue Writing'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
