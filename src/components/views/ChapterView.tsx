@@ -1031,31 +1031,9 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
           </span>
 
-          {/* Like — hidden on mobile */}
-          <button
-            onClick={toggleLike}
-            className={cn(
-              'px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all hidden sm:flex items-center gap-1',
-              liked
-                ? 'bg-rose-100 text-rose-700'
-                : 'text-text-tertiary hover:text-text-primary hover:bg-white/40',
-            )}
-            title={liked ? 'Unlike chapter' : 'Like chapter'}
-          >
-            <Heart size={13} className={liked ? 'fill-current' : ''} />
-            {liked ? 'Liked' : 'Like'}
-          </button>
-
           {/* Extend — hidden on mobile, hidden for children's books (pages are short) */}
           {project?.subtype !== 'childrens-book' && (
             <>
-              <button
-                onClick={() => setChunkSize((prev) => (prev === 'short' ? 'medium' : prev === 'medium' ? 'long' : 'short'))}
-                className="hidden sm:block px-2 py-1.5 rounded-lg text-[11px] font-medium text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
-                title="Chunk size"
-              >
-                {chunkProfile.label}
-              </button>
               <button
                 onClick={handleExtend}
                 disabled={!chapter.prose.trim() || extending || generating}
@@ -1084,46 +1062,6 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             </button>
           )}
 
-          {/* X-Ray — hidden on mobile */}
-          {chapter.prose && (
-            <button
-              onClick={() => setShowXRay(!showXRay)}
-              className={cn('hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showXRay && 'bg-white/40 text-text-primary')}
-              title="Prose X-Ray"
-            >
-              <Scan size={15} />
-            </button>
-          )}
-
-          {/* Emotional X-Ray — hidden on mobile */}
-          {chapter.scenes && chapter.scenes.length > 0 && (
-            <button
-              onClick={() => setShowEmotionXRay(!showEmotionXRay)}
-              className={cn('hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showEmotionXRay && 'bg-purple-100 text-purple-600')}
-              title="Emotional X-Ray"
-            >
-              <Activity size={15} />
-            </button>
-          )}
-
-          {/* Research — hidden on mobile */}
-          <button
-            onClick={() => setShowResearch(!showResearch)}
-            className={cn('hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showResearch && 'bg-white/40 text-text-primary')}
-            title="Smart Research"
-          >
-            <Search size={15} />
-          </button>
-
-          {/* Dictation — hidden on mobile */}
-          <button
-            onClick={() => setShowDictation(!showDictation)}
-            className={cn('hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all', showDictation && 'bg-white/40 text-red-500')}
-            title="Dictation mode"
-          >
-            <Mic size={15} />
-          </button>
-
           {/* Reading mode */}
           <button
             onClick={() => setShowReadingMode(true)}
@@ -1133,14 +1071,6 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             <BookMarked size={15} />
           </button>
 
-          {/* Focus mode toggle — hidden on mobile */}
-          <button
-            onClick={() => setIsFocusMode(!isFocusMode)}
-            className="hidden sm:block p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all"
-            title={isFocusMode ? 'Exit focus mode' : 'Focus mode'}
-          >
-            {isFocusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-          </button>
         </div>
       </div>
 
