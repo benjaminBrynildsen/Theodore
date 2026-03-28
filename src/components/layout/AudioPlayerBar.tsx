@@ -1,9 +1,68 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Loader2, X, Volume2, VolumeX, Headphones } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
+
+/** Draggable progress bar — works with mouse and touch */
+function ProgressScrubber({ progressPct, onSeek }: { progressPct: number; onSeek: (fraction: number) => void }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [dragPct, setDragPct] = useState(0);
+
+  const fractionFromEvent = useCallback((clientX: number) => {
+    const bar = barRef.current;
+    if (!bar) return 0;
+    const rect = bar.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }, []);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: PointerEvent) => {
+      const f = fractionFromEvent(e.clientX);
+      setDragPct(f * 100);
+      onSeek(f);
+    };
+    const onUp = () => setDragging(false);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [dragging, fractionFromEvent, onSeek]);
+
+  const displayPct = dragging ? dragPct : progressPct;
+
+  return (
+    <div
+      ref={barRef}
+      className="h-3 sm:h-2 bg-white/10 cursor-pointer relative group touch-none select-none"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        const f = fractionFromEvent(e.clientX);
+        setDragPct(f * 100);
+        setDragging(true);
+        onSeek(f);
+      }}
+    >
+      <div
+        className="absolute inset-y-0 left-0 bg-white rounded-r-full"
+        style={{ width: `${displayPct}%`, transition: dragging ? 'none' : 'width 200ms' }}
+      />
+      <div
+        className={cn(
+          'absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-md transition-opacity',
+          dragging ? 'opacity-100 scale-110' : 'opacity-0 group-hover:opacity-100'
+        )}
+        style={{ left: `calc(${displayPct}% - 8px)` }}
+      />
+    </div>
+  );
+}
 
 export function AudioPlayerBar() {
   const { getActiveProject, getProjectChapters } = useStore();
@@ -452,23 +511,8 @@ export function AudioPlayerBar() {
   return (
     <div className="fixed bottom-14 sm:bottom-0 inset-x-0 z-[55] sm:z-50 safe-area-bottom">
       <div className="bg-[#181818] text-white shadow-2xl">
-        {/* Progress bar — touch-friendly on mobile */}
-        <div
-          className="h-2 sm:h-1 bg-white/10 cursor-pointer relative group"
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            seekTo((e.clientX - rect.left) / rect.width);
-          }}
-        >
-          <div
-            className="absolute inset-y-0 left-0 bg-white rounded-r-full transition-[width] duration-200"
-            style={{ width: `${progressPct}%` }}
-          />
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ left: `calc(${progressPct}% - 6px)` }}
-          />
-        </div>
+        {/* Progress bar — draggable on desktop & mobile */}
+        <ProgressScrubber progressPct={progressPct} onSeek={seekTo} />
 
         {/* Error banner */}
         {error && (

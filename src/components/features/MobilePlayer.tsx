@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Play, Pause, SkipBack, SkipForward, ChevronDown, Volume2, VolumeX, Shuffle, Repeat, Loader2, Sparkles } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
@@ -28,6 +28,65 @@ function CoverArt({ project, chapterImage, size = 'full' }: { project: { title: 
  * Compact mini-bar that sits at the bottom of the Studio panel.
  * Tap to expand into fullscreen player.
  */
+/** Draggable progress scrubber for mobile fullscreen player */
+function MobileScrubber({ progressPct, onSeek }: { progressPct: number; onSeek: (fraction: number) => void }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [dragPct, setDragPct] = useState(0);
+
+  const fractionFromEvent = useCallback((clientX: number) => {
+    const bar = barRef.current;
+    if (!bar) return 0;
+    const rect = bar.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }, []);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: PointerEvent) => {
+      const f = fractionFromEvent(e.clientX);
+      setDragPct(f * 100);
+      onSeek(f);
+    };
+    const onUp = () => setDragging(false);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [dragging, fractionFromEvent, onSeek]);
+
+  const displayPct = dragging ? dragPct : progressPct;
+
+  return (
+    <div
+      ref={barRef}
+      className="h-3 bg-black/15 rounded-full cursor-pointer relative touch-none select-none"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        const f = fractionFromEvent(e.clientX);
+        setDragPct(f * 100);
+        setDragging(true);
+        onSeek(f);
+      }}
+    >
+      <div
+        className="absolute inset-y-0 left-0 bg-text-primary rounded-full"
+        style={{ width: `${displayPct}%`, transition: dragging ? 'none' : 'width 200ms' }}
+      />
+      <div
+        className={cn(
+          'absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-text-primary rounded-full shadow-sm',
+          dragging ? 'scale-125' : ''
+        )}
+        style={{ left: `calc(${displayPct}% - 8px)` }}
+      />
+    </div>
+  );
+}
+
 export function MobilePlayerBar({ onExpand }: { onExpand: () => void }) {
   const { getActiveProject, getProjectChapters } = useStore();
   const { playing, currentChapterId, currentTime, duration, chapterAudio, generating, setPlaying } = useAudioStore();
@@ -185,24 +244,9 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
         <p className="text-sm text-text-tertiary truncate">{project.title}</p>
       </div>
 
-      {/* Progress bar */}
+      {/* Progress bar — draggable */}
       <div className="px-8 pt-4">
-        <div
-          className="h-1 bg-black/15 rounded-full cursor-pointer relative group"
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            seekTo((e.clientX - rect.left) / rect.width);
-          }}
-        >
-          <div
-            className="absolute inset-y-0 left-0 bg-text-primary rounded-full transition-[width] duration-200"
-            style={{ width: `${progressPct}%` }}
-          />
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-text-primary rounded-full shadow-sm"
-            style={{ left: `calc(${progressPct}% - 7px)` }}
-          />
-        </div>
+        <MobileScrubber progressPct={progressPct} onSeek={seekTo} />
         <div className="flex justify-between mt-1.5">
           <span className="text-[10px] text-text-tertiary">{formatTime(currentTime)}</span>
           <span className="text-[10px] text-text-tertiary">{formatTime(duration || currentAudio?.durationEstimate || 0)}</span>
