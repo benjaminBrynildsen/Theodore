@@ -22,7 +22,7 @@ import { FEATURES } from '../../lib/feature-flags';
 import { api } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { runPostGenerationPipeline } from '../../lib/post-generation-pipeline';
-import { cn } from '../../lib/utils';
+import { cn, generateId } from '../../lib/utils';
 import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
 
 /** Standalone + button for inserting direction tags — handles mobile touch properly */
@@ -86,7 +86,7 @@ interface Props {
 }
 
 export function ChapterView({ chapter }: Props) {
-  const { setActiveChapter, updateChapter, setShowReadingMode, editMode, inlineEditOpen, setInlineEditOpen, activeSceneId, setActiveScene, updateScene, syncScenesToProse, inlineSelection, setInlineSelection, editHighlight, setEditHighlight } = useStore();
+  const { setActiveChapter, updateChapter, setShowReadingMode, editMode, inlineEditOpen, setInlineEditOpen, activeSceneId, setActiveScene, updateScene, syncScenesToProse, inlineSelection, setInlineSelection, editHighlight, setEditHighlight, setChapterScenes } = useStore();
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
@@ -292,6 +292,99 @@ export function ChapterView({ chapter }: Props) {
           api.updateChapter(chapter.id, { prose: extendedProse, status: 'human-edited' }).catch((e) =>
             console.error('[Extend] Immediate prose save failed:', e),
           );
+
+          // Auto-append new scenes for the extension if chapter already has scenes
+          const existingScenes = latest?.scenes || chapter.scenes || [];
+          if (existingScenes.length > 0 && trimmed) {
+            (async () => {
+              try {
+                const proj = getActiveProject();
+                if (!proj) return;
+                // Decompose just the new extension text into scenes
+                const decomposePrompt = [
+                  `You are Theodore, an expert story architect working on "${proj.title}".`,
+                  `\nThe following text was just appended to Chapter ${chapter.number}: "${chapter.title}".`,
+                  `Decompose ONLY this new extension into 1-3 scenes. These will be added after the existing ${existingScenes.length} scenes.`,
+                  `\n=== NEW EXTENSION TEXT ===`,
+                  trimmed.slice(0, 4000),
+                  `\nReturn ONLY a JSON array. No markdown, no explanation. Format:`,
+                  `[`,
+                  `  { "title": "Scene Title", "summary": "2-3 sentence description" }`,
+                  `]`,
+                  `\nRules:`,
+                  `- 1-3 scenes only (this is a continuation, not a full chapter)`,
+                  `- Each scene should have a clear dramatic purpose`,
+                ].join('\n');
+
+                const result = await generateText({
+                  prompt: decomposePrompt,
+                  model: settings.ai?.preferredModel || 'gpt-4.1',
+                  maxTokens: 1000,
+                  action: 'generate-chapter-outline',
+                  projectId: proj.id,
+                  chapterId: chapter.id,
+                });
+
+                const text = (result.text || '').trim();
+                const jsonMatch = text.match(/\[[\s\S]*\]/);
+                if (!jsonMatch) return;
+
+                const parsed = JSON.parse(jsonMatch[0]) as { title: string; summary: string }[];
+                const maxOrder = existingScenes.reduce((max, s) => Math.max(max, s.order), 0);
+                const newScenes: Scene[] = parsed.map((s, i) => ({
+                  id: generateId(),
+                  title: s.title || `Scene ${maxOrder + i + 1}`,
+                  summary: s.summary || '',
+                  prose: '',
+                  order: maxOrder + i + 1,
+                  status: 'outline' as const,
+                }));
+
+                // Try to split the extension text across the new scenes
+                try {
+                  const splitPrompt = [
+                    `You are Theodore, a precise text analysis tool. Split the following text into segments matching the given scene outlines.`,
+                    `\n=== SCENE OUTLINES ===`,
+                    ...newScenes.map(s => `Scene ${s.order}: "${s.title}" — ${s.summary}`),
+                    `\n=== TEXT ===`,
+                    trimmed,
+                    `\nSplit the text into segments matching each scene. Preserve the EXACT original text.`,
+                    `Return ONLY a JSON array: [{ "order": ${maxOrder + 1}, "prose": "..." }, ...]`,
+                  ].join('\n');
+
+                  const splitResult = await generateText({
+                    prompt: splitPrompt,
+                    model: settings.ai?.preferredModel || 'gpt-4.1',
+                    maxTokens: 4000,
+                    action: 'generate-chapter-outline',
+                    projectId: proj.id,
+                    chapterId: chapter.id,
+                  });
+
+                  const splitText = (splitResult.text || '').trim();
+                  const splitJson = splitText.match(/\[[\s\S]*\]/);
+                  if (splitJson) {
+                    const splitParsed = JSON.parse(splitJson[0]) as { order: number; prose: string }[];
+                    for (const seg of splitParsed) {
+                      const target = newScenes.find(s => s.order === seg.order);
+                      if (target && seg.prose) {
+                        target.prose = seg.prose;
+                        target.status = 'drafted';
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.error('[Extend] Failed to split extension into scenes:', e);
+                }
+
+                // Append new scenes to existing ones
+                setChapterScenes(chapter.id, [...existingScenes, ...newScenes]);
+                console.log(`[Extend] Appended ${newScenes.length} new scene(s) after extension`);
+              } catch (e) {
+                console.error('[Extend] Failed to auto-decompose extension into scenes:', e);
+              }
+            })();
+          }
         }
         setGeneratedText('');
         setExtending(false);
