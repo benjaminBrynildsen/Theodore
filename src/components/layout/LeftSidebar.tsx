@@ -155,6 +155,16 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
     const freshChapter = useStore.getState().chapters.find(c => c.id === chapterId);
     if (!project || !freshChapter?.prose?.trim()) return;
 
+    // Confirm before wiping existing scenes
+    const existingScenes = (freshChapter.scenes || []).filter((s: any) => s && s.id);
+    if (existingScenes.length > 0) {
+      const hasContent = existingScenes.some((s: any) => s.prose?.trim() || s.emotionalMetadata || (s.sfx && s.sfx.length > 0));
+      const msg = hasContent
+        ? `This will replace ${existingScenes.length} existing scene(s) including their prose, music data, and SFX tags. This cannot be undone. Continue?`
+        : `This will replace ${existingScenes.length} existing scene outline(s). Continue?`;
+      if (!window.confirm(msg)) return;
+    }
+
     setScenesGenerating(true);
     try {
       const allChapters = getProjectChapters(project.id);
@@ -221,6 +231,13 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
         }
       } catch (e) {
         console.error('Failed to split prose into scenes:', e);
+      }
+
+      // Fallback: if prose split failed and no scenes got prose, put all prose in first scene
+      const anySceneHasProse = newScenes.some(s => s.prose?.trim());
+      if (!anySceneHasProse && freshChapter.prose?.trim() && newScenes.length > 0) {
+        newScenes[0].prose = freshChapter.prose;
+        newScenes[0].status = 'drafted';
       }
 
       setChapterScenes(chapterId, newScenes);

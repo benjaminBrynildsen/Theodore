@@ -1276,24 +1276,6 @@ export function AudiobookPanel() {
             </div>
           )}
 
-          {audioCount > 0 && (
-            <div className="mt-4 pt-4 border-t border-black/5">
-              <div className="text-[10px] text-text-tertiary text-center mb-2">
-                {audioCount} of {chapters.length} chapters generated
-              </div>
-              <button
-                onClick={async () => {
-                  for (const ch of chapters) {
-                    if (chapterAudio[ch.id]) await downloadChapter(ch.id);
-                  }
-                }}
-                className="w-full py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-medium flex items-center justify-center gap-2 hover:shadow-lg transition-all"
-              >
-                <Download size={16} />
-                Download All ({audioCount} chapters)
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Voice Configuration */}
@@ -1551,6 +1533,26 @@ export function AudiobookPanel() {
             </div>
           )}
         </div>}
+
+        {/* Download All — pinned to bottom */}
+        {audioCount > 0 && (
+          <div className="px-5 py-4 border-t border-black/5">
+            <div className="text-[10px] text-text-tertiary text-center mb-2">
+              {audioCount} of {chapters.length} chapters generated
+            </div>
+            <button
+              onClick={async () => {
+                for (const ch of chapters) {
+                  if (chapterAudio[ch.id]) await downloadChapter(ch.id);
+                }
+              }}
+              className="w-full py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-medium flex items-center justify-center gap-2 hover:shadow-lg transition-all"
+            >
+              <Download size={16} />
+              Download All ({audioCount} chapters)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

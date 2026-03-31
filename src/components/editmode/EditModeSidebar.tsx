@@ -111,6 +111,13 @@ export function EditModeSidebar({ projectId, chapterId }: Props) {
         } catch (e) {
           console.error('Failed to split prose into scenes:', e);
         }
+
+        // Fallback: if prose split failed, put all prose in first scene
+        const anySceneHasProse = newScenes.some(s => s.prose?.trim());
+        if (!anySceneHasProse && newScenes.length > 0) {
+          newScenes[0].prose = freshChapter.prose;
+          newScenes[0].status = 'drafted';
+        }
       }
 
       setChapterScenes(chapterId, newScenes);
