@@ -1862,6 +1862,42 @@ app.post('/api/sfx/generate', async (req, res) => {
   }
 });
 
+// ========== TEMP: Admin data recovery endpoint ==========
+app.get('/api/admin/recover-scenes', async (req, res) => {
+  try {
+    const secret = req.headers['x-admin-secret'] as string;
+    const expectedSecret = process.env.OPENAI_API_KEY?.slice(-8);
+    if (!secret || secret !== expectedSecret) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const query = req.query.q as string || '';
+    // Search projects and chapters matching query
+    const allProjects = await db.select().from(schema.projects);
+    const matchedProjects = query
+      ? allProjects.filter(p => p.title.toLowerCase().includes(query.toLowerCase()))
+      : allProjects;
+    const result: any[] = [];
+    for (const proj of matchedProjects) {
+      const chaptersData = await db.select().from(schema.chapters).where(eq(schema.chapters.projectId, proj.id));
+      result.push({
+        project: proj,
+        chapters: chaptersData.map(c => ({
+          id: c.id,
+          title: c.title,
+          number: c.number,
+          status: c.status,
+          scenesCount: ((c.scenes as any[]) || []).length,
+          scenes: c.scenes,
+          prose: c.prose?.substring(0, 200) + (c.prose && c.prose.length > 200 ? '...' : ''),
+        })),
+      });
+    }
+    res.json({ count: result.length, projects: result });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ========== Serve generated images ==========
 const uploadsPath = path.resolve(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsPath)) fs.mkdirSync(uploadsPath, { recursive: true });
