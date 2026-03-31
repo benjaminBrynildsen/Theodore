@@ -1888,7 +1888,7 @@ app.get('/api/admin/recover-scenes', async (req, res) => {
           status: c.status,
           scenesCount: ((c.scenes as any[]) || []).length,
           scenes: c.scenes,
-          prose: c.prose?.substring(0, 200) + (c.prose && c.prose.length > 200 ? '...' : ''),
+          fullProse: c.prose,
         })),
       });
     }
