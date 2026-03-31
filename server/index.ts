@@ -1872,13 +1872,13 @@ app.get('/api/admin/recover-scenes', async (req, res) => {
     }
     const query = req.query.q as string || '';
     // Search projects and chapters matching query
-    const allProjects = await db.select().from(schema.projects);
+    const allProjects = await db.select().from(projects);
     const matchedProjects = query
       ? allProjects.filter(p => p.title.toLowerCase().includes(query.toLowerCase()))
       : allProjects;
     const result: any[] = [];
     for (const proj of matchedProjects) {
-      const chaptersData = await db.select().from(schema.chapters).where(eq(schema.chapters.projectId, proj.id));
+      const chaptersData = await db.select().from(chapters).where(eq(chapters.projectId, proj.id));
       result.push({
         project: proj,
         chapters: chaptersData.map(c => ({
