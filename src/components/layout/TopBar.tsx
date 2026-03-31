@@ -28,6 +28,9 @@ export function TopBar() {
 
   return (
     <header className="h-14 glass-subtle flex items-center px-3 sm:px-4 gap-2 sm:gap-3 z-50 border-b-0 overflow-x-auto">
+      {/* Invisible spacer on mobile to balance the settings gear on the right */}
+      <div className="w-[30px] flex-shrink-0 sm:hidden" />
+
       {/* Left sidebar toggle — hidden on mobile */}
       <button
         onClick={toggleLeftSidebar}
