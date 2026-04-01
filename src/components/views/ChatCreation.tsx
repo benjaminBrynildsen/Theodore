@@ -1007,9 +1007,9 @@ Rules:
   const hasUserMessage = messages.some((message) => message.role === 'user');
 
   return (
-    <div className="flex-1 flex flex-col bg-bg animate-fade-in overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-black/5">
+    <div className="fixed inset-0 flex flex-col bg-bg animate-fade-in overflow-hidden z-50">
+        {/* Header - minimal */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-2 border-b border-black/5 flex-shrink-0">
           <button onClick={onClose} className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm transition-colors">
             <ArrowLeft size={16} />
             <span>Back</span>
@@ -1022,7 +1022,7 @@ Rules:
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-hidden px-4 sm:px-6 py-4">
+        <div className="flex-1 overflow-hidden px-4 sm:px-6 py-2">
           <div className="max-w-7xl mx-auto w-full h-full grid grid-cols-1 lg:grid-cols-[minmax(0,60%)_minmax(0,30%)] gap-6 lg:gap-8 items-stretch">
           <div className="w-full">
           <div className="rounded-[28px] border border-black/10 bg-white/75 shadow-2xl backdrop-blur-md overflow-hidden mx-auto flex flex-col h-full min-h-0">
@@ -1088,7 +1088,7 @@ Rules:
               </div>
             </div>
 
-            <div className="border-t border-black/10 p-3 sm:p-4 bg-white/60">
+            <div className="border-t border-black/10 p-3 sm:p-4 bg-white/60 flex-shrink-0">
               {/* Book type picker */}
               <div className="relative mb-2">
                 <button
@@ -1130,7 +1130,7 @@ Rules:
                 )}
               </div>
 
-              <div className="flex items-center gap-3 rounded-2xl border border-black/10 bg-white/80 shadow-sm p-2.5">
+              <div className="flex items-end gap-3 rounded-2xl border border-black/10 bg-white/80 shadow-inner p-3">
                 <textarea
                   ref={inputRef}
                   value={input}
@@ -1142,14 +1142,14 @@ Rules:
                     }
                   }}
                   placeholder={bookType === 'childrens-book' ? "Describe your story: characters, theme, age group..." : "Describe the spark: character, situation, trouble..."}
-                  rows={1}
-                  className="flex-1 h-11 min-h-11 max-h-11 overflow-y-auto bg-transparent border-none outline-none resize-none text-sm px-3 py-2 leading-relaxed"
+                  rows={3}
+                  className="flex-1 min-h-[4.5rem] max-h-[4.5rem] overflow-y-auto bg-transparent border-none outline-none resize-none text-sm px-2 py-1 leading-relaxed placeholder:text-text-tertiary/60"
                 />
                 <button
                   onClick={sendMessage}
                   disabled={!input.trim() || isTyping}
                   className={cn(
-                    'h-11 w-11 flex items-center justify-center rounded-2xl transition-all',
+                    'h-10 w-10 flex-shrink-0 flex items-center justify-center rounded-xl transition-all mb-0.5',
                     input.trim() && !isTyping
                       ? 'bg-text-primary text-text-inverse shadow-md hover:shadow-lg active:scale-95'
                       : 'glass-pill text-text-tertiary'
