@@ -648,7 +648,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         const chapter = get().chapters.find(c => c.id === chapterId);
         if (chapter?.scenes?.length) {
           const sorted = [...chapter.scenes].sort((a, b) => a.order - b.order);
-          const combinedProse = sorted.map(s => s.prose).filter(Boolean).join('\n\n***\n\n');
+          const combinedProse = sorted.map(s => s.prose).filter(Boolean).join('\n\n');
           if (combinedProse.trim()) {
             get().updateChapter(chapterId, { prose: combinedProse });
           }
@@ -772,7 +772,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     const chapter = get().chapters.find(c => c.id === chapterId);
     if (!chapter?.scenes?.length) return;
     const sorted = [...chapter.scenes].sort((a, b) => a.order - b.order);
-    const combinedProse = sorted.map(s => s.prose).filter(Boolean).join('\n\n***\n\n');
+    const combinedProse = sorted.map(s => s.prose).filter(Boolean).join('\n\n');
     get().updateChapter(chapterId, { prose: combinedProse });
   },
 

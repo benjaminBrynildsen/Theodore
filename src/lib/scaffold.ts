@@ -87,8 +87,8 @@ export function buildScaffoldPrompt(
   sections.push(`\n=== INSTRUCTIONS ===`);
   sections.push(`Generate exactly ${chapterCount} chapters. For each chapter, provide:`);
   sections.push(`- A compelling, evocative title (not "Chapter 1" — a real title)`);
-  sections.push(`- purpose: what this chapter accomplishes in the story (1-2 sentences)`);
-  sections.push(`- changes: what changes by the end of this chapter`);
+  sections.push(`- purpose: a brief story summary of what HAPPENS in this chapter — use character names, specific events, and plot beats, NOT meta-language like "stakes are raised" or "tension builds". Write it like a jacket-blurb synopsis. (1-2 sentences)`);
+  sections.push(`- changes: what concretely changes by the end of this chapter (character decisions, revelations, relationships shifting)`);
   sections.push(`- emotionalBeat: the emotional arc (e.g., "tension builds to dread", "relief gives way to suspicion")`);
   sections.push(`- characters: array of character names present in this chapter`);
   sections.push(`- constraints: any rules (e.g., "don't reveal the killer yet")`);
@@ -208,7 +208,7 @@ export function normalizeScaffoldResults(
     pushUnique({
       number: fallback.number || output.length + 1,
       title: fallback.title || `Chapter ${output.length + 1}`,
-      purpose: fallback.premise || 'Advance character, conflict, and stakes.',
+      purpose: fallback.premise || '',
       changes: '',
       emotionalBeat: '',
       characters: [],
@@ -222,7 +222,7 @@ export function normalizeScaffoldResults(
     pushUnique({
       number,
       title: `Chapter ${number}`,
-      purpose: 'Advance character, conflict, and stakes.',
+      purpose: '',
       changes: '',
       emotionalBeat: '',
       characters: [],

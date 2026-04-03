@@ -108,6 +108,9 @@ export function ChapterView({ chapter }: Props) {
   const [showDirectionPicker, setShowDirectionPicker] = useState<{ sceneId: string; charOffset: number } | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const proseDisplayRef = useRef<HTMLDivElement>(null);
+  const [directEditSceneId, setDirectEditSceneId] = useState<string | null>(null);
+  const [directEditOffset, setDirectEditOffset] = useState(0);
+  const directEditRef = useRef<HTMLTextAreaElement>(null);
 
   const { getActiveProject, getProjectChapters, chapters: allChapters } = useStore();
   const { getProjectEntries, activeEntryId, getEntry, setActiveEntry } = useCanonStore();
@@ -119,11 +122,14 @@ export function ChapterView({ chapter }: Props) {
   const project = getActiveProject();
   const liked = Boolean((chapter.aiIntentMetadata as any)?.userFeedback?.liked);
   const chunkProfiles: Record<'short' | 'medium' | 'long', { label: string; words: string; maxTokens: number }> = {
-    short: { label: 'Quick', words: '700-1,000', maxTokens: 1400 },
-    medium: { label: 'Standard', words: '1,000-1,500', maxTokens: 2200 },
-    long: { label: 'Long', words: '1,600-2,200', maxTokens: 3200 },
+    short: { label: '1k', words: '800-1,200', maxTokens: 1800 },
+    medium: { label: '2k', words: '1,800-2,500', maxTokens: 3800 },
+    long: { label: '3.5k', words: '3,000-4,000', maxTokens: 6000 },
   };
   const chunkProfile = chunkProfiles[chunkSize];
+  const [wordTarget, setWordTarget] = useState(2500);
+  const wordTargetOptions = [1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000];
+  const wordTargetMaxTokens = Math.round(wordTarget * 1.5);
 
   // AI Generation handler
   const handleGenerate = async () => {
@@ -153,14 +159,14 @@ export function ChapterView({ chapter }: Props) {
     // Children's books: the prompt already has strict word limits, no chunking needed
     const prompt = isChildrensBook
       ? basePrompt
-      : basePrompt + `\n\nWrite only the opening chunk of this chapter (${chunkProfile.words} words). End on a continuation beat so more chunks can be added.`;
+      : basePrompt + `\n\nWrite this chapter targeting approximately ${wordTarget} words. Write a complete, well-paced chapter that covers the full chapter premise.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`;
 
     let accumulated = '';
     await generateStream(
       {
         prompt,
         model: settings.ai?.preferredModel || 'gpt-4.1',
-        maxTokens: isChildrensBook ? 300 : chunkProfile.maxTokens,
+        maxTokens: isChildrensBook ? 300 : wordTargetMaxTokens,
         action: 'generate-chapter',
         projectId: project.id,
         chapterId: chapter.id,
@@ -184,7 +190,7 @@ export function ChapterView({ chapter }: Props) {
             chunking: {
               mode: 'start',
               chunkSize,
-              targetWords: chunkProfile.words,
+              targetWords: String(wordTarget),
             },
           },
         };
@@ -251,14 +257,14 @@ export function ChapterView({ chapter }: Props) {
       writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
       generationType: 'full-chapter' as GenerationType,
       previousChapterProse: prevChapter?.prose,
-    }) + `\n\nContinue this chapter from the exact ending of the current draft. Add only the next ${chunkProfile.words} words. Do not restart scenes. End on a continuation beat.`;
+    }) + `\n\nContinue this chapter from the exact ending of the current draft. Add approximately ${wordTarget} more words. Do not restart scenes or repeat existing content.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`;
 
     let extension = '';
     await generateStream(
       {
         prompt,
         model: settings.ai?.preferredModel || 'gpt-4.1',
-        maxTokens: chunkProfile.maxTokens,
+        maxTokens: wordTargetMaxTokens,
         action: 'extend-chapter',
         projectId: project.id,
         chapterId: chapter.id,
@@ -284,7 +290,7 @@ export function ChapterView({ chapter }: Props) {
               chunking: {
                 mode: 'continue',
                 chunkSize,
-                targetWords: chunkProfile.words,
+                targetWords: String(wordTarget),
               },
             } as any,
           });
@@ -439,14 +445,14 @@ export function ChapterView({ chapter }: Props) {
     const scenePrompt = basePrompt +
       `\n\n=== SCENE TO WRITE ===\nScene ${scene.order}: "${scene.title}"\nSummary: ${scene.summary}` +
       (prevSceneProse ? `\n\n=== PREVIOUS SCENES IN THIS CHAPTER ===\n${prevSceneProse.slice(-2000)}` : '') +
-      `\n\nWrite ONLY this scene (${chunkProfile.words} words). Write finished prose for this single scene only — no scene titles or headers.`;
+      `\n\nWrite ONLY this scene targeting approximately ${wordTarget} words. Write finished prose for this single scene only — no scene titles or headers.`;
 
     let accumulated = '';
     await generateStream(
       {
         prompt: scenePrompt,
         model: settings.ai?.preferredModel || 'gpt-4.1',
-        maxTokens: chunkProfile.maxTokens,
+        maxTokens: wordTargetMaxTokens,
         action: 'generate-scene',
         projectId: project.id,
         chapterId: chapter.id,
@@ -760,6 +766,39 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     }
   }, [inlineEditOpen, chapter.prose, computeProseOffset, findSentenceAt]);
 
+  // Direct in-place editing: click on prose in normal mode to edit right there
+  const handleDirectEditClick = useCallback((sceneId: string, e: React.MouseEvent) => {
+    if (inlineEditOpen || editMode) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-tag]')) return;
+
+    // Compute character offset within the clicked prose container
+    const sel = window.getSelection();
+    let offset = 0;
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      const container = target.closest('[data-direct-edit]') as HTMLElement;
+      if (container) {
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+        let charCount = 0;
+        while (walker.nextNode()) {
+          if (walker.currentNode === range.startContainer) {
+            offset = charCount + range.startOffset;
+            break;
+          }
+          charCount += (walker.currentNode.textContent || '').length;
+        }
+      }
+    }
+
+    setDirectEditSceneId(sceneId);
+    setDirectEditOffset(offset);
+  }, [inlineEditOpen, editMode]);
+
+  // Clear direct edit when switching modes
+  useEffect(() => {
+    setDirectEditSceneId(null);
+  }, [inlineEditOpen, editMode]);
 
   // Render prose with entity name highlights (for artifact tab clicks)
   const renderEntityHighlightedProse = useCallback((text: string, entityName: string, className?: string) => {
@@ -1016,6 +1055,23 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     }
   }, [chapter.prose, activeScene?.prose]);
 
+  // Direct edit: focus textarea and position cursor, preserving scroll
+  useEffect(() => {
+    if (directEditSceneId && directEditRef.current) {
+      const textarea = directEditRef.current;
+      const scrollContainer = scrollContainerRef.current;
+      const savedScrollTop = scrollContainer?.scrollTop || 0;
+      textarea.focus({ preventScroll: true });
+      textarea.selectionStart = directEditOffset;
+      textarea.selectionEnd = directEditOffset;
+      // Auto-resize
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.max(textarea.scrollHeight, 200) + 'px';
+      // Restore scroll position to prevent fling
+      if (scrollContainer) scrollContainer.scrollTop = savedScrollTop;
+    }
+  }, [directEditSceneId, directEditOffset]);
+
   useEffect(() => {
     if (!isFocusMode) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1124,14 +1180,24 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
           </span>
 
-          {/* Extend — hidden on mobile, hidden for children's books (pages are short) */}
+          {/* Word target + Extend — hidden on mobile, hidden for children's books */}
           {project?.subtype !== 'childrens-book' && (
-            <>
+            <div className="hidden sm:flex items-center gap-1">
+              <select
+                value={wordTarget}
+                onChange={(e) => setWordTarget(Number(e.target.value))}
+                className="px-1.5 py-1 rounded-lg text-xs bg-white/60 border border-black/10 text-text-secondary cursor-pointer outline-none"
+                title="Word target"
+              >
+                {wordTargetOptions.map((wt) => (
+                  <option key={wt} value={wt}>{wt >= 1000 ? `${wt / 1000}k` : wt} words</option>
+                ))}
+              </select>
               <button
                 onClick={handleExtend}
                 disabled={!chapter.prose.trim() || extending || generating}
                 className={cn(
-                  'hidden sm:flex px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all items-center gap-1',
+                  'flex px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all items-center gap-1',
                   !chapter.prose.trim() || extending || generating
                     ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
                     : 'bg-text-primary text-text-inverse hover:shadow-md',
@@ -1141,7 +1207,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 {extending ? <Loader2 size={13} className="animate-spin" /> : <Expand size={13} />}
                 {extending ? 'Extending...' : 'Extend'}
               </button>
-            </>
+            </div>
           )}
 
           {/* Version history — hidden on mobile */}
@@ -1248,22 +1314,24 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 </p>
               </div>
 
-              {/* Chunk size selector */}
-              <div className="mb-4 mx-auto w-fit rounded-xl glass-pill p-1 flex gap-1">
-                {(['short', 'medium', 'long'] as const).map((size) => (
-                  <button
-                    key={size}
-                    onClick={() => setChunkSize(size)}
-                    className={cn(
-                      'px-3 py-1.5 rounded-lg text-xs transition-all',
-                      chunkSize === size ? 'bg-text-primary text-text-inverse shadow-sm' : 'text-text-secondary',
-                    )}
-                  >
-                    {chunkProfiles[size].label}
-                  </button>
-                ))}
+              {/* Word target selector */}
+              <div className="mb-4">
+                <p className="text-xs text-text-tertiary mb-2 text-center">Chapter length: <span className="font-semibold text-text-primary">{wordTarget.toLocaleString()} words</span></p>
+                <div className="mx-auto w-fit rounded-xl glass-pill p-1 flex flex-wrap gap-1 justify-center">
+                  {wordTargetOptions.map((wt) => (
+                    <button
+                      key={wt}
+                      onClick={() => setWordTarget(wt)}
+                      className={cn(
+                        'px-2.5 py-1.5 rounded-lg text-xs transition-all',
+                        wordTarget === wt ? 'bg-text-primary text-text-inverse shadow-sm' : 'text-text-secondary hover:bg-white/60',
+                      )}
+                    >
+                      {wt >= 1000 ? `${wt / 1000}k` : wt}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <p className="text-xs text-text-tertiary mb-4 text-center">Chunk target: {chunkProfile.words} words</p>
 
               {/* Generate whole chapter button */}
               <div className="text-center">
@@ -1828,18 +1896,40 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                               </div>
                             )}
                             {scene.prose ? (
+                              directEditSceneId === scene.id ? (
+                                <textarea
+                                  ref={directEditRef}
+                                  value={scene.prose}
+                                  onChange={(e) => {
+                                    updateScene(chapter.id, scene.id, { prose: e.target.value, status: 'edited' });
+                                    syncScenesToProse(chapter.id);
+                                    e.target.style.height = 'auto';
+                                    e.target.style.height = Math.max(e.target.scrollHeight, 200) + 'px';
+                                  }}
+                                  onBlur={() => setDirectEditSceneId(null)}
+                                  className={cn(
+                                    'w-full bg-transparent border-none outline-none resize-none',
+                                    'font-serif leading-[2] text-text-primary',
+                                    'focus:ring-0',
+                                    isFocusMode ? 'text-xl' : 'text-lg'
+                                  )}
+                                  style={{ minHeight: '200px' }}
+                                />
+                              ) : (
                               <div
-                                onClick={(e) => { handleProseClick(e); }}
+                                data-direct-edit
+                                onClick={(e) => { handleProseClick(e); handleDirectEditClick(scene.id, e); }}
                                 onDrop={(e) => handleDirectionDrop(e, scene.id)}
                                 onDragOver={handleDirectionDragOver}
                                 className={cn(
-                                  'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500',
+                                  'font-serif leading-[2] whitespace-pre-wrap transition-all duration-500 cursor-text',
                                   isFocusMode ? 'text-xl' : 'text-lg',
                                   isActive ? 'text-text-primary' : isFuture ? 'text-text-tertiary/40' : 'text-text-primary',
                                 )}
                               >
                                 {highlightName ? renderEntityHighlightedProse(scene.prose, highlightName) : renderTaggedProse(scene.prose)}
                               </div>
+                              )
                             ) : (
                               <div className={cn('py-6 flex items-center gap-3 transition-opacity duration-500', isFuture ? 'opacity-30' : 'opacity-100')}>
                                 <p className="text-sm text-text-tertiary italic flex-1">No prose yet</p>
@@ -1886,11 +1976,30 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                     )} style={{ minHeight: '500px' }}>
                       {renderEntityHighlightedProse(chapter.prose, highlightName)}
                     </div>
+                  ) : directEditSceneId === '__flat__' ? (
+                    <textarea
+                      ref={directEditRef}
+                      value={chapter.prose}
+                      onChange={(e) => {
+                        updateChapter(chapter.id, { prose: e.target.value, status: 'human-edited', updatedAt: new Date().toISOString() });
+                        e.target.style.height = 'auto';
+                        e.target.style.height = Math.max(e.target.scrollHeight, 200) + 'px';
+                      }}
+                      onBlur={() => setDirectEditSceneId(null)}
+                      className={cn(
+                        'w-full bg-transparent border-none outline-none resize-none',
+                        'font-serif leading-[2] text-text-primary',
+                        'focus:ring-0',
+                        isFocusMode ? 'text-xl' : 'text-lg'
+                      )}
+                      style={{ minHeight: '500px' }}
+                    />
                   ) : (
                     <div
-                      onClick={handleProseClick}
+                      data-direct-edit
+                      onClick={(e) => { handleProseClick(e); handleDirectEditClick('__flat__', e); }}
                       className={cn(
-                        'font-serif leading-[2] text-text-primary whitespace-pre-wrap',
+                        'font-serif leading-[2] text-text-primary whitespace-pre-wrap cursor-text',
                         isFocusMode ? 'text-xl' : 'text-lg'
                       )}
                       style={{ minHeight: '500px' }}
@@ -1905,20 +2014,32 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
 
           {/* Extend button at end of chapter */}
           {chapter.prose?.trim() && project?.subtype !== 'childrens-book' && (
-            <div className="flex justify-center py-12">
-              <button
-                onClick={(e) => { e.stopPropagation(); handleExtend(); }}
-                disabled={extending || generating}
-                className={cn(
-                  'px-6 py-3 rounded-xl text-sm font-medium flex items-center gap-2 transition-all',
-                  extending || generating
-                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
-                    : 'bg-text-primary text-text-inverse hover:shadow-lg hover:scale-105',
-                )}
-              >
-                {extending ? <Loader2 size={16} className="animate-spin" /> : <Expand size={16} />}
-                {extending ? 'Extending...' : 'Extend Chapter'}
+            <div className="flex flex-col items-center gap-3 py-12">
+              <div className="flex items-center gap-2">
+                <select
+                  value={wordTarget}
+                  onChange={(e) => { e.stopPropagation(); setWordTarget(Number(e.target.value)); }}
+                  className="px-2 py-1.5 rounded-lg text-xs bg-white/60 border border-black/10 text-text-secondary cursor-pointer outline-none"
+                  title="Word target"
+                >
+                  {wordTargetOptions.map((wt) => (
+                    <option key={wt} value={wt}>{wt >= 1000 ? `${wt / 1000}k` : wt} words</option>
+                  ))}
+                </select>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleExtend(); }}
+                  disabled={extending || generating}
+                  className={cn(
+                    'px-6 py-3 rounded-xl text-sm font-medium flex items-center gap-2 transition-all',
+                    extending || generating
+                      ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                      : 'bg-text-primary text-text-inverse hover:shadow-lg hover:scale-105',
+                  )}
+                >
+                  {extending ? <Loader2 size={16} className="animate-spin" /> : <Expand size={16} />}
+                  {extending ? 'Extending...' : 'Extend Chapter'}
               </button>
+              </div>
             </div>
           )}
         </div>
