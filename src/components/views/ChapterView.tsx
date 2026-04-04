@@ -130,7 +130,7 @@ export function ChapterView({ chapter }: Props) {
   const chunkProfile = chunkProfiles[chunkSize];
   const [wordTarget, setWordTarget] = useState(2500);
   const wordTargetOptions = [1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000];
-  const wordTargetMaxTokens = Math.round(wordTarget * 1.5);
+  const wordTargetMaxTokens = Math.round(wordTarget * 2);
 
   // AI Generation handler
   const handleGenerate = async () => {
@@ -160,7 +160,7 @@ export function ChapterView({ chapter }: Props) {
     // Children's books: the prompt already has strict word limits, no chunking needed
     const prompt = isChildrensBook
       ? basePrompt
-      : basePrompt + `\n\nWrite this chapter targeting approximately ${wordTarget} words. Write a complete, well-paced chapter that covers the full chapter premise.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`;
+      : basePrompt + `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Do not stop early. Do not write a partial chapter.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
 
     let accumulated = '';
     await generateStream(
@@ -1201,9 +1201,9 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                   'flex px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all items-center gap-1',
                   !chapter.prose.trim() || extending || generating
                     ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
-                    : 'bg-text-primary text-text-inverse hover:shadow-md',
+                    : 'bg-white/60 border border-black/10 text-text-secondary hover:bg-white/80',
                 )}
-                title="Extend chapter"
+                title="Extend chapter — add more content to existing prose"
               >
                 {extending ? <Loader2 size={13} className="animate-spin" /> : <Expand size={13} />}
                 {extending ? 'Extending...' : 'Extend'}
