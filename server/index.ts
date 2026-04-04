@@ -1051,7 +1051,7 @@ app.post('/api/transactions', async (req, res) => {
 
     if (creditsUsed > 0) {
       await db.update(users).set({
-        creditsRemaining: Math.max(0, auth.user.creditsRemaining - creditsUsed),
+        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${creditsUsed})`,
         updatedAt: new Date(),
       }).where(eq(users.id, auth.user.id));
     }
@@ -1162,7 +1162,7 @@ app.post('/api/generate', async (req, res) => {
       });
 
       await db.update(users).set({
-        creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
+        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
         updatedAt: new Date(),
       }).where(eq(users.id, user.id));
 
@@ -1173,7 +1173,7 @@ app.post('/api/generate', async (req, res) => {
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
           creditsUsed: result.creditsUsed,
-          creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
+          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
         },
       });
     } finally {
@@ -1239,7 +1239,7 @@ app.post('/api/generate/stream', async (req, res) => {
       });
 
       await db.update(users).set({
-        creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
+        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
         updatedAt: new Date(),
       }).where(eq(users.id, user.id));
 
@@ -1249,7 +1249,7 @@ app.post('/api/generate/stream', async (req, res) => {
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
           creditsUsed: result.creditsUsed,
-          creditsRemaining: Math.max(0, user.creditsRemaining - result.creditsUsed),
+          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
         },
       })}\n\n`);
 
@@ -1380,7 +1380,7 @@ app.post('/api/generate/image', async (req, res) => {
 
     // Deduct credits
     await db.update(users).set({
-      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
     }).where(eq(users.id, auth.user.id));
 
     // Log the transaction
@@ -1413,7 +1413,7 @@ app.post('/api/generate/image', async (req, res) => {
       imageUrl: result.imageUrl,
       prompt: result.prompt,
       creditsUsed: result.creditsUsed,
-      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
     });
   } catch (e: any) {
     console.error('Image generation error:', e);
@@ -1502,9 +1502,9 @@ app.post('/api/tts/generate', async (req, res) => {
         sceneSFX: sceneSFX || [],
       });
 
-      // Deduct credits
+      // Deduct credits atomically (user object may be stale since TTS runs in background)
       await db.update(users).set({
-        creditsRemaining: user.creditsRemaining - result.creditsUsed,
+        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
       }).where(eq(users.id, auth.user.id));
 
       // Log transaction
@@ -1577,7 +1577,7 @@ app.post('/api/tts/generate', async (req, res) => {
         durationEstimate: result.durationEstimate,
         segments: result.segments,
         creditsUsed: result.creditsUsed,
-        creditsRemaining: user.creditsRemaining - result.creditsUsed,
+        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
       };
       console.log(`[TTS] Job ${jobId}: Complete → ${result.audioUrl}`);
     } catch (e: any) {
@@ -1740,7 +1740,7 @@ app.post('/api/music/generate', async (req, res) => {
 
     // Deduct credits
     await db.update(users).set({
-      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
     }).where(eq(users.id, auth.user.id));
 
     await db.insert(creditTransactions).values({
@@ -1753,7 +1753,7 @@ app.post('/api/music/generate', async (req, res) => {
 
     res.json({
       ...result,
-      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
     });
   } catch (e: any) {
     console.error('Music generation error:', e);
@@ -1815,7 +1815,7 @@ app.post('/api/sfx/generate', async (req, res) => {
 
     // Deduct credits
     await db.update(users).set({
-      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
     }).where(eq(users.id, auth.user.id));
 
     await db.insert(creditTransactions).values({
@@ -1854,7 +1854,7 @@ app.post('/api/sfx/generate', async (req, res) => {
 
     res.json({
       ...result,
-      creditsRemaining: user.creditsRemaining - result.creditsUsed,
+      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
     });
   } catch (e: any) {
     console.error('SFX generation error:', e);
