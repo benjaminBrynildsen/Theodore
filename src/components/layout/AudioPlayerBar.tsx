@@ -176,7 +176,12 @@ export function AudioPlayerBar() {
 
       setPlaying(false);
     };
-    const onLoadedMetadata = () => setDuration(audio.duration);
+    const onLoadedMetadata = () => {
+      if (audio.duration && isFinite(audio.duration)) setDuration(audio.duration);
+    };
+    const onDurationChange = () => {
+      if (audio.duration && isFinite(audio.duration)) setDuration(audio.duration);
+    };
     const onError = () => {
       const state = useAudioStore.getState();
       const chId = state.currentChapterId;
@@ -208,12 +213,14 @@ export function AudioPlayerBar() {
 
     audio.addEventListener('ended', onEnded);
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('durationchange', onDurationChange);
     audio.addEventListener('error', onError);
     audio.addEventListener('timeupdate', onTimeUpdate);
 
     return () => {
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('durationchange', onDurationChange);
       audio.removeEventListener('error', onError);
       audio.removeEventListener('timeupdate', onTimeUpdate);
     };
