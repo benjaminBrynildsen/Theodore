@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FileOutput, Download, Check, Loader2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
+import { stripDialogueSpeakerTags } from '../../lib/clean-prose';
 
 type SubmissionFormat = 'shunn' | 'standard-manuscript' | 'custom-publisher';
 type FontChoice = 'courier-new' | 'times-new-roman' | 'garamond';
@@ -76,7 +77,7 @@ export function ManuscriptFormatter() {
   const [exporting, setExporting] = useState(false);
 
   const preset = PRESETS.find(p => p.id === selectedPreset)!;
-  const totalWords = chapters.reduce((sum, ch) => sum + ch.prose.split(/\s+/).length, 0);
+  const totalWords = chapters.reduce((sum, ch) => sum + stripDialogueSpeakerTags(ch.prose).split(/\s+/).length, 0);
   const displayWords = wordCountDisplay === 'rounded' ? Math.round(totalWords / 1000) * 1000 : totalWords;
 
   const handleExport = async () => {
@@ -110,7 +111,7 @@ export function ManuscriptFormatter() {
       lines.push(`CHAPTER ${ch.number}`);
       lines.push(ch.title.toUpperCase());
       lines.push('');
-      lines.push(ch.prose);
+      lines.push(stripDialogueSpeakerTags(ch.prose));
       lines.push('');
     }
 

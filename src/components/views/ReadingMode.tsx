@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, BookOpen, Minus, Plus, Sun, Moon, Coffee, List } from 'lucide-react';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
+import { stripDialogueSpeakerTags } from '../../lib/clean-prose';
 
 interface Props {
   onClose: () => void;
@@ -215,11 +216,12 @@ export function ReadingMode({ onClose }: Props) {
 
   const chapterPages = useMemo(() => {
     if (!chapter?.prose) return [''];
+    const cleanedProse = stripDialogueSpeakerTags(chapter.prose);
     if (containerSize) {
       const pageW = isMobile ? containerSize.w : Math.floor(containerSize.w / 2);
-      return paginateProseMeasured(chapter.prose, fontSize, containerSize.h, pageW, true);
+      return paginateProseMeasured(cleanedProse, fontSize, containerSize.h, pageW, true);
     }
-    return paginateProseFallback(chapter.prose, fontSize, isMobile);
+    return paginateProseFallback(cleanedProse, fontSize, isMobile);
   }, [chapter?.prose, fontSize, isMobile, containerSize]);
 
   const totalPages = chapterPages.length;
@@ -281,9 +283,10 @@ export function ReadingMode({ onClose }: Props) {
       } else if (currentChapterIdx > 0) {
         const prevChapterIdx = currentChapterIdx - 1;
         const prevPageW = isMobile ? containerSize!.w : Math.floor(containerSize!.w / 2);
+        const prevProse = stripDialogueSpeakerTags(chapters[prevChapterIdx].prose);
         const prevPages = containerSize
-          ? paginateProseMeasured(chapters[prevChapterIdx].prose, fontSize, containerSize.h, prevPageW, false)
-          : paginateProseFallback(chapters[prevChapterIdx].prose, fontSize, isMobile);
+          ? paginateProseMeasured(prevProse, fontSize, containerSize.h, prevPageW, false)
+          : paginateProseFallback(prevProse, fontSize, isMobile);
         setCurrentChapterIdx(prevChapterIdx);
         setCurrentPage(Math.max(0, prevPages.length - pageStep));
       }
@@ -544,7 +547,7 @@ export function ReadingMode({ onClose }: Props) {
           <div
             ref={pageContainerRef}
             className={cn(
-              'w-full rounded-sm shadow-lg overflow-hidden border',
+              'w-full rounded-2xl shadow-lg overflow-hidden border',
               isMobile ? 'max-w-full' : 'max-w-[1100px]',
               t.paper, t.border
             )}
