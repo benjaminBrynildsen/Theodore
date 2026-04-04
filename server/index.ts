@@ -1167,6 +1167,7 @@ app.post('/api/generate', async (req, res) => {
         updatedAt: new Date(),
       }).where(eq(users.id, user.id));
 
+      const updatedCredits = Math.max(0, (user.creditsRemaining ?? 0) - result.creditsUsed);
       res.json({
         text: result.text,
         model: result.model,
@@ -1174,7 +1175,7 @@ app.post('/api/generate', async (req, res) => {
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
           creditsUsed: result.creditsUsed,
-          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
+          creditsRemaining: updatedCredits,
         },
       });
     } finally {
@@ -1244,13 +1245,14 @@ app.post('/api/generate/stream', async (req, res) => {
         updatedAt: new Date(),
       }).where(eq(users.id, user.id));
 
+      const updatedCreditsStream = Math.max(0, (user.creditsRemaining ?? 0) - result.creditsUsed);
       res.write(`data: ${JSON.stringify({
         type: 'done',
         usage: {
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
           creditsUsed: result.creditsUsed,
-          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
+          creditsRemaining: updatedCreditsStream,
         },
       })}\n\n`);
 
@@ -1414,7 +1416,7 @@ app.post('/api/generate/image', async (req, res) => {
       imageUrl: result.imageUrl,
       prompt: result.prompt,
       creditsUsed: result.creditsUsed,
-      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
+      creditsRemaining: Math.max(0, (auth.user.creditsRemaining ?? 0) - result.creditsUsed),
     });
   } catch (e: any) {
     console.error('Image generation error:', e);
@@ -1578,7 +1580,7 @@ app.post('/api/tts/generate', async (req, res) => {
         durationEstimate: result.durationEstimate,
         segments: result.segments,
         creditsUsed: result.creditsUsed,
-        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
+        creditsRemaining: Math.max(0, (user.creditsRemaining ?? 0) - result.creditsUsed),
       };
       console.log(`[TTS] Job ${jobId}: Complete → ${result.audioUrl}`);
     } catch (e: any) {
@@ -1754,7 +1756,7 @@ app.post('/api/music/generate', async (req, res) => {
 
     res.json({
       ...result,
-      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
+      creditsRemaining: Math.max(0, (auth.user.creditsRemaining ?? 0) - result.creditsUsed),
     });
   } catch (e: any) {
     console.error('Music generation error:', e);
@@ -1855,7 +1857,7 @@ app.post('/api/sfx/generate', async (req, res) => {
 
     res.json({
       ...result,
-      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
+      creditsRemaining: Math.max(0, (auth.user.creditsRemaining ?? 0) - result.creditsUsed),
     });
   } catch (e: any) {
     console.error('SFX generation error:', e);

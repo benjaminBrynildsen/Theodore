@@ -1047,7 +1047,25 @@ Rules:
             <Sparkles size={16} className="text-text-primary" />
             <span className="text-sm font-medium">Plan Your Story</span>
           </div>
-          <div className="w-12" /> {/* Spacer for centering */}
+          {hasUserMessage ? (
+            <button
+              onClick={() => {
+                localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY);
+                setMessages([createInitialAssistantMessage()]);
+                setInput('');
+                setProposedSettings(null);
+                setEditedSettings(null);
+                setHasManualSettingsEdits(false);
+                setAiCanonDraft(EMPTY_CANON_DRAFT);
+                setShowSettings(false);
+              }}
+              className="text-xs text-text-tertiary hover:text-text-primary transition-colors"
+            >
+              Start Fresh
+            </button>
+          ) : (
+            <div className="w-12" />
+          )}
         </div>
 
         {/* Messages */}
@@ -1115,7 +1133,7 @@ Rules:
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="border-t border-black/5 p-3 sm:p-4 flex-shrink-0">
+            <div className="border-t border-black/5 pt-3 px-3 pb-20 sm:pt-4 sm:px-4 sm:pb-4 flex-shrink-0">
               {/* Book type picker */}
               <div className="relative mb-2">
                 <button
