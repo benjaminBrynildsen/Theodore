@@ -1914,7 +1914,7 @@ app.use('/uploads', express.static(uploadsPath));
 // ========== Serve static in production ==========
 const distPath = path.resolve(process.cwd(), 'dist');
 app.use(express.static(distPath));
-app.get('/{*path}', (_req, res) => {
+app.get('/*', (_req, res) => {
   const indexFile = path.join(distPath, 'index.html');
   if (fs.existsSync(indexFile)) {
     res.sendFile(indexFile);
