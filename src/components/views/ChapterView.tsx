@@ -2089,6 +2089,12 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       )}>
         <div className="flex items-center gap-3">
           <span>{chapter.status === 'human-edited' ? 'Edited' : chapter.status === 'draft-generated' ? 'AI Draft' : 'Writing'}</span>
+          {(chapter.aiIntentMetadata as any)?.model && (
+            <>
+              <span>·</span>
+              <span className="font-mono">{((chapter.aiIntentMetadata as any).model as string).replace('claude-', '').replace('gpt-', 'GPT-').replace(/-/g, ' ')}</span>
+            </>
+          )}
           <span>·</span>
           <span>Last saved {new Date(chapter.updatedAt).toLocaleTimeString()}</span>
         </div>
