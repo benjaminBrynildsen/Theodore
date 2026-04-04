@@ -917,10 +917,6 @@ Rules for JSON markers:
   };
 
   const createProject = async () => {
-    if (isGuest) {
-      onRequireAuth?.();
-      return;
-    }
     const settings = editedSettings || proposedSettings;
     if (!settings) return;
     await createProjectFromSettings(settings);
@@ -1209,9 +1205,7 @@ Rules:
                   disabled={creatingProject}
                   className="mt-3 w-full lg:hidden py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold shadow-md hover:shadow-lg active:scale-[0.98] transition-all disabled:opacity-60"
                 >
-                  {isGuest
-                    ? bookType === 'childrens-book' ? 'Sign Up to Create Book' : 'Sign Up to Create Novel'
-                    : creatingProject ? 'Creating...'
+                  {creatingProject ? 'Creating...'
                     : bookType === 'childrens-book' ? "Create Children's Book" : 'Create Novel'}
                 </button>
               )}
@@ -1263,9 +1257,7 @@ Rules:
                 disabled={creatingProject || quickStructuring}
                 className="w-full py-5 rounded-2xl bg-text-primary text-text-inverse text-lg font-semibold shadow-lg hover:shadow-2xl active:scale-[0.98] transition-all disabled:opacity-60"
               >
-                {isGuest && selectedSettings
-                  ? bookType === 'childrens-book' ? "Sign Up to Create Book" : 'Sign Up to Create Novel'
-                  : creatingProject
+                {creatingProject
                   ? 'Creating...'
                   : selectedSettings
                   ? bookType === 'childrens-book' ? "Create Children's Book" : 'Create Novel'
