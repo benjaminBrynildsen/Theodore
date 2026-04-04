@@ -32,7 +32,8 @@ function tokensToCredits(inputTokens: number, outputTokens: number, model: strin
   // Pricing multipliers (output tokens cost more)
   const multipliers: Record<string, { input: number; output: number }> = {
     'claude-opus-4-6': { input: 1, output: 3 },       // Most expensive
-    'claude-sonnet-4-5': { input: 0.3, output: 1 },    // Mid-tier
+    'claude-sonnet-4-6': { input: 0.3, output: 1 },    // Default — best quality/cost for fiction
+    'claude-sonnet-4-5': { input: 0.3, output: 1 },    // Legacy
     'gpt-5.2': { input: 0.8, output: 2.5 },            // Premium
     'gpt-4.1': { input: 0.2, output: 0.6 },            // Mid-tier
     'default': { input: 0.5, output: 1.5 },
@@ -49,7 +50,7 @@ async function callAnthropic(req: GenerateRequest): Promise<GenerateResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
-  const model = req.model || 'claude-opus-4-6';
+  const model = req.model || 'claude-sonnet-4-6';
   const maxTokens = req.maxTokens || 4096;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -94,7 +95,7 @@ async function streamAnthropic(req: GenerateRequest, res: Response): Promise<{ i
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
-  const model = req.model || 'claude-opus-4-6';
+  const model = req.model || 'claude-sonnet-4-6';
   const maxTokens = req.maxTokens || 4096;
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -278,16 +279,17 @@ async function streamOpenAI(req: GenerateRequest, res: Response): Promise<{ inpu
 
 function normalizeRequestedModel(model?: string): string {
   const value = String(model || '').trim();
-  if (!value || value === 'auto') return 'gpt-4.1';
+  if (!value || value === 'auto') return 'claude-sonnet-4-6';
   const aliases: Record<string, string> = {
     'gpt-4o': 'gpt-4.1',
     'claude-opus': 'claude-opus-4-6',
-    'claude-sonnet': 'claude-sonnet-4-5',
+    'claude-sonnet': 'claude-sonnet-4-6',
+    'claude-sonnet-4-5': 'claude-sonnet-4-6',
   };
   const normalized = aliases[value] || value;
   const wantsAnthropic = normalized.startsWith('claude') || normalized.startsWith('anthropic');
   if (wantsAnthropic && !process.env.ANTHROPIC_API_KEY) {
-    return 'gpt-4.1';
+    return 'gpt-4.1'; // fallback if no Anthropic key
   }
   return normalized;
 }

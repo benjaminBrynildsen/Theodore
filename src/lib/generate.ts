@@ -146,10 +146,11 @@ export async function generateStream(
 export function estimateCredits(inputTokens: number, outputTokens: number, model: string): number {
   const multipliers: Record<string, { input: number; output: number }> = {
     'claude-opus-4-6': { input: 1, output: 3 },
+    'claude-sonnet-4-6': { input: 0.3, output: 1 },
     'claude-sonnet-4-5': { input: 0.3, output: 1 },
     'gpt-5.2': { input: 0.8, output: 2.5 },
     'gpt-4.1': { input: 0.2, output: 0.6 },
-    'default': { input: 0.5, output: 1.5 },
+    'default': { input: 0.3, output: 1 },
   };
   const m = multipliers[model] || multipliers['default'];
   return Math.ceil(((inputTokens * m.input) + (outputTokens * m.output)) / 1000);
