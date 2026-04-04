@@ -298,7 +298,12 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
   const model = normalizeRequestedModel(req.model);
 
   if (model.startsWith('claude') || model.startsWith('anthropic')) {
-    return callAnthropic({ ...req, model });
+    try {
+      return await callAnthropic({ ...req, model });
+    } catch (e: any) {
+      console.error(`[AI] Anthropic failed (${e.message}), falling back to OpenAI`);
+      return callOpenAI({ ...req, model: 'gpt-4.1' });
+    }
   } else {
     return callOpenAI({ ...req, model });
   }
@@ -309,7 +314,12 @@ export async function generateStream(req: GenerateRequest, res: Response): Promi
 
   let result;
   if (model.startsWith('claude') || model.startsWith('anthropic')) {
-    result = await streamAnthropic({ ...req, model }, res);
+    try {
+      result = await streamAnthropic({ ...req, model }, res);
+    } catch (e: any) {
+      console.error(`[AI] Anthropic stream failed (${e.message}), falling back to OpenAI`);
+      result = await streamOpenAI({ ...req, model: 'gpt-4.1' }, res);
+    }
   } else {
     result = await streamOpenAI({ ...req, model }, res);
   }
