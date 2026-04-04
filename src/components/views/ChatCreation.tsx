@@ -802,7 +802,22 @@ Rules for JSON markers:
 
       await addProject(project);
 
-      const scaffoldResults = await generateAutomaticOutline(project, finalSettings, now);
+      let scaffoldResults: Awaited<ReturnType<typeof generateAutomaticOutline>> = [];
+      try {
+        scaffoldResults = await generateAutomaticOutline(project, finalSettings, now);
+      } catch (e) {
+        console.warn('[Creation] Auto scaffold failed, using seed chapters:', e);
+        // Use seed chapters from planning as fallback
+        scaffoldResults = finalSettings.chapters.map((ch) => ({
+          number: ch.number,
+          title: ch.title,
+          purpose: ch.premise,
+          changes: '',
+          emotionalBeat: '',
+          characters: [],
+          constraints: [],
+        }));
+      }
 
       for (const ch of scaffoldResults) {
         await addChapter({
@@ -811,32 +826,19 @@ Rules for JSON markers:
         });
       }
 
-      // Verify persistence; retry direct API writes if chapter rows were not saved.
-      let persistedChapters = await api.listChapters(projectId).catch(() => []);
-      if (!persistedChapters.length) {
-        for (const ch of scaffoldResults) {
-          await api.createChapter({
-            id: generateId(),
-            ...createChapterFromScaffold(projectId, ch, now),
-          }).catch(() => {});
+      // Try API persistence (non-blocking for guests)
+      try {
+        let persistedChapters = await api.listChapters(projectId).catch(() => []);
+        if (!persistedChapters.length) {
+          for (const ch of scaffoldResults) {
+            await api.createChapter({
+              id: generateId(),
+              ...createChapterFromScaffold(projectId, ch, now),
+            }).catch(() => {});
+          }
         }
-        persistedChapters = await api.listChapters(projectId).catch(() => []);
-      }
-
-      const localChapters = useStore.getState().getProjectChapters(projectId);
-      if (!persistedChapters.length && !localChapters.length) {
-        setMessages(prev => [...prev, {
-          id: generateId(),
-          role: 'assistant',
-          content: 'Novel creation failed: chapter structure was not saved. Please try Create Novel again.',
-          timestamp: new Date(),
-        }]);
-        setCreationMessage('Create failed: could not save chapter structure.');
-        return;
-      }
-
-      if (!persistedChapters.length && localChapters.length) {
-        setCreationMessage('Created locally. Sync to database is delayed, but your chapters are ready.');
+      } catch {
+        // Guest mode — API persistence not available, local storage is fine
       }
 
       // Auto-generate canon entries from full planning context, including generated settings.
