@@ -107,6 +107,7 @@ export function EditChatPanel({ chapterId, scene }: Props) {
           : 'I wasn\'t able to generate updated prose. Try rephrasing your instruction.',
         sceneId: scene.id,
         timestamp: new Date().toISOString(),
+        model: result.model,
       };
       addEditChatMessage(assistantMsg);
     } catch (error: any) {
@@ -150,6 +151,11 @@ export function EditChatPanel({ chapterId, scene }: Props) {
             )}
           >
             {msg.content}
+            {msg.role === 'assistant' && msg.model && (
+              <div className="mt-0.5 text-[8px] text-text-tertiary/40 font-mono">
+                {msg.model.replace('claude-', '').replace('gpt-', 'GPT-')}
+              </div>
+            )}
           </div>
         ))}
         {editChatLoading && (

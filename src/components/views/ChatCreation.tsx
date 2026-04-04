@@ -38,6 +38,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  model?: string;
 }
 
 interface ProposedSettings {
@@ -673,6 +674,7 @@ Rules for JSON markers:
       });
 
       const parsed = parseAssistantOutput(result.text || '');
+      const resultModel = result.model || undefined;
       const fullMessage = parsed.message || "Let's keep building your story idea.";
       // Split into paragraphs and send as separate messages with realistic delays
       const paragraphs = fullMessage.split(/\n\n+/).map((p: string) => p.trim()).filter(Boolean);
@@ -685,6 +687,7 @@ Rules for JSON markers:
           role: 'assistant',
           content: fullMessage,
           timestamp: new Date(),
+          model: resultModel,
         };
         updatedMessages = [...updatedMessages, assistantMessage];
         setMessages(updatedMessages);
@@ -699,6 +702,7 @@ Rules for JSON markers:
             role: 'assistant',
             content: paragraphs[i],
             timestamp: new Date(),
+            model: i === 0 ? resultModel : undefined,
           };
           updatedMessages = [...updatedMessages, msg];
           setMessages([...updatedMessages]);
@@ -1081,6 +1085,11 @@ Rules:
                       return part;
                     })}
                   </div>
+                  {msg.role === 'assistant' && msg.model && (
+                    <div className="mt-1 text-[9px] text-text-tertiary/50 font-mono">
+                      {msg.model.replace('claude-', '').replace('gpt-', 'GPT-')}
+                    </div>
+                  )}
                 </div>
               ))}
 

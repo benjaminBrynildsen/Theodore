@@ -110,6 +110,7 @@ export interface EditChatMessage {
   content: string;
   sceneId?: string;
   timestamp: string;
+  model?: string;
 }
 
 export interface ProseSelection {
