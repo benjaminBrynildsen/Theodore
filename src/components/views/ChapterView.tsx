@@ -18,6 +18,7 @@ import { VibeEditor } from '../editmode/VibeEditor';
 import { generateStream, generateText } from '../../lib/generate';
 import { tagDialogue } from '../../lib/dialogue-tagger';
 import { tagSFX } from '../../lib/sfx-tagger';
+import { useCreditsStore } from '../../store/credits';
 import { FEATURES } from '../../lib/feature-flags';
 import { api } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
@@ -1380,8 +1381,16 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
               </div>
 
               {generationError && (
-                <div className="max-w-sm mx-auto mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 text-center">
-                  {generationError}
+                <div className="max-w-sm mx-auto mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center">
+                  <div className="text-xs text-red-700">{generationError}</div>
+                  {generationError.includes('credits') && (
+                    <button
+                      onClick={() => useCreditsStore.getState().setShowUpgradeModal(true)}
+                      className="mt-2 px-4 py-1.5 rounded-lg bg-text-primary text-text-inverse text-xs font-semibold hover:opacity-90 transition-opacity"
+                    >
+                      Upgrade Plan
+                    </button>
+                  )}
                 </div>
               )}
 
