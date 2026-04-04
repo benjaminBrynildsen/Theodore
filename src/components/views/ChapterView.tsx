@@ -207,9 +207,9 @@ export function ChapterView({ chapter }: Props) {
         setGenerating(false);
         setGeneratedText('');
 
-        // Auto-run entity scan only (skip scene decomposition — user can decompose manually)
-        import('../../lib/post-generation-pipeline').then(({ runPostGenerationPipelineLight }) =>
-          runPostGenerationPipelineLight(chapter.id).catch((e) =>
+        // Auto-run post-generation pipeline (entity scan + scene decomposition for sidebar/studio)
+        import('../../lib/post-generation-pipeline').then(({ runPostGenerationPipeline }) =>
+          runPostGenerationPipeline(chapter.id).catch((e) =>
             console.warn('[PostGen] Pipeline error (non-blocking):', e),
           ),
         );
@@ -1625,8 +1625,16 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                         />
                       )}
                     </>
+                  ) : chapter.prose?.trim() ? (
+                    /* Full chapter prose: flat continuous view (scenes available in sidebar/studio) */
+                    <div onClick={handleProseClick} className={cn(
+                      'font-serif leading-[2] text-text-primary whitespace-pre-wrap',
+                      isFocusMode ? 'text-xl' : 'text-lg',
+                    )}>
+                      {highlightName ? renderEntityHighlightedProse(chapter.prose, highlightName) : renderTaggedProse(chapter.prose)}
+                    </div>
                   ) : scenes.length > 0 ? (
-                    /* Scenes: continuous selectable view */
+                    /* No chapter prose but has scenes: continuous selectable view */
                     <div className="relative">
                       {[...scenes].sort((a, b) => a.order - b.order).map((scene, idx) => {
                         const isActive = visibleSceneId === scene.id;
