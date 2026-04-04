@@ -44,9 +44,6 @@ export const api = {
   // ========== Users ==========
   getMe: () => request<any>('/users/me'),
   updateMe: (data: any) => request<any>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
-  getUser: (id: string) => request<any>(`/users/${id}`), // legacy
-  upsertUser: (data: any) => request<any>('/users', { method: 'POST', body: JSON.stringify(data) }), // legacy
-  updateUser: (id: string, data: any) => request<any>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }), // legacy
 
   // ========== Projects ==========
   listProjects: (_userId?: string) => request<any[]>('/projects'),
