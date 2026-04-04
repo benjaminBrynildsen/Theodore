@@ -1170,7 +1170,7 @@ Rules:
                   }}
                   placeholder={bookType === 'childrens-book' ? "Describe your story: characters, theme, age group..." : "Describe the spark: character, situation, trouble..."}
                   rows={3}
-                  className="flex-1 min-h-[4.5rem] max-h-[4.5rem] overflow-y-auto bg-transparent border-none outline-none resize-none text-sm px-2 py-1 leading-relaxed placeholder:text-text-tertiary/60"
+                  className="flex-1 min-h-[4.5rem] max-h-[4.5rem] overflow-y-auto bg-transparent border-none outline-none resize-none text-base sm:text-sm px-2 py-1 leading-relaxed placeholder:text-text-tertiary/60"
                 />
                 <button
                   onClick={sendMessage}
