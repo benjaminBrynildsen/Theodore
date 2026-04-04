@@ -162,7 +162,7 @@ async function runSceneDecomposition(chapterId: string): Promise<Scene[] | null>
     const splitResult = await generateText({
       prompt: splitPrompt,
       model: settings.ai.preferredModel || 'gpt-4.1',
-      maxTokens: 4000,
+      maxTokens: 1500,
       action: 'generate-chapter-outline',
       projectId: project.id,
       chapterId,
@@ -170,12 +170,43 @@ async function runSceneDecomposition(chapterId: string): Promise<Scene[] | null>
     const splitText = (splitResult.text || '').trim();
     const splitJsonMatch = splitText.match(/\[[\s\S]*\]/);
     if (splitJsonMatch) {
-      const splitParsed = JSON.parse(splitJsonMatch[0]) as { order: number; prose: string }[];
+      const splitParsed = JSON.parse(splitJsonMatch[0]) as { order: number; firstSentence: string }[];
+      const fullProse = chapter.prose;
+
+      // Find split positions by matching first sentences in the prose
+      const positions: { order: number; index: number }[] = [];
       for (const seg of splitParsed) {
-        const targetScene = newScenes.find((s) => s.order === seg.order);
-        if (targetScene && seg.prose) {
-          targetScene.prose = seg.prose;
+        if (!seg.firstSentence) continue;
+        // Try exact match first, then fuzzy (first 60 chars)
+        let idx = fullProse.indexOf(seg.firstSentence);
+        if (idx === -1) {
+          const prefix = seg.firstSentence.slice(0, 60);
+          idx = fullProse.indexOf(prefix);
+        }
+        if (idx >= 0) {
+          positions.push({ order: seg.order, index: idx });
+        }
+      }
+
+      // Sort by position and assign prose slices
+      positions.sort((a, b) => a.index - b.index);
+      for (let i = 0; i < positions.length; i++) {
+        const start = positions[i].index;
+        const end = i < positions.length - 1 ? positions[i + 1].index : fullProse.length;
+        const sceneProse = fullProse.slice(start, end).trim();
+        const targetScene = newScenes.find((s) => s.order === positions[i].order);
+        if (targetScene && sceneProse) {
+          targetScene.prose = sceneProse;
           targetScene.status = 'drafted';
+        }
+      }
+
+      // If scene 1 has no position match, assign from start to first found position
+      if (positions.length > 0 && !newScenes[0]?.prose) {
+        const firstPos = positions[0].index;
+        if (firstPos > 0) {
+          newScenes[0].prose = fullProse.slice(0, firstPos).trim();
+          newScenes[0].status = 'drafted';
         }
       }
     }

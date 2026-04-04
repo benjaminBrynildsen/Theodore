@@ -575,16 +575,16 @@ export function buildSceneProseSplitPrompt(chapter: Chapter, scenes: { title: st
   sections.push(`\n=== CHAPTER PROSE ===`);
   sections.push(chapter.prose);
 
-  sections.push(`\nSplit the prose into segments matching each scene. Preserve the EXACT original text — do not rewrite, summarize, or modify any words.
+  sections.push(`\nIdentify where each scene starts in the prose. Return the FIRST SENTENCE of each scene's section (copy it exactly from the text — this will be used for string matching).
 
 Return ONLY a JSON array. No markdown, no explanation. Format:
 [
-  { "order": 1, "prose": "exact text from the chapter belonging to scene 1..." },
-  { "order": 2, "prose": "exact text from the chapter belonging to scene 2..." },
+  { "order": 1, "firstSentence": "exact first sentence of scene 1 from the prose..." },
+  { "order": 2, "firstSentence": "exact first sentence of scene 2 from the prose..." },
   ...
 ]
 
-If prose doesn't clearly map to a scene, assign it to the nearest scene by narrative flow.`);
+Scene 1 always starts at the beginning of the prose. Each subsequent scene starts where the narrative shifts to match that scene's outline.`);
 
   return sections.join('\n');
 }
