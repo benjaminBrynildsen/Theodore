@@ -209,6 +209,21 @@ async function runSceneDecomposition(chapterId: string): Promise<Scene[] | null>
           newScenes[0].status = 'drafted';
         }
       }
+
+      // Fallback: if most scenes are empty, split evenly by paragraphs
+      const filledScenes = newScenes.filter((s) => s.prose?.trim());
+      if (filledScenes.length <= 1 && newScenes.length > 1) {
+        console.warn('[PostGen] Split matched only 1 scene, falling back to paragraph split');
+        const paragraphs = fullProse.split(/\n\n+/).filter((p) => p.trim());
+        const perScene = Math.ceil(paragraphs.length / newScenes.length);
+        for (let i = 0; i < newScenes.length; i++) {
+          const slice = paragraphs.slice(i * perScene, (i + 1) * perScene);
+          if (slice.length) {
+            newScenes[i].prose = slice.join('\n\n');
+            newScenes[i].status = 'drafted';
+          }
+        }
+      }
     }
   } catch (e) {
     console.warn('[PostGen] Failed to split prose into scenes:', e);

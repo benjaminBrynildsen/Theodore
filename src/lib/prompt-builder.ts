@@ -531,7 +531,10 @@ export function buildSceneDecompositionPrompt(ctx: PromptContext): string {
   const sections: string[] = [];
 
   sections.push(`You are Theodore, an expert story architect working on "${project.title}" (a ${project.subtype || project.type}).`);
-  sections.push(`\nDecompose the following chapter into 3-5 distinct scenes. Each scene should represent a clear narrative unit with its own setting, tension, and purpose.`);
+  const wordCount = chapter.prose ? chapter.prose.split(/\s+/).length : 0;
+  const minScenes = Math.max(3, Math.floor(wordCount / 800));
+  const maxScenes = Math.max(5, Math.ceil(wordCount / 400));
+  sections.push(`\nDecompose the following chapter into ${minScenes}-${maxScenes} distinct scenes. Each scene should represent a clear narrative unit with its own setting, tension, and purpose. Longer chapters need more scenes — aim for roughly 400-600 words per scene.`);
 
   sections.push(`\n=== CHAPTER ===`);
   sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
@@ -542,7 +545,7 @@ export function buildSceneDecompositionPrompt(ctx: PromptContext): string {
 
   if (chapter.prose?.trim()) {
     sections.push(`\n=== EXISTING PROSE (use this to inform scene boundaries) ===`);
-    sections.push(chapter.prose.slice(0, 4000));
+    sections.push(chapter.prose.slice(0, 8000));
   }
 
   sections.push(`\nReturn ONLY a JSON array of scene objects. No markdown, no explanation. Format:
@@ -552,7 +555,7 @@ export function buildSceneDecompositionPrompt(ctx: PromptContext): string {
 ]
 
 Rules:
-- Generate 3-5 scenes
+- Generate ${minScenes}-${maxScenes} scenes (scale with chapter length)
 - Each scene should have a clear dramatic purpose
 - Scenes should flow naturally from one to the next
 - If existing prose is provided, match scene boundaries to natural breaks in the text`);
@@ -575,16 +578,20 @@ export function buildSceneProseSplitPrompt(chapter: Chapter, scenes: { title: st
   sections.push(`\n=== CHAPTER PROSE ===`);
   sections.push(chapter.prose);
 
-  sections.push(`\nIdentify where each scene starts in the prose. Return the FIRST SENTENCE of each scene's section (copy it exactly from the text — this will be used for string matching).
+  sections.push(`\nIdentify where each scene starts in the prose. For each scene, find the EXACT first sentence where that scene begins and copy it VERBATIM (character-for-character) from the prose above. This will be used for string matching, so precision is critical.
 
 Return ONLY a JSON array. No markdown, no explanation. Format:
 [
-  { "order": 1, "firstSentence": "exact first sentence of scene 1 from the prose..." },
-  { "order": 2, "firstSentence": "exact first sentence of scene 2 from the prose..." },
+  { "order": 1, "firstSentence": "copy the exact first sentence from the prose where scene 1 begins..." },
+  { "order": 2, "firstSentence": "copy the exact first sentence from the prose where scene 2 begins..." },
   ...
 ]
 
-Scene 1 always starts at the beginning of the prose. Each subsequent scene starts where the narrative shifts to match that scene's outline.`);
+Rules:
+- Scene 1 always starts at the very beginning of the prose
+- Copy sentences EXACTLY as they appear — same punctuation, same capitalization, same words
+- Each firstSentence must be a complete sentence (ending with . or ! or ?)
+- Do not paraphrase or summarize — COPY from the text above`);
 
   return sections.join('\n');
 }
