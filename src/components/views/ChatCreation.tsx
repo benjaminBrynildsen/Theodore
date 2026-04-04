@@ -1051,17 +1051,11 @@ Rules:
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-hidden px-4 sm:px-6 py-2">
-          <div className="max-w-7xl mx-auto w-full h-full grid grid-cols-1 lg:grid-cols-[minmax(0,60%)_minmax(0,30%)] gap-6 lg:gap-8 items-stretch">
-          <div className="w-full min-h-0 overflow-hidden">
-          <div className="rounded-[28px] border border-black/10 bg-white/75 shadow-2xl backdrop-blur-md overflow-hidden mx-auto flex flex-col h-full min-h-0">
-            <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-black/10">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">Story Brief</div>
-              <div className="text-[11px] text-text-tertiary">{messages.length} messages</div>
-            </div>
+        <div className="flex-1 overflow-hidden">
+          <div className="max-w-7xl mx-auto w-full h-full grid grid-cols-1 lg:grid-cols-[minmax(0,60%)_minmax(0,30%)] gap-0 lg:gap-8 items-stretch px-0 sm:px-6">
+          <div className="w-full min-h-0 overflow-hidden flex flex-col">
 
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-              <div className="rounded-2xl border border-black/8 bg-white/55 p-3 sm:p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3 space-y-3">
               {messages.map((msg) => (
                 <div
                   key={msg.id}
@@ -1072,10 +1066,10 @@ Rules:
                 >
                   <div
                     className={cn(
-                      'px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-line',
+                      'px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-line',
                       msg.role === 'user'
-                        ? 'bg-text-primary text-text-inverse rounded-br-md border border-black/15 shadow-md'
-                        : 'bg-white/70 border border-black/10 rounded-bl-md shadow-sm'
+                        ? 'bg-text-primary text-text-inverse rounded-br-sm'
+                        : 'bg-black/[0.04] rounded-bl-sm'
                     )}
                   >
                     {msg.content.split(/(\*\*.*?\*\*)/).map((part, i) => {
@@ -1095,7 +1089,7 @@ Rules:
 
               {!hasUserMessage && messages.length === 0 && showIntroLoader && (
                 <div className="animate-fade-in">
-                  <div className="bg-white/70 border border-black/10 px-4 py-3 rounded-2xl rounded-bl-md w-fit shadow-sm">
+                  <div className="bg-black/[0.04] px-4 py-2.5 rounded-2xl rounded-bl-sm w-fit">
                     <div className="flex gap-1.5">
                       <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                       <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -1108,7 +1102,7 @@ Rules:
               {/* Typing indicator */}
               {isTyping && (
                 <div className="animate-fade-in">
-                  <div className="bg-white/70 border border-black/10 px-4 py-3 rounded-2xl rounded-bl-md w-fit shadow-sm">
+                  <div className="bg-black/[0.04] px-4 py-2.5 rounded-2xl rounded-bl-sm w-fit">
                     <div className="flex gap-1.5">
                       <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                       <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -1119,10 +1113,9 @@ Rules:
               )}
 
               <div ref={messagesEndRef} />
-              </div>
             </div>
 
-            <div className="border-t border-black/10 p-3 sm:p-4 bg-white/60 flex-shrink-0">
+            <div className="border-t border-black/5 p-3 sm:p-4 flex-shrink-0">
               {/* Book type picker */}
               <div className="relative mb-2">
                 <button
@@ -1205,7 +1198,6 @@ Rules:
                 </button>
               )}
             </div>
-          </div>
           </div>
 
           <aside className="hidden lg:block w-full self-start">
