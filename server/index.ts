@@ -25,6 +25,7 @@ import {
 import { generate, generateStream } from './ai.js';
 import { generateImage, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, getVoicesWithPreviews } from './tts.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats } from './admin.js';
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
@@ -1897,6 +1898,13 @@ app.get('/api/admin/recover-scenes', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ========== Admin Dashboard ==========
+app.get('/api/admin/overview', getOverview);
+app.get('/api/admin/users', getUsers);
+app.get('/api/admin/users/:userId', getUserDetail);
+app.get('/api/admin/activity', getActivity);
+app.get('/api/admin/stats/daily', getDailyStats);
 
 // ========== Serve generated images ==========
 const uploadsPath = path.resolve(process.cwd(), 'uploads');

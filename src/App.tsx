@@ -51,6 +51,10 @@ const LandingPage = lazy(async () => {
   const mod = await import('./components/views/LandingPage');
   return { default: mod.LandingPage };
 });
+const AdminDashboard = lazy(async () => {
+  const mod = await import('./components/admin/AdminDashboard');
+  return { default: mod.AdminDashboard };
+});
 
 function ViewLoader({ label = 'Loading workspace...' }: { label?: string }) {
   return (
@@ -89,6 +93,14 @@ export default function App() {
   const [showGuestChat, setShowGuestChat] = useState(false);
   const [returnToChatAfterAuth, setReturnToChatAfterAuth] = useState(false);
   const [showPostAuthChat, setShowPostAuthChat] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+
+  // Detect /admin URL on mount
+  useEffect(() => {
+    if (window.location.pathname === '/admin') {
+      setShowAdmin(true);
+    }
+  }, []);
 
   // Resolve session on mount
   useEffect(() => {
@@ -217,6 +229,20 @@ export default function App() {
       <Suspense fallback={<ViewLoader label="Loading Theodore..." />}>
         <LandingPage onGetStarted={() => setShowGuestChat(true)} onSignIn={() => setShowAuth(true)} />
       </Suspense>
+    );
+  }
+
+  // Admin dashboard
+  if (showAdmin) {
+    return (
+      <div className="h-screen flex flex-col bg-bg">
+        <Suspense fallback={<ViewLoader label="Loading admin..." />}>
+          <AdminDashboard onClose={() => {
+            setShowAdmin(false);
+            window.history.replaceState({}, '', '/');
+          }} />
+        </Suspense>
+      </div>
     );
   }
 
