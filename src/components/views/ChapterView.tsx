@@ -160,7 +160,7 @@ export function ChapterView({ chapter }: Props) {
     // Children's books: the prompt already has strict word limits, no chunking needed
     const prompt = isChildrensBook
       ? basePrompt
-      : basePrompt + `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Do not stop early. Do not write a partial chapter.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
+      : basePrompt + `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
 
     let accumulated = '';
     await generateStream(
@@ -177,7 +177,9 @@ export function ChapterView({ chapter }: Props) {
         setGeneratedText(accumulated);
       },
       (usage) => {
-        // Generation complete — save to chapter
+        // Generation complete — clean up AI artifacts and save to chapter
+        // Strip leading chapter title/heading lines (e.g. "**Chapter 1: Title**", "# Chapter 1", "Chapter 1: Title")
+        accumulated = accumulated.replace(/^\s*(\*{1,2})?#*\s*(Chapter\s+\d+[:\s].*?)(\*{1,2})?\s*\n+/i, '').trimStart();
         const generationPayload = {
           prose: accumulated,
           status: 'draft-generated' as const,
