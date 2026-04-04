@@ -226,6 +226,29 @@ export function AudioPlayerBar() {
     };
   }, []);
 
+  // Media Session API — lock screen controls & metadata
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    if (!currentChapter || !project) return;
+
+    const coverUrl = project.coverUrl || '/icons/icon-512.png';
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: currentChapter.title || `Chapter ${currentChapter.number}`,
+      artist: project.title,
+      album: project.title,
+      artwork: [
+        { src: coverUrl, sizes: '512x512', type: 'image/png' },
+      ],
+    });
+
+    const audio = audioRef.current;
+    navigator.mediaSession.setActionHandler('play', () => { audio?.play(); setPlaying(true); });
+    navigator.mediaSession.setActionHandler('pause', () => { audio?.pause(); setPlaying(false); });
+    navigator.mediaSession.setActionHandler('seekbackward', () => { if (audio) audio.currentTime = Math.max(0, audio.currentTime - 10); });
+    navigator.mediaSession.setActionHandler('seekforward', () => { if (audio) audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 10); });
+    navigator.mediaSession.setActionHandler('seekto', (details) => { if (audio && details.seekTime != null) audio.currentTime = details.seekTime; });
+  }, [currentChapterId, project?.id, project?.title, currentChapter?.title]);
+
   // Sync volume
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
