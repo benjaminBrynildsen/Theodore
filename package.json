@@ -12,7 +12,7 @@
     "start:railway": "npm run db:push && npm run start",
     "seed": "tsx server/seed.ts",
     "start": "npx vite build && npx tsx server/index.ts",
-    "db:push": "drizzle-kit push --force",
+    "db:push": "drizzle-kit push --force || true",
     "db:studio": "drizzle-kit studio",
     "lint": "eslint .",
     "preview": "vite preview"
