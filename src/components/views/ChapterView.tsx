@@ -22,7 +22,7 @@ import { useCreditsStore } from '../../store/credits';
 import { FEATURES } from '../../lib/feature-flags';
 import { api } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
-import { runPostGenerationPipeline } from '../../lib/post-generation-pipeline';
+// Post-generation pipeline imported dynamically where needed
 import { cn, generateId } from '../../lib/utils';
 import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
 
@@ -205,9 +205,11 @@ export function ChapterView({ chapter }: Props) {
         setGenerating(false);
         setGeneratedText('');
 
-        // Auto-run post-generation pipeline (scenes, tags, entity scan)
-        runPostGenerationPipeline(chapter.id).catch((e) =>
-          console.warn('[PostGen] Pipeline error (non-blocking):', e),
+        // Auto-run entity scan only (skip scene decomposition — user can decompose manually)
+        import('../../lib/post-generation-pipeline').then(({ runPostGenerationPipelineLight }) =>
+          runPostGenerationPipelineLight(chapter.id).catch((e) =>
+            console.warn('[PostGen] Pipeline error (non-blocking):', e),
+          ),
         );
       },
       (error) => {

@@ -288,3 +288,16 @@ Return ONLY valid JSON, no markdown fences:
   store.syncScenesToProse(chapterId);
   console.info('[PostGen] Scene tagging complete');
 }
+
+/** Light pipeline — entity scan only, no scene decomposition. Used after "Generate Full Chapter". */
+export async function runPostGenerationPipelineLight(chapterId: string): Promise<void> {
+  await new Promise((r) => setTimeout(r, 800));
+
+  const store = useStore.getState();
+  const chapter = store.chapters.find((c) => c.id === chapterId);
+  if (!chapter?.prose?.trim()) return;
+
+  console.info('[PostGen Light] Starting for chapter', chapter.number, chapterId);
+  await runEntityScan(chapterId).catch((e) => console.warn('[PostGen Light] Entity scan failed:', e));
+  console.info('[PostGen Light] Complete');
+}
