@@ -160,7 +160,7 @@ export function ChapterView({ chapter }: Props) {
     // Children's books: the prompt already has strict word limits, no chunking needed
     const prompt = isChildrensBook
       ? basePrompt
-      : basePrompt + `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
+      : basePrompt + `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
 
     let accumulated = '';
     await generateStream(
@@ -262,7 +262,7 @@ export function ChapterView({ chapter }: Props) {
       writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
       generationType: 'full-chapter' as GenerationType,
       previousChapterProse: prevChapter?.prose,
-    }) + `\n\nContinue this chapter from the exact ending of the current draft. Add approximately ${wordTarget} more words. Do not restart scenes or repeat existing content.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`;
+    }) + `\n\nContinue this chapter from the exact ending of the current draft. Add approximately ${wordTarget} more words. Do not restart scenes or repeat existing content. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`;
 
     let extension = '';
     await generateStream(
