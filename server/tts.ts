@@ -39,6 +39,43 @@ function expandPacingTags(text: string): string {
     .replace(/\[slowly\]/gi, '[slowly]');
 }
 
+// ========== TTS Pacing Pass ==========
+
+/**
+ * Pre-process prose for more natural TTS delivery.
+ * Adds micro-pauses at natural breath points without changing meaning.
+ */
+function addTTSPacing(text: string): string {
+  let result = text;
+
+  // 1. Add a beat pause between paragraphs (double newline → triple dot pause)
+  result = result.replace(/\n\n+/g, '\n\n... \n\n');
+
+  // 2. Add a breath pause before dialogue after narration
+  //    e.g. "He turned to her. "Hello"" → "He turned to her. ... "Hello""
+  result = result.replace(/([.!?])\s+([""\u201C])/g, '$1 ... $2');
+
+  // 3. Add pause after dialogue closing before narration continues
+  //    e.g. ""Fine." She left." → ""Fine." ... She left."
+  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1 ... $2');
+
+  // 4. Em dash pauses — widen them slightly
+  result = result.replace(/\s*—\s*/g, ' — ... ');
+
+  // 5. Add pause before dramatic short sentences (≤4 words after a period)
+  result = result.replace(/([.!?])\s+(\w+(?:\s+\w+){0,3}[.!?])\s/g, '$1 ... $2 ');
+
+  // 6. Ellipsis emphasis — make existing ellipses breathe more
+  result = result.replace(/\.{3}/g, '. . . ');
+  result = result.replace(/…/g, '. . . ');
+
+  // 7. Clean up any triple+ pause runs
+  result = result.replace(/(\.\s*){4,}/g, '. . . ');
+  result = result.replace(/(\.\.\.[\s]*){2,}/g, '... ');
+
+  return result;
+}
+
 // ========== Types ==========
 
 export type ElevenLabsVoice = string;
@@ -673,7 +710,9 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const clean = stripCharacterTags(req.prose)
       .replace(/\{sfx:[^}]+\}\s*/g, '')
       .trim();
-    const audio = await callOpenAITTS(clean, voiceMap.narrator, 1.0);
+    // Performance pass: add natural pacing for better TTS delivery
+    const paced = addTTSPacing(clean);
+    const audio = await callOpenAITTS(paced, voiceMap.narrator, 1.0);
     const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
     const filename = `ch-${hash}.mp3`;
     const filepath = path.join(AUDIO_DIR, filename);
