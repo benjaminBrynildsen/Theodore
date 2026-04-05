@@ -307,9 +307,11 @@ function AISection() {
         value={s.preferredModel}
         onChange={(v) => updateAI({ preferredModel: v })}
         label="Preferred Model"
-        description="Select which OpenAI model to use for generation"
+        description="Select which AI model to use for generation"
         options={[
-          { value: 'auto', label: 'Auto' },
+          { value: 'auto', label: 'Auto (Claude Sonnet)' },
+          { value: 'claude-sonnet', label: 'Claude Sonnet' },
+          { value: 'claude-opus', label: 'Claude Opus' },
           { value: 'gpt-4.1', label: 'GPT-4.1' },
           { value: 'gpt-5.2', label: 'GPT-5.2' },
         ]}
