@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { DEFAULT_SETTINGS } from '../types/settings';
 import type { AppSettings, WritingStyleSettings, EditorSettings, AISettings, ExportSettings, NotificationSettings } from '../types/settings';
 
@@ -18,7 +19,7 @@ interface SettingsState {
   resetAll: () => void;
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+export const useSettingsStore = create<SettingsState>()(persist((set) => ({
   settings: DEFAULT_SETTINGS,
   showSettingsView: false,
   settingsViewSection: 'writing',
@@ -40,4 +41,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     settings: { ...s.settings, notifications: { ...s.settings.notifications, ...updates } },
   })),
   resetAll: () => set({ settings: DEFAULT_SETTINGS }),
+}), {
+  name: 'theodore-settings',
+  partialize: (s) => ({ settings: s.settings }),
 }));
