@@ -150,13 +150,50 @@ export async function getOverview(_req: Request, res: Response) {
     const totalOutputTokens = Object.values(actionAgg).reduce((a, b) => a + b.outputTokens, 0);
     const totalAudioDuration = Object.values(actionAgg).reduce((a, b) => a + b.audioDuration, 0);
 
-    // Fixed costs
-    const fixedCosts = {
-      elevenlabs: 99,
-      hosting: 0,
+    // Provider-level cost aggregation
+    // ElevenLabs: audio credits = chars/1000 * 100 (premium) or chars/1000 * 20 (budget/openai)
+    // So ElevenLabs chars ≈ credits * 10 for premium TTS
+    const elevenLabsActions = new Set(['generate-audio', 'generate-music', 'generate-sfx']);
+    const openaiTextActions = new Set(['generate-chapter', 'generate-stream', 'scaffold-chapters', 'plan-project']);
+
+    let elevenLabsCharsEstimate = 0;
+    let openaiInputTokens = 0;
+    let openaiOutputTokens = 0;
+    let openaiTTSChars = 0;
+
+    for (const tx of monthlyTx) {
+      const meta = tx.metadata as Record<string, any> || {};
+      if (elevenLabsActions.has(tx.action || '')) {
+        // For ElevenLabs TTS: credits = chars/1000 * 100, so chars = credits * 10
+        // For budget (openai) TTS: credits = chars/1000 * 20, model starts with 'openai' or 'gpt'
+        const isOpenAITTS = (tx.model || '').startsWith('openai') || (tx.model || '').startsWith('gpt');
+        if (isOpenAITTS) {
+          openaiTTSChars += (tx.creditsUsed || 0) * 50; // credits = chars/1000*20, chars = credits*50
+        } else {
+          elevenLabsCharsEstimate += (tx.creditsUsed || 0) * 10;
+        }
+      }
+      if (openaiTextActions.has(tx.action || '')) {
+        openaiInputTokens += meta.inputTokens || 0;
+        openaiOutputTokens += meta.outputTokens || 0;
+      }
+    }
+
+    // Actual provider costs
+    const elevenLabsCostPerChar = 0.000099; // $99/month ÷ 1M chars (blended rate on Scale plan) — simplified
+    const elevenLabsCost = Math.round(elevenLabsCharsEstimate * elevenLabsCostPerChar * 100) / 100;
+    // OpenAI text: GPT-4.1 = $2/MTok in, $8/MTok out
+    const openaiTextCost = Math.round(((openaiInputTokens * 2 / 1_000_000) + (openaiOutputTokens * 8 / 1_000_000)) * 100) / 100;
+    // OpenAI budget TTS: ~$0.015/1K chars (gpt-4o-mini-tts)
+    const openaiTTSCost = Math.round((openaiTTSChars / 1000) * 0.015 * 100) / 100;
+
+    const providerCosts = {
+      elevenlabs: { chars: elevenLabsCharsEstimate, cost: elevenLabsCost },
+      openaiText: { inputTokens: openaiInputTokens, outputTokens: openaiOutputTokens, cost: openaiTextCost },
+      openaiTTS: { chars: openaiTTSChars, cost: openaiTTSCost },
     };
-    const totalFixedCosts = Object.values(fixedCosts).reduce((a, b) => a + b, 0);
-    const totalMonthlyCost = Math.round((monthlyCostEstimate + totalFixedCosts) * 100) / 100;
+    const totalProviderCost = Math.round((elevenLabsCost + openaiTextCost + openaiTTSCost) * 100) / 100;
+    const totalMonthlyCost = totalProviderCost;
 
     res.json({
       totalUsers,
@@ -174,11 +211,11 @@ export async function getOverview(_req: Request, res: Response) {
         count: c.count,
       })),
       costs: {
-        variableCost: Math.round(monthlyCostEstimate * 100) / 100,
-        fixedCosts,
         totalMonthlyCost,
         profit: Math.round((mrr - totalMonthlyCost) * 100) / 100,
         margin: mrr > 0 ? Math.round(((mrr - totalMonthlyCost) / mrr) * 100) : 0,
+        providers: providerCosts,
+        totalProviderCost,
         breakdown: costBreakdown,
         usage: {
           totalCredits: totalMonthlyCredits,

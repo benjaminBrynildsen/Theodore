@@ -20,11 +20,15 @@ interface Overview {
   planBreakdown: { plan: string; count: number }[];
   creditsByAction: { action: string; totalCredits: number; count: number }[];
   costs?: {
-    variableCost: number;
-    fixedCosts: Record<string, number>;
     totalMonthlyCost: number;
     profit: number;
     margin: number;
+    totalProviderCost: number;
+    providers: {
+      elevenlabs: { chars: number; cost: number };
+      openaiText: { inputTokens: number; outputTokens: number; cost: number };
+      openaiTTS: { chars: number; cost: number };
+    };
     breakdown: { action: string; credits: number; count: number; inputTokens: number; outputTokens: number; audioDuration: number; estimatedCost: number }[];
     usage: {
       totalCredits: number;
@@ -364,35 +368,48 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
 
-                {/* Usage this month */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-gray-50 rounded-xl p-3">
-                    <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Credits Used</div>
-                    <div className="text-lg font-bold">{overview.costs.usage.totalCredits.toLocaleString()}</div>
+                {/* Provider costs — what we actually spent */}
+                <div className="space-y-3">
+                  <div className="text-xs font-medium text-text-secondary">Provider Costs (from user activity)</div>
+
+                  {/* ElevenLabs */}
+                  <div className="bg-purple-50 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-semibold text-purple-800">ElevenLabs</div>
+                      <div className="text-[10px] text-purple-600">{(overview.costs.providers.elevenlabs.chars / 1000).toFixed(1)}K characters used</div>
+                    </div>
+                    <div className="text-lg font-bold text-purple-800">${overview.costs.providers.elevenlabs.cost}</div>
                   </div>
-                  <div className="bg-gray-50 rounded-xl p-3">
-                    <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Input Tokens</div>
-                    <div className="text-lg font-bold">{(overview.costs.usage.totalInputTokens / 1000).toFixed(1)}K</div>
+
+                  {/* OpenAI Text */}
+                  <div className="bg-sky-50 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-semibold text-sky-800">OpenAI (Text Gen)</div>
+                      <div className="text-[10px] text-sky-600">
+                        {(overview.costs.providers.openaiText.inputTokens / 1000).toFixed(1)}K in · {(overview.costs.providers.openaiText.outputTokens / 1000).toFixed(1)}K out
+                      </div>
+                    </div>
+                    <div className="text-lg font-bold text-sky-800">${overview.costs.providers.openaiText.cost}</div>
                   </div>
-                  <div className="bg-gray-50 rounded-xl p-3">
-                    <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Output Tokens</div>
-                    <div className="text-lg font-bold">{(overview.costs.usage.totalOutputTokens / 1000).toFixed(1)}K</div>
+
+                  {/* OpenAI TTS */}
+                  <div className="bg-sky-50 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-semibold text-sky-800">OpenAI (Budget TTS)</div>
+                      <div className="text-[10px] text-sky-600">{(overview.costs.providers.openaiTTS.chars / 1000).toFixed(1)}K characters used</div>
+                    </div>
+                    <div className="text-lg font-bold text-sky-800">${overview.costs.providers.openaiTTS.cost}</div>
                   </div>
-                  <div className="bg-gray-50 rounded-xl p-3">
-                    <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Audio Generated</div>
-                    <div className="text-lg font-bold">{Math.round(overview.costs.usage.totalAudioDurationSec / 60)}min</div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-black/10">
+                    <span className="text-xs font-semibold">Total Provider Cost</span>
+                    <span className="text-sm font-bold">${overview.costs.totalProviderCost}</span>
                   </div>
                 </div>
 
-                {/* Cost breakdown */}
+                {/* Action breakdown */}
                 <div className="space-y-2">
-                  <div className="text-xs font-medium text-text-secondary">Cost Breakdown</div>
-                  {Object.entries(overview.costs.fixedCosts).map(([name, cost]) => (
-                    <div key={name} className="flex items-center justify-between text-xs py-1.5 border-b border-black/5">
-                      <span className="text-text-secondary capitalize">{name} <span className="text-text-tertiary">(fixed)</span></span>
-                      <span className="font-medium">${cost}</span>
-                    </div>
-                  ))}
+                  <div className="text-xs font-medium text-text-secondary">By Action</div>
                   {overview.costs.breakdown.map(({ action, credits, count, inputTokens, outputTokens, audioDuration, estimatedCost }) => (
                     <div key={action} className="flex items-center justify-between text-xs py-1.5 border-b border-black/5">
                       <div className="flex flex-col">
