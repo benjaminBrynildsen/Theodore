@@ -129,6 +129,7 @@ export function ChapterView({ chapter }: Props) {
   };
   const chunkProfile = chunkProfiles[chunkSize];
   const [wordTarget, setWordTarget] = useState(2500);
+  const [chapterFraming, setChapterFraming] = useState('');
   const wordTargetOptions = [1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000];
   const wordTargetMaxTokens = Math.round(wordTarget * 2);
 
@@ -146,6 +147,11 @@ export function ChapterView({ chapter }: Props) {
     }
     return false;
   };
+
+  useEffect(() => {
+    const saved = ((chapter.aiIntentMetadata as any)?.chapterFraming as string) || '';
+    setChapterFraming(saved);
+  }, [chapter.id, chapter.aiIntentMetadata]);
 
   // AI Generation handler
   const handleGenerate = async () => {
@@ -173,9 +179,12 @@ export function ChapterView({ chapter }: Props) {
       previousChapterProse: prevChapter?.prose,
     });
     // Children's books: the prompt already has strict word limits, no chunking needed
+    const framingBlock = chapterFraming.trim()
+      ? `\n\n=== CHAPTER FRAMING NOTES (user direction) ===\n${chapterFraming.trim()}\nApply these notes as a high-priority creative direction for this generation.`
+      : '';
     const prompt = isChildrensBook
-      ? basePrompt
-      : basePrompt + `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
+      ? basePrompt + framingBlock
+      : basePrompt + `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}` + framingBlock;
 
     let accumulated = '';
     await generateStream(
@@ -286,6 +295,9 @@ export function ChapterView({ chapter }: Props) {
     const projectChapters = getProjectChapters(project.id);
     const canonEntries = getProjectEntries(project.id);
     const prevChapter = projectChapters.find(c => c.number === chapter.number - 1);
+    const framingBlock = chapterFraming.trim()
+      ? `\n\n=== CHAPTER FRAMING NOTES (user direction) ===\n${chapterFraming.trim()}\nApply these notes as a high-priority creative direction for this continuation.`
+      : '';
     const prompt = buildGenerationPrompt({
       project,
       chapter,
@@ -295,7 +307,7 @@ export function ChapterView({ chapter }: Props) {
       writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
       generationType: 'full-chapter' as GenerationType,
       previousChapterProse: prevChapter?.prose,
-    }) + `\n\nContinue this chapter from the exact ending of the current draft. Add approximately ${wordTarget} more words. Do not restart scenes or repeat existing content. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`;
+    }) + `\n\nContinue this chapter from the exact ending of the current draft. Add approximately ${wordTarget} more words. Do not restart scenes or repeat existing content. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}` + framingBlock;
 
     let extension = '';
     await generateStream(
@@ -1359,6 +1371,28 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Chapter framing notes */}
+              <div className="max-w-xl mx-auto mb-4 px-2">
+                <label className="block text-left text-[11px] font-semibold uppercase tracking-wide text-text-tertiary mb-2">
+                  Chapter framing notes (optional)
+                </label>
+                <textarea
+                  value={chapterFraming}
+                  onChange={(e) => setChapterFraming(e.target.value)}
+                  onBlur={() => {
+                    const currentMeta = ((chapter.aiIntentMetadata || {}) as Record<string, any>);
+                    const nextMeta = { ...currentMeta, chapterFraming: chapterFraming.trim() } as any;
+                    updateChapter(chapter.id, { aiIntentMetadata: nextMeta });
+                    api.updateChapter(chapter.id, { aiIntentMetadata: nextMeta }).catch(() => {});
+                  }}
+                  placeholder="Set the vibe, constraints, must-hit beats, POV emphasis, dialogue style, emotional temperature, etc."
+                  className="w-full min-h-[92px] rounded-xl border border-black/10 bg-white/60 px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary/80 focus:outline-none focus:ring-2 focus:ring-black/10"
+                />
+                <p className="mt-1 text-[11px] text-text-tertiary text-left">
+                  These notes are injected into the generation prompt for this chapter.
+                </p>
               </div>
 
               {/* Generate whole chapter button */}
