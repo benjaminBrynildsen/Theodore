@@ -753,9 +753,11 @@ export function AudiobookPanel() {
         enabled: s.enabled,
       }));
 
+      const latestSceneProse = (updatedScene?.prose || scene.prose || '').trim();
+
       const result = await api.ttsGenerate({
         chapterId: `${chapterId}-scene-${sceneId}${versionSuffix}`,
-        prose: scene.prose,
+        prose: latestSceneProse,
         narratorVoice,
         characterVoices: effectiveCharacterVoices,
         characterDescriptions: effectiveCharacterDescriptions,
@@ -830,9 +832,11 @@ export function AudiobookPanel() {
         }))
       );
 
+      const latestChapterProse = (updatedChapter.prose || chapter.prose || '').trim();
+
       const result = await api.ttsGenerate({
         chapterId: `${chapterId}${versionSuffix}`,
-        prose: chapter.prose,
+        prose: latestChapterProse,
         narratorVoice,
         characterVoices: effectiveCharacterVoices,
         characterDescriptions: effectiveCharacterDescriptions,
