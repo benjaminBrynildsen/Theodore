@@ -739,7 +739,8 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   const voiceMap = req.voiceMap;
 
   // Budget provider path: OpenAI TTS (single-voice, no multi-character routing)
-  if ((req.provider || '').toLowerCase() === 'openai' || String(req.model || '').startsWith('openai')) {
+  // Only use OpenAI path if provider is explicitly 'openai' — don't guess from model name
+  if ((req.provider || '').toLowerCase() === 'openai') {
     const clean = stripCharacterTags(req.prose)
       .replace(/\{sfx:[^}]+\}\s*/g, '')
       .trim();
