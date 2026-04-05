@@ -140,7 +140,8 @@ const OPENAI_TTS_INSTRUCTIONS = `You are a professional audiobook narrator deliv
 
 PACING:
 - Read at a measured, unhurried pace — like a real audiobook narrator, not a news anchor.
-- Pause naturally at paragraph breaks. Let scenes breathe.
+- Add a brief pause between every sentence so lines never feel rushed.
+- Pause naturally at paragraph breaks, and make paragraph pauses noticeably longer than sentence pauses.
 - Use short sentence fragments as natural breath points.
 - When the text shifts emotional tone, take a beat before continuing.
 - Ellipses and em dashes indicate deliberate pauses — honor them.
