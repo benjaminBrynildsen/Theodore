@@ -29,6 +29,12 @@ interface GenerateResult {
 // Non-streaming generation
 export async function generateText(options: GenerateOptions): Promise<GenerateResult> {
   const fallbackUserId = useAuthStore.getState().user?.id;
+
+  // Fall back to guest endpoint if not authenticated
+  if (!fallbackUserId && !options.userId) {
+    return generateTextGuest(options);
+  }
+
   const res = await fetch('/api/generate', {
     method: 'POST',
     credentials: 'include',
