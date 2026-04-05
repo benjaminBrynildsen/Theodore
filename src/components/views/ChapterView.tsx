@@ -132,6 +132,21 @@ export function ChapterView({ chapter }: Props) {
   const wordTargetOptions = [1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000];
   const wordTargetMaxTokens = Math.round(wordTarget * 2);
 
+  const needsDialogueClarityPass = (text: string) => {
+    const paragraphs = text.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+    const quoteOnly = (p: string) => /^["“][\s\S]*["”]\s*[.!?…]*\s*$/.test(p) && !/[A-Za-z]+\s+(said|asked|replied|whispered|murmured|snapped|shouted)\b/i.test(p);
+    let consecutiveQuoteOnly = 0;
+    for (const p of paragraphs) {
+      if (quoteOnly(p)) {
+        consecutiveQuoteOnly++;
+        if (consecutiveQuoteOnly >= 2) return true;
+      } else {
+        consecutiveQuoteOnly = 0;
+      }
+    }
+    return false;
+  };
+
   // AI Generation handler
   const handleGenerate = async () => {
     if (!project) {
@@ -176,12 +191,30 @@ export function ChapterView({ chapter }: Props) {
         accumulated += text;
         setGeneratedText(accumulated);
       },
-      (usage) => {
+      async (usage) => {
         // Generation complete — clean up AI artifacts and save to chapter
         // Strip leading chapter title/heading lines (e.g. "**Chapter 1: Title**", "# Chapter 1", "Chapter 1: Title")
         accumulated = accumulated.replace(/^\s*(\*{1,2})?#*\s*(Chapter\s+\d+[:\s].*?)(\*{1,2})?\s*\n+/i, '').trimStart();
+
+        let finalProse = accumulated;
+        if (needsDialogueClarityPass(finalProse)) {
+          try {
+            const repaired = await generateText({
+              prompt: `Rewrite this chapter prose ONLY to improve dialogue speaker clarity. Keep all plot events, tone, pacing, and wording as intact as possible. Do not shorten. Do not summarize. Do not add new events.\n\nRules:\n- Whenever speaker changes, make speaker identity explicit nearby.\n- Avoid consecutive unattributed quote-only paragraphs when speakers alternate.\n- Keep natural prose quality; avoid over-tagging every line.\n\nCHAPTER PROSE:\n${finalProse}`,
+              model: settings.ai?.preferredModel || 'gpt-4.1',
+              maxTokens: wordTargetMaxTokens,
+              action: 'dialogue-clarity-pass',
+              projectId: project.id,
+              chapterId: chapter.id,
+            });
+            if (repaired?.text?.trim()) finalProse = repaired.text.trim();
+          } catch (e) {
+            console.warn('[Generation] Dialogue clarity pass failed (non-blocking):', e);
+          }
+        }
+
         const generationPayload = {
-          prose: accumulated,
+          prose: finalProse,
           status: 'draft-generated' as const,
           aiIntentMetadata: {
             model: usage.creditsUsed ? settings.ai?.preferredModel || 'gpt-4.1' : 'unknown',
@@ -200,7 +233,7 @@ export function ChapterView({ chapter }: Props) {
         updateChapter(chapter.id, generationPayload);
 
         // Immediately save prose to server (don't rely on debounce which can be cancelled)
-        api.updateChapter(chapter.id, { prose: accumulated, status: 'draft-generated' }).catch((e) =>
+        api.updateChapter(chapter.id, { prose: finalProse, status: 'draft-generated' }).catch((e) =>
           console.error('[Generation] Immediate prose save failed:', e),
         );
 
