@@ -734,7 +734,9 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   ensureAudioDir();
   ttsLog(`START generateChapterAudio chapterId=${req.chapterId} prose=${req.prose.length}chars`);
 
-  const model = req.model || 'eleven_v3';
+  // Sanitize model: if it's an OpenAI model but we're on the ElevenLabs path, use default
+  const rawModel = req.model || 'eleven_v3';
+  const model = rawModel.startsWith('openai') ? 'eleven_v3' : rawModel;
   const speed = req.speed || 1.0;
   const voiceMap = req.voiceMap;
 
