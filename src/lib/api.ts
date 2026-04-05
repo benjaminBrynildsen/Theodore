@@ -81,6 +81,7 @@ export const api = {
     characterDescriptions?: Record<string, string>;
     narratorStyle?: string;
     model?: string;
+    provider?: 'elevenlabs' | 'openai';
     speed?: number;
     multiVoice?: boolean;
     sceneSFX?: Array<{ prompt: string; audioUrl?: string; position: string; enabled: boolean }>;

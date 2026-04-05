@@ -71,7 +71,8 @@ export interface TTSRequest {
   chapterId: string;
   prose: string;
   voiceMap: VoiceMap;
-  model?: 'eleven_v3' | 'eleven_multilingual_v2' | 'eleven_turbo_v2_5' | 'eleven_flash_v2_5';
+  provider?: 'elevenlabs' | 'openai';
+  model?: string;
   speed?: number; // 0.5 – 2.0
   multiVoice?: boolean; // if false, use narrator for everything
   characterDescriptions?: Record<string, string>; // characterName → personality/speech description
@@ -96,6 +97,35 @@ const CHARS_PER_SECOND = 14;
 const CREDITS_PER_CHAPTER_LEGACY = 2;
 
 const ELEVENLABS_API = 'https://api.elevenlabs.io/v1';
+const OPENAI_API = 'https://api.openai.com/v1/audio/speech';
+
+async function callOpenAITTS(text: string, voice: string, speed = 1.0): Promise<Buffer> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY is required for OpenAI TTS');
+
+  const cleanedVoice = (voice || 'alloy').replace(/^openai:/, '');
+  const response = await fetch(OPENAI_API, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini-tts',
+      voice: cleanedVoice,
+      input: text,
+      speed: Math.max(0.5, Math.min(2.0, speed || 1.0)),
+      format: 'mp3',
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(`OpenAI TTS error ${response.status}: ${detail}`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
 
 export interface ElevenLabsVoiceInfo {
   id: string;
@@ -637,6 +667,27 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   const model = req.model || 'eleven_v3';
   const speed = req.speed || 1.0;
   const voiceMap = req.voiceMap;
+
+  // Budget provider path: OpenAI TTS (single-voice, no multi-character routing)
+  if ((req.provider || '').toLowerCase() === 'openai' || String(req.model || '').startsWith('openai')) {
+    const clean = stripCharacterTags(req.prose)
+      .replace(/\{sfx:[^}]+\}\s*/g, '')
+      .trim();
+    const audio = await callOpenAITTS(clean, voiceMap.narrator, speed);
+    const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
+    const filename = `ch-${hash}.mp3`;
+    const filepath = path.join(AUDIO_DIR, filename);
+    fs.writeFileSync(filepath, audio);
+    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND / speed);
+    // Budget tier pricing: ~5x cheaper than ElevenLabs baseline in Theodore credits
+    const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
+    return {
+      audioUrl: `/uploads/audio/${filename}`,
+      durationEstimate,
+      segments: 1,
+      creditsUsed,
+    };
+  }
 
   // Collect all scene-level SFX — auto-generate audio for any that are missing
   const allSFX = req.sceneSFX || [];

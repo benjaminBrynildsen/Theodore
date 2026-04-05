@@ -1464,7 +1464,7 @@ app.post('/api/tts/generate', async (req, res) => {
     const auth = await getAuth(req);
     if (!auth) return res.status(401).json({ error: 'Not authenticated' });
 
-    const { chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle, model, speed, multiVoice, sceneSFX } = req.body;
+    const { chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle, model, provider, speed, multiVoice, sceneSFX } = req.body;
     if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
 
     // Credit check
@@ -1496,6 +1496,7 @@ app.post('/api/tts/generate', async (req, res) => {
         chapterId,
         prose,
         voiceMap,
+        provider: provider || 'elevenlabs',
         model: model || 'eleven_multilingual_v2',
         speed: speed || 1.0,
         multiVoice: multiVoice ?? false,
@@ -1566,7 +1567,7 @@ app.post('/api/tts/generate', async (req, res) => {
           audioUrl: result.audioUrl,
           durationSeconds: result.durationEstimate,
           segments: result.segments,
-          voiceConfig: { narratorVoice, model, speed, multiVoice },
+          voiceConfig: { provider: provider || 'elevenlabs', narratorVoice, model, speed, multiVoice },
           sfxConfig: sceneSFX || [],
           creditsUsed: result.creditsUsed,
           isActive: true,

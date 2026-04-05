@@ -25,7 +25,8 @@ interface AudioState {
   narratorVoice: ElevenLabsVoice;
   characterVoices: Record<string, ElevenLabsVoice>;
   multiVoice: boolean;
-  ttsModel: ElevenLabsModel;
+  ttsProvider: 'elevenlabs' | 'openai';
+  ttsModel: ElevenLabsModel | 'openai-gpt-4o-mini-tts';
   speed: number;
 
   // Generation
@@ -47,7 +48,8 @@ interface AudioState {
   setNarratorVoice: (voice: ElevenLabsVoice) => void;
   setCharacterVoice: (name: string, voice: ElevenLabsVoice) => void;
   setMultiVoice: (enabled: boolean) => void;
-  setTtsModel: (model: ElevenLabsModel) => void;
+  setTtsProvider: (provider: 'elevenlabs' | 'openai') => void;
+  setTtsModel: (model: ElevenLabsModel | 'openai-gpt-4o-mini-tts') => void;
   setSpeed: (speed: number) => void;
   setGenerating: (id: string | null) => void;
   setError: (error: string | null) => void;
@@ -116,6 +118,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   narratorVoice: DEFAULT_NARRATOR_VOICE,
   characterVoices: {},
   multiVoice: false,
+  ttsProvider: 'elevenlabs',
   ttsModel: 'eleven_v3',
   speed: 1.0,
   generating: null,
@@ -228,6 +231,10 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   setCharacterVoice: (name, voice) =>
     set((s) => ({ characterVoices: { ...s.characterVoices, [name]: voice } })),
   setMultiVoice: (enabled) => set({ multiVoice: enabled }),
+  setTtsProvider: (provider) => set((s) => ({
+    ttsProvider: provider,
+    ttsModel: provider === 'openai' ? 'openai-gpt-4o-mini-tts' : (s.ttsModel === 'openai-gpt-4o-mini-tts' ? 'eleven_v3' : s.ttsModel),
+  })),
   setTtsModel: (model) => set({ ttsModel: model }),
   setSpeed: (speed) => set({ speed }),
   setGenerating: (id) => set({ generating: id, miniPlayerVisible: id ? true : get().miniPlayerVisible }),

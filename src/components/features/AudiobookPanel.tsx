@@ -30,6 +30,20 @@ interface VoiceAssignment {
   reason?: string;
 }
 
+const OPENAI_TTS_VOICES = [
+  { id: 'openai:alloy', name: 'Alloy', desc: 'Neutral, modern' },
+  { id: 'openai:ash', name: 'Ash', desc: 'Calm, grounded' },
+  { id: 'openai:ballad', name: 'Ballad', desc: 'Warm storyteller' },
+  { id: 'openai:coral', name: 'Coral', desc: 'Bright, expressive' },
+  { id: 'openai:echo', name: 'Echo', desc: 'Clear, direct' },
+  { id: 'openai:fable', name: 'Fable', desc: 'Narrative-friendly' },
+  { id: 'openai:nova', name: 'Nova', desc: 'Natural, smooth' },
+  { id: 'openai:onyx', name: 'Onyx', desc: 'Deep, cinematic' },
+  { id: 'openai:sage', name: 'Sage', desc: 'Balanced, calm' },
+  { id: 'openai:shimmer', name: 'Shimmer', desc: 'Soft, airy' },
+  { id: 'openai:verse', name: 'Verse', desc: 'Lyrical, dynamic' },
+] as const;
+
 export function AudiobookPanel() {
   const { getActiveProject, getProjectChapters } = useStore();
   const { entries, updateEntry } = useCanonStore();
@@ -38,7 +52,7 @@ export function AudiobookPanel() {
   const chapters = project ? getProjectChapters(project.id).filter(c => c.prose).sort((a, b) => a.number - b.number) : [];
   const characters = entries.filter(e => e.projectId === project?.id && e.type === 'character' && (e as any).character) as CharacterEntry[];
 
-  const { narratorVoice, multiVoice, ttsModel, speed, chapterAudio, generating, error } = audioStore;
+  const { narratorVoice, multiVoice, ttsProvider, ttsModel, speed, chapterAudio, generating, error } = audioStore;
 
   const [voiceAssignments, setVoiceAssignments] = useState<VoiceAssignment[]>([]);
   const [previewing, setPreviewing] = useState<string | null>(null);
@@ -535,7 +549,16 @@ export function AudiobookPanel() {
 
   // Use ONLY the user's ElevenLabs collection; hardcoded list is just a fallback
   const allVoices = serverVoices.length > 0 ? serverVoices : ELEVENLABS_VOICES;
-  const narratorVoices = allVoices;
+  const narratorVoices = ttsProvider === 'openai'
+    ? OPENAI_TTS_VOICES.map(v => ({
+        id: v.id,
+        name: v.name,
+        desc: `${v.desc} · Budget`,
+        gender: 'neutral' as const,
+        age: 'middle' as const,
+        tone: 'neutral',
+      }))
+    : allVoices;
 
   // ========== Auto-assign voices on mount (re-runs when server voices load) ==========
   useEffect(() => {
@@ -599,6 +622,7 @@ export function AudiobookPanel() {
 
   // ========== Voice preview ==========
   const previewVoice = async (voiceId: ElevenLabsVoice) => {
+    if (voiceId.startsWith('openai:')) return;
     if (previewing === voiceId) {
       previewAudioRef.current?.pause();
       setPreviewing(null);
@@ -678,7 +702,8 @@ export function AudiobookPanel() {
     if (!scene?.prose?.trim()) return;
     const words = scene.prose.trim().split(/\s+/).length;
     const label = `Scene ${scene.order}: ${scene.title || 'Untitled'}`;
-    if (window.confirm(`Generate audio for "${label}"?\n\n${words.toLocaleString()} words · ~${Math.ceil(words / 150)} min · ${ttsModel === 'eleven_v3' ? 'Eleven V3' : ttsModel}`)) {
+    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs (Premium)' : 'OpenAI TTS (Budget)';
+    if (window.confirm(`Generate audio for "${label}"?\n\n${words.toLocaleString()} words · ~${Math.ceil(words / 150)} min · ${qualityLabel}`)) {
       generateScene(chapterId, sceneId);
     }
   };
@@ -688,7 +713,8 @@ export function AudiobookPanel() {
     if (!chapter?.prose) return;
     const words = chapter.prose.trim().split(/\s+/).length;
     const label = `Ch ${chapter.number}: ${chapter.title}`;
-    if (window.confirm(`Generate audio for "${label}"?\n\n${words.toLocaleString()} words · ~${Math.ceil(words / 150)} min · ${ttsModel === 'eleven_v3' ? 'Eleven V3' : ttsModel}`)) {
+    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs (Premium)' : 'OpenAI TTS (Budget)';
+    if (window.confirm(`Generate audio for "${label}"?\n\n${words.toLocaleString()} words · ~${Math.ceil(words / 150)} min · ${qualityLabel}`)) {
       generateChapter(chapterId);
     }
   };
@@ -715,6 +741,9 @@ export function AudiobookPanel() {
       const updatedScene = (updatedChapter?.scenes || []).find(s => s.id === sceneId);
 
       const { charVoiceMap, charDescriptions } = buildVoiceParams();
+      const effectiveMultiVoice = ttsProvider === 'elevenlabs' ? multiVoice : false;
+      const effectiveCharacterVoices = ttsProvider === 'elevenlabs' ? charVoiceMap : {};
+      const effectiveCharacterDescriptions = ttsProvider === 'elevenlabs' ? charDescriptions : {};
       const versionSuffix = `-v${Date.now()}`;
 
       // Collect scene SFX for audio mixing
@@ -729,11 +758,12 @@ export function AudiobookPanel() {
         chapterId: `${chapterId}-scene-${sceneId}${versionSuffix}`,
         prose: scene.prose,
         narratorVoice,
-        characterVoices: charVoiceMap,
-        characterDescriptions: charDescriptions,
+        characterVoices: effectiveCharacterVoices,
+        characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
+        provider: ttsProvider,
         speed,
-        multiVoice,
+        multiVoice: effectiveMultiVoice,
         sceneSFX: sceneSFXData,
       });
 
@@ -782,6 +812,9 @@ export function AudiobookPanel() {
       await planSFXForChapter(chapterId);
 
       const { charVoiceMap, charDescriptions } = buildVoiceParams();
+      const effectiveMultiVoice = ttsProvider === 'elevenlabs' ? multiVoice : false;
+      const effectiveCharacterVoices = ttsProvider === 'elevenlabs' ? charVoiceMap : {};
+      const effectiveCharacterDescriptions = ttsProvider === 'elevenlabs' ? charDescriptions : {};
       const versionSuffix = `-v${Date.now()}`;
 
       // Re-read chapter after SFX planning may have updated scenes
@@ -802,11 +835,12 @@ export function AudiobookPanel() {
         chapterId: `${chapterId}${versionSuffix}`,
         prose: chapter.prose,
         narratorVoice,
-        characterVoices: charVoiceMap,
-        characterDescriptions: charDescriptions,
+        characterVoices: effectiveCharacterVoices,
+        characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
+        provider: ttsProvider,
         speed,
-        multiVoice,
+        multiVoice: effectiveMultiVoice,
         sceneSFX: allSceneSFX,
       });
 
@@ -882,7 +916,7 @@ export function AudiobookPanel() {
           <Headphones size={18} />
           <h2 className="text-lg font-serif font-semibold">Audiobook Studio</h2>
         </div>
-        <p className="text-xs text-text-tertiary">Generate narrated audio with ElevenLabs V3 voices</p>
+        <p className="text-xs text-text-tertiary">Generate narrated audio with Premium (ElevenLabs) or Budget (OpenAI TTS) voices</p>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -1290,6 +1324,33 @@ export function AudiobookPanel() {
 
           {showVoiceConfig && (
             <div className="px-5 pb-4 space-y-4">
+              {/* Provider + pricing */}
+              <div>
+                <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">TTS Provider</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => audioStore.setTtsProvider('openai')}
+                    className={cn(
+                      'text-left p-2.5 rounded-xl transition-all text-xs',
+                      ttsProvider === 'openai' ? 'bg-text-primary text-text-inverse' : 'glass-pill hover:bg-white/60'
+                    )}
+                  >
+                    <div className="font-medium">OpenAI TTS</div>
+                    <div className={cn('text-[10px]', ttsProvider === 'openai' ? 'text-white/60' : 'text-emerald-600')}>Budget</div>
+                  </button>
+                  <button
+                    onClick={() => audioStore.setTtsProvider('elevenlabs')}
+                    className={cn(
+                      'text-left p-2.5 rounded-xl transition-all text-xs',
+                      ttsProvider === 'elevenlabs' ? 'bg-text-primary text-text-inverse' : 'glass-pill hover:bg-white/60'
+                    )}
+                  >
+                    <div className="font-medium">ElevenLabs</div>
+                    <div className={cn('text-[10px]', ttsProvider === 'elevenlabs' ? 'text-white/60' : 'text-amber-600')}>Premium</div>
+                  </button>
+                </div>
+              </div>
+
               {/* Narrator Voice */}
               <div>
                 <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">Narration</label>
