@@ -740,7 +740,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       .trim();
     // Performance pass: add natural pacing for better TTS delivery
     const paced = addTTSPacing(clean);
-    const openaiSpeed = Math.max(0.5, Math.min(2.0, (req.speed ?? 1.0) * 0.92));
+    const openaiSpeed = Math.max(0.5, Math.min(2.0, (req.speed ?? 1.0)));
     const audio = await callOpenAITTS(paced, voiceMap.narrator, openaiSpeed);
     const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
     const filename = `ch-${hash}.mp3`;
