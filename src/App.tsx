@@ -253,6 +253,45 @@ export default function App() {
           </div>
           {showWorkspaceChrome && <AudioPlayerBar />}
           <BottomNav />
+
+          {/* Mobile drawer — Left sidebar (chapters/canon) */}
+          {mobilePanel === 'left' && (
+            <div className="sm:hidden fixed inset-0 z-[60] flex">
+              <div className="absolute inset-0 bg-black/30" onClick={() => setMobilePanel(null)} />
+              <div className="relative w-[85vw] max-w-[360px] h-full bg-bg shadow-2xl animate-slide-in-left overflow-y-auto pb-20">
+                <LeftSidebar forceOpen />
+              </div>
+            </div>
+          )}
+
+          {/* Mobile fullscreen — Studio (audiobook panel) */}
+          {mobilePanel === 'studio' && (
+            <div className="sm:hidden fixed inset-0 z-40 bg-bg flex flex-col animate-fade-in">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-black/5">
+                <span className="text-sm font-semibold">Studio</span>
+                <button
+                  onClick={() => setMobilePanel(null)}
+                  className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
+                >
+                  <span className="text-xs font-medium">Done</span>
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto pb-16 min-h-0 [&>div]:h-auto [&>div]:min-h-0">
+                <AudiobookPanel />
+              </div>
+              <div className="flex-shrink-0 mb-14">
+                <MobilePlayerBar onExpand={() => setMobilePlayerExpanded(true)} />
+              </div>
+            </div>
+          )}
+          {mobilePlayerExpanded && (
+            <MobilePlayerFullscreen onCollapse={() => setMobilePlayerExpanded(false)} />
+          )}
+          {showReadingMode && (
+            <Suspense fallback={<ViewLoader label="Loading reading mode..." />}>
+              <ReadingMode onClose={() => setShowReadingMode(false)} />
+            </Suspense>
+          )}
         </div>
       );
     }
