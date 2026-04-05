@@ -48,22 +48,22 @@ function expandPacingTags(text: string): string {
 function addTTSPacing(text: string): string {
   let result = text;
 
-  // 1. Add a cinematic pause between paragraphs (double newline)
-  result = result.replace(/\n\n+/g, '\n\n... ... \n\n');
+  // 1. Add a heavier cinematic pause between paragraphs (double newline)
+  result = result.replace(/\n\n+/g, '\n\n... ... ... \n\n');
 
-  // 2. Add a longer breath pause before dialogue after narration
-  //    e.g. "He turned to her. "Hello"" → "He turned to her. ... ... "Hello""
-  result = result.replace(/([.!?])\s+([""\u201C])/g, '$1 ... ... $2');
+  // 2. Add a stronger breath pause before dialogue after narration
+  //    e.g. "He turned to her. "Hello"" → "He turned to her. ... ... ... "Hello""
+  result = result.replace(/([.!?])\s+([""\u201C])/g, '$1 ... ... ... $2');
 
-  // 3. Add longer pause after dialogue closing before narration continues
-  //    e.g. ""Fine." She left." → ""Fine." ... ... She left."
-  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1 ... ... $2');
+  // 3. Add stronger pause after dialogue closing before narration continues
+  //    e.g. ""Fine." She left." → ""Fine." ... ... ... She left."
+  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1 ... ... ... $2');
 
   // 4. Em dash pauses — widen them slightly
   result = result.replace(/\s*—\s*/g, ' — ... ');
 
-  // 5. Add pause before dramatic short sentences (≤4 words after a period)
-  result = result.replace(/([.!?])\s+(\w+(?:\s+\w+){0,3}[.!?])\s/g, '$1 ... $2 ');
+  // 5. Add stronger pause before dramatic short sentences (≤4 words after a period)
+  result = result.replace(/([.!?])\s+(\w+(?:\s+\w+){0,3}[.!?])\s/g, '$1 ... ... $2 ');
 
   // 6. Ellipsis emphasis — make existing ellipses breathe more
   result = result.replace(/\.{3}/g, '. . . ');
@@ -140,8 +140,8 @@ const OPENAI_TTS_INSTRUCTIONS = `You are a professional audiobook narrator deliv
 
 PACING:
 - Read at a measured, unhurried pace — one notch slower and more cinematic than a standard audiobook narrator, never like a news anchor.
-- Add a noticeable pause between every sentence so lines never feel rushed.
-- Pause naturally at paragraph breaks, and make paragraph pauses distinctly longer and cinematic.
+- Add an unmistakable cinematic pause between every sentence so lines never feel rushed.
+- Pause naturally at paragraph breaks, and make paragraph pauses dramatically longer than sentence pauses.
 - Use short sentence fragments as natural breath points.
 - When the text shifts emotional tone, take a beat before continuing.
 - Ellipses and em dashes indicate deliberate pauses — honor them.
