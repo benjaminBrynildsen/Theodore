@@ -185,11 +185,6 @@ export function ProjectView() {
               ? ` · ${cbs.ageRange} years · ${cbs.illustrationStyle}`
               : ` · ${project.targetLength} length`}
           </p>
-          <IllustrateButton
-            target="cover"
-            projectId={project.id}
-            compact
-          />
         </div>
       </div>
 
@@ -368,8 +363,20 @@ export function ProjectView() {
       {/* Chapter / Page List */}
       <div className="max-w-[53rem] mx-auto px-4 sm:px-8 pb-16">
         {/* Arc toggle */}
-        {chapters.length >= 2 && structure && !structure.isProcess && (
-          <div className="flex justify-end mb-3">
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={() => setShowScaffold(!showScaffold)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+              showScaffold
+                ? 'bg-purple-100 text-purple-700'
+                : 'glass-pill text-text-tertiary hover:bg-white/60'
+            )}
+          >
+            <Sparkles size={13} />
+            Scaffold Outline
+          </button>
+          {chapters.length >= 2 && structure && !structure.isProcess && (
             <button
               onClick={() => setShowArcLabels(!showArcLabels)}
               className={cn(
@@ -382,8 +389,8 @@ export function ProjectView() {
               <span className="text-sm">📐</span>
               {structure.name}
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Children's Book Grid Layout */}
         {isChildrensBook ? (
@@ -564,28 +571,14 @@ export function ProjectView() {
               );
             })}
 
-            {/* Add Chapter + Scaffold */}
-            <div className="flex gap-3">
-              <button
-                onClick={addNewChapter}
-                className="flex-1 flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-black/10 text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all duration-200 text-sm"
-              >
-                <Plus size={16} />
-                Add Chapter
-              </button>
-              <button
-                onClick={() => setShowScaffold(!showScaffold)}
-                className={cn(
-                  'flex items-center justify-center gap-2 px-5 py-4 rounded-2xl text-sm font-medium transition-all duration-200',
-                  showScaffold
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'border border-dashed border-purple-300 text-purple-600 hover:bg-purple-50'
-                )}
-              >
-                <Sparkles size={16} />
-                Scaffold Outline
-              </button>
-            </div>
+            {/* Add Chapter */}
+            <button
+              onClick={addNewChapter}
+              className="w-full flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-black/10 text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all duration-200 text-sm"
+            >
+              <Plus size={16} />
+              Add Chapter
+            </button>
           </div>
         )}
 
