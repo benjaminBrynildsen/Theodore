@@ -137,7 +137,7 @@ interface Props {
 }
 
 export function InlineEditChat({ chapterId, prose, selection, onClearSelection, onProseUpdate, onClose }: Props) {
-  const { getActiveProject, getProjectChapters, updateChapter } = useStore();
+  const { getActiveProject, getProjectChapters, updateChapter, chapters } = useStore();
   const { getProjectEntries } = useCanonStore();
   const { settings } = useSettingsStore();
 
@@ -150,6 +150,25 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const project = getActiveProject();
+
+  // Load per-chapter edit chat history
+  useEffect(() => {
+    const chapter = chapters.find((c) => c.id === chapterId);
+    setMessages(chapter?.editChatHistory || []);
+  }, [chapterId, chapters]);
+
+  const persistChatHistory = (nextMessages: EditChatMessage[]) => {
+    const trimmed = nextMessages.slice(-50);
+    updateChapter(chapterId, { editChatHistory: trimmed as any });
+  };
+
+  const appendMessage = (msg: EditChatMessage) => {
+    setMessages((prev) => {
+      const next = [...prev, msg];
+      persistChatHistory(next);
+      return next;
+    });
+  };
 
   // Auto-scroll chat
   useEffect(() => {
@@ -189,7 +208,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
       content: `Restored to before "${last.label}"`,
       timestamp: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, restoredMsg]);
+    appendMessage(restoredMsg);
   };
 
   const handleSend = async () => {
@@ -209,7 +228,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
       content: userContent,
       timestamp: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, userMsg]);
+    appendMessage(userMsg);
     setInput('');
     setLoading(true);
 
@@ -265,7 +284,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
             : `Updated the selection ${diffLabel}. The changes are highlighted in the text.`,
           timestamp: new Date().toISOString(),
         };
-        setMessages(prev => [...prev, assistantMsg]);
+        appendMessage(assistantMsg);
 
         // Trigger post-edit pipeline
         schedulePostEditPipeline(chapterId);
@@ -282,7 +301,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
           content: 'Applied changes to the full chapter.',
           timestamp: new Date().toISOString(),
         };
-        setMessages(prev => [...prev, assistantMsg]);
+        appendMessage(assistantMsg);
       } else {
         // Undo the pushed state since nothing changed
         setUndoStack(prev => prev.slice(0, -1));
@@ -293,7 +312,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
           content: "Couldn't process that edit. Try rephrasing or selecting specific text.",
           timestamp: new Date().toISOString(),
         };
-        setMessages(prev => [...prev, assistantMsg]);
+        appendMessage(assistantMsg);
       }
     } catch (error: any) {
       // Undo the pushed state on error
@@ -307,7 +326,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
           : `Error: ${error?.message || 'Edit failed'}`,
         timestamp: new Date().toISOString(),
       };
-      setMessages(prev => [...prev, errorMsg]);
+      appendMessage(errorMsg);
     } finally {
       setLoading(false);
     }
