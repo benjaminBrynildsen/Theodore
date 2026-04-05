@@ -762,7 +762,7 @@ export function AudiobookPanel() {
         characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
         provider: ttsProvider,
-        speed,
+        speed: ttsProvider === 'openai' ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: sceneSFXData,
       });
@@ -839,7 +839,7 @@ export function AudiobookPanel() {
         characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
         provider: ttsProvider,
-        speed,
+        speed: ttsProvider === 'openai' ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: allSceneSFX,
       });
@@ -1375,18 +1375,22 @@ export function AudiobookPanel() {
               </div>
 
               {/* Speed control */}
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-text-tertiary">Speed: {speed}x</span>
-                <input
-                  type="range"
-                  min="0.5"
-                  max="2.0"
-                  step="0.1"
-                  value={speed}
-                  onChange={e => audioStore.setSpeed(parseFloat(e.target.value))}
-                  className="w-24 h-1 accent-black"
-                />
-              </div>
+              {ttsProvider === 'elevenlabs' ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-text-tertiary">Speed: {speed}x</span>
+                  <input
+                    type="range"
+                    min="0.7"
+                    max="1.3"
+                    step="0.05"
+                    value={speed}
+                    onChange={e => audioStore.setSpeed(parseFloat(e.target.value))}
+                    className="w-24 h-1 accent-black"
+                  />
+                </div>
+              ) : (
+                <div className="text-[10px] text-text-tertiary">Speed: fixed at 1.0x in Budget mode</div>
+              )}
             </div>
           )}
         </div>

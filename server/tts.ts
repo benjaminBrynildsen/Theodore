@@ -673,12 +673,12 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const clean = stripCharacterTags(req.prose)
       .replace(/\{sfx:[^}]+\}\s*/g, '')
       .trim();
-    const audio = await callOpenAITTS(clean, voiceMap.narrator, speed);
+    const audio = await callOpenAITTS(clean, voiceMap.narrator, 1.0);
     const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
     const filename = `ch-${hash}.mp3`;
     const filepath = path.join(AUDIO_DIR, filename);
     fs.writeFileSync(filepath, audio);
-    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND / speed);
+    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND / 1.0);
     // Budget tier pricing: ~5x cheaper than ElevenLabs baseline in Theodore credits
     const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
     return {

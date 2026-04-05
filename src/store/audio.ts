@@ -234,6 +234,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   setTtsProvider: (provider) => set((s) => ({
     ttsProvider: provider,
     ttsModel: provider === 'openai' ? 'openai-gpt-4o-mini-tts' : (s.ttsModel === 'openai-gpt-4o-mini-tts' ? 'eleven_v3' : s.ttsModel),
+    speed: provider === 'openai' ? 1.0 : s.speed,
   })),
   setTtsModel: (model) => set({ ttsModel: model }),
   setSpeed: (speed) => set({ speed }),
