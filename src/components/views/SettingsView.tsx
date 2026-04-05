@@ -309,11 +309,11 @@ function AISection() {
         label="Preferred Model"
         description="Select which AI model to use for generation"
         options={[
-          { value: 'auto', label: 'Auto (Claude Sonnet · balanced)' },
-          { value: 'claude-sonnet', label: 'Claude Sonnet (cheapest)' },
-          { value: 'claude-opus', label: 'Claude Opus (most expensive)' },
-          { value: 'gpt-4.1', label: 'GPT-4.1 (medium cost)' },
-          { value: 'gpt-5.2', label: 'GPT-5.2 (higher cost)' },
+          { value: 'auto', label: 'Auto (Claude Sonnet · best value)' },
+          { value: 'claude-sonnet', label: 'Claude Sonnet (best value)' },
+          { value: 'claude-opus', label: 'Claude Opus (premium quality · highest cost)' },
+          { value: 'gpt-4.1', label: 'GPT-4.1 (mid-tier cost)' },
+          { value: 'gpt-5.2', label: 'GPT-5.2 (high cost)' },
         ]}
       />
       <SliderControl
