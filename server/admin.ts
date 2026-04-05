@@ -164,13 +164,22 @@ export async function getOverview(_req: Request, res: Response) {
     for (const tx of monthlyTx) {
       const meta = tx.metadata as Record<string, any> || {};
       if (elevenLabsActions.has(tx.action || '')) {
-        // For ElevenLabs TTS: credits = chars/1000 * 100, so chars = credits * 10
-        // For budget (openai) TTS: credits = chars/1000 * 20, model starts with 'openai' or 'gpt'
         const isOpenAITTS = (tx.model || '').startsWith('openai') || (tx.model || '').startsWith('gpt');
         if (isOpenAITTS) {
-          openaiTTSChars += (tx.creditsUsed || 0) * 50; // credits = chars/1000*20, chars = credits*50
+          // Budget TTS: use charCount from metadata, or estimate from credits (credits = chars/1000*20)
+          const chars = meta.charCount || (tx.creditsUsed || 0) * 50;
+          openaiTTSChars += chars;
+        } else if (tx.action === 'generate-sfx') {
+          // SFX don't use characters — cost is per-generation
+          // ElevenLabs SFX: ~$0.07 per generation, tracked separately
+          elevenLabsCharsEstimate += 0; // no chars, cost handled below
         } else {
-          elevenLabsCharsEstimate += (tx.creditsUsed || 0) * 10;
+          // ElevenLabs TTS: use charCount from metadata if available
+          // Fallback: estimate from durationEstimate (14 chars/sec) or credits
+          const chars = meta.charCount
+            || (meta.durationEstimate ? meta.durationEstimate * 14 : 0)
+            || (tx.creditsUsed || 0) * 10;
+          elevenLabsCharsEstimate += chars;
         }
       }
       if (openaiTextActions.has(tx.action || '')) {
@@ -179,16 +188,25 @@ export async function getOverview(_req: Request, res: Response) {
       }
     }
 
+    // Count SFX and music generations for flat-rate costing
+    const sfxCount = monthlyTx.filter(tx => tx.action === 'generate-sfx').length;
+    const musicCount = monthlyTx.filter(tx => tx.action === 'generate-music').length;
+
     // Actual provider costs
-    const elevenLabsCostPerChar = 0.000099; // $99/month ÷ 1M chars (blended rate on Scale plan) — simplified
-    const elevenLabsCost = Math.round(elevenLabsCharsEstimate * elevenLabsCostPerChar * 100) / 100;
+    // ElevenLabs Scale: $99/mo for 2M chars = $0.0000495/char; overage = $0.00012/char
+    // Use blended rate assuming within plan limits for now
+    const elevenLabsCostPerChar = 0.0000495;
+    const elevenLabsTTSCost = elevenLabsCharsEstimate * elevenLabsCostPerChar;
+    const elevenLabsSFXCost = sfxCount * 0.07;  // ~$0.07 per SFX generation
+    const elevenLabsMusicCost = musicCount * 0.33; // ~$0.33 per music generation
+    const elevenLabsCost = Math.round((elevenLabsTTSCost + elevenLabsSFXCost + elevenLabsMusicCost) * 100) / 100;
     // OpenAI text: GPT-4.1 = $2/MTok in, $8/MTok out
     const openaiTextCost = Math.round(((openaiInputTokens * 2 / 1_000_000) + (openaiOutputTokens * 8 / 1_000_000)) * 100) / 100;
     // OpenAI budget TTS: ~$0.015/1K chars (gpt-4o-mini-tts)
     const openaiTTSCost = Math.round((openaiTTSChars / 1000) * 0.015 * 100) / 100;
 
     const providerCosts = {
-      elevenlabs: { chars: elevenLabsCharsEstimate, cost: elevenLabsCost },
+      elevenlabs: { chars: elevenLabsCharsEstimate, sfxCount, musicCount, cost: elevenLabsCost },
       openaiText: { inputTokens: openaiInputTokens, outputTokens: openaiOutputTokens, cost: openaiTextCost },
       openaiTTS: { chars: openaiTTSChars, cost: openaiTTSCost },
     };

@@ -1571,7 +1571,7 @@ app.post('/api/tts/generate', async (req, res) => {
         creditsUsed: result.creditsUsed,
         model: model || 'eleven_multilingual_v2',
         chapterId,
-        metadata: { narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate },
+        metadata: { narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate, charCount: prose.length },
       });
 
       // Save audio generation to DB for persistence

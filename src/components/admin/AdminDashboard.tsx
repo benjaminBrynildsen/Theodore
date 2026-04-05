@@ -25,7 +25,7 @@ interface Overview {
     margin: number;
     totalProviderCost: number;
     providers: {
-      elevenlabs: { chars: number; cost: number };
+      elevenlabs: { chars: number; sfxCount: number; musicCount: number; cost: number };
       openaiText: { inputTokens: number; outputTokens: number; cost: number };
       openaiTTS: { chars: number; cost: number };
     };
@@ -376,7 +376,11 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                   <div className="bg-purple-50 rounded-xl p-3 flex items-center justify-between">
                     <div>
                       <div className="text-xs font-semibold text-purple-800">ElevenLabs</div>
-                      <div className="text-[10px] text-purple-600">{(overview.costs.providers.elevenlabs.chars / 1000).toFixed(1)}K characters used</div>
+                      <div className="text-[10px] text-purple-600">
+                        {(overview.costs.providers.elevenlabs.chars / 1000).toFixed(1)}K chars
+                        {overview.costs.providers.elevenlabs.sfxCount > 0 && ` · ${overview.costs.providers.elevenlabs.sfxCount} SFX`}
+                        {overview.costs.providers.elevenlabs.musicCount > 0 && ` · ${overview.costs.providers.elevenlabs.musicCount} music`}
+                      </div>
                     </div>
                     <div className="text-lg font-bold text-purple-800">${overview.costs.providers.elevenlabs.cost}</div>
                   </div>
