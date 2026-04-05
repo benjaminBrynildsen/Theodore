@@ -622,7 +622,6 @@ export function AudiobookPanel() {
 
   // ========== Voice preview ==========
   const previewVoice = async (voiceId: ElevenLabsVoice) => {
-    if (voiceId.startsWith('openai:')) return;
     if (previewing === voiceId) {
       previewAudioRef.current?.pause();
       setPreviewing(null);

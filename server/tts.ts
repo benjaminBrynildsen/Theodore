@@ -951,9 +951,14 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
 /**
  * Generate a short voice preview clip.
  */
-export async function generateVoicePreview(voiceId: ElevenLabsVoice, text?: string): Promise<Buffer> {
+export async function generateVoicePreview(voiceId: string, text?: string): Promise<Buffer> {
   const previewText = text || 'The morning light crept through the curtains, painting golden stripes across the wooden floor.';
-  return callElevenLabsTTS(previewText, voiceId, 'eleven_flash_v2_5', 1.0);
+
+  if (voiceId.startsWith('openai:')) {
+    return callOpenAITTS(previewText, voiceId, 1.0);
+  }
+
+  return callElevenLabsTTS(previewText, voiceId as ElevenLabsVoice, 'eleven_flash_v2_5', 1.0);
 }
 
 // ========== Helpers ==========

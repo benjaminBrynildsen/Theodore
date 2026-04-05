@@ -1701,7 +1701,7 @@ app.post('/api/tts/preview', async (req, res) => {
     const { voice, text } = req.body;
     if (!voice) return res.status(400).json({ error: 'voice is required' });
 
-    const audioBuffer = await generateVoicePreview(voice as ElevenLabsVoice, text);
+    const audioBuffer = await generateVoicePreview(String(voice), text);
 
     res.set({
       'Content-Type': 'audio/mpeg',
