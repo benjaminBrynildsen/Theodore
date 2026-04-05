@@ -225,6 +225,37 @@ export default function App() {
         />
       );
     }
+    // Guest just created a project — let them experience the workspace first
+    if (hasActiveProject && (currentView === 'project' || currentView === 'chapter')) {
+      return (
+        <div className="h-screen flex flex-col bg-bg">
+          <TopBar />
+          {/* Guest sign-up banner */}
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200/60 px-4 py-2.5 flex items-center justify-between">
+            <p className="text-sm text-amber-900">
+              ✨ Your project is ready! <span className="text-amber-700">Create a free account to save your work.</span>
+            </p>
+            <button
+              onClick={() => setShowAuth(true)}
+              className="px-4 py-1.5 rounded-lg bg-text-primary text-white text-xs font-semibold hover:opacity-90 transition-opacity flex-shrink-0 ml-3"
+            >
+              Sign Up Free
+            </button>
+          </div>
+          <div className="flex-1 flex overflow-hidden pb-bottom-nav">
+            {showWorkspaceChrome && <div className="hidden sm:block h-full"><LeftSidebar /></div>}
+            <main className="flex-1 flex overflow-hidden min-w-0">
+              <Suspense fallback={<ViewLoader />}>
+                <ProjectView />
+              </Suspense>
+            </main>
+            {showWorkspaceChrome && <div className="hidden sm:block h-full"><RightSidebar /></div>}
+          </div>
+          {showWorkspaceChrome && <AudioPlayerBar />}
+          <BottomNav />
+        </div>
+      );
+    }
     return (
       <Suspense fallback={<ViewLoader label="Loading Theodore..." />}>
         <LandingPage onGetStarted={() => setShowGuestChat(true)} onSignIn={() => setShowAuth(true)} />
