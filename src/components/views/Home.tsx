@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Plus, BookOpen, Clock, ChevronRight, MessageSquare, Settings2, Upload, ArrowLeft } from 'lucide-react';
+import { Plus, BookOpen, Clock, ChevronRight, MessageSquare, Upload, ArrowLeft } from 'lucide-react';
 import { useStore } from '../../store';
-import { NewProjectModal } from '../modals/NewProjectModal';
 import { ImportProjectModal } from '../modals/ImportProjectModal';
 import { ChatCreation } from './ChatCreation';
 import { cn } from '../../lib/utils';
@@ -9,7 +8,6 @@ import { cn } from '../../lib/utils';
 type HomeScreen = 'main' | 'choose-method';
 
 export function Home() {
-  const [showNewProject, setShowNewProject] = useState(false);
   const [showChatCreation, setShowChatCreation] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [screen, setScreen] = useState<HomeScreen>('main');
@@ -81,21 +79,8 @@ export function Home() {
             </div>
           </button>
 
-          <button
-            onClick={() => setShowNewProject(true)}
-            className="glass-pill px-6 py-5 rounded-2xl flex items-center gap-4 text-text-secondary hover:text-text-primary hover:bg-white/60 active:scale-[0.98] transition-all duration-200 w-full"
-          >
-            <div className="w-10 h-10 rounded-xl glass-pill flex items-center justify-center flex-shrink-0">
-              <Settings2 size={20} />
-            </div>
-            <div className="text-left">
-              <div className="font-medium">Manual Setup</div>
-              <div className="text-xs text-text-tertiary mt-0.5">Configure everything yourself</div>
-            </div>
-          </button>
         </div>
 
-        {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
         {showImport && <ImportProjectModal onClose={() => setShowImport(false)} />}
       </div>
     );
