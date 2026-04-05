@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Plus, BookOpen, Clock, ChevronRight, MessageSquare, Settings2, Upload, ArrowLeft } from 'lucide-react';
 import { useStore } from '../../store';
 import { NewProjectModal } from '../modals/NewProjectModal';
@@ -14,6 +14,23 @@ export function Home() {
   const [showImport, setShowImport] = useState(false);
   const [screen, setScreen] = useState<HomeScreen>('main');
   const { projects, setActiveProject, setCurrentView } = useStore();
+
+  const sortedProjects = useMemo(() => {
+    let openedMap: Record<string, string> = {};
+    try {
+      openedMap = JSON.parse(localStorage.getItem('theodore:last-opened-projects') || '{}');
+    } catch {
+      openedMap = {};
+    }
+
+    const score = (project: { id: string; updatedAt: string }) => {
+      const editedTs = new Date(project.updatedAt).getTime() || 0;
+      const openedTs = openedMap[project.id] ? new Date(openedMap[project.id]).getTime() || 0 : 0;
+      return Math.max(editedTs, openedTs);
+    };
+
+    return [...projects].sort((a, b) => score(b) - score(a));
+  }, [projects]);
 
   // Full-screen chat creation
   if (showChatCreation) {
@@ -109,10 +126,16 @@ export function Home() {
         <div className="w-full max-w-2xl px-4 sm:px-0">
           <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-4 px-1">Your Projects</h2>
           <div className="space-y-3">
-            {projects.map((project, i) => (
+            {sortedProjects.map((project, i) => (
               <button
                 key={project.id}
                 onClick={() => {
+                  try {
+                    const raw = localStorage.getItem('theodore:last-opened-projects');
+                    const openedMap = raw ? JSON.parse(raw) : {};
+                    openedMap[project.id] = new Date().toISOString();
+                    localStorage.setItem('theodore:last-opened-projects', JSON.stringify(openedMap));
+                  } catch {}
                   setActiveProject(project.id);
                   setCurrentView('project');
                 }}
