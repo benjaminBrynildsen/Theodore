@@ -25,7 +25,13 @@ interface Overview {
     totalMonthlyCost: number;
     profit: number;
     margin: number;
-    breakdown: { action: string; credits: number; estimatedCost: number }[];
+    breakdown: { action: string; credits: number; count: number; inputTokens: number; outputTokens: number; audioDuration: number; estimatedCost: number }[];
+    usage: {
+      totalCredits: number;
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalAudioDurationSec: number;
+    };
   };
 }
 
@@ -358,19 +364,47 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
 
+                {/* Usage this month */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Credits Used</div>
+                    <div className="text-lg font-bold">{overview.costs.usage.totalCredits.toLocaleString()}</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Input Tokens</div>
+                    <div className="text-lg font-bold">{(overview.costs.usage.totalInputTokens / 1000).toFixed(1)}K</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Output Tokens</div>
+                    <div className="text-lg font-bold">{(overview.costs.usage.totalOutputTokens / 1000).toFixed(1)}K</div>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <div className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Audio Generated</div>
+                    <div className="text-lg font-bold">{Math.round(overview.costs.usage.totalAudioDurationSec / 60)}min</div>
+                  </div>
+                </div>
+
                 {/* Cost breakdown */}
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-text-secondary">Cost Breakdown</div>
                   {Object.entries(overview.costs.fixedCosts).map(([name, cost]) => (
-                    <div key={name} className="flex items-center justify-between text-xs py-1 border-b border-black/5">
+                    <div key={name} className="flex items-center justify-between text-xs py-1.5 border-b border-black/5">
                       <span className="text-text-secondary capitalize">{name} <span className="text-text-tertiary">(fixed)</span></span>
                       <span className="font-medium">${cost}</span>
                     </div>
                   ))}
-                  {overview.costs.breakdown.map(({ action, credits, estimatedCost }) => (
-                    <div key={action} className="flex items-center justify-between text-xs py-1 border-b border-black/5">
-                      <span className="text-text-secondary">{action} <span className="text-text-tertiary">({credits.toLocaleString()} cr)</span></span>
-                      <span className="font-medium">${estimatedCost}</span>
+                  {overview.costs.breakdown.map(({ action, credits, count, inputTokens, outputTokens, audioDuration, estimatedCost }) => (
+                    <div key={action} className="flex items-center justify-between text-xs py-1.5 border-b border-black/5">
+                      <div className="flex flex-col">
+                        <span className="text-text-secondary">{action}</span>
+                        <span className="text-[10px] text-text-tertiary">
+                          {count}× · {credits.toLocaleString()} cr
+                          {inputTokens > 0 && ` · ${(inputTokens / 1000).toFixed(1)}K in`}
+                          {outputTokens > 0 && ` / ${(outputTokens / 1000).toFixed(1)}K out`}
+                          {audioDuration > 0 && ` · ${Math.round(audioDuration / 60)}min audio`}
+                        </span>
+                      </div>
+                      <span className="font-medium flex-shrink-0">${estimatedCost}</span>
                     </div>
                   ))}
                 </div>

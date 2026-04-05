@@ -84,49 +84,76 @@ export async function getOverview(_req: Request, res: Response) {
     // Audio generations count
     const [{ value: totalAudioGens }] = await db.select({ value: count() }).from(audioGenerations);
 
-    // ========== Monthly Cost Estimation ==========
-    // Credits used this month by action
+    // ========== Monthly Usage & Cost ==========
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const monthlyCredits = await db
+    // Get all transactions this month with metadata
+    const monthlyTx = await db
       .select({
         action: creditTransactions.action,
-        total: sum(creditTransactions.creditsUsed),
-        count: count(),
+        creditsUsed: creditTransactions.creditsUsed,
+        model: creditTransactions.model,
+        metadata: creditTransactions.metadata,
       })
       .from(creditTransactions)
-      .where(sql`${creditTransactions.createdAt} >= ${monthStart}`)
-      .groupBy(creditTransactions.action);
+      .where(sql`${creditTransactions.createdAt} >= ${monthStart}`);
+
+    // Aggregate by action
+    const actionAgg: Record<string, { credits: number; count: number; inputTokens: number; outputTokens: number; audioSegments: number; audioDuration: number }> = {};
+    for (const tx of monthlyTx) {
+      const a = tx.action || 'unknown';
+      if (!actionAgg[a]) actionAgg[a] = { credits: 0, count: 0, inputTokens: 0, outputTokens: 0, audioSegments: 0, audioDuration: 0 };
+      actionAgg[a].credits += tx.creditsUsed || 0;
+      actionAgg[a].count += 1;
+      const meta = tx.metadata as Record<string, any> || {};
+      actionAgg[a].inputTokens += meta.inputTokens || 0;
+      actionAgg[a].outputTokens += meta.outputTokens || 0;
+      actionAgg[a].audioSegments += meta.segments || 0;
+      actionAgg[a].audioDuration += meta.durationEstimate || 0;
+    }
 
     // Cost estimation per action type (based on PRICING-MODEL.md)
     const costPerCredit: Record<string, number> = {
-      'generate-chapter': 0.0012,    // ~$0.035 / 30 credits avg
-      'generate-stream': 0.0012,     // same as chapter gen
-      'scaffold-chapters': 0.001,    // lighter prompts
+      'generate-chapter': 0.0012,
+      'generate-stream': 0.0012,
+      'scaffold-chapters': 0.001,
       'plan-project': 0.001,
-      'generate-audio': 0.0005,      // $0.05-0.12 per 1K chars / 100 credits
-      'generate-music': 0.0017,      // $0.17 / 100 credits
-      'generate-sfx': 0.00175,       // $0.07 / 40 credits
-      'generate-image': 0.0016,      // $0.04 / 25 credits
+      'generate-audio': 0.0005,
+      'generate-music': 0.0017,
+      'generate-sfx': 0.00175,
+      'generate-image': 0.0016,
     };
     const defaultCostPerCredit = 0.001;
 
     let monthlyCostEstimate = 0;
-    const costBreakdown: { action: string; credits: number; estimatedCost: number }[] = [];
-    for (const row of monthlyCredits) {
-      const credits = Number(row.total) || 0;
-      const rate = costPerCredit[row.action] || defaultCostPerCredit;
-      const cost = credits * rate;
+    const costBreakdown: { action: string; credits: number; count: number; inputTokens: number; outputTokens: number; audioDuration: number; estimatedCost: number }[] = [];
+    for (const [action, agg] of Object.entries(actionAgg)) {
+      const rate = costPerCredit[action] || defaultCostPerCredit;
+      const cost = agg.credits * rate;
       monthlyCostEstimate += cost;
-      costBreakdown.push({ action: row.action, credits, estimatedCost: Math.round(cost * 100) / 100 });
+      costBreakdown.push({
+        action,
+        credits: agg.credits,
+        count: agg.count,
+        inputTokens: agg.inputTokens,
+        outputTokens: agg.outputTokens,
+        audioDuration: agg.audioDuration,
+        estimatedCost: Math.round(cost * 100) / 100,
+      });
     }
+
+    // Totals
+    const totalMonthlyCredits = Object.values(actionAgg).reduce((a, b) => a + b.credits, 0);
+    const totalInputTokens = Object.values(actionAgg).reduce((a, b) => a + b.inputTokens, 0);
+    const totalOutputTokens = Object.values(actionAgg).reduce((a, b) => a + b.outputTokens, 0);
+    const totalAudioDuration = Object.values(actionAgg).reduce((a, b) => a + b.audioDuration, 0);
 
     // Fixed costs
     const fixedCosts = {
-      elevenlabs: 99,    // Scale plan
-      hosting: 0,        // Render (variable, update as needed)
+      elevenlabs: 99,
+      hosting: 0,
     };
     const totalFixedCosts = Object.values(fixedCosts).reduce((a, b) => a + b, 0);
     const totalMonthlyCost = Math.round((monthlyCostEstimate + totalFixedCosts) * 100) / 100;
@@ -153,6 +180,12 @@ export async function getOverview(_req: Request, res: Response) {
         profit: Math.round((mrr - totalMonthlyCost) * 100) / 100,
         margin: mrr > 0 ? Math.round(((mrr - totalMonthlyCost) / mrr) * 100) : 0,
         breakdown: costBreakdown,
+        usage: {
+          totalCredits: totalMonthlyCredits,
+          totalInputTokens,
+          totalOutputTokens,
+          totalAudioDurationSec: totalAudioDuration,
+        },
       },
     });
   } catch (e: any) {
