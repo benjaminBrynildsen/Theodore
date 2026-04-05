@@ -88,7 +88,9 @@ export async function generateStream(
   onError?: (error: string) => void,
 ): Promise<void> {
   const fallbackUserId = useAuthStore.getState().user?.id;
-  const res = await fetch('/api/generate/stream', {
+  const isGuest = !fallbackUserId && !options.userId;
+  const endpoint = isGuest ? '/api/generate/guest/stream' : '/api/generate/stream';
+  const res = await fetch(endpoint, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },

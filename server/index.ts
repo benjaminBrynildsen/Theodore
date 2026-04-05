@@ -1063,7 +1063,7 @@ app.post('/api/transactions', async (req, res) => {
 // ========== AI Generation ==========
 
 // Guest (unauthenticated) generation — only for plan-project during onboarding
-const GUEST_ALLOWED_ACTIONS = new Set(['plan-project', 'scaffold-chapters']);
+const GUEST_ALLOWED_ACTIONS = new Set(['plan-project', 'scaffold-chapters', 'generate-chapter']);
 const activeGuestIps = new Set<string>();
 
 app.post('/api/generate/guest', async (req, res) => {
@@ -1087,7 +1087,7 @@ app.post('/api/generate/guest', async (req, res) => {
     try {
       const result = await generate({
         prompt, systemPrompt, model,
-        maxTokens: Math.min(maxTokens || 2200, 2200),
+        maxTokens: Math.min(maxTokens || 2200, action === 'generate-chapter' ? 8000 : 2200),
         temperature,
         userId: undefined,
         projectId: undefined,
@@ -1184,6 +1184,59 @@ app.post('/api/generate', async (req, res) => {
   } catch (e: any) {
     console.error('Generate error:', e.message);
     respondInternalError(res, 'api', e);
+  }
+});
+
+// Guest streaming generation — for unauthenticated users exploring the workspace
+app.post('/api/generate/guest/stream', async (req, res) => {
+  try {
+    const { prompt, systemPrompt, model, maxTokens, temperature, action } = req.body;
+    if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
+    if (!action || !GUEST_ALLOWED_ACTIONS.has(action)) {
+      return res.status(403).json({ error: 'Guest generation is only available for allowed actions.' });
+    }
+
+    const ip = requestClientIp(req);
+    if (!takeRateLimitToken(res, 'guest-generate', ip, 20, 60 * 60 * 1000)) return;
+    if (activeGuestIps.has(ip)) {
+      return res.status(429).json({ error: 'Generation already in progress.' });
+    }
+
+    activeGuestIps.add(ip);
+    try {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+
+      const cappedMaxTokens = Math.min(maxTokens || 2200, action === 'generate-chapter' ? 8000 : 2200);
+      const result = await generateStream(
+        { prompt, systemPrompt, model, maxTokens: cappedMaxTokens, temperature, userId: undefined, projectId: undefined, chapterId: undefined, action },
+        res,
+      );
+
+      res.write(`data: ${JSON.stringify({
+        type: 'done',
+        usage: {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          creditsUsed: 0,
+          creditsRemaining: null,
+        },
+      })}\n\n`);
+      res.end();
+    } finally {
+      activeGuestIps.delete(ip);
+    }
+  } catch (e: any) {
+    console.error('Guest stream error:', e.message);
+    if (!res.headersSent) {
+      respondInternalError(res, 'api', e);
+    } else {
+      res.write(`data: ${JSON.stringify({ type: 'error', error: 'Generation failed.' })}\n\n`);
+      res.end();
+    }
   }
 });
 
