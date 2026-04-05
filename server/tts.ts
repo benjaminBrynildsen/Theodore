@@ -148,11 +148,14 @@ PACING:
 - Ellipses and em dashes indicate deliberate pauses — honor them.
 
 VOCAL DELIVERY:
-- Vary your pitch and energy to match the emotional content of each passage.
-- Dialogue should feel like real people talking — give each speaker a slightly distinct tone and energy.
-- Whispered or tense lines should drop in volume and intensity.
-- Excited or angry lines should rise in energy but stay controlled.
-- Narration between dialogue should feel grounded and steady.
+- DO NOT be monotone. This is the most important rule. Your voice must rise and fall with the story.
+- Use a wide dynamic range — go soft and intimate for tender moments, then build to full energy for action or confrontation.
+- Vary your pitch significantly between sentences. High energy for excitement, low and quiet for tension or sadness.
+- Dialogue MUST sound like real people talking. Each speaker should have noticeably different energy, pitch, and rhythm.
+- Angry dialogue: louder, faster, clipped. Sad dialogue: slower, softer, heavier. Excited dialogue: higher pitch, faster pace.
+- Whispered or tense lines should drop dramatically in volume and intensity.
+- Narration should shift tone to match the scene — don't narrate a battle scene the same way you narrate a love scene.
+- Lean into emotion. If a character is heartbroken, let your voice crack slightly. If they're furious, let the edge come through.
 
 TRANSITIONS:
 - Pause briefly before and after dialogue — don't rush from narration into quotes.
@@ -160,9 +163,10 @@ TRANSITIONS:
 - Build tension gradually — don't peak too early in dramatic passages.
 
 OVERALL:
-- This is a novel, not a summary. Take your time.
-- Prioritize clarity and emotional authenticity over speed.
-- If a moment is meant to land hard, let it land. Don't rush past it.`;
+- This is a novel, not a summary. Perform it, don't just read it.
+- Prioritize emotional expressiveness and dynamic range above all else.
+- If a moment is meant to land hard, let it land. Don't rush past it.
+- The listener should FEEL the story, not just hear words.`;
 
 async function callOpenAITTS(text: string, voice: string, speed = 1.0): Promise<Buffer> {
   const apiKey = process.env.OPENAI_API_KEY;
