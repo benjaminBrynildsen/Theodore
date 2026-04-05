@@ -912,6 +912,12 @@ Rules for JSON markers:
       setActiveProject(projectId);
       setCurrentView('project');
       localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY);
+
+      // Guest users need to sign up before they can access the project workspace
+      if (isGuest && onRequireAuth) {
+        onRequireAuth();
+        return;
+      }
       onClose();
     } finally {
       setCreatingProject(false);
