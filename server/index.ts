@@ -4,7 +4,7 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { db, pool } from './db.js';
 import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary } from './schema.js';
 import {
@@ -1914,6 +1914,34 @@ if (!fs.existsSync(uploadsPath)) fs.mkdirSync(uploadsPath, { recursive: true });
 app.use('/uploads', express.static(uploadsPath));
 
 // ========== Serve static in production ==========
+// ========== Shareable Audio ==========
+app.get('/api/share/audio/:chapterId', async (req, res) => {
+  try {
+    const { chapterId } = req.params;
+    const [audioRecord] = await db.select().from(audioGenerations)
+      .where(and(eq(audioGenerations.chapterId, chapterId), eq(audioGenerations.isActive, true)))
+      .orderBy(desc(audioGenerations.createdAt))
+      .limit(1);
+    if (!audioRecord) return res.status(404).json({ error: 'Audio not found' });
+
+    const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId));
+    if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
+
+    const [project] = await db.select().from(projects).where(eq(projects.id, chapter.projectId));
+
+    res.json({
+      audioUrl: audioRecord.audioUrl,
+      duration: audioRecord.durationSeconds,
+      chapterTitle: chapter.title,
+      chapterNumber: chapter.number,
+      projectTitle: project?.title || 'Untitled',
+      coverUrl: null, // Cover is client-generated, not stored
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: 'Failed to load shared audio' });
+  }
+});
+
 const distPath = path.resolve(process.cwd(), 'dist');
 app.use(express.static(distPath));
 app.get('/{*splat}', (_req, res) => {

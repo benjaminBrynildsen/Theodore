@@ -967,18 +967,8 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             speakerColorMap.current.set(name, SPEAKER_COLORS[speakerColorMap.current.size % SPEAKER_COLORS.length]);
           }
           const color = speakerColorMap.current.get(name)!;
-          parts.push(
-            <span
-              key={`tag-${match.index}`}
-              data-tag="character"
-              data-value={name}
-              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold text-white mr-1 align-baseline cursor-pointer hover:ring-2 hover:ring-white/50 hover:shadow-md transition-all"
-              style={{ backgroundColor: color }}
-              title={`View ${name}`}
-            >
-              {name}
-            </span>
-          );
+          // Speaker tags are production metadata — hide in prose view
+        // (they're used for TTS voice assignment, not for reading)
         }
       } else if (match[2]) {
         const desc = match[2];
