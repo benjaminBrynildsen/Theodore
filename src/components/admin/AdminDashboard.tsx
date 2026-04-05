@@ -19,6 +19,14 @@ interface Overview {
   mrr: number;
   planBreakdown: { plan: string; count: number }[];
   creditsByAction: { action: string; totalCredits: number; count: number }[];
+  costs?: {
+    variableCost: number;
+    fixedCosts: Record<string, number>;
+    totalMonthlyCost: number;
+    profit: number;
+    margin: number;
+    breakdown: { action: string; credits: number; estimatedCost: number }[];
+  };
 }
 
 interface UserRow {
@@ -323,6 +331,48 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                 <div className="flex justify-between mt-1">
                   <span className="text-[9px] text-text-tertiary">{formatDate(dailyStats.creditsPerDay[0].day)}</span>
                   <span className="text-[9px] text-text-tertiary">{formatDate(dailyStats.creditsPerDay[dailyStats.creditsPerDay.length - 1].day)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Monthly Cost & Profit */}
+            {overview.costs && (
+              <div className="bg-white rounded-2xl border border-black/5 p-5 space-y-4">
+                <h3 className="text-sm font-semibold">Monthly P&L</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-green-50 rounded-xl p-3">
+                    <div className="text-[10px] font-medium text-green-700 uppercase tracking-wider">Revenue (MRR)</div>
+                    <div className="text-lg font-bold text-green-800">${overview.mrr}</div>
+                  </div>
+                  <div className="bg-red-50 rounded-xl p-3">
+                    <div className="text-[10px] font-medium text-red-700 uppercase tracking-wider">Total Cost</div>
+                    <div className="text-lg font-bold text-red-800">${overview.costs.totalMonthlyCost}</div>
+                  </div>
+                  <div className={cn("rounded-xl p-3", overview.costs.profit >= 0 ? "bg-emerald-50" : "bg-orange-50")}>
+                    <div className={cn("text-[10px] font-medium uppercase tracking-wider", overview.costs.profit >= 0 ? "text-emerald-700" : "text-orange-700")}>Profit</div>
+                    <div className={cn("text-lg font-bold", overview.costs.profit >= 0 ? "text-emerald-800" : "text-orange-800")}>${overview.costs.profit}</div>
+                  </div>
+                  <div className="bg-blue-50 rounded-xl p-3">
+                    <div className="text-[10px] font-medium text-blue-700 uppercase tracking-wider">Margin</div>
+                    <div className="text-lg font-bold text-blue-800">{overview.costs.margin}%</div>
+                  </div>
+                </div>
+
+                {/* Cost breakdown */}
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-text-secondary">Cost Breakdown</div>
+                  {Object.entries(overview.costs.fixedCosts).map(([name, cost]) => (
+                    <div key={name} className="flex items-center justify-between text-xs py-1 border-b border-black/5">
+                      <span className="text-text-secondary capitalize">{name} <span className="text-text-tertiary">(fixed)</span></span>
+                      <span className="font-medium">${cost}</span>
+                    </div>
+                  ))}
+                  {overview.costs.breakdown.map(({ action, credits, estimatedCost }) => (
+                    <div key={action} className="flex items-center justify-between text-xs py-1 border-b border-black/5">
+                      <span className="text-text-secondary">{action} <span className="text-text-tertiary">({credits.toLocaleString()} cr)</span></span>
+                      <span className="font-medium">${estimatedCost}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

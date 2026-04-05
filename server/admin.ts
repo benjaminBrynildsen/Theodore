@@ -84,6 +84,53 @@ export async function getOverview(_req: Request, res: Response) {
     // Audio generations count
     const [{ value: totalAudioGens }] = await db.select({ value: count() }).from(audioGenerations);
 
+    // ========== Monthly Cost Estimation ==========
+    // Credits used this month by action
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const monthlyCredits = await db
+      .select({
+        action: creditTransactions.action,
+        total: sum(creditTransactions.creditsUsed),
+        count: count(),
+      })
+      .from(creditTransactions)
+      .where(sql`${creditTransactions.createdAt} >= ${monthStart}`)
+      .groupBy(creditTransactions.action);
+
+    // Cost estimation per action type (based on PRICING-MODEL.md)
+    const costPerCredit: Record<string, number> = {
+      'generate-chapter': 0.0012,    // ~$0.035 / 30 credits avg
+      'generate-stream': 0.0012,     // same as chapter gen
+      'scaffold-chapters': 0.001,    // lighter prompts
+      'plan-project': 0.001,
+      'generate-audio': 0.0005,      // $0.05-0.12 per 1K chars / 100 credits
+      'generate-music': 0.0017,      // $0.17 / 100 credits
+      'generate-sfx': 0.00175,       // $0.07 / 40 credits
+      'generate-image': 0.0016,      // $0.04 / 25 credits
+    };
+    const defaultCostPerCredit = 0.001;
+
+    let monthlyCostEstimate = 0;
+    const costBreakdown: { action: string; credits: number; estimatedCost: number }[] = [];
+    for (const row of monthlyCredits) {
+      const credits = Number(row.total) || 0;
+      const rate = costPerCredit[row.action] || defaultCostPerCredit;
+      const cost = credits * rate;
+      monthlyCostEstimate += cost;
+      costBreakdown.push({ action: row.action, credits, estimatedCost: Math.round(cost * 100) / 100 });
+    }
+
+    // Fixed costs
+    const fixedCosts = {
+      elevenlabs: 99,    // Scale plan
+      hosting: 0,        // Render (variable, update as needed)
+    };
+    const totalFixedCosts = Object.values(fixedCosts).reduce((a, b) => a + b, 0);
+    const totalMonthlyCost = Math.round((monthlyCostEstimate + totalFixedCosts) * 100) / 100;
+
     res.json({
       totalUsers,
       totalProjects,
@@ -99,6 +146,14 @@ export async function getOverview(_req: Request, res: Response) {
         totalCredits: Number(c.total) || 0,
         count: c.count,
       })),
+      costs: {
+        variableCost: Math.round(monthlyCostEstimate * 100) / 100,
+        fixedCosts,
+        totalMonthlyCost,
+        profit: Math.round((mrr - totalMonthlyCost) * 100) / 100,
+        margin: mrr > 0 ? Math.round(((mrr - totalMonthlyCost) / mrr) * 100) : 0,
+        breakdown: costBreakdown,
+      },
     });
   } catch (e: any) {
     console.error('[Admin] overview error:', e);
