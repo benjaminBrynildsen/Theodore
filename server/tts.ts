@@ -48,30 +48,29 @@ function expandPacingTags(text: string): string {
 function addTTSPacing(text: string): string {
   let result = text;
 
-  // 1. Add a heavier cinematic pause between paragraphs (double newline)
-  result = result.replace(/\n\n+/g, '\n\n... ... ... \n\n');
+  // Use newline-based pauses — OpenAI TTS respects these more than ellipsis runs.
+  // A single \n acts as a breath pause; \n\n acts as a longer scene pause.
 
-  // 2. Add a stronger breath pause before dialogue after narration
-  //    e.g. "He turned to her. "Hello"" → "He turned to her. ... ... ... "Hello""
-  result = result.replace(/([.!?])\s+([""\u201C])/g, '$1 ... ... ... $2');
+  // 1. Paragraph breaks → strong cinematic pause
+  result = result.replace(/\n\n+/g, '\n\n—\n\n');
 
-  // 3. Add stronger pause after dialogue closing before narration continues
-  //    e.g. ""Fine." She left." → ""Fine." ... ... ... She left."
-  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1 ... ... ... $2');
+  // 2. Sentence-ending period/excl/question before next sentence → add breath pause
+  //    "She ran. He followed." → "She ran.\n He followed."
+  result = result.replace(/([.!?])\s+([A-Z])/g, '$1\n$2');
 
-  // 4. Em dash pauses — widen them slightly
-  result = result.replace(/\s*—\s*/g, ' — ... ');
+  // 3. Before dialogue after narration → longer pause
+  //    "He turned to her. "Hello"" → newline break before quote
+  result = result.replace(/([.!?])\n([""\u201C])/g, '$1\n\n$2');
 
-  // 5. Add stronger pause before dramatic short sentences (≤4 words after a period)
-  result = result.replace(/([.!?])\s+(\w+(?:\s+\w+){0,3}[.!?])\s/g, '$1 ... ... $2 ');
+  // 4. After dialogue closing before narration → longer pause
+  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1\n\n$2');
+
+  // 5. Em dash pauses — widen them
+  result = result.replace(/\s*—\s*/g, ' —\n');
 
   // 6. Ellipsis emphasis — make existing ellipses breathe more
-  result = result.replace(/\.{3}/g, '. . . ');
-  result = result.replace(/…/g, '. . . ');
-
-  // 7. Clean up any triple+ pause runs
-  result = result.replace(/(\.\s*){4,}/g, '. . . ');
-  result = result.replace(/(\.\.\.[\s]*){2,}/g, '... ');
+  result = result.replace(/\.{3}/g, '. . .');
+  result = result.replace(/…/g, '. . .');
 
   return result;
 }
@@ -140,8 +139,10 @@ const OPENAI_TTS_INSTRUCTIONS = `You are a professional audiobook narrator deliv
 
 PACING:
 - Read at a measured, unhurried pace — one notch slower and more cinematic than a standard audiobook narrator, never like a news anchor.
-- Add an unmistakable cinematic pause between every sentence so lines never feel rushed.
-- Pause naturally at paragraph breaks, and make paragraph pauses dramatically longer than sentence pauses.
+- Add a clear, audible pause between every sentence. Never rush from one sentence into the next.
+- Treat every period, exclamation mark, and question mark as a full stop — hold the silence for a beat before continuing.
+- Paragraph breaks and line breaks mean LONG pauses. Hold for a full breath before continuing.
+- Scene transitions and dialogue transitions deserve the longest pauses — let the moment land before moving on.
 - Use short sentence fragments as natural breath points.
 - When the text shifts emotional tone, take a beat before continuing.
 - Ellipses and em dashes indicate deliberate pauses — honor them.
