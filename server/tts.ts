@@ -139,7 +139,7 @@ const OPENAI_API = 'https://api.openai.com/v1/audio/speech';
 const OPENAI_TTS_INSTRUCTIONS = `You are a professional audiobook narrator delivering a compelling, emotionally rich performance.
 
 PACING:
-- Read at a measured, unhurried pace — like a real audiobook narrator, not a news anchor.
+- Read at a measured, unhurried pace — one notch slower and more cinematic than a standard audiobook narrator, never like a news anchor.
 - Add a brief pause between every sentence so lines never feel rushed.
 - Pause naturally at paragraph breaks, and make paragraph pauses noticeably longer than sentence pauses.
 - Use short sentence fragments as natural breath points.
@@ -740,12 +740,13 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       .trim();
     // Performance pass: add natural pacing for better TTS delivery
     const paced = addTTSPacing(clean);
-    const audio = await callOpenAITTS(paced, voiceMap.narrator, 1.0);
+    const openaiSpeed = Math.max(0.5, Math.min(2.0, (req.speed ?? 1.0) * 0.92));
+    const audio = await callOpenAITTS(paced, voiceMap.narrator, openaiSpeed);
     const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
     const filename = `ch-${hash}.mp3`;
     const filepath = path.join(AUDIO_DIR, filename);
     fs.writeFileSync(filepath, audio);
-    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND / 1.0);
+    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND / openaiSpeed);
     // Budget tier pricing: ~5x cheaper than ElevenLabs baseline in Theodore credits
     const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
     return {
