@@ -749,18 +749,68 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     // Performance pass: add natural pacing for better TTS delivery
     const paced = addTTSPacing(clean);
     const openaiSpeed = Math.max(0.5, Math.min(2.0, (req.speed ?? 1.0)));
-    const audio = await callOpenAITTS(paced, voiceMap.narrator, openaiSpeed);
+
+    // OpenAI TTS has a ~4096 token input limit. Chunk long text by paragraphs
+    // to stay safely under the limit (~1500 tokens ≈ 6000 chars).
+    const MAX_CHUNK_CHARS = 5500;
+    const chunks: string[] = [];
+    if (paced.length <= MAX_CHUNK_CHARS) {
+      chunks.push(paced);
+    } else {
+      const paragraphs = paced.split(/\n\n+/);
+      let current = '';
+      for (const para of paragraphs) {
+        if (current.length + para.length + 2 > MAX_CHUNK_CHARS && current.length > 0) {
+          chunks.push(current.trim());
+          current = para;
+        } else {
+          current += (current ? '\n\n' : '') + para;
+        }
+      }
+      if (current.trim()) chunks.push(current.trim());
+      // Safety: if any single chunk is still too long, split by sentences
+      const safeChunks: string[] = [];
+      for (const chunk of chunks) {
+        if (chunk.length <= MAX_CHUNK_CHARS) {
+          safeChunks.push(chunk);
+        } else {
+          const sentences = chunk.match(/[^.!?]+[.!?]+[\s]*/g) || [chunk];
+          let sc = '';
+          for (const s of sentences) {
+            if (sc.length + s.length > MAX_CHUNK_CHARS && sc.length > 0) {
+              safeChunks.push(sc.trim());
+              sc = s;
+            } else {
+              sc += s;
+            }
+          }
+          if (sc.trim()) safeChunks.push(sc.trim());
+        }
+      }
+      chunks.length = 0;
+      chunks.push(...safeChunks);
+    }
+
+    ttsLog(`OpenAI TTS: ${chunks.length} chunks for ${paced.length} chars`);
+    const audioBuffers: Buffer[] = [];
+    for (const chunk of chunks) {
+      const audio = await callOpenAITTS(chunk, voiceMap.narrator, openaiSpeed);
+      audioBuffers.push(audio);
+    }
+
+    // Concatenate MP3 buffers (MP3 frames are independently decodable)
+    const combined = Buffer.concat(audioBuffers);
     const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
     const filename = `ch-${hash}.mp3`;
     const filepath = path.join(AUDIO_DIR, filename);
-    fs.writeFileSync(filepath, audio);
+    fs.writeFileSync(filepath, combined);
     const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND / openaiSpeed);
     // Budget tier pricing: ~5x cheaper than ElevenLabs baseline in Theodore credits
     const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
     return {
       audioUrl: `/uploads/audio/${filename}`,
       durationEstimate,
-      segments: 1,
+      segments: chunks.length,
       creditsUsed,
     };
   }

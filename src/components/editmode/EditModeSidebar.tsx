@@ -99,12 +99,43 @@ export function EditModeSidebar({ projectId, chapterId }: Props) {
           const splitText = (splitResult.text || '').trim();
           const splitJsonMatch = splitText.match(/\[[\s\S]*\]/);
           if (splitJsonMatch) {
-            const splitParsed = JSON.parse(splitJsonMatch[0]) as { order: number; prose: string }[];
-            for (const seg of splitParsed) {
-              const targetScene = newScenes.find(s => s.order === seg.order);
-              if (targetScene && seg.prose) {
-                targetScene.prose = seg.prose;
-                targetScene.status = 'drafted';
+            const splitParsed = JSON.parse(splitJsonMatch[0]) as { order: number; firstSentence?: string; prose?: string }[];
+            // Sort by order to process boundaries in sequence
+            splitParsed.sort((a, b) => a.order - b.order);
+
+            if (splitParsed[0]?.firstSentence) {
+              // Boundary-based split: use firstSentence to find where each scene starts
+              const fullProse = freshChapter.prose;
+              const boundaries: { order: number; startIndex: number }[] = [];
+              for (const seg of splitParsed) {
+                if (!seg.firstSentence) continue;
+                const idx = fullProse.indexOf(seg.firstSentence);
+                if (idx >= 0) {
+                  boundaries.push({ order: seg.order, startIndex: idx });
+                }
+              }
+              // If no boundaries found, fall through to fallback
+              if (boundaries.length > 0) {
+                boundaries.sort((a, b) => a.startIndex - b.startIndex);
+                for (let i = 0; i < boundaries.length; i++) {
+                  const start = boundaries[i].startIndex;
+                  const end = i + 1 < boundaries.length ? boundaries[i + 1].startIndex : fullProse.length;
+                  const sceneProse = fullProse.slice(start, end).trim();
+                  const targetScene = newScenes.find(s => s.order === boundaries[i].order);
+                  if (targetScene && sceneProse) {
+                    targetScene.prose = sceneProse;
+                    targetScene.status = 'drafted';
+                  }
+                }
+              }
+            } else {
+              // Direct prose split: AI returned { order, prose } objects
+              for (const seg of splitParsed) {
+                const targetScene = newScenes.find(s => s.order === seg.order);
+                if (targetScene && seg.prose) {
+                  targetScene.prose = seg.prose;
+                  targetScene.status = 'drafted';
+                }
               }
             }
           }
