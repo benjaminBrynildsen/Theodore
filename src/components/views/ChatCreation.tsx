@@ -1076,35 +1076,49 @@ Rules:
                 <div
                   key={msg.id}
                   className={cn(
-                    'animate-fade-in max-w-[90%]',
-                    msg.role === 'user' ? 'ml-auto' : ''
+                    'animate-fade-in max-w-[90%] flex gap-2',
+                    msg.role === 'user' ? 'ml-auto flex-row-reverse' : 'flex-row'
                   )}
                 >
-                  <div
-                    className={cn(
-                      'px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-line',
-                      msg.role === 'user'
-                        ? 'bg-text-primary text-text-inverse rounded-br-sm'
-                        : 'bg-black/[0.04] rounded-bl-sm'
-                    )}
-                  >
-                    {msg.content.split(/(\*\*.*?\*\*)/).map((part, i) => {
-                      if (part.startsWith('**') && part.endsWith('**')) {
-                        return <strong key={i}>{part.slice(2, -2)}</strong>;
-                      }
-                      return part;
-                    })}
+                  {/* Avatar */}
+                  <div className={cn(
+                    'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold mt-0.5',
+                    msg.role === 'user'
+                      ? 'bg-text-primary text-text-inverse'
+                      : 'bg-black/[0.08] text-text-secondary'
+                  )}>
+                    {msg.role === 'user'
+                      ? (user?.name?.[0] || user?.email?.[0] || 'U').toUpperCase()
+                      : 'T'}
                   </div>
-                  {msg.role === 'assistant' && msg.model && (
-                    <div className="mt-1 text-[9px] text-text-tertiary/50 font-mono">
-                      {msg.model.replace('claude-', '').replace('gpt-', 'GPT-')}
+                  <div className="min-w-0">
+                    <div
+                      className={cn(
+                        'px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-line',
+                        msg.role === 'user'
+                          ? 'bg-text-primary text-text-inverse rounded-br-sm'
+                          : 'bg-black/[0.04] rounded-bl-sm'
+                      )}
+                    >
+                      {msg.content.split(/(\*\*.*?\*\*)/).map((part, i) => {
+                        if (part.startsWith('**') && part.endsWith('**')) {
+                          return <strong key={i}>{part.slice(2, -2)}</strong>;
+                        }
+                        return part;
+                      })}
                     </div>
-                  )}
+                    {msg.role === 'assistant' && msg.model && (
+                      <div className="mt-1 text-[9px] text-text-tertiary/50 font-mono">
+                        {msg.model.replace('claude-', '').replace('gpt-', 'GPT-')}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
 
               {!hasUserMessage && messages.length === 0 && showIntroLoader && (
-                <div className="animate-fade-in">
+                <div className="animate-fade-in flex gap-2">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold bg-black/[0.08] text-text-secondary mt-0.5">T</div>
                   <div className="bg-black/[0.04] px-4 py-2.5 rounded-2xl rounded-bl-sm w-fit">
                     <div className="flex gap-1.5">
                       <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -1117,7 +1131,8 @@ Rules:
 
               {/* Typing indicator */}
               {isTyping && (
-                <div className="animate-fade-in">
+                <div className="animate-fade-in flex gap-2">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold bg-black/[0.08] text-text-secondary mt-0.5">T</div>
                   <div className="bg-black/[0.04] px-4 py-2.5 rounded-2xl rounded-bl-sm w-fit">
                     <div className="flex gap-1.5">
                       <span className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
