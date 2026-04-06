@@ -396,7 +396,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                     <div className="text-lg font-bold text-sky-800">${overview.costs.providers.openaiText.cost}</div>
                   </div>
 
-                  {/* OpenAI TTS */}
+                  {/* OpenAI */}
                   <div className="bg-sky-50 rounded-xl p-3 flex items-center justify-between">
                     <div>
                       <div className="text-xs font-semibold text-sky-800">OpenAI (Budget TTS)</div>

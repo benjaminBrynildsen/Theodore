@@ -712,7 +712,9 @@ export function AudiobookPanel() {
     estimatedCredits: number;
     estimatedMinutes: number;
     isFreeAudioSample: boolean;
+    showSwitchToOpenAI: boolean;
     onConfirm: () => void;
+    onSwitchToOpenAI?: () => void;
   } | null>(null);
 
   /** Estimate TTS credit cost based on character count and provider */
@@ -734,8 +736,9 @@ export function AudiobookPanel() {
     const words = prose.split(/\s+/).length;
     const chars = prose.length;
     const label = `Scene ${scene.order}: ${scene.title || 'Untitled'}`;
-    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs (Premium)' : 'OpenAI TTS (Budget)';
+    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI';
     const isFreeSample = freeSampleAvailable && ttsProvider !== 'elevenlabs';
+    const showSwitchToOpenAI = freeSampleAvailable && ttsProvider === 'elevenlabs';
     setConfirmModal({
       label,
       words,
@@ -744,11 +747,18 @@ export function AudiobookPanel() {
       estimatedCredits: isFreeSample ? 0 : estimateTTSCredits(chars, ttsProvider),
       estimatedMinutes: Math.ceil(words / 150),
       isFreeAudioSample: isFreeSample,
+      showSwitchToOpenAI,
       onConfirm: () => {
         setConfirmModal(null);
         generateScene(chapterId, sceneId);
         if (isFreeSample) setFreeSampleAvailable(false);
       },
+      onSwitchToOpenAI: showSwitchToOpenAI ? () => {
+        audioStore.setTtsProvider('openai');
+        setConfirmModal(null);
+        // Re-trigger with OpenAI after a tick
+        setTimeout(() => confirmGenerateScene(chapterId, sceneId), 50);
+      } : undefined,
     });
   };
 
@@ -759,8 +769,9 @@ export function AudiobookPanel() {
     const words = prose.split(/\s+/).length;
     const chars = prose.length;
     const label = `Ch ${chapter.number}: ${chapter.title}`;
-    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs (Premium)' : 'OpenAI TTS (Budget)';
+    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI';
     const isFreeSample = freeSampleAvailable && ttsProvider !== 'elevenlabs';
+    const showSwitchToOpenAI = freeSampleAvailable && ttsProvider === 'elevenlabs';
     setConfirmModal({
       label,
       words,
@@ -769,11 +780,17 @@ export function AudiobookPanel() {
       estimatedCredits: isFreeSample ? 0 : estimateTTSCredits(chars, ttsProvider),
       estimatedMinutes: Math.ceil(words / 150),
       isFreeAudioSample: isFreeSample,
+      showSwitchToOpenAI,
       onConfirm: () => {
         setConfirmModal(null);
         generateChapter(chapterId);
         if (isFreeSample) setFreeSampleAvailable(false);
       },
+      onSwitchToOpenAI: showSwitchToOpenAI ? () => {
+        audioStore.setTtsProvider('openai');
+        setConfirmModal(null);
+        setTimeout(() => confirmGenerateChapter(chapterId), 50);
+      } : undefined,
     });
   };
 
@@ -1028,6 +1045,18 @@ export function AudiobookPanel() {
                   </>
                 )}
               </div>
+              {confirmModal.showSwitchToOpenAI && (
+                <div className="text-[11px] bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2.5 mb-1">
+                  <p className="text-emerald-800 font-medium mb-1.5">🎁 Get your first scene free!</p>
+                  <p className="text-emerald-700 mb-2">Switch to OpenAI voices and generate this scene at no cost — on us.</p>
+                  <button
+                    onClick={confirmModal.onSwitchToOpenAI}
+                    className="w-full py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-all"
+                  >
+                    Switch to OpenAI & Generate Free
+                  </button>
+                </div>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={() => setConfirmModal(null)}
@@ -1035,13 +1064,15 @@ export function AudiobookPanel() {
                 >
                   Cancel
                 </button>
-                <button
-                  onClick={confirmModal.onConfirm}
-                  disabled={!confirmModal.isFreeAudioSample && creditsRemaining < confirmModal.estimatedCredits}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {confirmModal.isFreeAudioSample ? '🎁 Generate Free' : 'Generate'}
-                </button>
+                {!confirmModal.showSwitchToOpenAI && (
+                  <button
+                    onClick={confirmModal.onConfirm}
+                    disabled={!confirmModal.isFreeAudioSample && creditsRemaining < confirmModal.estimatedCredits}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {confirmModal.isFreeAudioSample ? '🎁 Generate Free' : 'Generate'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1053,7 +1084,7 @@ export function AudiobookPanel() {
           <Headphones size={18} />
           <h2 className="text-lg font-serif font-semibold">Audiobook Studio</h2>
         </div>
-        <p className="text-xs text-text-tertiary">Generate narrated audio with Premium (ElevenLabs) or Budget (OpenAI TTS) voices</p>
+        <p className="text-xs text-text-tertiary">Generate narrated audio with ElevenLabs or OpenAI voices</p>
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -1480,7 +1511,7 @@ export function AudiobookPanel() {
                       ttsProvider === 'openai' ? 'bg-text-primary text-text-inverse' : 'glass-pill hover:bg-white/60'
                     )}
                   >
-                    <div className="font-medium">OpenAI TTS</div>
+                    <div className="font-medium">OpenAI</div>
                     <div className={cn('text-[10px]', ttsProvider === 'openai' ? 'text-white/60' : 'text-emerald-600')}>Budget</div>
                   </button>
                   <button
