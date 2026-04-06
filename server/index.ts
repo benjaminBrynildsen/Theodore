@@ -1128,7 +1128,11 @@ app.post('/api/transactions', async (req, res) => {
 // ========== AI Generation ==========
 
 // Guest (unauthenticated) generation — only for plan-project during onboarding
-const GUEST_ALLOWED_ACTIONS = new Set(['plan-project', 'scaffold-chapters', 'generate-chapter']);
+const GUEST_ALLOWED_ACTIONS = new Set([
+  'plan-project', 'scaffold-chapters', 'generate-chapter',
+  'generate-chapter-outline', 'scene-prose-split', 'entity-refine',
+  'dialogue-clarity-pass',
+]);
 const activeGuestIps = new Set<string>();
 
 app.post('/api/generate/guest', async (req, res) => {

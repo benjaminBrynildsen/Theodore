@@ -106,10 +106,10 @@ async function runSceneDecomposition(chapterId: string): Promise<Scene[] | null>
   const project = store.projects.find((p) => p.id === chapter.projectId);
   if (!project) return null;
 
-  // Skip if chapter already has scenes
+  // Clear existing scenes on regeneration so we get fresh decomposition
   if (chapter.scenes?.length) {
-    console.info('[PostGen] Chapter already has scenes, skipping decomposition');
-    return chapter.scenes;
+    console.info('[PostGen] Clearing old scenes for fresh decomposition...');
+    store.updateChapter(chapterId, { scenes: [] });
   }
 
   console.info('[PostGen] Running scene decomposition...');
