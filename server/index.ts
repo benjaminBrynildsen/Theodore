@@ -475,7 +475,7 @@ app.post('/api/billing/checkout', async (req, res) => {
     if (!auth) return;
     const tier = String(req.body?.tier || '');
     const tierConfig = getPaidTierConfig(tier);
-    if (!tierConfig) return res.status(400).json({ error: 'Invalid tier. Use writer, author, or studio.' });
+    if (!tierConfig) return res.status(400).json({ error: 'Invalid tier. Use writer, author, studio, or publisher.' });
 
     const stripe = await getStripeClient();
     if (!stripe) {
