@@ -1547,6 +1547,24 @@ app.post('/api/generate/image', async (req, res) => {
 
 // ========== TTS / Audiobook Generation ==========
 
+// Check if user has a free audio sample available
+app.get('/api/tts/free-sample', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth) return res.json({ available: false });
+    const user = auth.user;
+    const isFreeUser = !user.planTier || user.planTier === 'free';
+    if (!isFreeUser) return res.json({ available: false, reason: 'paid' });
+    const existing = await db.select({ id: creditTransactions.id })
+      .from(creditTransactions)
+      .where(and(eq(creditTransactions.userId, user.id), eq(creditTransactions.action, 'generate-audio')))
+      .limit(1);
+    res.json({ available: existing.length === 0 });
+  } catch (e: any) {
+    res.json({ available: false });
+  }
+});
+
 app.get('/api/tts/voices', async (_req, res) => {
   try {
     const voices = await getVoicesWithPreviews();
@@ -1588,8 +1606,28 @@ app.post('/api/tts/generate', async (req, res) => {
     // Credit check
     const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
-    // Minimum TTS cost is 100 credits (1K chars)
-    if (user.creditsRemaining < 100) return res.status(402).json({ error: 'Insufficient credits for audio generation' });
+
+    // Free audio sample: Dreamer (free) users get 1 free scene with OpenAI TTS
+    const isFreeUser = !user.planTier || user.planTier === 'free';
+    let isFreeAudioSample = false;
+    if (isFreeUser) {
+      const existingAudioTxns = await db.select({ id: creditTransactions.id })
+        .from(creditTransactions)
+        .where(and(eq(creditTransactions.userId, auth.user.id), eq(creditTransactions.action, 'generate-audio')))
+        .limit(1);
+      if (existingAudioTxns.length === 0 && (provider || 'elevenlabs') !== 'elevenlabs') {
+        // First audio gen + using OpenAI = free sample
+        isFreeAudioSample = true;
+      } else if (existingAudioTxns.length === 0 && (provider || 'elevenlabs') === 'elevenlabs') {
+        // Free sample only works with OpenAI budget voices
+        return res.status(402).json({ error: 'Free audio sample is only available with OpenAI TTS. Switch to Budget quality to try it free!' });
+      }
+    }
+
+    if (!isFreeAudioSample) {
+      // Minimum TTS cost is 100 credits (1K chars)
+      if (user.creditsRemaining < 100) return res.status(402).json({ error: 'Insufficient credits for audio generation' });
+    }
 
     // Create job and return immediately
     const jobId = `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1624,19 +1662,26 @@ app.post('/api/tts/generate', async (req, res) => {
         sceneSFX: sceneSFX || [],
       });
 
-      // Deduct credits atomically (user object may be stale since TTS runs in background)
-      await db.update(users).set({
-        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
-      }).where(eq(users.id, auth.user.id));
+      const actualCreditsUsed = isFreeAudioSample ? 0 : result.creditsUsed;
 
-      // Log transaction
+      if (!isFreeAudioSample) {
+        // Deduct credits atomically (user object may be stale since TTS runs in background)
+        await db.update(users).set({
+          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
+        }).where(eq(users.id, auth.user.id));
+      }
+
+      // Log transaction (even free samples, so we know they used their freebie)
       await db.insert(creditTransactions).values({
         userId: auth.user.id,
         action: 'generate-audio',
-        creditsUsed: result.creditsUsed,
+        creditsUsed: actualCreditsUsed,
         model: model || 'eleven_multilingual_v2',
         chapterId,
-        metadata: { narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate, charCount: prose.length },
+        metadata: {
+          narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate,
+          charCount: prose.length, freeAudioSample: isFreeAudioSample || undefined,
+        },
       });
 
       // Save audio generation to DB for persistence

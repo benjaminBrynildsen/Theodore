@@ -55,6 +55,7 @@ export function AudiobookPanel() {
   const { narratorVoice, multiVoice, ttsProvider, ttsModel, speed, chapterAudio, generating, error } = audioStore;
 
   const [voiceAssignments, setVoiceAssignments] = useState<VoiceAssignment[]>([]);
+  const [freeSampleAvailable, setFreeSampleAvailable] = useState(false);
   const [previewing, setPreviewing] = useState<string | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const [showVoiceConfig, setShowVoiceConfig] = useState(true);
@@ -77,6 +78,13 @@ export function AudiobookPanel() {
   // Fetch voices from server (includes user's ElevenLabs library if available)
   const [serverVoices, setServerVoices] = useState<typeof ELEVENLABS_VOICES>([]);
   const preloadedAudioRef = useRef<Record<string, HTMLAudioElement>>({});
+  useEffect(() => {
+    fetch('/api/tts/free-sample', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => setFreeSampleAvailable(!!d.available))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     api.ttsVoices().then(data => {
       const urls: Record<string, string> = {};
@@ -702,6 +710,7 @@ export function AudiobookPanel() {
     qualityLabel: string;
     estimatedCredits: number;
     estimatedMinutes: number;
+    isFreeAudioSample: boolean;
     onConfirm: () => void;
   } | null>(null);
 
@@ -725,14 +734,20 @@ export function AudiobookPanel() {
     const chars = prose.length;
     const label = `Scene ${scene.order}: ${scene.title || 'Untitled'}`;
     const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs (Premium)' : 'OpenAI TTS (Budget)';
+    const isFreeSample = freeSampleAvailable && ttsProvider !== 'elevenlabs';
     setConfirmModal({
       label,
       words,
       chars,
       qualityLabel,
-      estimatedCredits: estimateTTSCredits(chars, ttsProvider),
+      estimatedCredits: isFreeSample ? 0 : estimateTTSCredits(chars, ttsProvider),
       estimatedMinutes: Math.ceil(words / 150),
-      onConfirm: () => { setConfirmModal(null); generateScene(chapterId, sceneId); },
+      isFreeAudioSample: isFreeSample,
+      onConfirm: () => {
+        setConfirmModal(null);
+        generateScene(chapterId, sceneId);
+        if (isFreeSample) setFreeSampleAvailable(false);
+      },
     });
   };
 
@@ -744,14 +759,20 @@ export function AudiobookPanel() {
     const chars = prose.length;
     const label = `Ch ${chapter.number}: ${chapter.title}`;
     const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs (Premium)' : 'OpenAI TTS (Budget)';
+    const isFreeSample = freeSampleAvailable && ttsProvider !== 'elevenlabs';
     setConfirmModal({
       label,
       words,
       chars,
       qualityLabel,
-      estimatedCredits: estimateTTSCredits(chars, ttsProvider),
+      estimatedCredits: isFreeSample ? 0 : estimateTTSCredits(chars, ttsProvider),
       estimatedMinutes: Math.ceil(words / 150),
-      onConfirm: () => { setConfirmModal(null); generateChapter(chapterId); },
+      isFreeAudioSample: isFreeSample,
+      onConfirm: () => {
+        setConfirmModal(null);
+        generateChapter(chapterId);
+        if (isFreeSample) setFreeSampleAvailable(false);
+      },
     });
   };
 
@@ -980,20 +1001,28 @@ export function AudiobookPanel() {
                   <span className="font-medium">{confirmModal.qualityLabel}</span>
                 </div>
                 <div className="h-px bg-black/5 my-1" />
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-text-tertiary">Estimated cost</span>
-                  <span className="font-semibold">{confirmModal.estimatedCredits.toLocaleString()} credits</span>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-text-tertiary">Your balance</span>
-                  <span className={`font-semibold ${creditsRemaining < confirmModal.estimatedCredits ? 'text-red-600' : 'text-emerald-600'}`}>
-                    {creditsRemaining.toLocaleString()} credits
-                  </span>
-                </div>
-                {creditsRemaining < confirmModal.estimatedCredits && (
-                  <div className="text-[11px] text-red-600 bg-red-50 rounded-xl px-3 py-2 mt-2">
-                    Not enough credits. Upgrade your plan to generate this audio.
+                {confirmModal.isFreeAudioSample ? (
+                  <div className="text-[11px] text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2 mt-1 text-center">
+                    🎁 <span className="font-semibold">Free preview!</span> Your first scene is on us — no credits charged.
                   </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-text-tertiary">Estimated cost</span>
+                      <span className="font-semibold">{confirmModal.estimatedCredits.toLocaleString()} credits</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-text-tertiary">Your balance</span>
+                      <span className={`font-semibold ${creditsRemaining < confirmModal.estimatedCredits ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {creditsRemaining.toLocaleString()} credits
+                      </span>
+                    </div>
+                    {creditsRemaining < confirmModal.estimatedCredits && (
+                      <div className="text-[11px] text-red-600 bg-red-50 rounded-xl px-3 py-2 mt-2">
+                        Not enough credits. Upgrade your plan to generate this audio.
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
               <div className="flex gap-2">
@@ -1005,10 +1034,10 @@ export function AudiobookPanel() {
                 </button>
                 <button
                   onClick={confirmModal.onConfirm}
-                  disabled={creditsRemaining < confirmModal.estimatedCredits}
+                  disabled={!confirmModal.isFreeAudioSample && creditsRemaining < confirmModal.estimatedCredits}
                   className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  Generate
+                  {confirmModal.isFreeAudioSample ? '🎁 Generate Free' : 'Generate'}
                 </button>
               </div>
             </div>
