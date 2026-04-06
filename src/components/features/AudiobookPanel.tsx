@@ -694,28 +694,65 @@ export function AudiobookPanel() {
 
   // ========== Generation ==========
 
+  // In-app confirmation modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    label: string;
+    words: number;
+    chars: number;
+    qualityLabel: string;
+    estimatedCredits: number;
+    estimatedMinutes: number;
+    onConfirm: () => void;
+  } | null>(null);
+
+  /** Estimate TTS credit cost based on character count and provider */
+  function estimateTTSCredits(charCount: number, provider: string): number {
+    if (provider === 'elevenlabs') {
+      // ~100 credits per 1k chars
+      return Math.max(100, Math.ceil(charCount / 1000) * 100);
+    }
+    // OpenAI budget: ~20 credits per 1k chars
+    return Math.max(20, Math.ceil(charCount / 1000) * 20);
+  }
+
   /** Show confirmation before generating */
   const confirmGenerateScene = (chapterId: string, sceneId: string) => {
     const chapter = chapters.find(c => c.id === chapterId);
     const scene = (chapter?.scenes || []).find(s => s.id === sceneId);
     if (!scene?.prose?.trim()) return;
-    const words = scene.prose.trim().split(/\s+/).length;
+    const prose = scene.prose.trim();
+    const words = prose.split(/\s+/).length;
+    const chars = prose.length;
     const label = `Scene ${scene.order}: ${scene.title || 'Untitled'}`;
     const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs (Premium)' : 'OpenAI TTS (Budget)';
-    if (window.confirm(`Generate audio for "${label}"?\n\n${words.toLocaleString()} words · ~${Math.ceil(words / 150)} min · ${qualityLabel}`)) {
-      generateScene(chapterId, sceneId);
-    }
+    setConfirmModal({
+      label,
+      words,
+      chars,
+      qualityLabel,
+      estimatedCredits: estimateTTSCredits(chars, ttsProvider),
+      estimatedMinutes: Math.ceil(words / 150),
+      onConfirm: () => { setConfirmModal(null); generateScene(chapterId, sceneId); },
+    });
   };
 
   const confirmGenerateChapter = (chapterId: string) => {
     const chapter = chapters.find(c => c.id === chapterId);
     if (!chapter?.prose) return;
-    const words = chapter.prose.trim().split(/\s+/).length;
+    const prose = chapter.prose.trim();
+    const words = prose.split(/\s+/).length;
+    const chars = prose.length;
     const label = `Ch ${chapter.number}: ${chapter.title}`;
     const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs (Premium)' : 'OpenAI TTS (Budget)';
-    if (window.confirm(`Generate audio for "${label}"?\n\n${words.toLocaleString()} words · ~${Math.ceil(words / 150)} min · ${qualityLabel}`)) {
-      generateChapter(chapterId);
-    }
+    setConfirmModal({
+      label,
+      words,
+      chars,
+      qualityLabel,
+      estimatedCredits: estimateTTSCredits(chars, ttsProvider),
+      estimatedMinutes: Math.ceil(words / 150),
+      onConfirm: () => { setConfirmModal(null); generateChapter(chapterId); },
+    });
   };
 
   /** Generate a single scene's audio */
@@ -912,8 +949,73 @@ export function AudiobookPanel() {
 
   if (!project) return null;
 
+  const creditsRemaining = useCreditsStore.getState().plan.creditsRemaining;
+
   return (
     <div className="h-full flex flex-col">
+      {/* Audio generation confirmation modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center">
+          <div className="absolute inset-0 bg-white/60 backdrop-blur-xl" onClick={() => setConfirmModal(null)} />
+          <div className="relative bg-white rounded-3xl shadow-2xl border border-black/5 w-full max-w-sm mx-4 animate-scale-in overflow-hidden">
+            <div className="p-6">
+              <div className="flex items-center gap-2 mb-3">
+                <Headphones size={18} className="text-text-primary" />
+                <h3 className="text-base font-serif font-semibold">Generate Audio</h3>
+              </div>
+              <p className="text-sm text-text-secondary mb-4">
+                {confirmModal.label}
+              </p>
+              <div className="space-y-2 mb-5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-text-tertiary">Words</span>
+                  <span className="font-medium">{confirmModal.words.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-text-tertiary">Duration</span>
+                  <span className="font-medium">~{confirmModal.estimatedMinutes} min</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-text-tertiary">Quality</span>
+                  <span className="font-medium">{confirmModal.qualityLabel}</span>
+                </div>
+                <div className="h-px bg-black/5 my-1" />
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-text-tertiary">Estimated cost</span>
+                  <span className="font-semibold">{confirmModal.estimatedCredits.toLocaleString()} credits</span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-text-tertiary">Your balance</span>
+                  <span className={`font-semibold ${creditsRemaining < confirmModal.estimatedCredits ? 'text-red-600' : 'text-emerald-600'}`}>
+                    {creditsRemaining.toLocaleString()} credits
+                  </span>
+                </div>
+                {creditsRemaining < confirmModal.estimatedCredits && (
+                  <div className="text-[11px] text-red-600 bg-red-50 rounded-xl px-3 py-2 mt-2">
+                    Not enough credits. Upgrade your plan to generate this audio.
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmModal(null)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-medium border border-black/10 text-text-secondary hover:bg-black/[0.02] transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmModal.onConfirm}
+                  disabled={creditsRemaining < confirmModal.estimatedCredits}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Generate
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="px-5 py-4 border-b border-black/5">
         <div className="flex items-center gap-2 mb-1">
           <Headphones size={18} />
