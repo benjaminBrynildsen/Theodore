@@ -1420,6 +1420,30 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 </p>
               </div>
 
+              {/* Interrupted generation — show "Finish" button */}
+              {(() => {
+                const proseWords = chapter.prose?.trim().split(/\s+/).length || 0;
+                const meta = chapter.aiIntentMetadata as any;
+                const targetWords = parseInt(meta?.chunking?.targetWords || '0', 10);
+                const isIncomplete = !generating && !extending && proseWords > 50 && targetWords > 0 && proseWords < targetWords * 0.85;
+                if (!isIncomplete) return null;
+                const completionPct = Math.round((proseWords / targetWords) * 100);
+                return (
+                  <div className="mb-4 text-center">
+                    <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-50 border border-amber-200">
+                      <span className="text-xs text-amber-800">Generation interrupted at <strong>{completionPct}%</strong></span>
+                      <button
+                        onClick={handleExtend}
+                        disabled={extending}
+                        className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-text-primary text-text-inverse hover:shadow-md transition-all"
+                      >
+                        Finish Chapter
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Generate whole chapter button */}
               <div className="text-center">
                 {generating ? (
