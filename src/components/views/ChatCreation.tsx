@@ -1069,7 +1069,7 @@ Rules:
         {/* Messages */}
         <div className="flex-1 overflow-hidden">
           <div className="max-w-7xl mx-auto w-full h-full grid grid-cols-1 lg:grid-cols-[minmax(0,60%)_minmax(0,30%)] gap-0 lg:gap-8 items-stretch px-0 sm:px-6">
-          <div className="w-full min-h-0 overflow-hidden flex flex-col">
+          <div className="w-full min-h-0 overflow-hidden flex flex-col lg:border lg:border-black/[0.08] lg:rounded-2xl lg:bg-white/50 lg:my-4 lg:shadow-sm">
 
             <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3 space-y-3">
               {messages.map((msg) => (
