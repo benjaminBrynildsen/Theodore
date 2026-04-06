@@ -177,10 +177,25 @@ export function AudioPlayerBar() {
       setPlaying(false);
     };
     const onLoadedMetadata = () => {
-      if (audio.duration && isFinite(audio.duration)) setDuration(audio.duration);
+      // Prefer stored durationEstimate over browser metadata (concatenated MP3s report wrong duration)
+      const state = useAudioStore.getState();
+      const chId = state.currentChapterId;
+      const cached = chId ? state.chapterAudio[chId] : null;
+      const estimate = cached?.durationEstimate;
+      if (estimate && estimate > 0) {
+        setDuration(estimate);
+      } else if (audio.duration && isFinite(audio.duration)) {
+        setDuration(audio.duration);
+      }
     };
     const onDurationChange = () => {
-      if (audio.duration && isFinite(audio.duration)) setDuration(audio.duration);
+      // Only use browser duration if we don't have an estimate
+      const state = useAudioStore.getState();
+      const chId = state.currentChapterId;
+      const cached = chId ? state.chapterAudio[chId] : null;
+      if (!cached?.durationEstimate && audio.duration && isFinite(audio.duration)) {
+        setDuration(audio.duration);
+      }
     };
     const onError = () => {
       const state = useAudioStore.getState();
@@ -207,7 +222,13 @@ export function AudioPlayerBar() {
       const now = Date.now();
       if (now - timeUpdateRef.current > 250) {
         timeUpdateRef.current = now;
-        setCurrentTime(audio.currentTime);
+        const ct = audio.currentTime;
+        setCurrentTime(ct);
+        // If currentTime exceeds our known duration, extend it
+        const curDur = useAudioStore.getState().duration;
+        if (ct > curDur && ct > 0) {
+          setDuration(ct + 2);
+        }
       }
     };
 
