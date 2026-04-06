@@ -74,7 +74,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (!user) throw new Error('Unexpected auth response shape');
       set({ user, initialized: true, loading: false });
     } catch {
-      clearLocalProjectState();
+      // DON'T clear local project state for guests — they may have
+      // unsaved work in localStorage that should persist across refreshes
       set({ user: null, initialized: true, loading: false });
     }
   },
