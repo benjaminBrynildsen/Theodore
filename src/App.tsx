@@ -90,6 +90,14 @@ export default function App() {
   const showWorkspaceChrome = !showSettingsView && !showToolsView && currentView !== 'home' && hasActiveProject;
   const [showAuth, setShowAuth] = useState(false);
   const [mobilePlayerExpanded, setMobilePlayerExpanded] = useState(false);
+
+  // Listen for expand event from AudioPlayerBar
+  useEffect(() => {
+    const handler = () => setMobilePlayerExpanded(true);
+    window.addEventListener('theodore:expandPlayer', handler);
+    return () => window.removeEventListener('theodore:expandPlayer', handler);
+  }, []);
+
   const [showGuestChat, setShowGuestChat] = useState(false);
   const [returnToChatAfterAuth, setReturnToChatAfterAuth] = useState(false);
   const [showPostAuthChat, setShowPostAuthChat] = useState(false);

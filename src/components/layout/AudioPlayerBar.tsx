@@ -574,16 +574,20 @@ export function AudioPlayerBar() {
         )}
 
         <div className="flex items-center gap-3 px-4 py-2 sm:px-5">
-          {/* Cover art */}
-          <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-white/10">
-            {chapterImage ? (
-              <img src={chapterImage} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5">
-                <Headphones size={20} className="text-white/40" />
-              </div>
-            )}
-          </div>
+          {/* Cover art + track info — tap to expand fullscreen player on mobile */}
+          <div
+            className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer sm:cursor-default"
+            onClick={() => window.dispatchEvent(new CustomEvent('theodore:expandPlayer'))}
+          >
+            <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-white/10">
+              {chapterImage ? (
+                <img src={chapterImage} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5">
+                  <Headphones size={20} className="text-white/40" />
+                </div>
+              )}
+            </div>
 
           {/* Track info */}
           <div className="flex-1 min-w-0 mr-2">
@@ -606,6 +610,7 @@ export function AudioPlayerBar() {
                 </div>
               </>
             ) : null}
+          </div>
           </div>
 
           {/* Playback controls */}
