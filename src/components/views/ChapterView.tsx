@@ -100,6 +100,7 @@ export function ChapterView({ chapter }: Props) {
   const [extending, setExtending] = useState(false);
   const [generatedText, setGeneratedText] = useState('');
   const [generationPct, setGenerationPct] = useState(0);
+  const accumulatedRef = useRef('');
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [chunkSize, setChunkSize] = useState<'short' | 'medium' | 'long'>('medium');
   const [showVibeEditor, setShowVibeEditor] = useState(false);
@@ -154,6 +155,18 @@ export function ChapterView({ chapter }: Props) {
     setChapterFraming(saved);
   }, [chapter.id, chapter.aiIntentMetadata]);
 
+  // Save partial generation when page goes to background (phone lock, tab switch)
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.hidden && accumulatedRef.current.trim().length > 100) {
+        updateChapter(chapter.id, { prose: accumulatedRef.current });
+        api.updateChapter(chapter.id, { prose: accumulatedRef.current }).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [chapter.id]);
+
   // AI Generation handler
   const handleGenerate = async () => {
     if (!project) {
@@ -164,6 +177,7 @@ export function ChapterView({ chapter }: Props) {
     setGenerating(true);
     setGeneratedText('');
     setGenerationPct(0);
+    accumulatedRef.current = '';
 
     const projectChapters = getProjectChapters(project.id);
     const canonEntries = getProjectEntries(project.id);
@@ -200,9 +214,14 @@ export function ChapterView({ chapter }: Props) {
       },
       (text) => {
         accumulated += text;
+        accumulatedRef.current = accumulated;
         setGeneratedText(accumulated);
         const words = accumulated.trim().split(/\s+/).length;
         setGenerationPct(Math.min(99, Math.round((words / wordTarget) * 100)));
+        // Auto-save partial generation every ~500 words so progress survives page backgrounding
+        if (words % 500 < 5 && words > 100) {
+          updateChapter(chapter.id, { prose: accumulated, status: 'generating' as any });
+        }
       },
       async (usage) => {
         setGenerationPct(100);
@@ -253,6 +272,7 @@ export function ChapterView({ chapter }: Props) {
 
         setGenerating(false);
         setGeneratedText('');
+        accumulatedRef.current = '';
 
         // Auto-run post-generation pipeline (entity scan + scene decomposition for sidebar/studio)
         import('../../lib/post-generation-pipeline').then(({ runPostGenerationPipeline }) =>
