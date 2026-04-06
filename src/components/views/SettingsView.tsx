@@ -11,7 +11,7 @@ import { UsageDashboard } from '../credits/UsageDashboard';
 import { useSettingsStore, type SettingsSection } from '../../store/settings';
 import { useCreditsStore } from '../../store/credits';
 import { useAuthStore } from '../../store/auth';
-import { PLAN_DETAILS, type PlanTier } from '../../types/credits';
+import { PLAN_DETAILS, type PlanTier, FREE_TIER_CREDITS } from '../../types/credits';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 import type {

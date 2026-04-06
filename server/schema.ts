@@ -168,13 +168,3 @@ export const validationOverrides = pgTable('validation_overrides', {
   overriddenBy: text('overridden_by').notNull(), // user id
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
-
-// ========== Support Requests ==========
-export const supportRequests = pgTable('support_requests', {
-  id: serial('id').primaryKey(),
-  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  type: text('type').notNull(), // 'refund', 'support', etc.
-  reason: text('reason').notNull(),
-  status: text('status').notNull().default('pending'), // 'pending', 'reviewed', 'resolved', 'rejected'
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-});
