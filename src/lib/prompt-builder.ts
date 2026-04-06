@@ -256,14 +256,14 @@ function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
   const primaryChars = characters.filter(c => 
     chapterCharNames.has(c.name.toLowerCase()) ||
     (c.character.fullName && chapterCharNames.has(c.character.fullName.toLowerCase())) ||
-    c.character.aliases.some(a => chapterCharNames.has(a.toLowerCase()))
+    (c.character.aliases || []).some(a => chapterCharNames.has(a.toLowerCase()))
   );
 
   // Secondary characters: have a relationship with a primary character
   const primaryIds = new Set(primaryChars.map(c => c.id));
   const secondaryChars = characters.filter(c => 
     !primaryIds.has(c.id) &&
-    c.character.relationships.some(r => primaryIds.has(r.characterId))
+    (c.character.relationships || []).some(r => primaryIds.has(r.characterId))
   );
 
   // Relevant locations: mentioned in chapter constraints, purpose, or changes
@@ -278,16 +278,16 @@ function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
   const relevantLocations = locations.filter(l =>
     chapterText.includes(l.name.toLowerCase()) ||
     (l.location.fullName && chapterText.includes(l.location.fullName.toLowerCase())) ||
-    l.location.aliases.some(a => chapterText.includes(a.toLowerCase())) ||
+    (l.location.aliases || []).some(a => chapterText.includes(a.toLowerCase())) ||
     // Also include locations where primary characters currently are
-    primaryChars.some(c => c.character.storyState.currentLocation?.toLowerCase().includes(l.name.toLowerCase()))
+    primaryChars.some(c => c.character?.storyState?.currentLocation?.toLowerCase().includes(l.name.toLowerCase()))
   );
 
   // Relevant world elements: tagged with chapter characters or mentioned in chapter text
   const relevantOthers = others.filter(e =>
     chapterText.includes(e.name.toLowerCase()) ||
-    e.tags.some(t => chapterCharNames.has(t.toLowerCase())) ||
-    e.tags.some(t => chapterText.includes(t.toLowerCase()))
+    (e.tags || []).some(t => chapterCharNames.has(t.toLowerCase())) ||
+    (e.tags || []).some(t => chapterText.includes(t.toLowerCase()))
   );
 
   // If filtering produces nothing (maybe premise isn't filled out), fall back to all
