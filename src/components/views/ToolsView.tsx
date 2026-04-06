@@ -212,7 +212,7 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
               <div className="text-4xl mb-4">🧰</div>
               <h2 className="text-xl font-serif font-semibold mb-2">Theodore Tools</h2>
               <p className="text-sm text-text-tertiary max-w-md mx-auto mb-8">
-                From story structure to sales tracking — everything you need to go from idea to published author.
+                From story structure to audiobook — everything you need to go from idea to finished book.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
                 {TOOLS.map(({ id, label, icon: Icon, phase }) => (

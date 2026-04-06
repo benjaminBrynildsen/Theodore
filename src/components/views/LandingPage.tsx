@@ -44,8 +44,8 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
     },
     {
       icon: Zap,
-      title: 'Idea to Published',
-      desc: 'From first spark to Amazon KDP — one seamless pipeline.',
+      title: 'Idea to Audiobook',
+      desc: 'From first spark to finished audiobook — one seamless pipeline.',
     },
   ];
 
@@ -93,7 +93,7 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
         </h1>
 
         <p className="text-lg sm:text-xl text-black/55 leading-relaxed max-w-xl mb-10">
-          Theodore turns your story ideas into fully realized novels — with AI that understands your characters, your world, and your voice.
+          Theodore turns your story ideas into fully realized audiobooks — with AI that understands your characters, your world, and your voice.
         </p>
 
         <button
