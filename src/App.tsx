@@ -130,7 +130,55 @@ export default function App() {
     setCurrentUserId(userId);
     hydrateCreditsFromUser(user || null);
     if (userId) {
-      loadProjects();
+      // Migrate guest data: if we have local projects that aren't on the server yet, push them
+      const migrateGuestData = async () => {
+        const localProjects = useStore.getState().projects;
+        const localChapters = useStore.getState().chapters;
+        const localCanonEntries = useCanonStore.getState().entries;
+
+        if (localProjects.length > 0) {
+          // We have local guest data — persist it to the new account before loading server data
+          for (const project of localProjects) {
+            try {
+              await api.createProject({
+                ...project,
+                userId,
+                narrativeControls: project.narrativeControls,
+              });
+            } catch {
+              // Project may already exist on server (duplicate), that's fine
+            }
+          }
+          for (const chapter of localChapters) {
+            try {
+              await api.createChapter(chapter);
+            } catch {
+              // Chapter may already exist
+            }
+          }
+          for (const entry of localCanonEntries) {
+            try {
+              await api.createCanon({ ...entry, projectId: entry.projectId });
+            } catch {
+              // Canon entry may already exist
+            }
+          }
+        }
+
+        // Now load from server (which includes the just-migrated data)
+        const savedActiveProject = useStore.getState().activeProjectId;
+        await loadProjects();
+        // Restore the active project so the user stays where they were
+        if (savedActiveProject) {
+          const stillExists = useStore.getState().projects.some(p => p.id === savedActiveProject);
+          if (stillExists) {
+            useStore.setState({ activeProjectId: savedActiveProject, currentView: 'project' });
+          }
+        }
+      };
+
+      migrateGuestData();
+
       api.listTransactions(userId).then((rows) => {
         const mapped = rows.map((tx: any) => {
           const meta = tx.metadata || {};
