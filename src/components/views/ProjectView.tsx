@@ -61,7 +61,7 @@ export function ProjectView() {
     await generateStream(
       {
         prompt,
-        model: settings.ai?.preferredModel || 'gpt-4.1',
+        model: settings.ai?.preferredModel || 'claude-sonnet',
         maxTokens: 4096,
         action: 'scaffold-chapters',
         projectId: project.id,

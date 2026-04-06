@@ -255,7 +255,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
 
       const result = await generateText({
         prompt,
-        model: settings.ai?.preferredModel || 'gpt-4.1',
+        model: settings.ai?.preferredModel || 'claude-sonnet',
         maxTokens: currentSelection ? 2000 : 4000,
         action: 'inline-edit',
         projectId: project.id,

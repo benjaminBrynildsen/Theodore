@@ -129,7 +129,7 @@ async function runSceneDecomposition(chapterId: string): Promise<Scene[] | null>
 
   const result = await generateText({
     prompt,
-    model: settings.ai.preferredModel || 'gpt-4.1',
+    model: settings.ai.preferredModel || 'claude-sonnet',
     maxTokens: 1500,
     action: 'generate-chapter-outline',
     projectId: project.id,

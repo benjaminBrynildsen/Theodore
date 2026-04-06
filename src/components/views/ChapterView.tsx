@@ -192,7 +192,7 @@ export function ChapterView({ chapter }: Props) {
     await generateStream(
       {
         prompt,
-        model: settings.ai?.preferredModel || 'gpt-4.1',
+        model: settings.ai?.preferredModel || 'claude-sonnet',
         maxTokens: isChildrensBook ? 300 : wordTargetMaxTokens,
         action: 'generate-chapter',
         projectId: project.id,
@@ -215,7 +215,7 @@ export function ChapterView({ chapter }: Props) {
           try {
             const repaired = await generateText({
               prompt: `Rewrite this chapter prose ONLY to improve dialogue speaker clarity. Keep all plot events, tone, pacing, and wording as intact as possible. Do not shorten. Do not summarize. Do not add new events.\n\nRules:\n- Whenever speaker changes, make speaker identity explicit nearby.\n- Avoid consecutive unattributed quote-only paragraphs when speakers alternate.\n- Keep natural prose quality; avoid over-tagging every line.\n\nCHAPTER PROSE:\n${finalProse}`,
-              model: settings.ai?.preferredModel || 'gpt-4.1',
+              model: settings.ai?.preferredModel || 'claude-sonnet',
               maxTokens: wordTargetMaxTokens,
               action: 'dialogue-clarity-pass',
               projectId: project.id,
@@ -231,7 +231,7 @@ export function ChapterView({ chapter }: Props) {
           prose: finalProse,
           status: 'draft-generated' as const,
           aiIntentMetadata: {
-            model: usage.creditsUsed ? settings.ai?.preferredModel || 'gpt-4.1' : 'unknown',
+            model: usage.creditsUsed ? settings.ai?.preferredModel || 'claude-sonnet' : 'unknown',
             generatedAt: new Date().toISOString(),
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
@@ -318,7 +318,7 @@ export function ChapterView({ chapter }: Props) {
     await generateStream(
       {
         prompt,
-        model: settings.ai?.preferredModel || 'gpt-4.1',
+        model: settings.ai?.preferredModel || 'claude-sonnet',
         maxTokens: wordTargetMaxTokens,
         action: 'extend-chapter',
         projectId: project.id,
@@ -379,7 +379,7 @@ export function ChapterView({ chapter }: Props) {
 
                 const result = await generateText({
                   prompt: decomposePrompt,
-                  model: settings.ai?.preferredModel || 'gpt-4.1',
+                  model: settings.ai?.preferredModel || 'claude-sonnet',
                   maxTokens: 1000,
                   action: 'generate-chapter-outline',
                   projectId: proj.id,
@@ -415,7 +415,7 @@ export function ChapterView({ chapter }: Props) {
 
                   const splitResult = await generateText({
                     prompt: splitPrompt,
-                    model: settings.ai?.preferredModel || 'gpt-4.1',
+                    model: settings.ai?.preferredModel || 'claude-sonnet',
                     maxTokens: 4000,
                     action: 'generate-chapter-outline',
                     projectId: proj.id,
@@ -506,7 +506,7 @@ export function ChapterView({ chapter }: Props) {
     await generateStream(
       {
         prompt: scenePrompt,
-        model: settings.ai?.preferredModel || 'gpt-4.1',
+        model: settings.ai?.preferredModel || 'claude-sonnet',
         maxTokens: wordTargetMaxTokens,
         action: 'generate-scene',
         projectId: project.id,

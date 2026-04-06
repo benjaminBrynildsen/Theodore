@@ -115,7 +115,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     theme: 'light',
   },
   ai: {
-    preferredModel: 'gpt-4.1',
+    preferredModel: 'claude-sonnet',
     temperature: 0.8,
     autoSuggest: false,
     suggestAfterMs: 2000,

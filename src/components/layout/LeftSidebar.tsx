@@ -182,7 +182,7 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
 
       const result = await generateText({
         prompt,
-        model: settings.ai.preferredModel || 'gpt-4.1',
+        model: settings.ai.preferredModel || 'claude-sonnet',
         maxTokens: 1500,
         action: 'generate-chapter-outline',
         projectId: project.id,
@@ -211,7 +211,7 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
         );
         const splitResult = await generateText({
           prompt: splitPrompt,
-          model: settings.ai.preferredModel || 'gpt-4.1',
+          model: settings.ai.preferredModel || 'claude-sonnet',
           maxTokens: 4000,
           action: 'generate-chapter-outline',
           projectId: project.id,
