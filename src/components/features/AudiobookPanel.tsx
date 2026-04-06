@@ -38,7 +38,7 @@ const OPENAI_TTS_VOICES = [
   { id: 'openai:echo', name: 'Echo', desc: 'Clear, direct' },
   { id: 'openai:fable', name: 'Fable', desc: 'Narrative-friendly' },
   { id: 'openai:nova', name: 'Nova', desc: 'Natural, smooth' },
-  { id: 'openai:onyx', name: 'Onyx', desc: 'Deep, cinematic' },
+  // Onyx removed per Ben's request
   { id: 'openai:sage', name: 'Sage', desc: 'Balanced, calm' },
   { id: 'openai:shimmer', name: 'Shimmer', desc: 'Soft, airy' },
   { id: 'openai:verse', name: 'Verse', desc: 'Lyrical, dynamic' },

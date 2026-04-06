@@ -232,10 +232,8 @@ export const ELEVENLABS_VOICES: ElevenLabsVoiceInfo[] = [
   { id: 'CwhRBWXzGAHq8TQ4Fs17', name: 'Roger', desc: 'Laid-back & resonant', gender: 'male', tone: 'casual' },
   { id: 'SAz9YHcvj6GT2YYXdXww', name: 'River', desc: 'Relaxed & informative', gender: 'male', tone: 'neutral' },
   // Young female
-  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Sarah', desc: 'Mature & reassuring', gender: 'female', tone: 'gentle' },
   { id: 'cgSgspJ2msm6clMCkdW9', name: 'Jessica', desc: 'Playful & bright', gender: 'female', tone: 'bright' },
   { id: 'hpp4J3VqNfWAUOO0d1Us', name: 'Bella', desc: 'Professional & warm', gender: 'female', tone: 'warm' },
-  { id: 'FGY2WhTYpPnrIDTdsKH5', name: 'Laura', desc: 'Enthusiastic & quirky', gender: 'female', tone: 'energetic' },
   // Middle-aged female
   { id: 'pFZP5JQG7iQjIQuC4Bku', name: 'Lily', desc: 'Velvety actress', gender: 'female', tone: 'warm' },
   { id: 'Xb7hH8MSUJpSbSDYk0k2', name: 'Alice', desc: 'Clear & engaging', gender: 'female', tone: 'authoritative' },
