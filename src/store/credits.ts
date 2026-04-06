@@ -124,7 +124,7 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
 
     const rawTier = String(user.plan || 'free');
     const tier: PlanTier =
-      rawTier === 'writer' || rawTier === 'author' || rawTier === 'studio' || rawTier === 'free'
+      rawTier === 'writer' || rawTier === 'author' || rawTier === 'studio' || rawTier === 'publisher' || rawTier === 'free'
         ? rawTier
         : 'free';
     const creditsTotal = Math.max(0, Number(user.creditsTotal ?? 100));

@@ -495,14 +495,15 @@ function NotificationsSection() {
 // ===== Subscription Section =====
 
 const FEATURE_MATRIX: { feature: string; tiers: Record<PlanTier, boolean | string> }[] = [
-  { feature: 'AI Chapter Generation', tiers: { free: '3 chapters', writer: '~83 chapters', author: '~250 chapters', studio: '~833 chapters' } },
-  { feature: 'Audio Narration', tiers: { free: false, writer: '~5 narrations', author: '~15 narrations', studio: '~50 narrations' } },
-  { feature: 'Unlimited Projects', tiers: { free: false, writer: true, author: true, studio: true } },
-  { feature: 'Premium Models', tiers: { free: false, writer: false, author: true, studio: true } },
-  { feature: 'Priority Support', tiers: { free: false, writer: false, author: false, studio: true } },
-  { feature: 'Music & SFX Generation', tiers: { free: false, writer: true, author: true, studio: true } },
-  { feature: 'Canon & Continuity Agents', tiers: { free: true, writer: true, author: true, studio: true } },
-  { feature: 'Export (DOCX, PDF, ePub)', tiers: { free: true, writer: true, author: true, studio: true } },
+  { feature: 'AI Chapter Generation', tiers: { free: '3 chapters', writer: '~83 chapters', author: '~250 chapters', studio: '~833 chapters', publisher: '~1,666 chapters' } },
+  { feature: 'Audio Narration', tiers: { free: false, writer: '~5 narrations', author: '~15 narrations', studio: '~50 narrations', publisher: '~100 narrations' } },
+  { feature: 'Unlimited Projects', tiers: { free: false, writer: true, author: true, studio: true, publisher: true } },
+  { feature: 'Premium Models', tiers: { free: false, writer: false, author: true, studio: true, publisher: true } },
+  { feature: 'Priority Support', tiers: { free: false, writer: false, author: false, studio: true, publisher: true } },
+  { feature: 'Dedicated Onboarding', tiers: { free: false, writer: false, author: false, studio: false, publisher: true } },
+  { feature: 'Music & SFX Generation', tiers: { free: false, writer: true, author: true, studio: true, publisher: true } },
+  { feature: 'Canon & Continuity Agents', tiers: { free: true, writer: true, author: true, studio: true, publisher: true } },
+  { feature: 'Export (DOCX, PDF, ePub)', tiers: { free: true, writer: true, author: true, studio: true, publisher: true } },
 ];
 
 function SubscriptionSection() {
@@ -528,7 +529,7 @@ function SubscriptionSection() {
     ? new Date(plan.stripeCurrentPeriodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
     : null;
 
-  const handleCheckout = async (tier: 'writer' | 'author' | 'studio') => {
+  const handleCheckout = async (tier: 'writer' | 'author' | 'studio' | 'publisher') => {
     setBillingLoading(true);
     setBillingError('');
     try {
@@ -583,7 +584,7 @@ function SubscriptionSection() {
     }
   };
 
-  const allTiers: PlanTier[] = ['free', 'writer', 'author', 'studio'];
+  const allTiers: PlanTier[] = ['free', 'writer', 'author', 'studio', 'publisher'];
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -698,7 +699,7 @@ function SubscriptionSection() {
                   </div>
                 ) : isPaidTier ? (
                   <button
-                    onClick={() => handleCheckout(tier as 'writer' | 'author' | 'studio')}
+                    onClick={() => handleCheckout(tier as 'writer' | 'author' | 'studio' | 'publisher')}
                     disabled={billingLoading}
                     className="w-full py-2.5 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
                   >
@@ -889,7 +890,7 @@ export function SettingsView() {
   const [billingState, setBillingState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [billingMessage, setBillingMessage] = useState('');
   const bootstrapAuth = useAuthStore((s) => s.bootstrap);
-  const paidTiers: PlanTier[] = ['writer', 'author', 'studio'];
+  const paidTiers: PlanTier[] = ['writer', 'author', 'studio', 'publisher'];
 
   useEffect(() => {
     setActiveSection(settingsViewSection);
@@ -1017,7 +1018,7 @@ export function SettingsView() {
                               setBillingState('loading');
                               setBillingMessage('');
                               try {
-                                const checkout = await api.billingCheckout({ tier: tier as 'writer' | 'author' | 'studio' });
+                                const checkout = await api.billingCheckout({ tier: tier as 'writer' | 'author' | 'studio' | 'publisher' });
                                 if (!checkout?.url) throw new Error('Stripe checkout URL missing.');
                                 window.location.href = checkout.url;
                               } catch (e: any) {

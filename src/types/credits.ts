@@ -1,6 +1,6 @@
 // ========== Credits System ==========
 
-export type PlanTier = 'free' | 'writer' | 'author' | 'studio';
+export type PlanTier = 'free' | 'writer' | 'author' | 'studio' | 'publisher';
 
 export interface UserPlan {
   tier: PlanTier;
@@ -61,19 +61,21 @@ export const CREDIT_COSTS: Record<CreditAction, { min: number; max: number; typi
   'plan-project':              { min: 8,  max: 25,  typical: 15,  label: 'Plan project' },
 };
 
-export const PAID_TIER_CREDITS: Record<'writer' | 'author' | 'studio', number> = {
+export const PAID_TIER_CREDITS: Record<'writer' | 'author' | 'studio' | 'publisher', number> = {
   writer: 2500,
   author: 7500,
   studio: 25000,
+  publisher: 50000,
 };
 
 export const FREE_TIER_CREDITS = 100;
 export const FREE_TIER_NAME = 'Dreamer';
 
-const TIER_PRICES: Record<'writer' | 'author' | 'studio', number> = {
+const TIER_PRICES: Record<'writer' | 'author' | 'studio' | 'publisher', number> = {
   writer: 10,
   author: 30,
   studio: 99,
+  publisher: 200,
 };
 
 export const PLAN_DETAILS: Record<PlanTier, {
@@ -110,5 +112,12 @@ export const PLAN_DETAILS: Record<PlanTier, {
     credits: PAID_TIER_CREDITS.studio,
     description: 'Full production house',
     features: ['25,000 credits/month', '~833 AI chapters', '~50 audio narrations', 'Unlimited projects', 'Priority support'],
+  },
+  publisher: {
+    name: 'Publisher',
+    price: `$${TIER_PRICES.publisher}/mo`,
+    credits: PAID_TIER_CREDITS.publisher,
+    description: 'For publishing houses & prolific authors',
+    features: ['50,000 credits/month', '~1,666 AI chapters', '~100 audio narrations', 'Unlimited projects', 'Premium models', 'Priority support', 'Dedicated onboarding'],
   },
 };

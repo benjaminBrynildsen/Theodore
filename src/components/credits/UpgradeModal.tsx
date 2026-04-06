@@ -13,7 +13,7 @@ export function UpgradeModal() {
   if (!showUpgradeModal) return null;
 
   const handleUpgrade = async (tier: PlanTier) => {
-    if (tier !== 'writer' && tier !== 'author' && tier !== 'studio') return;
+    if (tier !== 'writer' && tier !== 'author' && tier !== 'studio' && tier !== 'publisher') return;
     setBusyTier(tier);
     setError('');
     try {
@@ -42,7 +42,7 @@ export function UpgradeModal() {
         </div>
 
         <div className="p-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {(['writer', 'author', 'studio'] as PlanTier[]).map((tier) => {
+          {(['writer', 'author', 'studio', 'publisher'] as PlanTier[]).map((tier) => {
             const details = PLAN_DETAILS[tier];
             const isCurrent = plan.tier === tier;
             const isPopular = tier === 'writer';

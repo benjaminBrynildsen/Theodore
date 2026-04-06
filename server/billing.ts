@@ -1,4 +1,4 @@
-export type PaidPlanTier = 'writer' | 'author' | 'studio';
+export type PaidPlanTier = 'writer' | 'author' | 'studio' | 'publisher';
 
 export interface BillingTierConfig {
   tier: PaidPlanTier;
@@ -17,6 +17,7 @@ const TIER_CONFIG: Record<PaidPlanTier, { name: string; credits: number; priceUs
   writer: { name: 'Writer', credits: 2500, priceUsd: 10 },
   author: { name: 'Author', credits: 7500, priceUsd: 30 },
   studio: { name: 'Studio', credits: 25000, priceUsd: 99 },
+  publisher: { name: 'Publisher', credits: 50000, priceUsd: 200 },
 };
 
 export const FREE_TIER_CREDITS = 100;
@@ -56,7 +57,7 @@ function buildTier(tier: PaidPlanTier): BillingTierConfig {
   };
 }
 
-const ORDERED_TIERS: PaidPlanTier[] = ['writer', 'author', 'studio'];
+const ORDERED_TIERS: PaidPlanTier[] = ['writer', 'author', 'studio', 'publisher'];
 
 export const BILLING_TIERS: Record<PaidPlanTier, BillingTierConfig> = {
   writer: buildTier('writer'),
@@ -65,7 +66,7 @@ export const BILLING_TIERS: Record<PaidPlanTier, BillingTierConfig> = {
 };
 
 export function isPaidPlanTier(value: string): value is PaidPlanTier {
-  return value === 'writer' || value === 'author' || value === 'studio';
+  return value === 'writer' || value === 'author' || value === 'studio' || value === 'publisher';
 }
 
 export function getPaidTierConfig(tier: string): BillingTierConfig | null {
@@ -82,6 +83,7 @@ export function getStripePriceIdForTier(tier: PaidPlanTier): string | null {
     writer: process.env.STRIPE_PRICE_WRITER,
     author: process.env.STRIPE_PRICE_AUTHOR,
     studio: process.env.STRIPE_PRICE_STUDIO,
+    publisher: process.env.STRIPE_PRICE_PUBLISHER,
   };
   return map[tier] || null;
 }

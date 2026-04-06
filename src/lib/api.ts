@@ -216,7 +216,7 @@ export const api = {
   // ========== Billing ==========
   billingPlans: () => request<any>('/billing/plans'),
   billingStatus: () => request<any>('/billing/status'),
-  billingCheckout: (data: { tier: 'writer' | 'author' | 'studio' }) =>
+  billingCheckout: (data: { tier: 'writer' | 'author' | 'studio' | 'publisher' }) =>
     request<{ url: string; sessionId: string }>('/billing/checkout', { method: 'POST', body: JSON.stringify(data) }),
   billingPortal: () => request<{ url: string }>('/billing/portal', { method: 'POST' }),
   billingCancel: () => request<{ ok: boolean; cancelAt?: number }>('/billing/cancel', { method: 'POST' }),
