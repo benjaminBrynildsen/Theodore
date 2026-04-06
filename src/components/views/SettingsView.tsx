@@ -649,7 +649,7 @@ function SubscriptionSection() {
           {allTiers.map((tier) => {
             const details = PLAN_DETAILS[tier];
             const isCurrent = plan.tier === tier;
-            const isPopular = tier === 'writer';
+            const isPopular = tier === 'author';
             const isPaidTier = tier !== 'free';
 
             return (
