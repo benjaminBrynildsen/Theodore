@@ -1346,19 +1346,16 @@ export function AudiobookPanel() {
                                 {activeSceneTrack && <Music size={8} className="text-purple-400" />}
                               </div>
                               <div className="text-[9px] text-text-tertiary">
-                                {isSceneGenerating ? (
-                                  <span className="flex items-center gap-1.5">
-                                    <span>Generating{audioGenProgress > 0 ? ` · ${audioGenProgress}%` : '...'}</span>
-                                    {audioGenProgress > 0 && (
-                                      <span className="inline-block w-12 h-[3px] bg-black/[0.06] rounded-full overflow-hidden">
-                                        <span className="block h-full bg-text-primary rounded-full transition-all duration-500" style={{ width: `${audioGenProgress}%` }} />
-                                      </span>
-                                    )}
-                                  </span>
-                                ) : sceneAudio ? `Ready · ~${formatTime(sceneAudio.durationEstimate)}` :
+                                {isSceneGenerating ? 'Generating...' :
+                                 sceneAudio ? `Ready · ~${formatTime(sceneAudio.durationEstimate)}` :
                                  `${sceneWords.toLocaleString()} words`}
                               </div>
                             </div>
+
+                            {/* Generation progress percentage */}
+                            {isSceneGenerating && audioGenProgress > 0 && (
+                              <span className="text-[11px] font-medium text-text-secondary tabular-nums">{audioGenProgress}%</span>
+                            )}
 
                             {/* Music preview */}
                             {activeSceneTrack && (
