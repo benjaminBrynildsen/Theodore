@@ -6,7 +6,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { db, pool } from './db.js';
-import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary } from './schema.js';
+import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests } from './schema.js';
 import {
   clearAllUserSessions,
   createSession,
@@ -561,6 +561,71 @@ app.post('/api/billing/portal', async (req, res) => {
     res.json({ url: session.url });
   } catch (e: any) {
     respondInternalError(res, 'billing.portal', e);
+  }
+});
+
+app.post('/api/billing/cancel', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const stripe = await getStripeClient();
+    if (!stripe) return res.status(503).json({ error: 'Stripe is not configured.' });
+    if (!auth.user.stripeSubscriptionId) return res.status(400).json({ error: 'No active subscription found.' });
+
+    const subscription = await stripe.subscriptions.update(auth.user.stripeSubscriptionId, {
+      cancel_at_period_end: true,
+    });
+    await db.update(users).set({
+      stripeCancelAtPeriodEnd: true as any,
+      updatedAt: new Date(),
+    } as any).where(eq(users.id, auth.user.id));
+
+    res.json({ ok: true, cancelAt: subscription.current_period_end });
+  } catch (e: any) {
+    respondInternalError(res, 'billing.cancel', e);
+  }
+});
+
+app.post('/api/billing/reactivate', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const stripe = await getStripeClient();
+    if (!stripe) return res.status(503).json({ error: 'Stripe is not configured.' });
+    if (!auth.user.stripeSubscriptionId) return res.status(400).json({ error: 'No active subscription found.' });
+
+    await stripe.subscriptions.update(auth.user.stripeSubscriptionId, {
+      cancel_at_period_end: false,
+    });
+    await db.update(users).set({
+      stripeCancelAtPeriodEnd: false as any,
+      updatedAt: new Date(),
+    } as any).where(eq(users.id, auth.user.id));
+
+    res.json({ ok: true });
+  } catch (e: any) {
+    respondInternalError(res, 'billing.reactivate', e);
+  }
+});
+
+app.post('/api/billing/refund', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const reason = String(req.body?.reason || '').trim();
+    if (!reason) return res.status(400).json({ error: 'Please provide a reason for the refund request.' });
+    if (reason.length > 2000) return res.status(400).json({ error: 'Reason must be under 2000 characters.' });
+
+    await db.insert(supportRequests).values({
+      userId: auth.user.id,
+      type: 'refund',
+      reason,
+      status: 'pending',
+    });
+
+    res.json({ ok: true, message: 'Refund request submitted. We\'ll review it within 24-48 hours.' });
+  } catch (e: any) {
+    respondInternalError(res, 'billing.refund', e);
   }
 });
 

@@ -3,7 +3,9 @@ import {
   ChevronLeft, Pen, Monitor, Sparkles, Download, Bell,
   RotateCcw, Type, Quote, Minus, MoreHorizontal,
   Eye, Keyboard, Palette, Bot, Zap, Brain, Shield,
-  FileText, BookOpen, Mail, BarChart3
+  FileText, BookOpen, Mail, BarChart3, CreditCard,
+  Check, X, AlertTriangle, ChevronDown, ChevronUp,
+  ExternalLink, RefreshCw
 } from 'lucide-react';
 import { UsageDashboard } from '../credits/UsageDashboard';
 import { useSettingsStore, type SettingsSection } from '../../store/settings';
@@ -490,6 +492,383 @@ function NotificationsSection() {
   );
 }
 
+// ===== Subscription Section =====
+
+const FEATURE_MATRIX: { feature: string; tiers: Record<PlanTier, boolean | string> }[] = [
+  { feature: 'AI Chapter Generation', tiers: { free: '3 chapters', writer: '~83 chapters', author: '~250 chapters', studio: '~833 chapters' } },
+  { feature: 'Audio Narration', tiers: { free: false, writer: '~5 narrations', author: '~15 narrations', studio: '~50 narrations' } },
+  { feature: 'Unlimited Projects', tiers: { free: false, writer: true, author: true, studio: true } },
+  { feature: 'Premium Models', tiers: { free: false, writer: false, author: true, studio: true } },
+  { feature: 'Priority Support', tiers: { free: false, writer: false, author: false, studio: true } },
+  { feature: 'Music & SFX Generation', tiers: { free: false, writer: true, author: true, studio: true } },
+  { feature: 'Canon & Continuity Agents', tiers: { free: true, writer: true, author: true, studio: true } },
+  { feature: 'Export (DOCX, PDF, ePub)', tiers: { free: true, writer: true, author: true, studio: true } },
+];
+
+function SubscriptionSection() {
+  const { plan } = useCreditsStore();
+  const bootstrapAuth = useAuthStore((s) => s.bootstrap);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState('');
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [reactivateLoading, setReactivateLoading] = useState(false);
+  const [showRefund, setShowRefund] = useState(false);
+  const [refundReason, setRefundReason] = useState('');
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundSubmitted, setRefundSubmitted] = useState(false);
+  const [refundMessage, setRefundMessage] = useState('');
+  const [actionError, setActionError] = useState('');
+
+  const isPaid = plan.tier !== 'free';
+  const isCancelling = Boolean(plan.stripeCancelAtPeriodEnd);
+  const currentDetails = PLAN_DETAILS[plan.tier];
+  const creditsPercent = plan.creditsTotal > 0 ? Math.round((plan.creditsRemaining / plan.creditsTotal) * 100) : 0;
+  const renewDate = plan.stripeCurrentPeriodEnd
+    ? new Date(plan.stripeCurrentPeriodEnd).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+    : null;
+
+  const handleCheckout = async (tier: 'writer' | 'author' | 'studio') => {
+    setBillingLoading(true);
+    setBillingError('');
+    try {
+      const checkout = await api.billingCheckout({ tier });
+      if (!checkout?.url) throw new Error('Stripe checkout URL missing.');
+      window.location.href = checkout.url;
+    } catch (e: any) {
+      setBillingError(e?.message || 'Unable to start checkout.');
+      setBillingLoading(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    setCancelLoading(true);
+    setActionError('');
+    try {
+      await api.billingCancel();
+      await bootstrapAuth();
+      setCancelConfirm(false);
+    } catch (e: any) {
+      setActionError(e?.message || 'Unable to cancel subscription.');
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
+  const handleReactivate = async () => {
+    setReactivateLoading(true);
+    setActionError('');
+    try {
+      await api.billingReactivate();
+      await bootstrapAuth();
+    } catch (e: any) {
+      setActionError(e?.message || 'Unable to reactivate subscription.');
+    } finally {
+      setReactivateLoading(false);
+    }
+  };
+
+  const handleRefund = async () => {
+    if (!refundReason.trim()) return;
+    setRefundLoading(true);
+    setActionError('');
+    try {
+      const result = await api.billingRefund({ reason: refundReason.trim() });
+      setRefundSubmitted(true);
+      setRefundMessage(result.message || 'Request submitted.');
+    } catch (e: any) {
+      setActionError(e?.message || 'Unable to submit refund request.');
+    } finally {
+      setRefundLoading(false);
+    }
+  };
+
+  const allTiers: PlanTier[] = ['free', 'writer', 'author', 'studio'];
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      {/* Current Plan Banner */}
+      <div className={cn(
+        'rounded-2xl p-5 border',
+        isCancelling
+          ? 'border-amber-200 bg-amber-50/50'
+          : 'border-black/5 bg-black/[0.02]'
+      )}>
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.1em] mb-1">Current Plan</div>
+            <div className="text-lg font-serif font-semibold">{currentDetails.name}</div>
+            <div className="text-sm text-text-tertiary">{currentDetails.price}{isPaid ? '/month' : ''}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold">{plan.creditsRemaining.toLocaleString()}</div>
+            <div className="text-xs text-text-tertiary">of {plan.creditsTotal.toLocaleString()} credits</div>
+          </div>
+        </div>
+
+        {/* Credits progress bar */}
+        <div className="w-full h-2 rounded-full bg-black/[0.06] overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full transition-all duration-500',
+              creditsPercent > 50 ? 'bg-emerald-500' : creditsPercent > 20 ? 'bg-amber-500' : 'bg-red-500'
+            )}
+            style={{ width: `${creditsPercent}%` }}
+          />
+        </div>
+
+        {renewDate && (
+          <div className="text-xs text-text-tertiary mt-2">
+            {isCancelling ? (
+              <span className="text-amber-700 font-medium flex items-center gap-1">
+                <AlertTriangle size={12} />
+                Cancels on {renewDate} — you'll move to the free Dreamer plan
+              </span>
+            ) : (
+              <>Renews {renewDate}</>
+            )}
+          </div>
+        )}
+
+        {isCancelling && (
+          <button
+            onClick={handleReactivate}
+            disabled={reactivateLoading}
+            className="mt-3 px-4 py-2 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-50"
+          >
+            {reactivateLoading ? 'Reactivating...' : 'Keep My Subscription'}
+          </button>
+        )}
+      </div>
+
+      {/* Plan Cards */}
+      <div>
+        <SectionDivider label="Choose Your Plan" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+          {allTiers.map((tier) => {
+            const details = PLAN_DETAILS[tier];
+            const isCurrent = plan.tier === tier;
+            const isPopular = tier === 'writer';
+            const isPaidTier = tier !== 'free';
+
+            return (
+              <div
+                key={tier}
+                className={cn(
+                  'rounded-2xl p-4 flex flex-col transition-all duration-200 relative border',
+                  isCurrent
+                    ? 'border-black/20 bg-black/[0.04] ring-1 ring-black/10'
+                    : 'border-black/5 hover:border-black/15 hover:bg-black/[0.01]'
+                )}
+              >
+                {isPopular && !isCurrent && (
+                  <div className="absolute -top-2.5 left-1/2 -translate-x-1/2">
+                    <span className="text-[10px] font-semibold bg-text-primary text-text-inverse px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                      <Zap size={10} /> Popular
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <div className="text-sm font-semibold">{details.name}</div>
+                    <div className="text-lg font-bold">{details.price}</div>
+                  </div>
+                  {isCurrent && (
+                    <span className="text-[10px] font-semibold bg-black/10 text-text-secondary px-2 py-0.5 rounded-full">
+                      Current
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-xs text-text-tertiary mb-3">{details.description}</div>
+
+                <div className="space-y-1.5 flex-1 mb-4">
+                  {details.features.map((feature) => (
+                    <div key={feature} className="flex items-start gap-2 text-xs">
+                      <Check size={12} className="mt-0.5 flex-shrink-0 text-emerald-500" />
+                      <span className="text-text-secondary">{feature}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {isCurrent ? (
+                  <div className="text-[11px] text-center py-2 rounded-xl bg-black/[0.04] text-text-tertiary font-medium">
+                    Your current plan
+                  </div>
+                ) : isPaidTier ? (
+                  <button
+                    onClick={() => handleCheckout(tier as 'writer' | 'author' | 'studio')}
+                    disabled={billingLoading}
+                    className="w-full py-2.5 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {billingLoading ? 'Redirecting...' : plan.tier === 'free' ? 'Upgrade' : 'Switch Plan'}
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        {billingError && (
+          <div className="text-xs rounded-xl border border-red-200 bg-red-50 text-red-700 px-3 py-2 mt-3">
+            {billingError}
+          </div>
+        )}
+      </div>
+
+      {/* Feature Comparison */}
+      <div>
+        <SectionDivider label="Feature Comparison" />
+        <div className="mt-3 space-y-1">
+          {FEATURE_MATRIX.map(({ feature, tiers }) => (
+            <div key={feature} className="rounded-xl border border-black/5 p-3">
+              <div className="text-xs font-medium text-text-primary mb-2">{feature}</div>
+              <div className="grid grid-cols-4 gap-1">
+                {allTiers.map((tier) => {
+                  const val = tiers[tier];
+                  return (
+                    <div key={tier} className="text-center">
+                      <div className="text-[10px] text-text-tertiary mb-0.5">{PLAN_DETAILS[tier].name}</div>
+                      {val === true ? (
+                        <Check size={14} className="mx-auto text-emerald-500" />
+                      ) : val === false ? (
+                        <X size={14} className="mx-auto text-black/20" />
+                      ) : (
+                        <span className="text-[10px] font-medium text-text-secondary">{val}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Manage Subscription (paid users only) */}
+      {isPaid && (
+        <div>
+          <SectionDivider label="Manage Subscription" />
+          <div className="mt-3 space-y-3">
+            <button
+              onClick={async () => {
+                setBillingLoading(true);
+                setBillingError('');
+                try {
+                  const portal = await api.billingPortal();
+                  if (portal?.url) window.location.href = portal.url;
+                } catch (e: any) {
+                  setBillingError(e?.message || 'Unable to open billing portal.');
+                } finally {
+                  setBillingLoading(false);
+                }
+              }}
+              disabled={billingLoading || !plan.stripeCustomerId}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-50"
+            >
+              <ExternalLink size={13} />
+              Manage Billing on Stripe
+            </button>
+
+            {!isCancelling && (
+              <>
+                {!cancelConfirm ? (
+                  <button
+                    onClick={() => setCancelConfirm(true)}
+                    className="text-xs text-text-tertiary hover:text-red-600 transition-colors"
+                  >
+                    Cancel subscription
+                  </button>
+                ) : (
+                  <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4">
+                    <div className="text-sm font-medium text-red-900 mb-1">Cancel your subscription?</div>
+                    <div className="text-xs text-red-700 mb-3">
+                      Your {currentDetails.name} plan will remain active until {renewDate || 'the end of your billing period'}.
+                      After that, you'll be moved to the free Dreamer plan with {FREE_TIER_CREDITS} credits.
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleCancel}
+                        disabled={cancelLoading}
+                        className="px-4 py-2 rounded-xl text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+                      >
+                        {cancelLoading ? 'Cancelling...' : 'Yes, Cancel'}
+                      </button>
+                      <button
+                        onClick={() => setCancelConfirm(false)}
+                        className="px-4 py-2 rounded-xl text-xs font-medium bg-white border border-black/10 text-text-secondary hover:bg-black/[0.02] transition-colors"
+                      >
+                        Keep Plan
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Refund Request */}
+      {isPaid && (
+        <div>
+          <button
+            onClick={() => setShowRefund(!showRefund)}
+            className="flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+          >
+            {showRefund ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            Request a Refund
+          </button>
+
+          {showRefund && (
+            <div className="mt-3 rounded-2xl border border-black/5 p-4 animate-fade-in">
+              {refundSubmitted ? (
+                <div className="text-center py-4">
+                  <Check size={24} className="mx-auto text-emerald-500 mb-2" />
+                  <div className="text-sm font-medium">{refundMessage}</div>
+                  <div className="text-xs text-text-tertiary mt-1">We'll reach out via email.</div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-xs text-text-tertiary mb-3">
+                    Not satisfied? We offer refunds within 14 days of purchase. Submit a request below and we'll review it within 24-48 hours.
+                  </div>
+                  <textarea
+                    value={refundReason}
+                    onChange={(e) => setRefundReason(e.target.value)}
+                    placeholder="Tell us why you'd like a refund..."
+                    rows={3}
+                    maxLength={2000}
+                    className="w-full rounded-xl border border-black/10 px-3 py-2 text-xs text-text-primary bg-white placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-black/20 resize-none"
+                  />
+                  <button
+                    onClick={handleRefund}
+                    disabled={refundLoading || !refundReason.trim()}
+                    className="mt-2 px-4 py-2 rounded-xl text-xs font-medium bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-50"
+                  >
+                    {refundLoading ? 'Submitting...' : 'Submit Refund Request'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {actionError && (
+        <div className="text-xs rounded-xl border border-red-200 bg-red-50 text-red-700 px-3 py-2">
+          {actionError}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="text-center text-xs text-text-tertiary glass-pill py-2 px-4 rounded-xl">
+        🔒 Payments powered by Stripe · Cancel anytime · Credits reset monthly
+      </div>
+    </div>
+  );
+}
+
 // ===== Main Settings View =====
 
 const SECTIONS: { id: SettingsSection; label: string; icon: typeof Pen; description: string }[] = [
@@ -498,6 +877,7 @@ const SECTIONS: { id: SettingsSection; label: string; icon: typeof Pen; descript
   { id: 'ai', label: 'AI & Generation', icon: Sparkles, description: 'Models, agents, context' },
   { id: 'export', label: 'Export', icon: Download, description: 'Format, page size, content' },
   { id: 'usage', label: 'Usage & Credits', icon: BarChart3, description: 'Token budget, spending, plan' },
+  { id: 'subscription', label: 'Subscription', icon: CreditCard, description: 'Plans, billing, cancel, refunds' },
   { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Alerts and reports' },
 ];
 
@@ -704,6 +1084,7 @@ export function SettingsView() {
                 </div>
               </div>
             )}
+            {activeSection === 'subscription' && <SubscriptionSection />}
             {activeSection === 'notifications' && <NotificationsSection />}
           </div>
         </div>

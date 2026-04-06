@@ -148,6 +148,16 @@ export const sfxLibrary = pgTable('sfx_library', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ========== Support Requests ==========
+export const supportRequests = pgTable('support_requests', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(), // 'refund', 'support', etc.
+  reason: text('reason').notNull(),
+  status: text('status').notNull().default('pending'), // pending, approved, denied, resolved
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),
@@ -156,5 +166,15 @@ export const validationOverrides = pgTable('validation_overrides', {
   field: text('field').notNull(),
   reason: text('reason').notNull(),
   overriddenBy: text('overridden_by').notNull(), // user id
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ========== Support Requests ==========
+export const supportRequests = pgTable('support_requests', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(), // 'refund', 'support', etc.
+  reason: text('reason').notNull(),
+  status: text('status').notNull().default('pending'), // 'pending', 'reviewed', 'resolved', 'rejected'
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

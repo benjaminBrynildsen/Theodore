@@ -219,4 +219,8 @@ export const api = {
   billingCheckout: (data: { tier: 'writer' | 'author' | 'studio' }) =>
     request<{ url: string; sessionId: string }>('/billing/checkout', { method: 'POST', body: JSON.stringify(data) }),
   billingPortal: () => request<{ url: string }>('/billing/portal', { method: 'POST' }),
+  billingCancel: () => request<{ ok: boolean; cancelAt?: number }>('/billing/cancel', { method: 'POST' }),
+  billingReactivate: () => request<{ ok: boolean }>('/billing/reactivate', { method: 'POST' }),
+  billingRefund: (data: { reason: string }) =>
+    request<{ ok: boolean; message: string }>('/billing/refund', { method: 'POST', body: JSON.stringify(data) }),
 };

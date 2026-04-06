@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { DEFAULT_SETTINGS } from '../types/settings';
 import type { AppSettings, WritingStyleSettings, EditorSettings, AISettings, ExportSettings, NotificationSettings } from '../types/settings';
 
-export type SettingsSection = 'writing' | 'editor' | 'ai' | 'export' | 'notifications' | 'usage';
+export type SettingsSection = 'writing' | 'editor' | 'ai' | 'export' | 'notifications' | 'usage' | 'subscription';
 
 interface SettingsState {
   settings: AppSettings;
