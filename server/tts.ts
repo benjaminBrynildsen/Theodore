@@ -731,7 +731,7 @@ function ttsLog(msg: string) {
   try { fs.appendFileSync(LOG_FILE, line); } catch {}
 }
 
-export async function generateChapterAudio(req: TTSRequest & { knownCharacters?: string[] }): Promise<TTSResult> {
+export async function generateChapterAudio(req: TTSRequest & { knownCharacters?: string[]; onProgress?: (pct: number) => void }): Promise<TTSResult> {
   ensureAudioDir();
   ttsLog(`START generateChapterAudio chapterId=${req.chapterId} prose=${req.prose.length}chars`);
 
@@ -794,9 +794,10 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
 
     ttsLog(`OpenAI TTS: ${chunks.length} chunks for ${paced.length} chars`);
     const audioBuffers: Buffer[] = [];
-    for (const chunk of chunks) {
-      const audio = await callOpenAITTS(chunk, voiceMap.narrator, openaiSpeed);
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const audio = await callOpenAITTS(chunks[ci], voiceMap.narrator, openaiSpeed);
       audioBuffers.push(audio);
+      req.onProgress?.(Math.round(((ci + 1) / chunks.length) * 100));
     }
 
     // Concatenate MP3 buffers (MP3 frames are independently decodable)
@@ -902,6 +903,8 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   const inlineSFXOverlays: { sfxPrompt: string; afterSpeechIndex: number }[] = [];
 
   let pendingSFX: string[] = []; // SFX prompts waiting to be attached to the next speech segment
+  const totalSpeechSegs = merged.filter(s => s.type !== 'sfx' && s.text.trim()).length;
+  let completedSpeechSegs = 0;
 
   for (const seg of merged) {
     if (seg.type === 'sfx') {
@@ -922,6 +925,8 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     }
 
     const buf = await callElevenLabsTTS(ttsText, seg.voice, model, speed, seg.tone);
+    completedSpeechSegs++;
+    req.onProgress?.(Math.round((completedSpeechSegs / totalSpeechSegs) * 90)); // cap at 90%, final 10% for mixing
 
     // Attach any pending SFX to play at the START of this speech segment
     for (const sfxPrompt of pendingSFX) {

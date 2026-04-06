@@ -77,6 +77,7 @@ export const api = {
     chapterId: string;
     prose: string;
     narratorVoice: string;
+    onProgress?: (pct: number) => void;
     characterVoices: Record<string, string>;
     characterDescriptions?: Record<string, string>;
     narratorStyle?: string;
@@ -103,6 +104,7 @@ export const api = {
       await new Promise(r => setTimeout(r, 2000));
       const status = await request<{
         status: string;
+        progress?: number;
         audioUrl?: string;
         durationEstimate?: number;
         segments?: number;
@@ -110,6 +112,10 @@ export const api = {
         creditsRemaining?: number;
         error?: string;
       }>(`/tts/job/${jobResponse.jobId}`);
+
+      if (status.progress && data.onProgress) {
+        data.onProgress(status.progress);
+      }
 
       if (status.status === 'complete') {
         return {

@@ -63,6 +63,7 @@ export function AudiobookPanel() {
   const [expandedVersions, setExpandedVersions] = useState<string | null>(null);
   const [expandedScenes, setExpandedScenes] = useState<string | null>(null);
   const [generatingScene, setGeneratingScene] = useState<string | null>(null); // sceneId being generated
+  const [audioGenProgress, setAudioGenProgress] = useState(0);
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
   const [showMusicConfig, setShowMusicConfig] = useState(true);
   const [analyzingChapter, setAnalyzingChapter] = useState<string | null>(null);
@@ -786,6 +787,7 @@ export function AudiobookPanel() {
     if (!scene?.prose?.trim()) return;
 
     setGeneratingScene(sceneId);
+    setAudioGenProgress(0);
     audioStore.setError(null);
 
     try {
@@ -824,6 +826,7 @@ export function AudiobookPanel() {
         speed: ttsProvider === 'openai' ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: sceneSFXData,
+        onProgress: (pct) => setAudioGenProgress(pct),
       });
 
       // Update credit display
@@ -1312,8 +1315,16 @@ export function AudiobookPanel() {
                                 {activeSceneTrack && <Music size={8} className="text-purple-400" />}
                               </div>
                               <div className="text-[9px] text-text-tertiary">
-                                {isSceneGenerating ? 'Generating...' :
-                                 sceneAudio ? `Ready · ~${formatTime(sceneAudio.durationEstimate)}` :
+                                {isSceneGenerating ? (
+                                  <span className="flex items-center gap-1.5">
+                                    <span>Generating{audioGenProgress > 0 ? ` · ${audioGenProgress}%` : '...'}</span>
+                                    {audioGenProgress > 0 && (
+                                      <span className="inline-block w-12 h-[3px] bg-black/[0.06] rounded-full overflow-hidden">
+                                        <span className="block h-full bg-text-primary rounded-full transition-all duration-500" style={{ width: `${audioGenProgress}%` }} />
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : sceneAudio ? `Ready · ~${formatTime(sceneAudio.durationEstimate)}` :
                                  `${sceneWords.toLocaleString()} words`}
                               </div>
                             </div>

@@ -99,6 +99,7 @@ export function ChapterView({ chapter }: Props) {
   const [generating, setGenerating] = useState(false);
   const [extending, setExtending] = useState(false);
   const [generatedText, setGeneratedText] = useState('');
+  const [generationPct, setGenerationPct] = useState(0);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [chunkSize, setChunkSize] = useState<'short' | 'medium' | 'long'>('medium');
   const [showVibeEditor, setShowVibeEditor] = useState(false);
@@ -162,6 +163,7 @@ export function ChapterView({ chapter }: Props) {
     setGenerationError(null);
     setGenerating(true);
     setGeneratedText('');
+    setGenerationPct(0);
 
     const projectChapters = getProjectChapters(project.id);
     const canonEntries = getProjectEntries(project.id);
@@ -199,8 +201,11 @@ export function ChapterView({ chapter }: Props) {
       (text) => {
         accumulated += text;
         setGeneratedText(accumulated);
+        const words = accumulated.trim().split(/\s+/).length;
+        setGenerationPct(Math.min(99, Math.round((words / wordTarget) * 100)));
       },
       async (usage) => {
+        setGenerationPct(100);
         // Generation complete — clean up AI artifacts and save to chapter
         // Strip leading chapter title/heading lines (e.g. "**Chapter 1: Title**", "# Chapter 1", "Chapter 1: Title")
         accumulated = accumulated.replace(/^\s*(\*{1,2})?#*\s*(Chapter\s+\d+[:\s].*?)(\*{1,2})?\s*\n+/i, '').trimStart();
@@ -1398,9 +1403,16 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
               {/* Generate whole chapter button */}
               <div className="text-center">
                 {generating ? (
-                  <div className="mb-6 flex items-center gap-2 text-sm text-text-secondary justify-center">
-                    <Loader2 size={16} className="animate-spin" />
-                    <span>Generating...</span>
+                  <div className="mb-6 space-y-2">
+                    <div className="flex items-center gap-2 text-sm text-text-secondary justify-center">
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Generating{generationPct > 0 ? ` · ${generationPct}%` : '...'}</span>
+                    </div>
+                    {generationPct > 0 && (
+                      <div className="w-48 mx-auto h-1 bg-black/[0.06] rounded-full overflow-hidden">
+                        <div className="h-full bg-text-primary rounded-full transition-all duration-500 ease-out" style={{ width: `${generationPct}%` }} />
+                      </div>
+                    )}
                   </div>
                 ) : !showBudget ? (
                   <button

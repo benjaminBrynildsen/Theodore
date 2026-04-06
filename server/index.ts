@@ -1580,6 +1580,7 @@ app.get('/api/tts/voices', async (_req, res) => {
 interface TTSJob {
   id: string;
   status: 'pending' | 'processing' | 'complete' | 'error';
+  progress?: number; // 0-100
   result?: any;
   error?: string;
   createdAt: number;
@@ -1660,6 +1661,7 @@ app.post('/api/tts/generate', async (req, res) => {
         characterDescriptions: characterDescriptions || {},
         narratorStyle: narratorStyle || undefined,
         sceneSFX: sceneSFX || [],
+        onProgress: (pct) => { job.progress = pct; },
       });
 
       const actualCreditsUsed = isFreeAudioSample ? 0 : result.creditsUsed;
@@ -1773,7 +1775,7 @@ app.get('/api/tts/job/:jobId', async (req, res) => {
   } else if (job.status === 'error') {
     res.json({ status: 'error', error: job.error });
   } else {
-    res.json({ status: job.status });
+    res.json({ status: job.status, progress: job.progress || 0 });
   }
 });
 
