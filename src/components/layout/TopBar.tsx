@@ -159,16 +159,7 @@ export function TopBar() {
       {/* Credits Badge — hidden on mobile */}
       <div className="hidden sm:block"><CreditsBadge /></div>
 
-      {/* Validation — hide on mobile */}
-      {project && <div className="hidden md:block"><ValidationBadge /></div>}
-
-      {/* AI Ready — hide on mobile */}
-      {project && (
-        <div className="hidden lg:flex items-center gap-1.5 text-xs text-text-secondary glass-pill px-3 py-1.5 rounded-full flex-shrink-0">
-          <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-          <span>AI Ready</span>
-        </div>
-      )}
+      {/* Validation and AI Ready badges removed per Ben's request */}
       
       {/* Right sidebar toggle — hidden on mobile */}
       {project && (
