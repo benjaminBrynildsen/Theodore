@@ -191,6 +191,9 @@ async function callOpenAITTS(text: string, voice: string, speed = 1.0): Promise<
 
   if (!response.ok) {
     const detail = await response.text().catch(() => response.statusText);
+    if (response.status === 429 || detail.includes('insufficient_quota')) {
+      throw new Error('Audio generation is temporarily unavailable due to API limits. Please try again later.');
+    }
     throw new Error(`OpenAI TTS error ${response.status}: ${detail}`);
   }
 
