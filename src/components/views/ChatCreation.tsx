@@ -1239,7 +1239,7 @@ Rules:
             </div>
           </div>
 
-          <aside className="hidden lg:block w-full self-start">
+          <aside className="hidden lg:block w-full self-start lg:my-4">
             <div className="sticky top-20 glass rounded-3xl p-6 border border-black/10 shadow-xl w-full max-h-[calc(100vh-6.5rem)] overflow-y-auto">
               <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2">
                 {selectedSettings ? 'Ready' : 'Start Here'}
