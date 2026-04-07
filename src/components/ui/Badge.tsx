@@ -18,7 +18,7 @@ interface BadgeProps {
 
 export function Badge({ status, label, className, variant = 'default' }: BadgeProps) {
   if (status) {
-    const config = statusConfig[status];
+    const config = statusConfig[status] || { label: status, className: 'bg-bg-hover text-text-secondary' };
     return (
       <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium', config.className, className)}>
         {config.label}

@@ -220,7 +220,7 @@ export function ChapterView({ chapter }: Props) {
         setGenerationPct(Math.min(99, Math.round((words / wordTarget) * 100)));
         // Auto-save partial generation every ~500 words so progress survives page backgrounding
         if (words % 500 < 5 && words > 100) {
-          updateChapter(chapter.id, { prose: accumulated, status: 'generating' as any });
+          updateChapter(chapter.id, { prose: accumulated });
         }
       },
       async (usage) => {
