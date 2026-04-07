@@ -1,7 +1,8 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Loader2, Shuffle, Repeat, Sparkles, Check, Circle } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
+import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 
 function CoverArt({ project, chapterImage }: { project: { title: string; coverUrl?: string }; chapterImage?: string }) {
@@ -30,10 +31,24 @@ export function NowPlayingPanel() {
   const {
     playing, currentChapterId, currentTime, duration, volume,
     chapterAudio, generating, error,
-    setPlaying, setVolume, setError,
+    setPlaying, setVolume, setError, hydrateFromServer,
   } = useAudioStore();
 
   const project = getActiveProject();
+
+  // Hydrate audio store from server when the project loads. The server is the
+  // source of truth for generated audio (audio_generations table); localStorage
+  // is just a cache that may be empty after a fresh device or cleared storage.
+  useEffect(() => {
+    if (!project?.id) return;
+    api.audioGenerations(project.id).then((data) => {
+      if (data.generations.length > 0) {
+        hydrateFromServer(data.generations);
+        console.log(`[NowPlaying] Loaded ${data.generations.length} audio generations from server`);
+      }
+    }).catch((e) => console.warn('[NowPlaying] Failed to load audio generations:', e.message));
+  }, [project?.id, hydrateFromServer]);
+
   const allProjectChapters = project ? getProjectChapters(project.id).sort((a, b) => a.number - b.number) : [];
   const playableChapters = allProjectChapters.filter(c => c?.id && c.prose);
 

@@ -55,6 +55,7 @@ interface AudioState {
   setError: (error: string | null) => void;
   hydrateFromServer: (generations: Array<{
     chapterId: string;
+    sceneId?: string | null;
     version: number;
     audioUrl: string;
     durationSeconds: number | null;
@@ -242,18 +243,20 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   setError: (error) => set({ error }),
   hydrateFromServer: (generations) => set((state) => {
     const updated = { ...state.chapterAudio };
-    
-    // Group by chapterId
-    const byChapter = new Map<string, typeof generations>();
+
+    // Group by storage key: scene rows live under `scene-{sceneId}`, chapter rows under chapterId.
+    // The Playing tab and AudioPlayerBar both look up audio under these exact keys.
+    const byKey = new Map<string, typeof generations>();
     for (const gen of generations) {
-      if (!byChapter.has(gen.chapterId)) byChapter.set(gen.chapterId, []);
-      byChapter.get(gen.chapterId)!.push(gen);
+      const key = gen.sceneId ? `scene-${gen.sceneId}` : gen.chapterId;
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key)!.push(gen);
     }
 
-    for (const [chapterId, gens] of byChapter) {
+    for (const [storageKey, gens] of byKey) {
       const sorted = gens.sort((a, b) => a.version - b.version);
       const activeGen = sorted.find(g => g.isActive) || sorted[sorted.length - 1];
-      
+
       const versions: AudioVersion[] = sorted.map(g => ({
         version: g.version,
         audioUrl: g.audioUrl,
@@ -261,10 +264,10 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
         generatedAt: g.createdAt,
       }));
 
-      // Only update if we don't already have this chapter locally, or server has newer versions
-      const existing = updated[chapterId];
+      // Only update if we don't already have this entry locally, or server has newer versions
+      const existing = updated[storageKey];
       if (!existing || versions.length > (existing.versions?.length || 0)) {
-        updated[chapterId] = {
+        updated[storageKey] = {
           audioUrl: activeGen.audioUrl,
           durationEstimate: activeGen.durationSeconds || 0,
           generatedAt: activeGen.createdAt,
