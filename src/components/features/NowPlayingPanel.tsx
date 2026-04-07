@@ -1,5 +1,5 @@
-import { useCallback, useEffect } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Loader2, Shuffle, Repeat, Sparkles, Check, Circle } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Loader2, Shuffle, Repeat, Sparkles, Check, Circle, RefreshCw } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
 import { api } from '../../lib/api';
@@ -35,19 +35,30 @@ export function NowPlayingPanel() {
   } = useAudioStore();
 
   const project = getActiveProject();
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Hydrate audio store from server when the project loads. The server is the
-  // source of truth for generated audio (audio_generations table); localStorage
-  // is just a cache that may be empty after a fresh device or cleared storage.
-  useEffect(() => {
+  // Hydrate audio store from server. The server is the source of truth
+  // (audio_generations table); localStorage is just a cache that may be
+  // empty after a fresh device or cleared storage. Safe to call repeatedly:
+  // hydrateFromServer skips entries the local store already has.
+  const reloadFromServer = useCallback(async () => {
     if (!project?.id) return;
-    api.audioGenerations(project.id).then((data) => {
+    setRefreshing(true);
+    try {
+      const data = await api.audioGenerations(project.id);
       if (data.generations.length > 0) {
         hydrateFromServer(data.generations);
-        console.log(`[NowPlaying] Loaded ${data.generations.length} audio generations from server`);
       }
-    }).catch((e) => console.warn('[NowPlaying] Failed to load audio generations:', e.message));
+    } catch (e: any) {
+      console.warn('[NowPlaying] Failed to load audio generations:', e?.message);
+    } finally {
+      setRefreshing(false);
+    }
   }, [project?.id, hydrateFromServer]);
+
+  useEffect(() => {
+    void reloadFromServer();
+  }, [reloadFromServer]);
 
   const allProjectChapters = project ? getProjectChapters(project.id).sort((a, b) => a.number - b.number) : [];
   const playableChapters = allProjectChapters.filter(c => c?.id && c.prose);
@@ -200,7 +211,17 @@ export function NowPlayingPanel() {
         <div className="px-4 pb-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Tracklist</span>
-            <span className="text-[10px] text-text-tertiary">{generatedCount}/{allProjectChapters.length}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-text-tertiary">{generatedCount}/{allProjectChapters.length}</span>
+              <button
+                onClick={reloadFromServer}
+                disabled={refreshing || !project?.id}
+                title="Reload audio from server"
+                className="p-1 rounded text-text-tertiary hover:text-text-primary hover:bg-black/5 disabled:opacity-40 transition-colors"
+              >
+                <RefreshCw size={10} className={refreshing ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </div>
           <div className="space-y-0.5">
             {allProjectChapters.map((ch) => {
