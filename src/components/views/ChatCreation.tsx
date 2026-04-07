@@ -4,7 +4,7 @@ import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { generateId, cn } from '../../lib/utils';
-import { generateText, generateTextGuest } from '../../lib/generate';
+import { generateText, generateTextGuest, generateStream } from '../../lib/generate';
 import { api } from '../../lib/api';
 import { Slider } from '../ui/Slider';
 import { autoFillCharacter, autoFillLocation, extractCanonFromConversation } from '../../lib/ai-autofill';
@@ -636,132 +636,146 @@ Rules:
     setInput('');
     setIsTyping(true);
 
+    // Number of user messages so far. We only build canon/chapter JSON in the
+    // background once the user has sent at least 2 messages — the first reply
+    // should be a fast "tell me more" without committing to any structure.
+    const userMessageCount = newMessages.filter((m) => m.role === 'user').length;
+    const shouldBuildJson = userMessageCount >= 2;
+
+    // The chat reply uses Haiku 4.5 — much faster than Sonnet for short
+    // back-and-forth. We do NOT ask for the JSON markers in the chat prompt
+    // anymore; that's handled by deriveSettingsFromConversation in the
+    // background, so the user sees the chat reply almost instantly.
+    const chatModel = 'claude-haiku-4-5';
+    const conversation = newMessages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+    const childrensRule = bookType === 'childrens-book'
+      ? "The user is making a CHILDREN'S BOOK. Think in spreads, age-appropriate language, visual storytelling."
+      : '';
+
+    const placeholderId = generateId();
+    setMessages([
+      ...newMessages,
+      { id: placeholderId, role: 'assistant', content: '', timestamp: new Date(), model: chatModel },
+    ]);
+
+    let accumulated = '';
+    let streamErrored = false;
+
     try {
-      const conversation = newMessages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
-      const result = await generate({
-        userId,
-        action: 'plan-project',
-        model: resolveModel(settings.ai.preferredModel),
-        temperature: settings.ai.temperature,
-        maxTokens: 4000,
-        systemPrompt: `You are Theodore, an expert story architect helping users shape new fiction projects.
-Keep responses concise, specific, and useful.
-Style requirements:
-- Keep your reply to 2-4 short paragraphs.
-- Default to under 120 words unless the user explicitly asks for detail.
-- Ask at most one focused follow-up question.
-- Avoid repeating what the user already said.
-${bookType === 'childrens-book' ? `The user is creating a CHILDREN'S BOOK. Adjust accordingly:
-- Use "spreads" instead of "chapters" in your thinking
-- Keep chapter premises very short (1 sentence)
-- Focus on visual storytelling, illustration opportunities, and age-appropriate language
-- Set subtype to "childrens-book" in the settings JSON
-- Set chapterCount to the number of spreads (typically 10-16)
-` : `If the user's description sounds like a children's book, picture book, or story for young readers, set subtype to "childrens-book" in the settings JSON.
-`}Always append exactly two one-line markers:
-THEODORE_SETTINGS_JSON:{"title":"...","subtype":"${bookType === 'childrens-book' ? 'childrens-book' : 'novel'}","targetLength":"medium","assistanceLevel":3,"narrativeControls":{"toneMood":{"lightDark":50,"hopefulGrim":50,"whimsicalSerious":50},"pacing":"balanced","dialogueWeight":"balanced","focusMix":{"character":40,"plot":40,"world":20},"genreEmphasis":[]},"chapterCount":12,"chapters":[{"number":1,"title":"...","premise":"..."},{"number":2,"title":"...","premise":"..."},...]}
-THEODORE_CANON_JSON:{"characters":[{"name":"...","role":"protagonist","description":"...","gender":"male","age":"Early 30s","pronouns":"he/him"}],"locations":[{"name":"...","description":"..."}],"systems":[{"name":"...","description":"..."}],"artifacts":[{"name":"...","description":"..."}]}
-Rules for JSON markers:
-- Both lines must be valid JSON on a single line each.
-- chapterCount MUST match chapters.length. Generate ALL chapters — every single one needs a unique, specific title and premise. No generic fillers.
-- Each chapter premise must be a brief STORY SUMMARY of what happens — use character names and specific events, NOT meta-language like "stakes are raised" or "introduce the conflict". Write like a synopsis.
-- Use the first user message to infer concrete seeds immediately.
-- Include at least 1 named protagonist and 1 named place in chapter titles/premises.
-- Canon categories must be mutually exclusive: no name in multiple categories.
-- Do not classify months, weekdays, or seasons as entities.
-- ALWAYS include gender (male/female/non-binary), age (specific like "Early 30s" or "45"), and pronouns (he/him, she/her, they/them) for every character. Infer from name and context.`,
-        prompt: `Conversation so far:\n${conversation}\n\nRespond as Theodore to the latest user message.`,
-      });
+      await generateStream(
+        {
+          userId,
+          action: 'plan-project',
+          model: chatModel,
+          temperature: settings.ai.temperature,
+          maxTokens: 200,
+          systemPrompt: `You are Theodore, an expert story architect helping a user shape a new fiction project.
+Brevity rules — these are absolute:
+- Reply in 2-3 sentences MAX. Never paragraphs.
+- One short follow-up question only when it actually helps.
+- Do not repeat what the user said.
+- Do not list things. Speak like a concise editor in conversation.
+${childrensRule}`,
+          prompt: `Conversation so far:\n${conversation}\n\nRespond as Theodore (2-3 sentences max).`,
+        },
+        (text) => {
+          accumulated += text;
+          setMessages((prev) => prev.map((m) => (m.id === placeholderId ? { ...m, content: accumulated } : m)));
+        },
+        undefined,
+        (error) => {
+          streamErrored = true;
+          const msg = error === 'INSUFFICIENT_CREDITS'
+            ? "Out of credits. Check Settings > Usage & Credits."
+            : `I couldn't reach the model right now.\n\nError: ${error}`;
+          setMessages((prev) => prev.map((m) => (m.id === placeholderId ? { ...m, content: msg } : m)));
+        },
+      );
 
-      const parsed = parseAssistantOutput(result.text || '');
-      const resultModel = result.model || undefined;
-      const fullMessage = parsed.message || "Let's keep building your story idea.";
-      // Split into paragraphs and send as separate messages with realistic delays
-      const paragraphs = fullMessage.split(/\n\n+/).map((p: string) => p.trim()).filter(Boolean);
-      let updatedMessages = [...newMessages];
+      if (streamErrored) return;
 
-      if (paragraphs.length <= 1) {
-        // Single paragraph — send immediately
-        const assistantMessage: Message = {
-          id: generateId(),
-          role: 'assistant',
-          content: fullMessage,
-          timestamp: new Date(),
-          model: resultModel,
-        };
-        updatedMessages = [...updatedMessages, assistantMessage];
-        setMessages(updatedMessages);
-      } else {
-        // Multiple paragraphs — stagger with delays
-        for (let i = 0; i < paragraphs.length; i++) {
-          if (i > 0) {
-            await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000));
-          }
-          const msg: Message = {
-            id: generateId(),
-            role: 'assistant',
-            content: paragraphs[i],
-            timestamp: new Date(),
-            model: i === 0 ? resultModel : undefined,
-          };
-          updatedMessages = [...updatedMessages, msg];
-          setMessages([...updatedMessages]);
+      // If the model accidentally produced multiple paragraphs (it shouldn't,
+      // given the brevity rules), keep the natural typing-pause feel by
+      // re-emitting them as separate bubbles. For 2-3 sentence replies this
+      // never fires.
+      const paragraphs = accumulated.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
+      if (paragraphs.length > 1) {
+        // Replace the placeholder with the first paragraph, then stagger the rest.
+        setMessages((prev) =>
+          prev.map((m) => (m.id === placeholderId ? { ...m, content: paragraphs[0] } : m)),
+        );
+        for (let i = 1; i < paragraphs.length; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000));
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: generateId(),
+              role: 'assistant',
+              content: paragraphs[i],
+              timestamp: new Date(),
+            },
+          ]);
         }
       }
 
-      if (parsed.settings) {
-        // Auto-detect children's book from AI-proposed subtype
-        if (parsed.settings.subtype === 'childrens-book' && bookType !== 'childrens-book' && !childrensSuggestionShown) {
-          setChildrensSuggestionShown(true);
-          setBookType('childrens-book');
-          const suggestionMsg: Message = {
-            id: generateId(),
-            role: 'assistant',
-            content: "This sounds like it could be a **children's book**! I've switched the project type to Children's Book mode — this gives you spreads instead of chapters, illustration placeholders, and age-appropriate word counts. You can switch back anytime using the book type picker at the bottom left.",
-            timestamp: new Date(),
-          };
-          updatedMessages.push(suggestionMsg);
-          setMessages([...updatedMessages]);
-        }
-        applyProposedSettings(parsed.settings, true);
-      }
-      // Keyword-based children's book detection (if AI didn't catch it)
+      // Keyword-based children's book detection
       if (bookType !== 'childrens-book' && !childrensSuggestionShown) {
-        const fullText = newMessages.map(m => m.content).join(' ').toLowerCase();
+        const fullText = newMessages.map((m) => m.content).join(' ').toLowerCase();
         const childrenKeywords = /\b(children'?s?\s*book|picture\s*book|kids?\s*book|board\s*book|bedtime\s*stor|young\s*reader|early\s*reader|toddler|preschool|ages?\s*[0-9]-?[0-9])\b/i;
         if (childrenKeywords.test(fullText)) {
           setChildrensSuggestionShown(true);
           setBookType('childrens-book');
-          const suggestionMsg: Message = {
-            id: generateId(),
-            role: 'assistant',
-            content: "It sounds like you're working on a **children's book**! I've switched to Children's Book mode — you'll get spreads instead of chapters, illustration notes, and age-appropriate word limits. You can change this anytime with the book type picker at the bottom left.",
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, suggestionMsg]);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: generateId(),
+              role: 'assistant',
+              content:
+                "It sounds like you're working on a **children's book**! I've switched to Children's Book mode — you'll get spreads instead of chapters, illustration notes, and age-appropriate word limits. You can change this anytime with the book type picker at the bottom left.",
+              timestamp: new Date(),
+            },
+          ]);
         }
-      }
-      if (parsed.canon) {
-        setAiCanonDraft((prev) => mergeCanonDrafts(parsed.canon, prev));
       }
 
-      const hydrationSeq = ++planHydrationSeqRef.current;
-      void deriveSettingsFromConversation(updatedMessages).then((derived) => {
-        if (!derived) return;
-        if (hydrationSeq !== planHydrationSeqRef.current) return;
-        if (derived.settings) applyProposedSettings(derived.settings, true);
-        if (derived.canon) {
-          setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
-        }
-      });
+      // Background: only build settings + canon JSON once the user has sent
+      // at least 2 messages. Before that there isn't enough signal and the
+      // extra Sonnet call would just slow the first reply down.
+      if (shouldBuildJson) {
+        const finalMessages: Message[] = [
+          ...newMessages,
+          { id: placeholderId, role: 'assistant', content: accumulated, timestamp: new Date(), model: chatModel },
+        ];
+        const hydrationSeq = ++planHydrationSeqRef.current;
+        void deriveSettingsFromConversation(finalMessages).then((derived) => {
+          if (!derived) return;
+          if (hydrationSeq !== planHydrationSeqRef.current) return;
+          if (derived.settings) {
+            // Auto-detect children's book from AI-proposed subtype
+            if (
+              derived.settings.subtype === 'childrens-book' &&
+              bookType !== 'childrens-book' &&
+              !childrensSuggestionShown
+            ) {
+              setChildrensSuggestionShown(true);
+              setBookType('childrens-book');
+            }
+            applyProposedSettings(derived.settings, true);
+          }
+          if (derived.canon) {
+            setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
+          }
+        });
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      setMessages(prev => [...prev, {
-        id: generateId(),
-        role: 'assistant',
-        content: `I couldn't reach the model right now.\n\nError: ${msg}\n\nCheck Settings > Usage & Credits and try again.`,
-        timestamp: new Date(),
-      }]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === placeholderId
+            ? { ...m, content: `I couldn't reach the model right now.\n\nError: ${msg}\n\nCheck Settings > Usage & Credits and try again.` }
+            : m,
+        ),
+      );
     } finally {
       setIsTyping(false);
     }
