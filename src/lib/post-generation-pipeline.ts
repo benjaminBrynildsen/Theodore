@@ -70,13 +70,16 @@ export async function runPostGenerationPipeline(chapterId: string): Promise<void
 
   console.info('[PostGen Pipeline] Starting for chapter', chapter.number, chapterId);
 
-  // Run entity scanning and scene decomposition in parallel
+  // Run entity scanning, scene decomposition, and continuity extraction in parallel
   const [, scenes] = await Promise.all([
     runEntityScan(chapterId).catch((e) => console.warn('[PostGen] Entity scan failed:', e)),
     runSceneDecomposition(chapterId).catch((e) => {
       console.warn('[PostGen] Scene decomposition failed:', e);
       return null;
     }),
+    runContinuityExtraction(chapterId).catch((e) =>
+      console.warn('[PostGen] Continuity extraction failed:', e),
+    ),
   ]);
 
   // If scenes were generated, run dialogue + SFX tagging on each scene
@@ -87,6 +90,120 @@ export async function runPostGenerationPipeline(chapterId: string): Promise<void
   }
 
   console.info('[PostGen Pipeline] Complete for chapter', chapter.number);
+}
+
+/** Continuity extraction: rolling summary + open narrative threads + resolved threads */
+async function runContinuityExtraction(chapterId: string): Promise<void> {
+  const store = useStore.getState();
+  const settings = useSettingsStore.getState().settings;
+  const chapter = store.chapters.find((c) => c.id === chapterId);
+  if (!chapter?.prose?.trim()) return;
+  const project = store.projects.find((p) => p.id === chapter.projectId);
+  if (!project) return;
+
+  // Gather earlier chapters' open threads so the model can mark them resolved
+  const allChapters = store.getProjectChapters(project.id).sort((a, b) => (a.number || 0) - (b.number || 0));
+  const priorChapters = allChapters.filter((c) => (c.number || 0) < (chapter.number || 0));
+  const openSoFar: Array<{ id: string; character: string; thread: string }> = [];
+  const resolvedIds = new Set<string>();
+  for (const c of priorChapters) {
+    const meta = (c.aiIntentMetadata || {}) as any;
+    if (meta.openedThreads) for (const t of meta.openedThreads) openSoFar.push(t);
+    if (meta.resolvedThreadIds) for (const id of meta.resolvedThreadIds) resolvedIds.add(id);
+  }
+  const openThreadsList = openSoFar
+    .filter((t) => !resolvedIds.has(t.id))
+    .map((t) => `- [${t.id}] ${t.character}: ${t.thread}`)
+    .join('\n');
+
+  const proseExcerpt = chapter.prose.length > 8000 ? chapter.prose.slice(0, 8000) + '...' : chapter.prose;
+
+  const prompt = `You are Theodore, a story continuity analyst working on "${project.title}".
+
+Read the chapter below and produce three things:
+1) A 1-sentence SUMMARY of what happens (max 30 words, plot-focused).
+2) A list of OPEN_THREADS — any new unresolved promises, commitments, plans, secrets, or emotional threads a character introduces in this chapter that should be remembered for future chapters. Format: "CHARACTER: thread description". Be concise. Only include genuine open threads, not closed beats.
+3) A list of RESOLVED_THREAD_IDS — given the existing open threads below, which ids did THIS chapter resolve? Only include ids from the existing list.
+
+EXISTING OPEN THREADS:
+${openThreadsList || '(none)'}
+
+CHAPTER ${chapter.number}: ${chapter.title}
+${proseExcerpt}
+
+Respond ONLY in this exact format:
+SUMMARY: <one sentence>
+OPEN_THREADS:
+- CHARACTER: thread one
+- CHARACTER: thread two
+RESOLVED_THREAD_IDS:
+- id1
+- id2
+
+If there are no open threads or none resolved, leave the list empty (just the header).`;
+
+  console.info('[PostGen] Running continuity extraction for ch', chapter.number);
+  const result = await generateText({
+    prompt,
+    model: settings.ai.preferredModel || 'claude-sonnet',
+    maxTokens: 600,
+    action: 'extract-continuity',
+    projectId: project.id,
+    chapterId: chapter.id,
+  });
+
+  const text = (typeof result === 'string' ? result : (result as any)?.text) || '';
+  const parsed = parseContinuityResponse(text, chapter.number || 0);
+  if (!parsed) return;
+
+  const existingMeta = (chapter.aiIntentMetadata || {}) as any;
+  store.updateChapter(chapterId, {
+    aiIntentMetadata: {
+      ...existingMeta,
+      summary: parsed.summary,
+      openedThreads: parsed.openedThreads,
+      resolvedThreadIds: parsed.resolvedThreadIds,
+    } as any,
+  });
+  console.info('[PostGen] Continuity extracted:', { summary: parsed.summary, threads: parsed.openedThreads.length, resolved: parsed.resolvedThreadIds.length });
+}
+
+function parseContinuityResponse(text: string, chapterNumber: number): {
+  summary: string;
+  openedThreads: Array<{ id: string; character: string; thread: string; introducedInChapter: number }>;
+  resolvedThreadIds: string[];
+} | null {
+  if (!text) return null;
+  const summaryMatch = text.match(/SUMMARY:\s*(.+?)(?:\n|$)/);
+  const summary = summaryMatch ? summaryMatch[1].trim() : '';
+  if (!summary) return null;
+
+  const openSection = text.split(/OPEN_THREADS:/i)[1]?.split(/RESOLVED_THREAD_IDS:/i)[0] || '';
+  const openedThreads: Array<{ id: string; character: string; thread: string; introducedInChapter: number }> = [];
+  for (const line of openSection.split('\n')) {
+    const m = line.match(/^\s*[-•]\s*([^:]+):\s*(.+)$/);
+    if (m) {
+      const character = m[1].trim();
+      const thread = m[2].trim();
+      if (character && thread && thread.length > 3) {
+        openedThreads.push({
+          id: `t${chapterNumber}-${openedThreads.length}-${Math.random().toString(36).slice(2, 7)}`,
+          character,
+          thread,
+          introducedInChapter: chapterNumber,
+        });
+      }
+    }
+  }
+
+  const resolvedSection = text.split(/RESOLVED_THREAD_IDS:/i)[1] || '';
+  const resolvedThreadIds: string[] = [];
+  for (const line of resolvedSection.split('\n')) {
+    const m = line.match(/^\s*[-•]\s*(\S+)/);
+    if (m) resolvedThreadIds.push(m[1].trim());
+  }
+
+  return { summary, openedThreads, resolvedThreadIds };
 }
 
 /** Step 1: AI-powered entity/artifact scanning with refinement */

@@ -5,6 +5,7 @@
 import type { Project, Chapter, PremiseCard, WritingMode, GenerationType, Scene, EditChatMessage } from '../types';
 import type { AppSettings, WritingStyleSettings } from '../types/settings';
 import type { AnyCanonEntry, CharacterEntry, LocationEntry } from '../types/canon';
+import { buildContinuityContext, formatContinuityBlock } from './continuity-context';
 
 // ========== Selection-Based Edit Prompt (Vibe Editor) ==========
 
@@ -21,8 +22,10 @@ export interface SelectionEditContext {
 }
 
 export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
-  const { project, chapter, settings, instruction, selectedText, fullProse, chatHistory } = ctx;
+  const { project, chapter, allChapters, settings, instruction, selectedText, fullProse, chatHistory } = ctx;
   const sections: string[] = [];
+  const continuity = buildContinuityContext(project, allChapters, chapter.id);
+  const continuityBlock = formatContinuityBlock(continuity);
 
   sections.push(`You are Theodore, an expert fiction editor working on "${project.title}" (a ${project.subtype || project.type}).`);
 
@@ -39,6 +42,9 @@ export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
   sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
   if (chapter.premise?.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
   if (chapter.premise?.emotionalBeat) sections.push(`Beat: ${chapter.premise.emotionalBeat}`);
+
+  // Cross-chapter continuity (story so far, open threads, recent dialogue, prev chapter)
+  if (continuityBlock) sections.push('\n' + continuityBlock);
 
   // Recent chat history
   if (chatHistory.length > 0) {
@@ -423,11 +429,14 @@ export interface PromptContext {
   settings: AppSettings;
   writingMode: WritingMode;
   generationType: GenerationType;
-  previousChapterProse?: string; // for context continuity
+  previousChapterProse?: string; // DEPRECATED — use buildContinuityContext instead
 }
 
 export function buildGenerationPrompt(ctx: PromptContext): string {
-  const { project, chapter, allChapters, canonEntries, settings, writingMode, generationType, previousChapterProse } = ctx;
+  const { project, chapter, allChapters, canonEntries, settings, writingMode, generationType } = ctx;
+  // Auto-build continuity context from chapters
+  const continuity = buildContinuityContext(project, allChapters, chapter.id);
+  const continuityBlock = formatContinuityBlock(continuity);
 
   // Children's book pages get a completely different prompt
   if (project.subtype === 'childrens-book') {
@@ -473,18 +482,9 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
     sections.push('\n' + buildOutlineContext(allChapters, chapter));
   }
 
-  // Previous chapter context (for continuity) — grab last complete paragraphs, not a raw char slice
-  if (previousChapterProse) {
-    const paragraphs = previousChapterProse.split(/\n\n+/).filter(p => p.trim());
-    // Take last 3-5 paragraphs that fit within ~2000 chars
-    let selected: string[] = [];
-    let charCount = 0;
-    for (let i = paragraphs.length - 1; i >= 0 && selected.length < 5; i--) {
-      if (charCount + paragraphs[i].length > 2000 && selected.length > 0) break;
-      selected.unshift(paragraphs[i]);
-      charCount += paragraphs[i].length;
-    }
-    sections.push(`\n=== PREVIOUS CHAPTER ENDING ===\n${selected.join('\n\n')}`);
+  // Continuity context (story so far + open threads + recent dialogue + previous chapter ending)
+  if (continuityBlock) {
+    sections.push('\n' + continuityBlock);
   }
 
   // Chapter-specific instructions
@@ -604,8 +604,10 @@ export function buildSceneEditPrompt(
   instruction: string,
   chatHistory: EditChatMessage[],
 ): string {
-  const { project, chapter, canonEntries, settings } = ctx;
+  const { project, chapter, allChapters, canonEntries, settings } = ctx;
   const sections: string[] = [];
+  const continuity = buildContinuityContext(project, allChapters, chapter.id);
+  const continuityBlock = formatContinuityBlock(continuity);
 
   sections.push(`You are Theodore, an expert fiction editor working on "${project.title}" (a ${project.subtype || project.type}).`);
 
@@ -629,6 +631,9 @@ export function buildSceneEditPrompt(
   sections.push(`\n=== CHAPTER CONTEXT ===`);
   sections.push(`Chapter ${chapter.number}: "${chapter.title}"`);
   if (chapter.premise?.purpose) sections.push(`Purpose: ${chapter.premise.purpose}`);
+
+  // Cross-chapter continuity
+  if (continuityBlock) sections.push('\n' + continuityBlock);
 
   // Current scene
   sections.push(`\n=== CURRENT SCENE ===`);
@@ -704,7 +709,9 @@ If the changes are safe and create no continuity issues, return an empty array.`
 // ========== Children's Book Page Prompt ==========
 
 function buildChildrensPagePrompt(ctx: PromptContext): string {
-  const { project, chapter, allChapters, previousChapterProse } = ctx;
+  const { project, chapter, allChapters } = ctx;
+  const continuity = buildContinuityContext(project, allChapters, chapter.id);
+  const continuityBlock = formatContinuityBlock(continuity);
   const cbs = project.childrensBookSettings;
   const ageRange = cbs?.ageRange || '3-5';
   const hasRhyme = cbs?.hasRhyme || false;
@@ -759,9 +766,9 @@ This book uses rhyming text. Write with consistent meter and rhyme scheme. Keep 
     }
   }
 
-  // Previous page for continuity
-  if (previousChapterProse) {
-    sections.push(`\n=== PREVIOUS PAGE TEXT ===\n${previousChapterProse}`);
+  // Continuity context (compact for picture books)
+  if (continuityBlock) {
+    sections.push('\n' + continuityBlock);
   }
 
   // Current page instructions

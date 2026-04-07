@@ -1131,7 +1131,7 @@ app.post('/api/transactions', async (req, res) => {
 const GUEST_ALLOWED_ACTIONS = new Set([
   'plan-project', 'scaffold-chapters', 'generate-chapter',
   'generate-chapter-outline', 'scene-prose-split', 'entity-refine',
-  'dialogue-clarity-pass',
+  'dialogue-clarity-pass', 'extract-continuity',
 ]);
 const activeGuestIps = new Set<string>();
 
