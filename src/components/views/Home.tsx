@@ -88,7 +88,8 @@ export function Home() {
 
   // Main home screen
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 animate-fade-in overflow-y-auto">
+    <div className="flex-1 overflow-y-auto animate-fade-in">
+      <div className="min-h-full flex flex-col items-center justify-center p-4 sm:p-8">
       {/* Hero */}
       <div className="text-center mb-8 sm:mb-12 max-w-lg px-4">
         <h1 className="text-3xl sm:text-5xl font-serif font-semibold tracking-tight mb-3 sm:mb-4">Theodore</h1>
@@ -155,6 +156,7 @@ export function Home() {
           <p>No projects yet. Start by telling Theodore about your story.</p>
         </div>
       )}
+      </div>
     </div>
   );
 }
