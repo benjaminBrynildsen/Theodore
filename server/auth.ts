@@ -96,7 +96,7 @@ export function toSafeUser(user: DbUser) {
   };
 }
 
-export async function createSession(userId: string, req: Request, res: Response): Promise<void> {
+export async function createSession(userId: string, req: Request, res: Response): Promise<string> {
   const rawToken = randomBytes(48).toString('base64url');
   const tokenHash = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
@@ -113,11 +113,21 @@ export async function createSession(userId: string, req: Request, res: Response)
     lastUsedAt: new Date(),
   });
   setSessionCookie(res, rawToken);
+  // Also return token in header for mobile clients (React Native can't use HttpOnly cookies)
+  res.setHeader('X-Session-Token', rawToken);
+  return rawToken;
 }
 
 async function resolveAuthContext(req: Request): Promise<AuthContext | null> {
   const cookies = parseCookies(req.headers.cookie);
-  const rawToken = cookies[SESSION_COOKIE];
+  let rawToken = cookies[SESSION_COOKIE];
+  // Also support Bearer token auth for mobile clients
+  if (!rawToken) {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      rawToken = authHeader.slice(7);
+    }
+  }
   if (!rawToken) return null;
   const tokenHash = hashToken(rawToken);
 
