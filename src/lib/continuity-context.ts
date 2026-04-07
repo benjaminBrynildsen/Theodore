@@ -122,8 +122,9 @@ export function formatContinuityBlock(ctx: ContinuityContext): string {
  */
 function extractDialogueWithAttribution(prose: string, chapterNumber: number): string[] {
   const results: string[] = [];
-  // Match curly and straight quotes
-  const quoteRegex = /["“]([^"”]{4,400})["”]/g;
+  // Match curly and straight quotes (negated class excludes all quote variants
+  // so opening curly inside the span doesn't pair with the wrong closer)
+  const quoteRegex = /["“]([^"”“]{4,400})["”]/g;
   let m: RegExpExecArray | null;
   while ((m = quoteRegex.exec(prose)) !== null) {
     const quote = m[1].trim();

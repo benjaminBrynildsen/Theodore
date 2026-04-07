@@ -101,6 +101,7 @@ export function ChapterView({ chapter }: Props) {
   const [generatedText, setGeneratedText] = useState('');
   const [generationPct, setGenerationPct] = useState(0);
   const accumulatedRef = useRef('');
+  const lastSavedWordsRef = useRef(0);
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [chunkSize, setChunkSize] = useState<'short' | 'medium' | 'long'>('medium');
   const [showVibeEditor, setShowVibeEditor] = useState(false);
@@ -156,11 +157,13 @@ export function ChapterView({ chapter }: Props) {
     setChapterFraming(saved);
   }, [chapter.id, chapter.aiIntentMetadata]);
 
-  // Save partial generation when page goes to background (phone lock, tab switch)
+  // Save partial generation when page goes to background (phone lock, tab switch).
+  // Skip the store update — debounced save would race with the immediate API call
+  // and the streaming overlay shows accumulated text directly, so memory consistency
+  // is restored when generation completes.
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.hidden && accumulatedRef.current.trim().length > 100) {
-        updateChapter(chapter.id, { prose: accumulatedRef.current });
         api.updateChapter(chapter.id, { prose: accumulatedRef.current }).catch(() => {});
       }
     };
@@ -179,6 +182,24 @@ export function ChapterView({ chapter }: Props) {
     setGeneratedText('');
     setGenerationPct(0);
     accumulatedRef.current = '';
+    lastSavedWordsRef.current = 0;
+
+    // Persist target word count at generation START so the "Finish Chapter" button
+    // can detect interrupted generations even if onComplete never fires.
+    {
+      const currentMeta = ((chapter.aiIntentMetadata || {}) as Record<string, any>);
+      updateChapter(chapter.id, {
+        aiIntentMetadata: {
+          ...currentMeta,
+          chunking: {
+            ...((currentMeta.chunking || {}) as Record<string, any>),
+            mode: 'start',
+            chunkSize,
+            targetWords: String(wordTarget),
+          },
+        } as any,
+      });
+    }
 
     try {
     const projectChapters = getProjectChapters(project.id);
@@ -220,8 +241,10 @@ export function ChapterView({ chapter }: Props) {
         setGeneratedText(accumulated);
         const words = accumulated.trim().split(/\s+/).length;
         setGenerationPct(Math.min(99, Math.round((words / wordTarget) * 100)));
-        // Auto-save partial generation every ~500 words so progress survives page backgrounding
-        if (words % 500 < 5 && words > 100) {
+        // Auto-save partial generation every 500 words so progress survives page backgrounding.
+        // Tracked via ref so a single threshold crossing can't fire twice.
+        if (words >= 100 && words - lastSavedWordsRef.current >= 500) {
+          lastSavedWordsRef.current = words;
           updateChapter(chapter.id, { prose: accumulated });
         }
       },

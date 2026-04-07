@@ -74,8 +74,12 @@ export const useAuthStore = create<AuthState>((set) => ({
       if (!user) throw new Error('Unexpected auth response shape');
       set({ user, initialized: true, loading: false });
     } catch {
-      // DON'T clear local project state for guests — they may have
-      // unsaved work in localStorage that should persist across refreshes
+      // If a previous user was authenticated (currentUserId persisted in localStorage)
+      // their session has expired — clear local state so the next user on this device
+      // doesn't inherit it. Genuine guests have currentUserId === null and keep their
+      // unsaved local work.
+      const hadPreviousUser = useStore.getState().currentUserId !== null;
+      if (hadPreviousUser) clearLocalProjectState();
       set({ user: null, initialized: true, loading: false });
     }
   },
