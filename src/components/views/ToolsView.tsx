@@ -1,11 +1,13 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useMemo, useState } from 'react';
 import {
   ChevronLeft, TrendingUp, BookOpen, BookCopy, FileSignature,
   LayoutGrid, Barcode, Rocket, Users,
   Activity, MessageSquareQuote, Waves, Globe, Image,
   Highlighter, ScrollText, UserPlus,
-  BarChart3, Crosshair, GitCompare, MessageCircle, Calendar, BookMarked
+  BarChart3, Crosshair, GitCompare, MessageCircle, Calendar, BookMarked,
+  Heart, BookText, FileText
 } from 'lucide-react';
+import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
 
 type Tool =
@@ -13,120 +15,67 @@ type Tool =
   | 'beats' | 'isbn' | 'launch'
   | 'relationships' | 'dialogue' | 'pacing' | 'tone' | 'preorder'
   | 'xray' | 'recap' | 'cover'
-  | 'names' | 'readability' | 'plothole' | 'diff' | 'collab' | 'epub' | 'timeline';
+  | 'names' | 'readability' | 'plothole' | 'diff' | 'collab' | 'epub' | 'timeline'
+  | 'bible' | 'manuscript' | 'emotion';
 
-const TOOLS: { id: Tool; label: string; icon: typeof TrendingUp; description: string; phase: string }[] = [
-  { id: 'relationships', label: 'Relationships', icon: Users, description: 'Character relationship map with connection types', phase: 'Planning' },
-  { id: 'names', label: 'Name Generator', icon: UserPlus, description: 'Genre-aware names with etymology and phonetics', phase: 'Planning' },
-  { id: 'timeline', label: 'Timeline', icon: Calendar, description: 'Chronological event map with conflict detection', phase: 'Planning' },
-  { id: 'arc', label: 'Story Arc', icon: TrendingUp, description: 'Visualize and reshape your narrative arc', phase: 'Writing' },
-  { id: 'beats', label: 'Scene Beats', icon: LayoutGrid, description: 'Drag beats between chapters to rebalance structure', phase: 'Writing' },
-  { id: 'pacing', label: 'Pacing Heartbeat', icon: Activity, description: 'Tempo waveform — see rhythm across chapters', phase: 'Writing' },
-  { id: 'recap', label: 'Chapter Recap', icon: ScrollText, description: '"Previously on..." summaries for continuity', phase: 'Writing' },
-  { id: 'reader', label: 'First Reader', icon: BookOpen, description: 'AI beta reader — engagement, clarity, pacing feedback', phase: 'Editing' },
+type ToolEntry = {
+  id: Tool;
+  label: string;
+  icon: typeof TrendingUp;
+  description: string;
+  phase: string;
+  comingSoon?: boolean;
+};
+
+const TOOLS: ToolEntry[] = [
+  { id: 'relationships', label: 'Relationships', icon: Users, description: 'Character relationship map with connection types', phase: 'Planning', comingSoon: true },
+  { id: 'names', label: 'Name Generator', icon: UserPlus, description: 'Genre-aware names with etymology and phonetics', phase: 'Planning', comingSoon: true },
+  { id: 'timeline', label: 'Timeline', icon: Calendar, description: 'Chronological event map with conflict detection', phase: 'Planning', comingSoon: true },
+  { id: 'arc', label: 'Story Arc', icon: TrendingUp, description: 'Visualize and reshape your narrative arc', phase: 'Writing', comingSoon: true },
+  { id: 'beats', label: 'Scene Beats', icon: LayoutGrid, description: 'Drag beats between chapters to rebalance structure', phase: 'Writing', comingSoon: true },
+  { id: 'pacing', label: 'Pacing Heartbeat', icon: Activity, description: 'Tempo waveform — see rhythm across chapters', phase: 'Writing', comingSoon: true },
+  { id: 'recap', label: 'Chapter Recap', icon: ScrollText, description: '"Previously on..." summaries for continuity', phase: 'Writing', comingSoon: true },
+  { id: 'reader', label: 'First Reader', icon: BookOpen, description: 'AI beta reader — engagement, clarity, pacing feedback', phase: 'Editing', comingSoon: true },
   { id: 'xray', label: 'Prose X-Ray', icon: Highlighter, description: 'Heatmap overlay — dialogue ratio, adverbs, pacing', phase: 'Editing' },
-  { id: 'dialogue', label: 'Dialogue Analyzer', icon: MessageSquareQuote, description: 'Voice profiles and character similarity detection', phase: 'Editing' },
-  { id: 'tone', label: 'Tone Drift', icon: Waves, description: 'Detect unintentional tone shifts across chapters', phase: 'Editing' },
-  { id: 'readability', label: 'Readability', icon: BarChart3, description: 'Grade level, reading time, audience targeting', phase: 'Editing' },
-  { id: 'plothole', label: 'Plot Holes', icon: Crosshair, description: 'Detect contradictions and unresolved threads', phase: 'Editing' },
-  { id: 'diff', label: 'Draft Compare', icon: GitCompare, description: 'Diff view between manuscript versions', phase: 'Editing' },
-  { id: 'collab', label: 'Collab Notes', icon: MessageCircle, description: 'Editor and beta reader annotations with threads', phase: 'Editing' },
-  { id: 'comps', label: 'Comp Titles', icon: BookCopy, description: 'Find comparable books for marketing and queries', phase: 'Publishing' },
-  { id: 'query', label: 'Query & Blurb', icon: FileSignature, description: 'Generate query letters, back covers, Amazon descriptions', phase: 'Publishing' },
+  { id: 'emotion', label: 'Emotion X-Ray', icon: Heart, description: 'Per-scene emotional arc and ambient music suggestions', phase: 'Editing' },
+  { id: 'dialogue', label: 'Dialogue Analyzer', icon: MessageSquareQuote, description: 'Voice profiles and character similarity detection', phase: 'Editing', comingSoon: true },
+  { id: 'tone', label: 'Tone Drift', icon: Waves, description: 'Detect unintentional tone shifts across chapters', phase: 'Editing', comingSoon: true },
+  { id: 'readability', label: 'Readability', icon: BarChart3, description: 'Grade level, reading time, audience targeting', phase: 'Editing', comingSoon: true },
+  { id: 'plothole', label: 'Plot Holes', icon: Crosshair, description: 'Detect contradictions and unresolved threads', phase: 'Editing', comingSoon: true },
+  { id: 'diff', label: 'Draft Compare', icon: GitCompare, description: 'Diff view between manuscript versions', phase: 'Editing', comingSoon: true },
+  { id: 'collab', label: 'Collab Notes', icon: MessageCircle, description: 'Editor and beta reader annotations with threads', phase: 'Editing', comingSoon: true },
+  { id: 'bible', label: 'Story Bible Export', icon: BookText, description: 'Export your full canon as markdown, PDF, or DOCX', phase: 'Publishing' },
+  { id: 'manuscript', label: 'Manuscript Formatter', icon: FileText, description: 'Format your draft for agents, KDP, or print', phase: 'Publishing' },
+  { id: 'comps', label: 'Comp Titles', icon: BookCopy, description: 'Find comparable books for marketing and queries', phase: 'Publishing', comingSoon: true },
+  { id: 'query', label: 'Query & Blurb', icon: FileSignature, description: 'Generate query letters, back covers, Amazon descriptions', phase: 'Publishing', comingSoon: true },
   { id: 'isbn', label: 'ISBN & Copyright', icon: Barcode, description: 'Step-by-step publishing paperwork', phase: 'Publishing' },
-  { id: 'cover', label: 'Cover Designer', icon: Image, description: 'AI-generated covers at KDP-ready specs', phase: 'Publishing' },
-  { id: 'epub', label: 'ePub Preview', icon: BookMarked, description: 'Kindle/phone/tablet rendering preview', phase: 'Publishing' },
-  { id: 'preorder', label: 'Pre-Order Page', icon: Globe, description: 'Landing page with countdown and email capture', phase: 'Publishing' },
-  { id: 'launch', label: 'Launch Dashboard', icon: Rocket, description: 'Sales, reviews, and rankings post-publish', phase: 'Post-Launch' },
+  { id: 'cover', label: 'Cover Designer', icon: Image, description: 'AI-generated covers at KDP-ready specs', phase: 'Publishing', comingSoon: true },
+  { id: 'epub', label: 'ePub Preview', icon: BookMarked, description: 'Kindle/phone/tablet rendering preview', phase: 'Publishing', comingSoon: true },
+  { id: 'preorder', label: 'Pre-Order Page', icon: Globe, description: 'Landing page with countdown and email capture', phase: 'Publishing', comingSoon: true },
+  { id: 'launch', label: 'Launch Dashboard', icon: Rocket, description: 'Sales, reviews, and rankings post-publish', phase: 'Post-Launch', comingSoon: true },
 ];
 
-const StoryArcVisualizer = lazy(async () => {
-  const mod = await import('../features/StoryArcVisualizer');
-  return { default: mod.StoryArcVisualizer };
-});
-const FirstReaderAI = lazy(async () => {
-  const mod = await import('../features/FirstReaderAI');
-  return { default: mod.FirstReaderAI };
-});
-const CompTitleMatcher = lazy(async () => {
-  const mod = await import('../features/CompTitleMatcher');
-  return { default: mod.CompTitleMatcher };
-});
-const QueryLetterGenerator = lazy(async () => {
-  const mod = await import('../features/QueryLetterGenerator');
-  return { default: mod.QueryLetterGenerator };
-});
-const SceneBeatBoard = lazy(async () => {
-  const mod = await import('../features/SceneBeatBoard');
-  return { default: mod.SceneBeatBoard };
-});
+// Only the live tools are lazy-imported. Stub tools render a "Coming soon"
+// placeholder, so their feature components don't need to be in the bundle.
 const ISBNAssistant = lazy(async () => {
   const mod = await import('../features/ISBNAssistant');
   return { default: mod.ISBNAssistant };
-});
-const LaunchDashboard = lazy(async () => {
-  const mod = await import('../features/LaunchDashboard');
-  return { default: mod.LaunchDashboard };
-});
-const CharacterRelationshipMap = lazy(async () => {
-  const mod = await import('../features/CharacterRelationshipMap');
-  return { default: mod.CharacterRelationshipMap };
-});
-const DialogueAnalyzer = lazy(async () => {
-  const mod = await import('../features/DialogueAnalyzer');
-  return { default: mod.DialogueAnalyzer };
-});
-const PacingHeartbeat = lazy(async () => {
-  const mod = await import('../features/PacingHeartbeat');
-  return { default: mod.PacingHeartbeat };
-});
-const ToneDriftDetector = lazy(async () => {
-  const mod = await import('../features/ToneDriftDetector');
-  return { default: mod.ToneDriftDetector };
-});
-const PreOrderPage = lazy(async () => {
-  const mod = await import('../features/PreOrderPage');
-  return { default: mod.PreOrderPage };
 });
 const ProseXRay = lazy(async () => {
   const mod = await import('../features/ProseXRay');
   return { default: mod.ProseXRay };
 });
-const ChapterRecapGenerator = lazy(async () => {
-  const mod = await import('../features/ChapterRecapGenerator');
-  return { default: mod.ChapterRecapGenerator };
+const EmotionalXRay = lazy(async () => {
+  const mod = await import('../features/EmotionalXRay');
+  return { default: mod.EmotionalXRay };
 });
-const AICoverDesigner = lazy(async () => {
-  const mod = await import('../features/AICoverDesigner');
-  return { default: mod.AICoverDesigner };
+const StoryBibleExport = lazy(async () => {
+  const mod = await import('../features/StoryBibleExport');
+  return { default: mod.StoryBibleExport };
 });
-const NameGenerator = lazy(async () => {
-  const mod = await import('../features/NameGenerator');
-  return { default: mod.NameGenerator };
-});
-const ReadabilityAnalyzer = lazy(async () => {
-  const mod = await import('../features/ReadabilityAnalyzer');
-  return { default: mod.ReadabilityAnalyzer };
-});
-const PlotHoleDetector = lazy(async () => {
-  const mod = await import('../features/PlotHoleDetector');
-  return { default: mod.PlotHoleDetector };
-});
-const ManuscriptComparison = lazy(async () => {
-  const mod = await import('../features/ManuscriptComparison');
-  return { default: mod.ManuscriptComparison };
-});
-const CollaborationNotes = lazy(async () => {
-  const mod = await import('../features/CollaborationNotes');
-  return { default: mod.CollaborationNotes };
-});
-const EpubPreview = lazy(async () => {
-  const mod = await import('../features/EpubPreview');
-  return { default: mod.EpubPreview };
-});
-const TimelineVisualizer = lazy(async () => {
-  const mod = await import('../features/TimelineVisualizer');
-  return { default: mod.TimelineVisualizer };
+const ManuscriptFormatter = lazy(async () => {
+  const mod = await import('../features/ManuscriptFormatter');
+  return { default: mod.ManuscriptFormatter };
 });
 
 function ToolLoader() {
@@ -137,8 +86,82 @@ function ToolLoader() {
   );
 }
 
+function ComingSoonPlaceholder({ label }: { label: string }) {
+  return (
+    <div className="px-4 py-16 text-center sm:px-8">
+      <div className="text-4xl mb-3">🛠️</div>
+      <h2 className="text-lg font-serif font-semibold mb-1">{label}</h2>
+      <p className="text-xs text-text-tertiary max-w-sm mx-auto">
+        This tool is coming soon. We're focused on shipping the core writing and audiobook flow first.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Wraps a chapter-bound tool (Prose X-Ray, Emotion X-Ray) with a chapter
+ * picker. Defaults to the active chapter, falls back to the first chapter
+ * in the active project. Lets the user pick any chapter from a dropdown.
+ */
+function ChapterBoundTool({
+  label,
+  render,
+}: {
+  label: string;
+  render: (chapterId: string) => JSX.Element;
+}) {
+  const { getActiveProject, getProjectChapters, activeChapterId } = useStore();
+  const project = getActiveProject();
+  const projectChapters = useMemo(
+    () => (project ? getProjectChapters(project.id).filter((c) => c.prose?.trim()) : []),
+    [project, getProjectChapters],
+  );
+  const defaultId = activeChapterId && projectChapters.some((c) => c.id === activeChapterId)
+    ? activeChapterId
+    : projectChapters[0]?.id || '';
+  const [selectedId, setSelectedId] = useState(defaultId);
+
+  if (!project) {
+    return (
+      <div className="px-4 py-16 text-center text-sm text-text-tertiary sm:px-8">
+        Open a project to use {label}.
+      </div>
+    );
+  }
+  if (projectChapters.length === 0) {
+    return (
+      <div className="px-4 py-16 text-center text-sm text-text-tertiary sm:px-8">
+        Write or generate a chapter first to use {label}.
+      </div>
+    );
+  }
+
+  const effectiveId = selectedId || defaultId;
+
+  return (
+    <div>
+      <div className="px-5 pt-5 pb-2 flex items-center gap-3">
+        <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Chapter</label>
+        <select
+          value={effectiveId}
+          onChange={(e) => setSelectedId(e.target.value)}
+          className="text-sm rounded-lg border border-black/10 bg-white/60 px-2 py-1 focus:outline-none focus:ring-2 focus:ring-black/10"
+        >
+          {projectChapters.map((c) => (
+            <option key={c.id} value={c.id}>
+              Ch. {c.number} {c.title ? `— ${c.title}` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+      {render(effectiveId)}
+    </div>
+  );
+}
+
 export function ToolsView({ onClose }: { onClose: () => void }) {
   const [activeTool, setActiveTool] = useState<Tool | null>(null);
+  const activeToolEntry = activeTool ? TOOLS.find((t) => t.id === activeTool) : null;
 
   return (
     <div className="flex-1 flex overflow-hidden animate-fade-in">
@@ -166,7 +189,7 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
             <div key={phase} className="mb-4">
               <div className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-1.5 px-3">{phase}</div>
               <nav className="space-y-0.5">
-                {phaseTools.map(({ id, label, icon: Icon, description }) => (
+                {phaseTools.map(({ id, label, icon: Icon, description, comingSoon }) => (
                   <button
                     key={id}
                     onClick={() => setActiveTool(id)}
@@ -177,9 +200,16 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
                   >
                     <div className="flex items-center gap-2.5">
                       <Icon size={14} className={activeTool === id ? 'text-text-primary' : 'text-text-tertiary'} />
-                      <div>
-                        <div className={cn('text-sm font-medium', activeTool === id ? 'text-text-primary' : 'text-text-secondary')}>
-                          {label}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <div className={cn('text-sm font-medium truncate', activeTool === id ? 'text-text-primary' : 'text-text-secondary')}>
+                            {label}
+                          </div>
+                          {comingSoon && (
+                            <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-black/[0.06] text-text-tertiary font-semibold flex-shrink-0">
+                              Soon
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] text-text-tertiary">{description}</div>
                       </div>
@@ -215,15 +245,22 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
                 From story structure to audiobook — everything you need to go from idea to finished book.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
-                {TOOLS.map(({ id, label, icon: Icon, phase }) => (
+                {TOOLS.map(({ id, label, icon: Icon, phase, comingSoon }) => (
                   <button
                     key={id}
                     onClick={() => setActiveTool(id)}
                     className="flex items-center gap-3 p-4 rounded-2xl glass-pill hover:bg-white/60 transition-all text-left"
                   >
                     <Icon size={18} className="text-text-tertiary" />
-                    <div>
-                      <div className="text-sm font-medium">{label}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <div className="text-sm font-medium truncate">{label}</div>
+                        {comingSoon && (
+                          <span className="text-[8px] uppercase tracking-wider px-1 py-0.5 rounded bg-black/[0.06] text-text-tertiary font-semibold flex-shrink-0">
+                            Soon
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-text-tertiary">{phase}</div>
                     </div>
                   </button>
@@ -233,28 +270,18 @@ export function ToolsView({ onClose }: { onClose: () => void }) {
           )}
 
           <Suspense fallback={<ToolLoader />}>
-            {activeTool === 'arc' && <StoryArcVisualizer />}
-            {activeTool === 'reader' && <FirstReaderAI />}
-            {activeTool === 'comps' && <CompTitleMatcher />}
-            {activeTool === 'query' && <QueryLetterGenerator />}
-            {activeTool === 'beats' && <SceneBeatBoard />}
+            {activeToolEntry && activeToolEntry.comingSoon && (
+              <ComingSoonPlaceholder label={activeToolEntry.label} />
+            )}
             {activeTool === 'isbn' && <ISBNAssistant />}
-            {activeTool === 'launch' && <LaunchDashboard />}
-            {activeTool === 'relationships' && <CharacterRelationshipMap />}
-            {activeTool === 'dialogue' && <DialogueAnalyzer />}
-            {activeTool === 'pacing' && <PacingHeartbeat />}
-            {activeTool === 'tone' && <ToneDriftDetector />}
-            {activeTool === 'preorder' && <PreOrderPage />}
-            {activeTool === 'xray' && <ProseXRay chapterId="ch-1" />}
-            {activeTool === 'recap' && <ChapterRecapGenerator />}
-            {activeTool === 'cover' && <AICoverDesigner />}
-            {activeTool === 'names' && <NameGenerator />}
-            {activeTool === 'readability' && <ReadabilityAnalyzer />}
-            {activeTool === 'plothole' && <PlotHoleDetector />}
-            {activeTool === 'diff' && <ManuscriptComparison />}
-            {activeTool === 'collab' && <CollaborationNotes />}
-            {activeTool === 'epub' && <EpubPreview />}
-            {activeTool === 'timeline' && <TimelineVisualizer />}
+            {activeTool === 'xray' && (
+              <ChapterBoundTool label="Prose X-Ray" render={(id) => <ProseXRay chapterId={id} />} />
+            )}
+            {activeTool === 'emotion' && (
+              <ChapterBoundTool label="Emotion X-Ray" render={(id) => <EmotionalXRay chapterId={id} />} />
+            )}
+            {activeTool === 'bible' && <StoryBibleExport />}
+            {activeTool === 'manuscript' && <ManuscriptFormatter />}
           </Suspense>
         </div>
       </div>

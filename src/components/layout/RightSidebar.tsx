@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Shield, GitBranch, Sparkles, AlertTriangle, MessageSquare, Feather, Headphones, FileOutput, Sliders, Disc3 } from 'lucide-react';
+import { Shield, Headphones, FileOutput, Sliders, Disc3 } from 'lucide-react';
 import { useStore } from '../../store';
-import { useSettingsStore } from '../../store/settings';
 import { Slider } from '../ui/Slider';
 import { StoryBibleExport } from '../features/StoryBibleExport';
 import { ManuscriptFormatter } from '../features/ManuscriptFormatter';
@@ -10,15 +9,6 @@ import { NowPlayingPanel } from '../features/NowPlayingPanel';
 import { useAudioStore } from '../../store/audio';
 import { cn } from '../../lib/utils';
 import type { Chapter } from '../../types';
-
-const AI_AGENTS = [
-  { id: 'architect', label: 'Architect', desc: 'Structure & pacing', icon: GitBranch },
-  { id: 'lorekeeper', label: 'Lorekeeper', desc: 'Canon enforcement', icon: Shield },
-  { id: 'continuity', label: 'Continuity Judge', desc: 'Timeline & consistency', icon: Sparkles },
-  { id: 'dialogue', label: 'Dialogue Pass', desc: 'Voice & conversation', icon: MessageSquare },
-  { id: 'prose', label: 'Prose Polisher', desc: 'Style & rhythm', icon: Feather },
-  { id: 'redteam', label: 'Red Team', desc: 'Plot holes & weak points', icon: AlertTriangle },
-];
 
 type SidebarTab = 'playing' | 'controls' | 'audio' | 'export';
 
@@ -74,17 +64,8 @@ function buildChapterStructure(chapter: Chapter | null) {
 
 export function RightSidebar() {
   const { rightSidebarOpen, getActiveProject, updateProject, activeChapterId, chapters } = useStore();
-  const { settings } = useSettingsStore();
   const { miniPlayerVisible: hasAudioActivity, setSidebarPlayerVisible } = useAudioStore();
   const [activeTab, setActiveTab] = useState<SidebarTab>('playing');
-  const [agentStates, setAgentStates] = useState<Record<string, boolean>>({
-    architect: true,
-    lorekeeper: true,
-    continuity: true,
-    dialogue: false,
-    prose: false,
-    redteam: settings.ai.redTeamEnabled,
-  });
   const project = getActiveProject();
   const activeChapter = activeChapterId ? chapters.find((c) => c.id === activeChapterId) || null : null;
   const chapterStructure = buildChapterStructure(activeChapter);
@@ -114,10 +95,6 @@ export function RightSidebar() {
       (nc as any)[path] = value;
     }
     updateProject(project.id, { narrativeControls: nc, updatedAt: new Date().toISOString() });
-  };
-
-  const toggleAgent = (id: string) => {
-    setAgentStates((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   return (
@@ -255,30 +232,6 @@ export function RightSidebar() {
             </div>
           </div>
 
-          <div className="p-4">
-            <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">AI Agents</h3>
-            <div className="space-y-1.5">
-              {AI_AGENTS.map(({ id, label, desc, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => toggleAgent(id)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl glass-pill transition-all duration-200 hover:bg-white/50"
-                >
-                  <Icon size={14} className={agentStates[id] ? 'text-text-primary' : 'text-text-tertiary'} />
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className={cn('text-sm font-medium', !agentStates[id] && 'text-text-tertiary')}>{label}</div>
-                    <div className="text-xs text-text-tertiary">{desc}</div>
-                  </div>
-                  <span
-                    className={cn(
-                      'w-1.5 h-1.5 rounded-full transition-colors',
-                      agentStates[id] ? 'bg-success' : 'bg-black/10'
-                    )}
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       )}
     </aside>

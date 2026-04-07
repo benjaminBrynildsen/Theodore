@@ -25,10 +25,10 @@ const projectTypes = [
   { type: 'documentary' as const, label: 'Documentary', icon: FileVideo, available: false },
 ];
 
-const bookSubtypes: { type: BookSubtype; label: string; desc: string }[] = [
+const bookSubtypes: { type: BookSubtype; label: string; desc: string; comingSoon?: boolean }[] = [
   { type: 'novel', label: 'Novel', desc: 'Full-length narrative fiction' },
   { type: 'short-stories', label: 'Short Story Collection', desc: 'Multiple connected or standalone stories' },
-  { type: 'childrens-book', label: "Children's Book", desc: 'Illustrated stories for young readers' },
+  { type: 'childrens-book', label: "Children's Book", desc: 'Illustrated stories for young readers', comingSoon: true },
 ];
 
 interface Props {
@@ -168,13 +168,24 @@ export function NewProjectModal({ onClose }: Props) {
           <div className="px-6 pb-6 animate-fade-in">
             <p className="text-sm text-text-secondary mb-5">What kind of book?</p>
             <div className="space-y-2">
-              {bookSubtypes.map(({ type, label, desc }) => (
+              {bookSubtypes.map(({ type, label, desc, comingSoon }) => (
                 <button
                   key={type}
-                  onClick={() => { setSubtype(type); setStep(2); }}
-                  className="w-full text-left p-4 rounded-2xl glass-pill hover:bg-white/60 transition-all duration-200 active:scale-[0.99]"
+                  disabled={comingSoon}
+                  onClick={() => { if (comingSoon) return; setSubtype(type); setStep(2); }}
+                  className={cn(
+                    'w-full text-left p-4 rounded-2xl glass-pill transition-all duration-200',
+                    comingSoon ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white/60 active:scale-[0.99]'
+                  )}
                 >
-                  <div className="font-medium text-sm">{label}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="font-medium text-sm">{label}</div>
+                    {comingSoon && (
+                      <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-black/[0.06] text-text-tertiary font-semibold">
+                        Coming soon
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-text-tertiary mt-0.5">{desc}</div>
                 </button>
               ))}

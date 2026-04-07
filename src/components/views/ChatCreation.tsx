@@ -1160,12 +1160,14 @@ Rules:
                 {showTypePicker && (
                   <div className="absolute bottom-full left-0 mb-1 w-56 rounded-2xl bg-white border border-black/10 shadow-xl z-50 overflow-hidden animate-fade-in">
                     {([
-                      { type: 'novel' as BookSubtype, label: 'Novel', desc: 'Full-length narrative fiction', icon: BookOpen },
-                      { type: 'childrens-book' as BookSubtype, label: "Children's Book", desc: 'Illustrated stories for young readers', icon: ImageIcon },
-                    ]).map(({ type, label, desc, icon: Icon }) => (
+                      { type: 'novel' as BookSubtype, label: 'Novel', desc: 'Full-length narrative fiction', icon: BookOpen, comingSoon: false },
+                      { type: 'childrens-book' as BookSubtype, label: "Children's Book", desc: 'Illustrated stories for young readers', icon: ImageIcon, comingSoon: true },
+                    ]).map(({ type, label, desc, icon: Icon, comingSoon }) => (
                       <button
                         key={type}
+                        disabled={comingSoon}
                         onClick={() => {
+                          if (comingSoon) return;
                           setBookType(type);
                           setShowTypePicker(false);
                           if (type === 'childrens-book') {
@@ -1173,13 +1175,21 @@ Rules:
                           }
                         }}
                         className={cn(
-                          'w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-black/[0.03] transition-colors',
-                          bookType === type && 'bg-black/[0.04]'
+                          'w-full flex items-start gap-3 px-4 py-3 text-left transition-colors',
+                          comingSoon ? 'opacity-50 cursor-not-allowed' : 'hover:bg-black/[0.03]',
+                          bookType === type && !comingSoon && 'bg-black/[0.04]'
                         )}
                       >
-                        <Icon size={16} className={cn('mt-0.5', bookType === type ? 'text-text-primary' : 'text-text-tertiary')} />
-                        <div>
-                          <div className={cn('text-sm font-medium', bookType === type ? 'text-text-primary' : 'text-text-secondary')}>{label}</div>
+                        <Icon size={16} className={cn('mt-0.5', bookType === type && !comingSoon ? 'text-text-primary' : 'text-text-tertiary')} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <div className={cn('text-sm font-medium', bookType === type && !comingSoon ? 'text-text-primary' : 'text-text-secondary')}>{label}</div>
+                            {comingSoon && (
+                              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-black/[0.06] text-text-tertiary font-semibold">
+                                Coming soon
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-text-tertiary">{desc}</div>
                         </div>
                       </button>
