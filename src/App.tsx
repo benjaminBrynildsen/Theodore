@@ -12,6 +12,7 @@ import { useCreditsStore } from './store/credits';
 import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
+import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
 import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/MobilePlayer';
 
@@ -308,6 +309,7 @@ export default function App() {
             {showWorkspaceChrome && <div className="hidden sm:block h-full"><RightSidebar /></div>}
           </div>
           {showWorkspaceChrome && <AudioPlayerBar />}
+          <GenerationProgressBar />
           <BottomNav />
 
           {/* Mobile drawer — Left sidebar (chapters/canon) */}
@@ -416,6 +418,7 @@ export default function App() {
       </div>
       
       {showWorkspaceChrome && <AudioPlayerBar />}
+      <GenerationProgressBar />
       <BottomNav />
 
       {/* Mobile drawer — Left sidebar (chapters/canon) */}

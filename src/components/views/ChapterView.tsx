@@ -3,6 +3,7 @@ import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked,
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
+import { useGenerationStore } from '../../store/generation';
 import { Badge } from '../ui/Badge';
 import { VersionTimeline } from '../features/VersionTimeline';
 import type { ProseSelection } from '../../types';
@@ -119,6 +120,7 @@ export function ChapterView({ chapter }: Props) {
   const { getActiveProject, getProjectChapters, chapters: allChapters } = useStore();
   const { getProjectEntries, activeEntryId, getEntry, setActiveEntry } = useCanonStore();
   const { settings } = useSettingsStore();
+  const generationProgress = useGenerationStore();
 
   // Highlighted artifact name (from clicking an entry in the Artifacts tab)
   const highlightedEntry = activeEntryId ? getEntry(activeEntryId) : null;
@@ -184,6 +186,13 @@ export function ChapterView({ chapter }: Props) {
     accumulatedRef.current = '';
     lastSavedWordsRef.current = 0;
 
+    generationProgress.start({
+      chapterId: chapter.id,
+      label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
+      wordTarget,
+      kind: 'generate',
+    });
+
     // Persist target word count at generation START so the "Finish Chapter" button
     // can detect interrupted generations even if onComplete never fires.
     {
@@ -241,6 +250,7 @@ export function ChapterView({ chapter }: Props) {
         setGeneratedText(accumulated);
         const words = accumulated.trim().split(/\s+/).length;
         setGenerationPct(Math.min(99, Math.round((words / wordTarget) * 100)));
+        useGenerationStore.getState().updateWords(words);
         // Auto-save partial generation every 500 words so progress survives page backgrounding.
         // Tracked via ref so a single threshold crossing can't fire twice.
         if (words >= 100 && words - lastSavedWordsRef.current >= 500) {
@@ -250,6 +260,7 @@ export function ChapterView({ chapter }: Props) {
       },
       async (usage) => {
         setGenerationPct(100);
+        useGenerationStore.getState().setPhase('finalizing');
         // Generation complete — clean up AI artifacts and save to chapter
         // Strip leading chapter title/heading lines (e.g. "**Chapter 1: Title**", "# Chapter 1", "Chapter 1: Title")
         accumulated = accumulated.replace(/^\s*(\*{1,2})?#*\s*(Chapter\s+\d+[:\s].*?)(\*{1,2})?\s*\n+/i, '').trimStart();
@@ -298,6 +309,7 @@ export function ChapterView({ chapter }: Props) {
         setGenerating(false);
         setGeneratedText('');
         accumulatedRef.current = '';
+        useGenerationStore.getState().setPhase('done');
 
         // Auto-run post-generation pipeline (entity scan + scene decomposition for sidebar/studio)
         import('../../lib/post-generation-pipeline').then(({ runPostGenerationPipeline }) =>
@@ -309,6 +321,7 @@ export function ChapterView({ chapter }: Props) {
       (error) => {
         console.error('Generation error:', error);
         setGenerating(false);
+        useGenerationStore.getState().end();
         if (error === 'INSUFFICIENT_CREDITS') {
           setGenerationError('Not enough credits. Upgrade your plan to continue generating.');
           return;
@@ -322,6 +335,7 @@ export function ChapterView({ chapter }: Props) {
       setGenerating(false);
       setGeneratedText('');
       accumulatedRef.current = '';
+      useGenerationStore.getState().end();
     }
   };
 
@@ -348,6 +362,13 @@ export function ChapterView({ chapter }: Props) {
     if (!chapter.prose.trim() || extending) return;
     setGenerationError(null);
     setExtending(true);
+
+    generationProgress.start({
+      chapterId: chapter.id,
+      label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
+      wordTarget,
+      kind: 'extend',
+    });
 
     try {
     const projectChapters = getProjectChapters(project.id);
@@ -380,8 +401,10 @@ export function ChapterView({ chapter }: Props) {
       (text) => {
         extension += text;
         setGeneratedText(extension);
+        useGenerationStore.getState().updateWords(extension.trim().split(/\s+/).filter(Boolean).length);
       },
       () => {
+        useGenerationStore.getState().setPhase('finalizing');
         const latest = useStore.getState().chapters.find((c) => c.id === chapter.id);
         const baseProse = latest?.prose ?? chapter.prose;
         const trimmed = extension.trim();
@@ -502,11 +525,13 @@ export function ChapterView({ chapter }: Props) {
         }
         setGeneratedText('');
         setExtending(false);
+        useGenerationStore.getState().setPhase('done');
       },
       (error) => {
         console.error('Extend error:', error);
         setGeneratedText('');
         setExtending(false);
+        useGenerationStore.getState().end();
         if (error === 'INSUFFICIENT_CREDITS') {
           setGenerationError('Not enough credits. Upgrade your plan to continue extending.');
           return;
@@ -519,6 +544,7 @@ export function ChapterView({ chapter }: Props) {
       setGenerationError(`Extend failed: ${err?.message || 'unknown error'}`);
       setExtending(false);
       setGeneratedText('');
+      useGenerationStore.getState().end();
     }
   };
 
@@ -1489,11 +1515,16 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                   <div className="mb-6 space-y-2">
                     <div className="flex items-center gap-2 text-sm text-text-secondary justify-center">
                       <Loader2 size={16} className="animate-spin" />
-                      <span>Generating{generationPct > 0 ? ` · ${generationPct}%` : '...'}</span>
+                      <span>
+                        Generating
+                        {generationProgress.wordsGenerated > 0
+                          ? ` · ${generationProgress.wordsGenerated.toLocaleString()} words`
+                          : '...'}
+                      </span>
                     </div>
                     {generationPct > 0 && (
                       <div className="w-48 mx-auto h-1 bg-black/[0.06] rounded-full overflow-hidden">
-                        <div className="h-full bg-text-primary rounded-full transition-all duration-500 ease-out" style={{ width: `${generationPct}%` }} />
+                        <div className="h-full bg-text-primary rounded-full transition-all duration-500 ease-out" style={{ width: `${Math.min(95, generationPct)}%` }} />
                       </div>
                     )}
                   </div>
