@@ -751,6 +751,69 @@ ${childrensRule}`,
           ]);
         }
       }
+
+      // After the very first user message, kick off a SECOND streamed reply
+      // that proposes a basic story shape and asks 2-3 yes/no/either-or
+      // questions to refine it. Subsequent messages get a single reply.
+      const userMessageCount = newMessages.filter((m) => m.role === 'user').length;
+      if (userMessageCount === 1) {
+        // Brief beat between the two replies so they don't visually collide.
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        setIsTyping(true);
+
+        let followupId: string | null = null;
+        let followupAccumulated = '';
+        const conversationWithFirstReply = [
+          ...newMessages,
+          { id: 'first-reply', role: 'assistant' as const, content: accumulated, timestamp: new Date() },
+        ]
+          .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+          .join('\n\n');
+
+        try {
+          await generateStream(
+            {
+              userId,
+              action: 'plan-project',
+              model: chatModel,
+              temperature: settings.ai.temperature,
+              maxTokens: 280,
+              systemPrompt: `You are Theodore. You just replied conversationally. Now send a SECOND message that proposes a concrete story shape and asks the user to decide between specific options.
+Strict format:
+- Open with one sentence sketching the protagonist + central tension you're imagining.
+- Then 2-3 SHORT decision questions, one per line, each starting with "→".
+- Each question must be either yes/no OR a clean either/or with 2-3 named options. Never open-ended.
+- No paragraphs, no preamble, no recap of what the user already said.
+- Total under 70 words.
+${childrensRule}`,
+              prompt: `Conversation so far:\n${conversationWithFirstReply}\n\nNow send the second message: propose the story shape and ask decision questions.`,
+            },
+            (text) => {
+              followupAccumulated += text;
+              if (followupId === null) {
+                const id = generateId();
+                followupId = id;
+                setIsTyping(false);
+                setMessages((prev) => [
+                  ...prev,
+                  { id, role: 'assistant', content: followupAccumulated, timestamp: new Date(), model: chatModel },
+                ]);
+              } else {
+                const id = followupId;
+                setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: followupAccumulated } : m)));
+              }
+            },
+            undefined,
+            () => {
+              // Follow-up failure is non-fatal — first reply is already shown.
+              setIsTyping(false);
+            },
+          );
+        } catch {
+          // Same — non-fatal.
+          setIsTyping(false);
+        }
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       const errorContent = `I couldn't reach the model right now.\n\nError: ${msg}\n\nCheck Settings > Usage & Credits and try again.`;
@@ -1065,8 +1128,10 @@ ${childrensRule}`,
                 </div>
               )}
 
-              {/* Typing indicator */}
-              {isTyping && (
+              {/* Typing indicator — only when we're waiting AND the last message
+                  is from the user. Once an assistant placeholder bubble is in
+                  the array, the dots disappear, so we never render two "T"s. */}
+              {isTyping && messages[messages.length - 1]?.role === 'user' && (
                 <div className="animate-fade-in flex gap-2">
                   <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-[11px] font-bold bg-black/[0.08] text-text-secondary mt-0.5">T</div>
                   <div className="bg-black/[0.04] px-4 py-2.5 rounded-2xl rounded-bl-sm w-fit">
