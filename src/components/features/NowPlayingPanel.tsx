@@ -36,9 +36,36 @@ export function NowPlayingPanel() {
   const project = getActiveProject();
   const allProjectChapters = project ? getProjectChapters(project.id).sort((a, b) => a.number - b.number) : [];
   const playableChapters = allProjectChapters.filter(c => c?.id && c.prose);
-  const currentChapter = playableChapters.find(c => c.id === currentChapterId);
+
+  // A chapter is "audio-ready" if either full-chapter audio exists OR all of its
+  // scenes have individually-generated audio (stored under `scene-{sceneId}`).
+  const getChapterAudioInfo = (ch: typeof allProjectChapters[number]) => {
+    const fullAudio = chapterAudio[ch.id];
+    if (fullAudio) {
+      return { ready: true, durationEstimate: fullAudio.durationEstimate, dispatchId: ch.id };
+    }
+    const scenes = ((ch.scenes || []) as any[])
+      .filter((s: any) => s?.id && s.prose?.trim())
+      .sort((a: any, b: any) => a.order - b.order);
+    if (scenes.length > 0 && scenes.every((s: any) => !!chapterAudio[`scene-${s.id}`])) {
+      const total = scenes.reduce((sum: number, s: any) => sum + (chapterAudio[`scene-${s.id}`]?.durationEstimate || 0), 0);
+      return { ready: true, durationEstimate: total, dispatchId: `scene-${scenes[0].id}` };
+    }
+    return { ready: false, durationEstimate: 0, dispatchId: ch.id };
+  };
+
+  // currentChapterId may be a scene id (`scene-{id}`) when scene-level audio is playing.
+  // Find the chapter that owns it so the now-playing UI still shows the right title/cover.
+  const currentChapter = playableChapters.find((c) => {
+    if (c.id === currentChapterId) return true;
+    if (currentChapterId?.startsWith('scene-')) {
+      const sceneId = currentChapterId.slice('scene-'.length);
+      return ((c.scenes || []) as any[]).some((s: any) => s?.id === sceneId);
+    }
+    return false;
+  });
   const currentAudio = currentChapterId ? chapterAudio[currentChapterId] : null;
-  const chapterIdx = currentChapterId ? playableChapters.findIndex(c => c.id === currentChapterId) : -1;
+  const chapterIdx = currentChapter ? playableChapters.findIndex(c => c.id === currentChapter.id) : -1;
   const chapterImage = currentChapter?.imageUrl;
   const isMuted = volume === 0;
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -65,16 +92,16 @@ export function NowPlayingPanel() {
   }, []);
 
   const skipPrev = useCallback(() => {
-    if (chapterIdx > 0) dispatchPlay(playableChapters[chapterIdx - 1].id);
-  }, [chapterIdx, playableChapters, dispatchPlay]);
+    if (chapterIdx > 0) dispatchPlay(getChapterAudioInfo(playableChapters[chapterIdx - 1]).dispatchId);
+  }, [chapterIdx, playableChapters, dispatchPlay, chapterAudio]);
 
   const skipNext = useCallback(() => {
-    if (chapterIdx < playableChapters.length - 1) dispatchPlay(playableChapters[chapterIdx + 1].id);
-  }, [chapterIdx, playableChapters, dispatchPlay]);
+    if (chapterIdx < playableChapters.length - 1) dispatchPlay(getChapterAudioInfo(playableChapters[chapterIdx + 1]).dispatchId);
+  }, [chapterIdx, playableChapters, dispatchPlay, chapterAudio]);
 
   if (!project) return null;
 
-  const generatedCount = Object.keys(chapterAudio).filter(id => playableChapters.some(ch => ch.id === id)).length;
+  const generatedCount = playableChapters.filter((ch) => getChapterAudioInfo(ch).ready).length;
   const totalWords = allProjectChapters.reduce((sum, ch) => sum + (ch.prose?.split(/\s+/).filter(Boolean).length || 0), 0);
 
   const trackTitle = currentChapter
@@ -162,8 +189,8 @@ export function NowPlayingPanel() {
           </div>
           <div className="space-y-0.5">
             {allProjectChapters.map((ch) => {
-              const audio = chapterAudio[ch.id];
-              const isCurrent = ch.id === currentChapterId;
+              const info = getChapterAudioInfo(ch);
+              const isCurrent = ch.id === currentChapter?.id;
               const isChGenerating = generating === ch.id;
               const hasProse = !!ch.prose?.trim();
 
@@ -171,8 +198,7 @@ export function NowPlayingPanel() {
                 <button
                   key={ch.id}
                   onClick={() => {
-                    if (audio) dispatchPlay(ch.id);
-                    else if (hasProse) dispatchPlay(ch.id);
+                    if (hasProse) dispatchPlay(info.dispatchId);
                   }}
                   disabled={!hasProse}
                   className={cn(
@@ -217,9 +243,9 @@ export function NowPlayingPanel() {
 
                   {/* Audio status indicator */}
                   <div className="flex items-center gap-1.5 flex-shrink-0">
-                    {audio ? (
+                    {info.ready ? (
                       <>
-                        <span className="text-[10px] text-text-tertiary">{formatTime(audio.durationEstimate)}</span>
+                        <span className="text-[10px] text-text-tertiary">{formatTime(info.durationEstimate)}</span>
                         <Check size={11} className="text-green-500" />
                       </>
                     ) : hasProse ? (
