@@ -133,7 +133,8 @@ export function ChapterView({ chapter }: Props) {
   const [wordTarget, setWordTarget] = useState(2500);
   const [chapterFraming, setChapterFraming] = useState('');
   const wordTargetOptions = [1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000];
-  const wordTargetMaxTokens = Math.round(wordTarget * 2);
+  // ~1.4 tokens per word typical; use 3x for safety headroom so model never runs out of output budget
+  const wordTargetMaxTokens = Math.max(2000, Math.round(wordTarget * 3));
 
   const needsDialogueClarityPass = (text: string) => {
     const paragraphs = text.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
@@ -179,6 +180,7 @@ export function ChapterView({ chapter }: Props) {
     setGenerationPct(0);
     accumulatedRef.current = '';
 
+    try {
     const projectChapters = getProjectChapters(project.id);
     const canonEntries = getProjectEntries(project.id);
     const prevChapter = projectChapters.find(c => c.number === chapter.number - 1);
@@ -291,6 +293,13 @@ export function ChapterView({ chapter }: Props) {
         setGenerationError(`Generation failed: ${error}`);
       },
     );
+    } catch (err: any) {
+      console.error('[Generate] Unexpected failure:', err);
+      setGenerationError(`Generation failed: ${err?.message || 'unknown error'}`);
+      setGenerating(false);
+      setGeneratedText('');
+      accumulatedRef.current = '';
+    }
   };
 
   const toggleLike = () => {
@@ -317,6 +326,7 @@ export function ChapterView({ chapter }: Props) {
     setGenerationError(null);
     setExtending(true);
 
+    try {
     const projectChapters = getProjectChapters(project.id);
     const canonEntries = getProjectEntries(project.id);
     const prevChapter = projectChapters.find(c => c.number === chapter.number - 1);
@@ -481,6 +491,12 @@ export function ChapterView({ chapter }: Props) {
         setGenerationError(`Generation failed: ${error}`);
       },
     );
+    } catch (err: any) {
+      console.error('[Extend] Unexpected failure:', err);
+      setGenerationError(`Extend failed: ${err?.message || 'unknown error'}`);
+      setExtending(false);
+      setGeneratedText('');
+    }
   };
 
   // Generate prose for a single scene
