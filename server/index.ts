@@ -891,8 +891,8 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }).where(eq(users.id, user.id)).returning();
 
     await clearAllUserSessions(user.id);
-    const token = await createSession(user.id, req, res);
-    res.json({ ok: true, user: toSafeUser(updated), token });
+    const sessionToken = await createSession(user.id, req, res);
+    res.json({ ok: true, user: toSafeUser(updated), token: sessionToken });
   } catch (e: any) {
     respondInternalError(res, 'auth.resetPassword', e);
   }
