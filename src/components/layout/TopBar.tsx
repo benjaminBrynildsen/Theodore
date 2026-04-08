@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { BookOpen, PanelLeft, PanelRight, BookMarked, Wrench, Settings, PenSquare, LogOut } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
@@ -7,10 +8,71 @@ import { CreditsBadge } from '../credits/CreditsBadge';
 import { ValidationBadge } from '../validation/ValidationBadge';
 import { cn } from '../../lib/utils';
 
+/**
+ * Inline-editable project title. Click to edit, Enter or blur to save,
+ * Escape to cancel. Used in TopBar so the user can rename their book from
+ * any view without diving into settings.
+ */
+function EditableProjectTitle({ value, onSave }: { value: string; onSave: (next: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const commit = () => {
+    const next = draft.trim();
+    if (next && next !== value) onSave(next);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+        className="text-sm font-medium bg-white/60 border border-black/10 rounded-md px-2 py-0.5 outline-none focus:ring-2 focus:ring-black/10 min-w-0 max-w-[40vw]"
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="text-sm font-medium truncate rounded-md px-2 py-0.5 hover:bg-white/40 transition-colors max-w-[40vw]"
+      title="Click to rename"
+    >
+      {value}
+    </button>
+  );
+}
+
 export function TopBar() {
-  const { 
+  const {
     toggleLeftSidebar, toggleRightSidebar, leftSidebarOpen, rightSidebarOpen,
-    getActiveProject, setCurrentView, setActiveProject, setActiveChapter, showToolsView, setShowToolsView
+    getActiveProject, setCurrentView, setActiveProject, setActiveChapter, showToolsView, setShowToolsView,
+    updateProject,
   } = useStore();
   const { activeEntryId, setActiveEntry } = useCanonStore();
   const { showSettingsView, setShowSettingsView, setSettingsViewSection } = useSettingsStore();
@@ -48,12 +110,15 @@ export function TopBar() {
           <>
             <button
               onClick={goHome}
-              className="flex items-center gap-2 min-w-0 rounded-xl px-2 py-1 hover:bg-white/30 transition-colors"
+              className="p-1.5 rounded-xl hover:bg-white/30 transition-colors hidden sm:block flex-shrink-0"
               title="Home"
             >
-              <BookOpen size={16} className="text-text-primary flex-shrink-0 hidden sm:block" />
-              <span className="text-sm font-medium truncate">{project.title}</span>
+              <BookOpen size={16} className="text-text-primary" />
             </button>
+            <EditableProjectTitle
+              value={project.title}
+              onSave={(title) => updateProject(project.id, { title })}
+            />
             <span className="text-xs text-text-tertiary capitalize glass-pill px-2 py-0.5 rounded-full hidden md:inline-block flex-shrink-0">{project.subtype || project.type}</span>
             <div className="hidden md:flex items-center gap-1 p-1 rounded-xl bg-black/[0.04]">
               <button

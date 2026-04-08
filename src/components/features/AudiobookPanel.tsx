@@ -816,6 +816,9 @@ export function AudiobookPanel() {
       kind: 'generate-audio',
       label: `Ch. ${chapter.number} · ${sceneTitle}`,
       subtitle: 'Preparing scene…',
+      // TTS server progress is unreliable (often jumps 0 → 100), use the
+      // indeterminate slide bar to show motion without fake percentages.
+      indeterminate: true,
     });
 
     try {
@@ -856,7 +859,8 @@ export function AudiobookPanel() {
         sceneSFX: sceneSFXData,
         onProgress: (pct) => {
           setAudioGenProgress(pct);
-          useGenerationStore.getState().setProgress(pct, `${Math.round(pct)}%`);
+          // Indeterminate bar — just nudge the subtitle to reflect work is happening.
+          if (pct >= 5) useGenerationStore.getState().setSubtitle('Generating audio…');
         },
         isGuest,
       });
@@ -907,6 +911,7 @@ export function AudiobookPanel() {
       kind: 'generate-audio',
       label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
       subtitle: 'Preparing chapter…',
+      indeterminate: true,
     });
 
     try {
@@ -947,7 +952,7 @@ export function AudiobookPanel() {
         multiVoice: effectiveMultiVoice,
         sceneSFX: allSceneSFX,
         onProgress: (pct) => {
-          useGenerationStore.getState().setProgress(pct, `${Math.round(pct)}%`);
+          if (pct >= 5) useGenerationStore.getState().setSubtitle('Generating audio…');
         },
         isGuest,
       });

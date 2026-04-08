@@ -1129,9 +1129,15 @@ app.post('/api/transactions', async (req, res) => {
 
 // Guest (unauthenticated) generation — only for plan-project during onboarding
 const GUEST_ALLOWED_ACTIONS = new Set([
-  'plan-project', 'scaffold-chapters', 'generate-chapter',
-  'generate-chapter-outline', 'scene-prose-split', 'entity-refine',
-  'dialogue-clarity-pass', 'extract-continuity',
+  // Planning + outline
+  'plan-project', 'scaffold-chapters', 'generate-chapter-outline',
+  'scene-prose-split', 'entity-refine', 'extract-continuity',
+  // Chapter writing + extending
+  'generate-chapter', 'extend-chapter', 'dialogue-clarity-pass',
+  // Editing flows
+  'inline-edit',
+  // Post-generation enhancements
+  'sfx-ambience', 'dialogue-tagging', 'auto-fill',
 ]);
 const activeGuestIps = new Set<string>();
 
