@@ -1303,7 +1303,7 @@ app.post('/api/generate/guest/stream', async (req, res) => {
     if (!res.headersSent) {
       respondInternalError(res, 'api', e);
     } else {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: 'Generation failed.' })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: e?.message || 'Generation failed.' })}\n\n`);
       res.end();
     }
   }
@@ -1387,7 +1387,7 @@ app.post('/api/generate/stream', async (req, res) => {
     if (!res.headersSent) {
       respondInternalError(res, 'api', e);
     } else {
-      res.write(`data: ${JSON.stringify({ type: 'error', error: 'Generation failed.' })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'error', error: e?.message || 'Generation failed.' })}\n\n`);
       res.end();
     }
   }

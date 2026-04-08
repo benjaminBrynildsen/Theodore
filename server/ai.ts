@@ -280,11 +280,15 @@ async function streamOpenAI(req: GenerateRequest, res: Response): Promise<{ inpu
 function normalizeRequestedModel(model?: string): string {
   const value = String(model || '').trim();
   if (!value || value === 'auto') return 'claude-sonnet-4-6';
+  // Anthropic requires date-suffixed model IDs in some cases. Map the bare
+  // names we use in the client to the canonical IDs the API will accept.
   const aliases: Record<string, string> = {
     'gpt-4o': 'gpt-4.1',
     'claude-opus': 'claude-opus-4-6',
     'claude-sonnet': 'claude-sonnet-4-6',
     'claude-sonnet-4-5': 'claude-sonnet-4-6',
+    'claude-haiku': 'claude-haiku-4-5-20251001',
+    'claude-haiku-4-5': 'claude-haiku-4-5-20251001',
   };
   const normalized = aliases[value] || value;
   const wantsAnthropic = normalized.startsWith('claude') || normalized.startsWith('anthropic');
