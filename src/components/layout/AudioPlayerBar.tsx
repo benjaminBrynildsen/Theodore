@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Loader2, X, Volume2, VolumeX, Headphones } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
+import { useGenerationStore } from '../../store/generation';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 
@@ -350,6 +351,14 @@ export function AudioPlayerBar() {
     setError(null);
     setCurrentChapter(chapterId);
 
+    useGenerationStore.getState().start({
+      kind: 'generate-audio',
+      label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
+      subtitle: scenes.length > 1 ? `Generating ${scenes.length} scenes…` : 'Generating audio…',
+      // TTS server progress is unreliable; show indeterminate motion.
+      indeterminate: true,
+    });
+
     try {
       const versionSuffix = `-v${Date.now()}`;
 
@@ -388,6 +397,7 @@ export function AudioPlayerBar() {
 
         for (let i = 1; i < scenes.length; i++) {
           const scene = scenes[i];
+          useGenerationStore.getState().setSubtitle(`Scene ${i + 1} of ${scenes.length}…`);
           try {
             const sceneSFXData = (scene.sfx || []).map((s: any) => ({
               prompt: s.prompt, audioUrl: s.audioUrl, position: s.position, enabled: s.enabled,
@@ -451,8 +461,10 @@ export function AudioPlayerBar() {
           setPlaying(true);
         }
       }
+      useGenerationStore.getState().setPhase('done');
     } catch (e: any) {
       setError(e.message || 'Audio generation failed');
+      useGenerationStore.getState().end();
     } finally {
       setGenerating(null);
     }
