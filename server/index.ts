@@ -126,10 +126,30 @@ function resolveFrontendOrigin(req: express.Request): string {
 
 function respondInternalError(res: express.Response, scope: string, error: unknown): void {
   console.error(`[${scope}]`, error);
-  const message = error instanceof Error ? error.message : String(error);
-  // Surface the actual error message + scope so users can paste it back to us
-  // for diagnosis. We deliberately do NOT include stack traces.
-  res.status(500).json({ error: `[${scope}] ${message || 'Internal server error'}` });
+  // Drizzle wraps pg errors as "Failed query: ..." and puts the actual
+  // PostgreSQL error on `error.cause`. Walk the chain so the response shows
+  // the real reason (e.g. "column users.foo does not exist") rather than
+  // just the SQL drizzle attempted.
+  const collected: string[] = [];
+  let current: unknown = error;
+  let depth = 0;
+  while (current && depth < 5) {
+    if (current instanceof Error) {
+      const msg = current.message;
+      const code = (current as any).code;
+      const detail = (current as any).detail;
+      const part = code ? `${msg} [${code}]` : msg;
+      if (part) collected.push(part);
+      if (detail && typeof detail === 'string') collected.push(detail);
+      current = (current as any).cause;
+    } else {
+      collected.push(String(current));
+      current = null;
+    }
+    depth++;
+  }
+  const message = collected.length ? collected.join(' ⟶ ') : 'Internal server error';
+  res.status(500).json({ error: `[${scope}] ${message}` });
 }
 
 type RateLimitEntry = { count: number; resetAt: number };
