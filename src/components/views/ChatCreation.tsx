@@ -832,16 +832,24 @@ ${childrensRule}`,
   };
 
   const createProjectFromSettings = async (settings: ProposedSettings) => {
-    if (creatingProject) return;
     setCreationMessage(null);
     setCreatingProject(true);
     try {
       const finalSettings = normalizeProposedSettings(settings);
       const projectId = generateId();
       const now = new Date().toISOString();
-
       const isChildrens = bookType === 'childrens-book';
-      const { generateBookCover } = await import('../../lib/cover-generator');
+
+      // Cover generator is dynamic-imported with a fallback so a load failure
+      // can't block project creation.
+      let coverUrl = '';
+      try {
+        const { generateBookCover } = await import('../../lib/cover-generator');
+        coverUrl = generateBookCover(finalSettings.title);
+      } catch (e) {
+        console.warn('[Creation] Cover generator failed, using empty cover:', e);
+      }
+
       const project: Project = {
         id: projectId,
         title: finalSettings.title,
@@ -858,7 +866,7 @@ ${childrensRule}`,
           hasRhyme: false,
         }) : undefined,
         narrativeControls: finalSettings.narrativeControls,
-        coverUrl: generateBookCover(finalSettings.title),
+        coverUrl,
         status: 'active',
         createdAt: now,
         updatedAt: now,
@@ -871,7 +879,6 @@ ${childrensRule}`,
         scaffoldResults = await generateAutomaticOutline(project, finalSettings, now);
       } catch (e) {
         console.warn('[Creation] Auto scaffold failed, using seed chapters:', e);
-        // Use seed chapters from planning as fallback
         scaffoldResults = finalSettings.chapters.map((ch) => ({
           number: ch.number,
           title: ch.title,
@@ -884,99 +891,114 @@ ${childrensRule}`,
       }
 
       for (const ch of scaffoldResults) {
-        await addChapter({
-          id: generateId(),
-          ...createChapterFromScaffold(projectId, ch, now),
-        });
-      }
-
-      // Try API persistence (non-blocking for guests)
-      try {
-        let persistedChapters = await api.listChapters(projectId).catch(() => []);
-        if (!persistedChapters.length) {
-          for (const ch of scaffoldResults) {
-            await api.createChapter({
-              id: generateId(),
-              ...createChapterFromScaffold(projectId, ch, now),
-            }).catch(() => {});
-          }
+        try {
+          await addChapter({
+            id: generateId(),
+            ...createChapterFromScaffold(projectId, ch, now),
+          });
+        } catch (e) {
+          console.warn('[Creation] addChapter failed:', e);
         }
-      } catch {
-        // Guest mode — API persistence not available, local storage is fine
       }
 
-      // Auto-generate canon entries from full planning context, including generated settings.
-      const planningCorpus = [
-        ...messages.map((m) => m.content),
-        finalSettings.title,
-        ...scaffoldResults.map((ch) => `${ch.title}. ${ch.purpose}`),
-      ];
-      const heuristicCanon = extractCanonFromConversation(planningCorpus);
-      const canon = mergeCanonDrafts(aiCanonDraft, heuristicCanon);
-
-      const existingNames = new Set<string>();
-      const seenKey = (type: 'character' | 'location' | 'system' | 'artifact', name: string) => {
-        const key = normalizeEntityKeyForType(type, name);
-        return key ? `${type}:${key}` : '';
-      };
-      const markSeen = (type: 'character' | 'location' | 'system' | 'artifact', name: string) => {
-        const key = seenKey(type, name);
-        if (!key || existingNames.has(key)) return true;
-        existingNames.add(key);
-        return false;
-      };
-
-      canon.characters.forEach((c) => {
-        if (isLikelyCharacterNoise(c.name)) return;
-        if (markSeen('character', c.name)) return;
-        const entry = createCharacter(projectId, c.name);
-        entry.description = c.description;
-        entry.character.role = c.role;
-        if (c.gender) entry.character.gender = c.gender;
-        if (c.age) entry.character.age = c.age;
-        if (c.pronouns) entry.character.pronouns = c.pronouns;
-        entry.character = autoFillCharacter(entry);
-        addEntry(entry);
-      });
-
-      canon.locations.forEach((l) => {
-        if (isLikelyEntityNoise(l.name)) return;
-        if (markSeen('location', l.name)) return;
-        const entry = createLocation(projectId, l.name);
-        entry.description = l.description;
-        entry.location = autoFillLocation(entry);
-        addEntry(entry);
-      });
-
-      canon.systems.forEach((s) => {
-        if (isLikelyEntityNoise(s.name)) return;
-        if (markSeen('system', s.name)) return;
-        const entry = createSystem(projectId, s.name);
-        entry.description = s.description;
-        addEntry(entry);
-      });
-
-      canon.artifacts.forEach((a) => {
-        if (isLikelyEntityNoise(a.name)) return;
-        if (markSeen('artifact', a.name)) return;
-        const entry = createArtifact(projectId, a.name);
-        entry.description = a.description;
-        addEntry(entry);
-      });
-
-      // Create one rule and one event scaffold so the canon has full coverage from the start.
-      const baseRule = createRule(projectId, 'Core Story Rule');
-      baseRule.description = 'Foundational rule inferred from planning context.';
-      addEntry(baseRule);
-
-      const baseEvent = createEvent(projectId, 'Inciting Event');
-      baseEvent.description = 'Initial event that launches the story arc.';
-      addEntry(baseEvent);
-
+      // Navigate IMMEDIATELY now that the project + chapters are in the local
+      // store. Anything below (canon entries, server retry) is non-essential
+      // and runs after the user is already on ProjectView.
       setActiveProject(projectId);
       setCurrentView('project');
       localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY);
       onClose();
+
+      // Best-effort: API persistence retry, canon entries.
+      // Wrapped so any throw can't strand the user back on ChatCreation.
+      void (async () => {
+        try {
+          const persistedChapters = await api.listChapters(projectId).catch(() => []);
+          if (!persistedChapters.length) {
+            for (const ch of scaffoldResults) {
+              await api.createChapter({
+                id: generateId(),
+                ...createChapterFromScaffold(projectId, ch, now),
+              }).catch(() => {});
+            }
+          }
+        } catch {
+          // Guest mode — API persistence not available, local storage is fine
+        }
+
+        try {
+          const planningCorpus = [
+            ...messages.map((m) => m.content),
+            finalSettings.title,
+            ...scaffoldResults.map((ch) => `${ch.title}. ${ch.purpose}`),
+          ];
+          const heuristicCanon = extractCanonFromConversation(planningCorpus);
+          const canon = mergeCanonDrafts(aiCanonDraft, heuristicCanon);
+
+          const existingNames = new Set<string>();
+          const seenKey = (type: 'character' | 'location' | 'system' | 'artifact', name: string) => {
+            const key = normalizeEntityKeyForType(type, name);
+            return key ? `${type}:${key}` : '';
+          };
+          const markSeen = (type: 'character' | 'location' | 'system' | 'artifact', name: string) => {
+            const key = seenKey(type, name);
+            if (!key || existingNames.has(key)) return true;
+            existingNames.add(key);
+            return false;
+          };
+
+          canon.characters.forEach((c) => {
+            if (isLikelyCharacterNoise(c.name)) return;
+            if (markSeen('character', c.name)) return;
+            const entry = createCharacter(projectId, c.name);
+            entry.description = c.description;
+            entry.character.role = c.role;
+            if (c.gender) entry.character.gender = c.gender;
+            if (c.age) entry.character.age = c.age;
+            if (c.pronouns) entry.character.pronouns = c.pronouns;
+            entry.character = autoFillCharacter(entry);
+            addEntry(entry);
+          });
+
+          canon.locations.forEach((l) => {
+            if (isLikelyEntityNoise(l.name)) return;
+            if (markSeen('location', l.name)) return;
+            const entry = createLocation(projectId, l.name);
+            entry.description = l.description;
+            entry.location = autoFillLocation(entry);
+            addEntry(entry);
+          });
+
+          canon.systems.forEach((s) => {
+            if (isLikelyEntityNoise(s.name)) return;
+            if (markSeen('system', s.name)) return;
+            const entry = createSystem(projectId, s.name);
+            entry.description = s.description;
+            addEntry(entry);
+          });
+
+          canon.artifacts.forEach((a) => {
+            if (isLikelyEntityNoise(a.name)) return;
+            if (markSeen('artifact', a.name)) return;
+            const entry = createArtifact(projectId, a.name);
+            entry.description = a.description;
+            addEntry(entry);
+          });
+
+          const baseRule = createRule(projectId, 'Core Story Rule');
+          baseRule.description = 'Foundational rule inferred from planning context.';
+          addEntry(baseRule);
+
+          const baseEvent = createEvent(projectId, 'Inciting Event');
+          baseEvent.description = 'Initial event that launches the story arc.';
+          addEntry(baseEvent);
+        } catch (e) {
+          console.warn('[Creation] Canon seeding failed (non-fatal):', e);
+        }
+      })();
+    } catch (e) {
+      console.error('[Creation] Project creation failed:', e);
+      setCreationMessage(`Project creation failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setCreatingProject(false);
     }
