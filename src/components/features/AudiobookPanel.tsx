@@ -6,6 +6,7 @@ import { useCanonStore } from '../../store/canon';
 import { useAudioStore } from '../../store/audio';
 import { useAuthStore } from '../../store/auth';
 import { useCreditsStore } from '../../store/credits';
+import { useGenerationStore } from '../../store/generation';
 import { useMusicStore } from '../../store/music';
 import { cn } from '../../lib/utils';
 import { api } from '../../lib/api';
@@ -810,6 +811,13 @@ export function AudiobookPanel() {
     setAudioGenProgress(0);
     audioStore.setError(null);
 
+    const sceneTitle = (scene as any).title || `Scene ${(scene as any).order || ''}`.trim();
+    useGenerationStore.getState().start({
+      kind: 'generate-audio',
+      label: `Ch. ${chapter.number} · ${sceneTitle}`,
+      subtitle: 'Preparing scene…',
+    });
+
     try {
       // Auto-plan SFX if this scene is missing background sounds
       await planSFXForChapter(chapterId);
@@ -846,7 +854,10 @@ export function AudiobookPanel() {
         speed: ttsProvider === 'openai' ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: sceneSFXData,
-        onProgress: (pct) => setAudioGenProgress(pct),
+        onProgress: (pct) => {
+          setAudioGenProgress(pct);
+          useGenerationStore.getState().setProgress(pct, `${Math.round(pct)}%`);
+        },
         isGuest,
       });
 
@@ -874,8 +885,10 @@ export function AudiobookPanel() {
       window.dispatchEvent(new CustomEvent('theodore:playChapter', {
         detail: { chapterId: `scene-${sceneId}` },
       }));
+      useGenerationStore.getState().setPhase('done');
     } catch (e: any) {
       audioStore.setError(e.message || 'Scene generation failed');
+      useGenerationStore.getState().end();
     } finally {
       setGeneratingScene(null);
     }
@@ -889,6 +902,12 @@ export function AudiobookPanel() {
 
     audioStore.setGenerating(chapterId);
     audioStore.setError(null);
+
+    useGenerationStore.getState().start({
+      kind: 'generate-audio',
+      label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
+      subtitle: 'Preparing chapter…',
+    });
 
     try {
       // Auto-plan SFX for all scenes before generating
@@ -927,6 +946,9 @@ export function AudiobookPanel() {
         speed: ttsProvider === 'openai' ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: allSceneSFX,
+        onProgress: (pct) => {
+          useGenerationStore.getState().setProgress(pct, `${Math.round(pct)}%`);
+        },
         isGuest,
       });
 
@@ -948,8 +970,10 @@ export function AudiobookPanel() {
         durationEstimate: result.durationEstimate,
         generatedAt: new Date().toISOString(),
       });
+      useGenerationStore.getState().setPhase('done');
     } catch (e: any) {
       audioStore.setError(e.message || 'Generation failed');
+      useGenerationStore.getState().end();
     } finally {
       audioStore.setGenerating(null);
     }

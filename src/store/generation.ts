@@ -1,39 +1,75 @@
 import { create } from 'zustand';
 
-// Phases of an in-flight generation:
-//   streaming  — model is still emitting tokens
-//   finalizing — stream finished, post-processing (dialogue clarity pass, scene split, etc.)
+// Phases of an in-flight operation:
+//   starting   — kicked off but no measurable progress yet
+//   streaming  — progress is updating (model emitting tokens, audio rendering, etc.)
+//   finalizing — main work done, post-processing (dialogue clarity, scene split, save)
 //   done       — fully complete, the bar will fade out shortly
-export type GenerationPhase = 'streaming' | 'finalizing' | 'done';
+export type GenerationPhase = 'starting' | 'streaming' | 'finalizing' | 'done';
 
-export type GenerationKind = 'generate' | 'extend';
+// Every long-running operation that should appear in the global progress bar.
+// Add new kinds here when wiring up new call sites.
+export type GenerationKind =
+  | 'generate-chapter'
+  | 'extend-chapter'
+  | 'generate-audio'
+  | 'create-project'
+  | 'inline-edit';
 
 interface GenerationState {
-  chapterId: string | null;
-  label: string;
-  kind: GenerationKind;
-  wordsGenerated: number;
-  wordTarget: number;
-  phase: GenerationPhase | null;
-  start: (params: { chapterId: string; label: string; wordTarget: number; kind: GenerationKind }) => void;
-  updateWords: (words: number) => void;
+  // null when no operation is active
+  kind: GenerationKind | null;
+  label: string;       // primary title — chapter name, project title, etc.
+  subtitle: string;    // secondary line — word count, % done, "Building chapters…"
+  progressPct: number; // 0-100. Honest cap is applied at render time, not here.
+  // Indeterminate operations (e.g. project creation) animate the bar without
+  // claiming a real percentage. Used when we have no good signal.
+  indeterminate: boolean;
+  phase: GenerationPhase;
+
+  start: (params: {
+    kind: GenerationKind;
+    label: string;
+    subtitle?: string;
+    indeterminate?: boolean;
+  }) => void;
+  setProgress: (pct: number, subtitle?: string) => void;
+  setSubtitle: (subtitle: string) => void;
   setPhase: (phase: GenerationPhase) => void;
   end: () => void;
 }
 
 export const useGenerationStore = create<GenerationState>((set) => ({
-  chapterId: null,
+  kind: null,
   label: '',
-  kind: 'generate',
-  wordsGenerated: 0,
-  wordTarget: 0,
-  phase: null,
-  start: ({ chapterId, label, wordTarget, kind }) =>
-    set({ chapterId, label, wordTarget, kind, wordsGenerated: 0, phase: 'streaming' }),
-  // Same-value guard so a flood of equal-word stream chunks doesn't churn subscribers.
-  updateWords: (words) =>
-    set((s) => (s.wordsGenerated === words ? s : { wordsGenerated: words })),
+  subtitle: '',
+  progressPct: 0,
+  indeterminate: false,
+  phase: 'starting',
+
+  start: ({ kind, label, subtitle = '', indeterminate = false }) =>
+    set({ kind, label, subtitle, progressPct: 0, indeterminate, phase: 'starting' }),
+
+  // Same-value guard so a flood of equal-progress updates doesn't churn subscribers.
+  setProgress: (pct, subtitle) =>
+    set((s) => {
+      const nextPct = Math.max(0, Math.min(100, pct));
+      if (s.progressPct === nextPct && (subtitle == null || s.subtitle === subtitle)) {
+        return s;
+      }
+      return {
+        progressPct: nextPct,
+        subtitle: subtitle != null ? subtitle : s.subtitle,
+        // Auto-promote starting → streaming on first real progress
+        phase: s.phase === 'starting' ? 'streaming' : s.phase,
+      };
+    }),
+
+  setSubtitle: (subtitle) =>
+    set((s) => (s.subtitle === subtitle ? s : { subtitle })),
+
   setPhase: (phase) => set({ phase }),
+
   end: () =>
-    set({ chapterId: null, label: '', wordsGenerated: 0, wordTarget: 0, phase: null }),
+    set({ kind: null, label: '', subtitle: '', progressPct: 0, indeterminate: false, phase: 'starting' }),
 }));

@@ -187,10 +187,9 @@ export function ChapterView({ chapter }: Props) {
     lastSavedWordsRef.current = 0;
 
     generationProgress.start({
-      chapterId: chapter.id,
+      kind: 'generate-chapter',
       label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
-      wordTarget,
-      kind: 'generate',
+      subtitle: `target ~${wordTarget.toLocaleString()} words`,
     });
 
     // Persist target word count at generation START so the "Finish Chapter" button
@@ -250,7 +249,10 @@ export function ChapterView({ chapter }: Props) {
         setGeneratedText(accumulated);
         const words = accumulated.trim().split(/\s+/).length;
         setGenerationPct(Math.min(99, Math.round((words / wordTarget) * 100)));
-        useGenerationStore.getState().updateWords(words);
+        useGenerationStore.getState().setProgress(
+          (words / wordTarget) * 100,
+          `${words.toLocaleString()} / ~${wordTarget.toLocaleString()} words`,
+        );
         // Auto-save partial generation every 500 words so progress survives page backgrounding.
         // Tracked via ref so a single threshold crossing can't fire twice.
         if (words >= 100 && words - lastSavedWordsRef.current >= 500) {
@@ -364,10 +366,9 @@ export function ChapterView({ chapter }: Props) {
     setExtending(true);
 
     generationProgress.start({
-      chapterId: chapter.id,
+      kind: 'extend-chapter',
       label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
-      wordTarget,
-      kind: 'extend',
+      subtitle: `target ~+${wordTarget.toLocaleString()} words`,
     });
 
     try {
@@ -401,7 +402,11 @@ export function ChapterView({ chapter }: Props) {
       (text) => {
         extension += text;
         setGeneratedText(extension);
-        useGenerationStore.getState().updateWords(extension.trim().split(/\s+/).filter(Boolean).length);
+        const words = extension.trim().split(/\s+/).filter(Boolean).length;
+        useGenerationStore.getState().setProgress(
+          (words / wordTarget) * 100,
+          `${words.toLocaleString()} / ~+${wordTarget.toLocaleString()} words`,
+        );
       },
       () => {
         useGenerationStore.getState().setPhase('finalizing');
@@ -1517,8 +1522,8 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                       <Loader2 size={16} className="animate-spin" />
                       <span>
                         Generating
-                        {generationProgress.wordsGenerated > 0
-                          ? ` · ${generationProgress.wordsGenerated.toLocaleString()} words`
+                        {generationProgress.subtitle
+                          ? ` · ${generationProgress.subtitle}`
                           : '...'}
                       </span>
                     </div>

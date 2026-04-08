@@ -5,6 +5,7 @@ import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { generateId, cn } from '../../lib/utils';
 import { generateText, generateTextGuest, generateStream } from '../../lib/generate';
+import { useGenerationStore } from '../../store/generation';
 import { api } from '../../lib/api';
 import { Slider } from '../ui/Slider';
 import { autoFillCharacter, autoFillLocation, extractCanonFromConversation } from '../../lib/ai-autofill';
@@ -834,8 +835,17 @@ ${childrensRule}`,
   const createProjectFromSettings = async (settings: ProposedSettings) => {
     setCreationMessage(null);
     setCreatingProject(true);
+
+    const finalSettings = normalizeProposedSettings(settings);
+    const generationStore = useGenerationStore.getState();
+    generationStore.start({
+      kind: 'create-project',
+      label: finalSettings.title || 'Untitled Novel',
+      subtitle: 'Generating cover…',
+      indeterminate: true,
+    });
+
     try {
-      const finalSettings = normalizeProposedSettings(settings);
       const projectId = generateId();
       const now = new Date().toISOString();
       const isChildrens = bookType === 'childrens-book';
@@ -872,8 +882,10 @@ ${childrensRule}`,
         updatedAt: now,
       };
 
+      generationStore.setSubtitle('Saving project…');
       await addProject(project);
 
+      generationStore.setSubtitle('Building chapter outlines…');
       let scaffoldResults: Awaited<ReturnType<typeof generateAutomaticOutline>> = [];
       try {
         scaffoldResults = await generateAutomaticOutline(project, finalSettings, now);
@@ -890,6 +902,7 @@ ${childrensRule}`,
         }));
       }
 
+      generationStore.setSubtitle(`Adding ${scaffoldResults.length} chapters…`);
       for (const ch of scaffoldResults) {
         try {
           await addChapter({
@@ -904,6 +917,8 @@ ${childrensRule}`,
       // Navigate IMMEDIATELY now that the project + chapters are in the local
       // store. Anything below (canon entries, server retry) is non-essential
       // and runs after the user is already on ProjectView.
+      generationStore.setPhase('finalizing');
+      generationStore.setSubtitle('Opening project…');
       setActiveProject(projectId);
       setCurrentView('project');
       localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY);
@@ -995,10 +1010,12 @@ ${childrensRule}`,
         } catch (e) {
           console.warn('[Creation] Canon seeding failed (non-fatal):', e);
         }
+        useGenerationStore.getState().setPhase('done');
       })();
     } catch (e) {
       console.error('[Creation] Project creation failed:', e);
       setCreationMessage(`Project creation failed: ${e instanceof Error ? e.message : String(e)}`);
+      useGenerationStore.getState().end();
     } finally {
       setCreatingProject(false);
     }

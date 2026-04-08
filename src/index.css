@@ -220,6 +220,15 @@ body {
   animation: spinSlow 3s linear infinite;
 }
 
+/* Indeterminate progress bar slide */
+@keyframes indeterminateSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.animate-indeterminate-slide {
+  animation: indeterminateSlide 1.4s ease-in-out infinite;
+}
+
 /* Marquee scrolling text */
 .marquee-container {
   overflow: hidden;

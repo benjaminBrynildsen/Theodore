@@ -4,6 +4,7 @@ import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { generateText } from '../../lib/generate';
+import { useGenerationStore } from '../../store/generation';
 import { buildSelectionEditPrompt } from '../../lib/prompt-builder';
 import { generateId, cn } from '../../lib/utils';
 import { schedulePostEditPipeline } from '../../lib/post-generation-pipeline';
@@ -235,6 +236,16 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
     // Save current prose for undo
     pushUndo(currentSelection ? `edit "${currentSelection.text.slice(0, 30)}..."` : 'full edit');
 
+    const editLabel = currentSelection
+      ? `"${currentSelection.text.slice(0, 40)}${currentSelection.text.length > 40 ? '…' : ''}"`
+      : 'full chapter';
+    useGenerationStore.getState().start({
+      kind: 'inline-edit',
+      label: editLabel,
+      subtitle: 'Rewriting…',
+      indeterminate: true,
+    });
+
     try {
       const allChapters = getProjectChapters(project.id);
       const canonEntries = getProjectEntries(project.id);
@@ -313,7 +324,10 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
           timestamp: new Date().toISOString(),
         };
         appendMessage(assistantMsg);
+        useGenerationStore.getState().end();
+        return;
       }
+      useGenerationStore.getState().setPhase('done');
     } catch (error: any) {
       // Undo the pushed state on error
       setUndoStack(prev => prev.slice(0, -1));
@@ -327,6 +341,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
         timestamp: new Date().toISOString(),
       };
       appendMessage(errorMsg);
+      useGenerationStore.getState().end();
     } finally {
       setLoading(false);
     }
