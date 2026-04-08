@@ -7,6 +7,9 @@ export interface ImageGenOptions {
   projectId?: string;
   aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';
   style?: 'photorealistic' | 'illustration' | 'watercolor' | 'oil-painting' | 'sketch' | 'concept-art' | 'anime';
+  // 'openai' routes to gpt-image-1 (publisher tier only, beta children's book
+  // flow). Omit or use 'gemini' for the default provider.
+  provider?: 'openai' | 'gemini';
 }
 
 export interface ImageGenResult {

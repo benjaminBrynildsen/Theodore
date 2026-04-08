@@ -23,7 +23,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
-import { generateImage, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
+import { generateImage, generateImageOpenAI, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, getVoicesWithPreviews } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats } from './admin.js';
 import type { ElevenLabsVoice } from './tts.js';
@@ -1443,11 +1443,21 @@ app.post('/api/generate/image', async (req, res) => {
     const auth = await getAuth(req);
     if (!auth) return res.status(401).json({ error: 'Not signed in' });
 
-    const { prompt, aspectRatio, style, projectId, target, targetId } = req.body;
+    const { prompt, aspectRatio, style, projectId, target, targetId, provider } = req.body;
     if (!prompt && !target) return res.status(400).json({ error: 'Missing prompt or target' });
 
     const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // OpenAI image gen is the children's book beta path. Restricted to publisher
+    // tier only. Other tiers fall back to the default Gemini provider regardless
+    // of what the client requests, so we don't surface a 403 mid-flow.
+    const wantsOpenAI = provider === 'openai';
+    if (wantsOpenAI && user.plan !== 'publisher') {
+      return res.status(403).json({
+        error: 'Image generation is currently available on the Publisher plan only.',
+      });
+    }
 
     if (user.creditsRemaining < IMAGE_CREDITS_PER_GEN) {
       return res.status(402).json({ error: 'INSUFFICIENT_CREDITS', message: 'Not enough credits for image generation.' });
@@ -1524,7 +1534,8 @@ app.post('/api/generate/image', async (req, res) => {
 
     if (!finalPrompt) return res.status(400).json({ error: 'Could not build image prompt' });
 
-    const result = await generateImage({
+    const generator = wantsOpenAI ? generateImageOpenAI : generateImage;
+    const result = await generator({
       prompt: finalPrompt,
       aspectRatio: aspectRatio || '1:1',
       style: style || 'concept-art',

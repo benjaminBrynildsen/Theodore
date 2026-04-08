@@ -119,6 +119,76 @@ export async function generateImage(req: ImageGenRequest): Promise<ImageGenResul
   };
 }
 
+// ========== OpenAI Image Generation ==========
+// Used for the children's book beta image generation flow. Gated to publisher
+// tier on the endpoint side. Uses gpt-image-1 (the current OpenAI image model)
+// because we already have OPENAI_API_KEY configured for TTS + chat.
+
+export async function generateImageOpenAI(req: ImageGenRequest): Promise<ImageGenResult> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY not configured.');
+
+  ensureUploadsDir();
+
+  const fullPrompt = buildImagePrompt(req);
+  const model = 'gpt-image-1';
+
+  // Map aspect ratio to OpenAI's supported sizes. gpt-image-1 supports
+  // 1024x1024 (square), 1024x1536 (portrait), 1536x1024 (landscape).
+  const ar = req.aspectRatio || '1:1';
+  let size: string;
+  if (ar === '16:9' || ar === '4:3') size = '1536x1024';
+  else if (ar === '9:16' || ar === '3:4') size = '1024x1536';
+  else size = '1024x1024';
+
+  const response = await fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      prompt: fullPrompt,
+      n: 1,
+      size,
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({} as any));
+    throw new Error(
+      `OpenAI image API error ${response.status}: ${(err as any).error?.message || response.statusText}`,
+    );
+  }
+
+  const data = (await response.json()) as { data?: Array<{ b64_json?: string; url?: string }> };
+  const item = data.data?.[0];
+  if (!item) throw new Error('OpenAI returned no image.');
+
+  let imageBytes: Buffer | null = null;
+  if (item.b64_json) {
+    imageBytes = Buffer.from(item.b64_json, 'base64');
+  } else if (item.url) {
+    // gpt-image-1 may return a URL instead of base64; download it
+    const fetched = await fetch(item.url);
+    if (!fetched.ok) throw new Error(`Failed to download generated image: ${fetched.status}`);
+    imageBytes = Buffer.from(await fetched.arrayBuffer());
+  }
+  if (!imageBytes) throw new Error('No image data in OpenAI response.');
+
+  const filename = `${crypto.randomUUID()}.png`;
+  const filepath = path.join(UPLOADS_DIR, filename);
+  fs.writeFileSync(filepath, imageBytes);
+
+  return {
+    imageUrl: `/uploads/generated/${filename}`,
+    prompt: fullPrompt,
+    model,
+    creditsUsed: 25,
+  };
+}
+
 // ========== Canon-Aware Prompt Builders ==========
 
 export function buildCharacterPortraitPrompt(character: {

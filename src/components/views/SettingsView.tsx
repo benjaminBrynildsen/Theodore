@@ -880,7 +880,53 @@ const SECTIONS: { id: SettingsSection; label: string; icon: typeof Pen; descript
   { id: 'usage', label: 'Usage & Credits', icon: BarChart3, description: 'Token budget, spending, plan' },
   { id: 'subscription', label: 'Subscription', icon: CreditCard, description: 'Plans, billing, cancel, refunds' },
   { id: 'notifications', label: 'Notifications', icon: Bell, description: 'Alerts and reports' },
+  { id: 'beta', label: 'Beta Features', icon: Sparkles, description: 'Opt-in experimental features' },
 ];
+
+// ===== Beta Features section =====
+
+function BetaSection() {
+  const { settings, updateBeta } = useSettingsStore();
+  const { plan } = useCreditsStore();
+  const isPublisher = plan.tier === 'publisher';
+  return (
+    <div className="animate-fade-in">
+      <div className="rounded-2xl border border-amber-200/50 bg-amber-50/40 p-4 mb-4">
+        <p className="text-xs text-amber-900">
+          ⚡ Beta features are experimental. Behavior may change without notice. Some require a specific plan tier — those will show a lock icon.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-black/5 p-4 space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold">Children's Book Image Generation</h3>
+              {!isPublisher && (
+                <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-black/[0.06] text-text-tertiary font-semibold">
+                  Publisher
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-text-tertiary mt-1">
+              Generate page illustrations for children's books using OpenAI's image model. Available on the Publisher plan only.
+            </p>
+          </div>
+          <label className={cn('relative inline-flex items-center flex-shrink-0', !isPublisher && 'opacity-40 cursor-not-allowed')}>
+            <input
+              type="checkbox"
+              checked={settings.beta?.childrensBookImages || false}
+              disabled={!isPublisher}
+              onChange={(e) => updateBeta({ childrensBookImages: e.target.checked })}
+              className="sr-only peer"
+            />
+            <div className="w-9 h-5 bg-black/10 rounded-full peer-checked:bg-text-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:transition-transform peer-checked:after:translate-x-4" />
+          </label>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function SettingsView() {
   const { settingsViewSection, setSettingsViewSection, setShowSettingsView, resetAll } = useSettingsStore();
@@ -1087,6 +1133,7 @@ export function SettingsView() {
             )}
             {activeSection === 'subscription' && <SubscriptionSection />}
             {activeSection === 'notifications' && <NotificationsSection />}
+            {activeSection === 'beta' && <BetaSection />}
           </div>
         </div>
       </div>

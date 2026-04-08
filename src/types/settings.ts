@@ -77,12 +77,19 @@ export interface NotificationSettings {
   weeklyProgress: boolean;
 }
 
+// Opt-in beta features. The flag is the UX gate (button shows / hides). Some
+// features additionally have server-side gating (e.g. publisher-tier only).
+export interface BetaFeatureSettings {
+  childrensBookImages: boolean; // OpenAI image generation for children's book pages (publisher tier)
+}
+
 export interface AppSettings {
   writingStyle: WritingStyleSettings;
   editor: EditorSettings;
   ai: AISettings;
   export: ExportSettings;
   notifications: NotificationSettings;
+  beta: BetaFeatureSettings;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -140,5 +147,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     validationAlerts: true,
     creditWarnings: true,
     weeklyProgress: false,
+  },
+  beta: {
+    childrensBookImages: false,
   },
 };

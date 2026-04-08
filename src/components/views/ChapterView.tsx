@@ -12,6 +12,7 @@ import { TokenBudget } from '../credits/TokenBudget';
 import { DictationMode } from '../features/DictationMode';
 import { ProseXRay } from '../features/ProseXRay';
 import { EmotionalXRay } from '../features/EmotionalXRay';
+import { ChildrensBookIllustration } from '../features/ChildrensBookIllustration';
 import { SceneSFXBadges } from '../features/SceneSFXBadges';
 import { SmartResearch } from '../features/SmartResearch';
 import { DirectionTagPicker } from '../features/DirectionTagPicker';
@@ -1392,6 +1393,16 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             )}
             placeholder={editMode && activeScene ? 'Scene title...' : 'Chapter title...'}
           />
+
+          {/* Children's book page illustration — beta, publisher tier only */}
+          {project?.subtype === 'childrens-book' && (
+            <ChildrensBookIllustration
+              chapterId={chapter.id}
+              projectId={project.id}
+              imageUrl={chapter.imageUrl}
+              onImageGenerated={(url) => updateChapter(chapter.id, { imageUrl: url })}
+            />
+          )}
 
           {/* Chapter number + premise hint */}
           {!chapter.prose && chapter.premise?.purpose && (
