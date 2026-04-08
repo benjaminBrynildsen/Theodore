@@ -86,10 +86,14 @@ export const api = {
     speed?: number;
     multiVoice?: boolean;
     sceneSFX?: Array<{ prompt: string; audioUrl?: string; position: string; enabled: boolean }>;
+    isGuest?: boolean;
   }) => {
-    // Async job-based generation: submit job, then poll for completion
+    // Async job-based generation: submit job, then poll for completion.
+    // Unauthenticated guests get one free OpenAI sample per IP per day via
+    // the /tts/generate/guest endpoint; the authenticated path requires login.
+    const endpoint = data.isGuest ? '/tts/generate/guest' : '/tts/generate';
     const jobResponse = await request<{ jobId: string; status: string }>(
-      '/tts/generate',
+      endpoint,
       { method: 'POST', body: JSON.stringify(data) }
     );
 

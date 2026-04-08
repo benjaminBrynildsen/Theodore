@@ -4,6 +4,7 @@ import { Headphones, Play, Pause, Download, Loader2, Volume2, VolumeX, User, Wan
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useAudioStore } from '../../store/audio';
+import { useAuthStore } from '../../store/auth';
 import { useCreditsStore } from '../../store/credits';
 import { useMusicStore } from '../../store/music';
 import { cn } from '../../lib/utils';
@@ -48,6 +49,8 @@ export function AudiobookPanel() {
   const { getActiveProject, getProjectChapters } = useStore();
   const { entries, updateEntry } = useCanonStore();
   const audioStore = useAudioStore();
+  const user = useAuthStore((s) => s.user);
+  const isGuest = !user;
   const project = getActiveProject();
   const chapters = project ? getProjectChapters(project.id).filter(c => c.prose).sort((a, b) => a.number - b.number) : [];
   const characters = entries.filter(e => e.projectId === project?.id && e.type === 'character' && (e as any).character) as CharacterEntry[];
@@ -839,11 +842,12 @@ export function AudiobookPanel() {
         characterVoices: effectiveCharacterVoices,
         characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
-        provider: ttsProvider,
+        provider: isGuest ? 'openai' : ttsProvider,
         speed: ttsProvider === 'openai' ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: sceneSFXData,
         onProgress: (pct) => setAudioGenProgress(pct),
+        isGuest,
       });
 
       // Update credit display
@@ -919,10 +923,11 @@ export function AudiobookPanel() {
         characterVoices: effectiveCharacterVoices,
         characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
-        provider: ttsProvider,
+        provider: isGuest ? 'openai' : ttsProvider,
         speed: ttsProvider === 'openai' ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: allSceneSFX,
+        isGuest,
       });
 
       // Update credit display

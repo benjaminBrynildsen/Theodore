@@ -1770,6 +1770,73 @@ app.post('/api/tts/generate', async (req, res) => {
 });
 
 // Poll for job completion
+// Guest TTS — one free OpenAI sample per IP per day. No auth required.
+// Used by the unauthenticated Imagine flow so guests can hear what audio
+// generation feels like before signing up.
+app.post('/api/tts/generate/guest', async (req, res) => {
+  try {
+    const { chapterId, prose, narratorVoice, model, provider, speed, sceneSFX } = req.body;
+    if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
+    if ((provider || 'openai') !== 'openai') {
+      return res.status(403).json({ error: 'Guest audio sample is only available with OpenAI TTS.' });
+    }
+    if (typeof prose !== 'string' || prose.length > 2000) {
+      return res.status(400).json({ error: 'Guest audio sample is limited to 2000 characters.' });
+    }
+
+    const ip = requestClientIp(req);
+    // 1 free guest TTS per IP per day. The same helper that auth/generate use.
+    if (!takeRateLimitToken(res, 'tts.guest', ip, 1, 24 * 60 * 60 * 1000)) return;
+
+    const jobId = `tts-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const job: TTSJob = { id: jobId, status: 'pending', createdAt: Date.now() };
+    ttsJobs.set(jobId, job);
+
+    res.json({ jobId, status: 'pending' });
+
+    job.status = 'processing';
+    const voiceMap = {
+      narrator: (narratorVoice || 'XrExE9yKIg1WjnnlVkGX') as ElevenLabsVoice,
+      characters: {} as Record<string, ElevenLabsVoice>,
+    };
+    console.log(`[TTS] Guest job ${jobId}: Generating for ${chapterId} from ${ip}`);
+
+    try {
+      const result = await generateChapterAudio({
+        chapterId,
+        prose,
+        voiceMap,
+        provider: 'openai',
+        model: model || 'openai-gpt-4o-mini-tts',
+        speed: speed || 1.0,
+        multiVoice: false,
+        knownCharacters: [],
+        characterDescriptions: {},
+        narratorStyle: undefined,
+        sceneSFX: sceneSFX || [],
+        onProgress: (pct) => { job.progress = pct; },
+      });
+
+      job.status = 'complete';
+      job.result = {
+        audioUrl: result.audioUrl,
+        durationEstimate: result.durationEstimate,
+        segments: result.segments,
+        creditsUsed: 0,
+        creditsRemaining: null,
+      };
+      console.log(`[TTS] Guest job ${jobId}: Complete → ${result.audioUrl}`);
+    } catch (e: any) {
+      console.error(`[TTS] Guest job ${jobId}: Failed —`, e.message);
+      job.status = 'error';
+      job.error = e.message || 'Audio generation failed';
+    }
+  } catch (e: any) {
+    console.error('Guest TTS error:', e.message);
+    if (!res.headersSent) respondInternalError(res, 'api', e);
+  }
+});
+
 app.get('/api/tts/job/:jobId', async (req, res) => {
   const job = ttsJobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
