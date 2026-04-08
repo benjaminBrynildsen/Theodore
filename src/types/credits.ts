@@ -71,7 +71,7 @@ export const PAID_TIER_CREDITS: Record<'writer' | 'author' | 'studio' | 'publish
 export const FREE_TIER_CREDITS = 100;
 export const FREE_TIER_NAME = 'Dreamer';
 
-const TIER_PRICES: Record<'writer' | 'author' | 'studio' | 'publisher', number> = {
+export const TIER_PRICES_USD: Record<'writer' | 'author' | 'studio' | 'publisher', number> = {
   writer: 10,
   author: 30,
   studio: 99,
@@ -94,28 +94,28 @@ export const PLAN_DETAILS: Record<PlanTier, {
   },
   writer: {
     name: 'Writer',
-    price: `$${TIER_PRICES.writer}/mo`,
+    price: `$${TIER_PRICES_USD.writer}/mo`,
     credits: PAID_TIER_CREDITS.writer,
     description: 'For consistent drafting',
     features: ['2,500 credits/month', '~83 AI chapters', '~5 audio narrations', 'Unlimited projects'],
   },
   author: {
     name: 'Author',
-    price: `$${TIER_PRICES.author}/mo`,
+    price: `$${TIER_PRICES_USD.author}/mo`,
     credits: PAID_TIER_CREDITS.author,
     description: 'For serious writers',
     features: ['7,500 credits/month', '~250 AI chapters', '~15 audio narrations', 'Unlimited projects', 'Premium models'],
   },
   studio: {
     name: 'Studio',
-    price: `$${TIER_PRICES.studio}/mo`,
+    price: `$${TIER_PRICES_USD.studio}/mo`,
     credits: PAID_TIER_CREDITS.studio,
     description: 'Full production house',
     features: ['25,000 credits/month', '~833 AI chapters', '~50 audio narrations', 'Unlimited projects', 'Priority support'],
   },
   publisher: {
     name: 'Publisher',
-    price: `$${TIER_PRICES.publisher}/mo`,
+    price: `$${TIER_PRICES_USD.publisher}/mo`,
     credits: PAID_TIER_CREDITS.publisher,
     description: 'For publishing houses & prolific authors',
     features: ['50,000 credits/month', '~1,666 AI chapters', '~100 audio narrations', 'Unlimited projects', 'Premium models', 'Priority support', 'Dedicated onboarding'],

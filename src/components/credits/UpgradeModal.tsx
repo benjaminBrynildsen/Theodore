@@ -1,14 +1,26 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { X, Check, Zap } from 'lucide-react';
 import { useCreditsStore } from '../../store/credits';
-import { PLAN_DETAILS, type PlanTier } from '../../types/credits';
+import { PLAN_DETAILS, TIER_PRICES_USD, type PlanTier } from '../../types/credits';
 import { cn } from '../../lib/utils';
 import { api } from '../../lib/api';
+import {
+  detectDisplayCurrency,
+  formatDisplayPrice,
+  isNonUsdDisplay,
+} from '../../lib/currency';
 
 export function UpgradeModal() {
   const { showUpgradeModal, setShowUpgradeModal, plan } = useCreditsStore();
   const [busyTier, setBusyTier] = useState<PlanTier | null>(null);
   const [error, setError] = useState('');
+  const displayCurrency = useMemo(() => detectDisplayCurrency(), []);
+  const showUsdDisclaimer = isNonUsdDisplay(displayCurrency);
+  const priceFor = (tier: PlanTier): string => {
+    if (tier === 'free') return PLAN_DETAILS.free.price;
+    const usd = TIER_PRICES_USD[tier as 'writer' | 'author' | 'studio' | 'publisher'];
+    return `${formatDisplayPrice(usd, displayCurrency)}/mo`;
+  };
 
   if (!showUpgradeModal) return null;
 
@@ -66,7 +78,7 @@ export function UpgradeModal() {
                 )}
 
                 <div className="text-sm font-semibold mb-1">{details.name}</div>
-                <div className="text-2xl font-bold mb-1">{details.price}</div>
+                <div className="text-2xl font-bold mb-1">{priceFor(tier)}</div>
                 <div className={cn('text-xs mb-4', isCurrent ? 'text-white/60' : 'text-text-tertiary')}>
                   {details.description}
                 </div>
@@ -113,6 +125,11 @@ export function UpgradeModal() {
         <div className="px-6 pb-5">
           <div className="text-center text-xs text-text-tertiary glass-pill py-2 px-4 rounded-xl">
             🔒 Payments powered by Stripe · Cancel anytime · Credits reset monthly
+            {showUsdDisclaimer && (
+              <span className="block mt-1 text-[10px] text-text-tertiary">
+                Prices shown in {displayCurrency} for reference · billed in USD at current exchange rate
+              </span>
+            )}
           </div>
         </div>
       </div>
