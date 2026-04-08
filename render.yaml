@@ -6,7 +6,9 @@ services:
     region: ohio
     plan: starter
     buildCommand: npm ci --include=dev && npm run build
-    preDeployCommand: npm run db:push
+    # db:push removed from auto-deploy — it can hang on a slow DB connection
+    # and the schema rarely changes. Run manually via Render Shell when you
+    # change server/schema.ts: `npm run db:push`
     startCommand: npm run server
     healthCheckPath: /api/health
     envVars:
@@ -40,7 +42,9 @@ services:
     region: ohio
     plan: starter
     buildCommand: npm ci --include=dev && npm run build
-    preDeployCommand: npm run db:push
+    # db:push removed from auto-deploy — it can hang on a slow DB connection
+    # and the schema rarely changes. Run manually via Render Shell when you
+    # change server/schema.ts: `npm run db:push`
     startCommand: npm run server
     healthCheckPath: /api/health
     disk:
