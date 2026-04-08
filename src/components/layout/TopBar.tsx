@@ -71,14 +71,18 @@ function EditableProjectTitle({ value, onSave }: { value: string; onSave: (next:
 export function TopBar() {
   const {
     toggleLeftSidebar, toggleRightSidebar, leftSidebarOpen, rightSidebarOpen,
-    getActiveProject, setCurrentView, setActiveProject, setActiveChapter, showToolsView, setShowToolsView,
+    getActiveProject, currentView, setCurrentView, setActiveProject, setActiveChapter, showToolsView, setShowToolsView,
     updateProject,
   } = useStore();
   const { activeEntryId, setActiveEntry } = useCanonStore();
   const { showSettingsView, setShowSettingsView, setSettingsViewSection } = useSettingsStore();
   const { logout } = useAuthStore();
-  
-  const project = getActiveProject();
+
+  // On the home view we always want the "Theodore" wordmark in the center,
+  // even if an active project is still lingering in state. Only treat as
+  // in-project when we're actually inside a project/chapter view.
+  const rawProject = getActiveProject();
+  const project = currentView === 'home' ? null : rawProject;
   const activeMode: 'write' | 'tools' | 'settings' = showSettingsView ? 'settings' : showToolsView ? 'tools' : 'write';
   const goHome = () => {
     setShowToolsView(false);
