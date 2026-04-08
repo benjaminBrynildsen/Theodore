@@ -82,6 +82,12 @@ export function AudioPlayerBar() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeUpdateRef = useRef(0);
   const sceneIndexRef = useRef(0);
+  // Cumulative time of all scenes that have already finished playing in the
+  // current chapter. For multi-scene chapters, audio.currentTime resets to 0
+  // on each scene transition; we add this offset so the displayed currentTime
+  // (and the progress bar) reflects total chapter progress instead of just
+  // the current scene's progress.
+  const sceneStartOffsetRef = useRef(0);
   const pendingPlayRef = useRef<string | null>(null); // URL queued for play (iOS fallback)
 
   // ========== Audio element setup (attach to hidden DOM <audio>) ==========
@@ -105,6 +111,11 @@ export function AudioPlayerBar() {
       const cached = chId ? state.chapterAudio[chId] : null;
 
       if (cached?.sceneAudioUrls && sceneIndexRef.current < cached.sceneAudioUrls.length - 1) {
+        // Advance the cumulative offset by the just-finished scene's duration
+        // so the progress bar continues smoothly into the next scene.
+        if (audio.duration && isFinite(audio.duration)) {
+          sceneStartOffsetRef.current += audio.duration;
+        }
         sceneIndexRef.current++;
         audio.src = cached.sceneAudioUrls[sceneIndexRef.current];
         audio.load();
@@ -113,6 +124,7 @@ export function AudioPlayerBar() {
       }
 
       sceneIndexRef.current = 0;
+      sceneStartOffsetRef.current = 0;
 
       // Auto-play next scene/chapter
       // If current is a scene (scene-{id}), find the next scene in the same chapter
@@ -222,7 +234,10 @@ export function AudioPlayerBar() {
       const now = Date.now();
       if (now - timeUpdateRef.current > 250) {
         timeUpdateRef.current = now;
-        const ct = audio.currentTime;
+        // For multi-scene chapters, audio.currentTime is per-scene; add the
+        // cumulative offset of finished scenes so the bar reflects total
+        // chapter progress.
+        const ct = audio.currentTime + sceneStartOffsetRef.current;
         setCurrentTime(ct);
         // If currentTime exceeds our known duration, extend it
         const curDur = useAudioStore.getState().duration;
@@ -366,6 +381,7 @@ export function AudioPlayerBar() {
         }
 
         sceneIndexRef.current = 0;
+        sceneStartOffsetRef.current = 0;
         const allUrls = [result.audioUrl];
         const allSceneIds = [firstScene.id];
         let totalDuration = result.durationEstimate;
@@ -455,10 +471,27 @@ export function AudioPlayerBar() {
   const seekTo = useCallback((fraction: number) => {
     const audio = audioRef.current;
     if (audio && duration > 0) {
-      audio.currentTime = fraction * duration;
-      setCurrentTime(audio.currentTime);
+      // For multi-scene chapters, the global target time may fall outside
+      // the current scene's local timeline. Clamp the local seek so the
+      // browser doesn't reject it; cross-scene seeking would need per-scene
+      // durations stored on the cached audio entry.
+      const targetGlobal = fraction * duration;
+      const targetLocal = targetGlobal - sceneStartOffsetRef.current;
+      const sceneDuration = audio.duration && isFinite(audio.duration) ? audio.duration : duration;
+      const clamped = Math.max(0, Math.min(sceneDuration, targetLocal));
+      audio.currentTime = clamped;
+      setCurrentTime(sceneStartOffsetRef.current + clamped);
     }
   }, [duration]);
+
+  const seekBy = useCallback((seconds: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const sceneDuration = audio.duration && isFinite(audio.duration) ? audio.duration : 0;
+    const next = Math.max(0, Math.min(sceneDuration, audio.currentTime + seconds));
+    audio.currentTime = next;
+    setCurrentTime(sceneStartOffsetRef.current + next);
+  }, []);
 
   // Listen for seek requests from NowPlayingPanel
   useEffect(() => {
@@ -469,6 +502,16 @@ export function AudioPlayerBar() {
     window.addEventListener('theodore:seekAudio', handler);
     return () => window.removeEventListener('theodore:seekAudio', handler);
   }, [seekTo]);
+
+  // Listen for relative seek requests (e.g. rewind/forward 15s buttons)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { seconds } = (e as CustomEvent).detail;
+      if (typeof seconds === 'number') seekBy(seconds);
+    };
+    window.addEventListener('theodore:seekBy', handler);
+    return () => window.removeEventListener('theodore:seekBy', handler);
+  }, [seekBy]);
 
   // Removed: play/pause sync via useEffect — now handled by theodore:togglePlayback event
   // to preserve iOS user gesture context
@@ -502,6 +545,7 @@ export function AudioPlayerBar() {
       }
 
       sceneIndexRef.current = 0;
+      sceneStartOffsetRef.current = 0;
       const url = cached.sceneAudioUrls?.[0] || cached.audioUrl;
       audio.src = url;
       audio.load();

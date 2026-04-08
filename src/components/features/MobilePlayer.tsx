@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Play, Pause, SkipBack, SkipForward, ChevronDown, Volume2, VolumeX, Shuffle, Repeat, Loader2, Sparkles } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, ChevronDown, Volume2, VolumeX, RotateCcw, RotateCw, Loader2, Sparkles } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
 import { cn } from '../../lib/utils';
@@ -255,13 +255,20 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
 
       {/* Playback controls */}
       <div className="flex items-center justify-center gap-7 py-4">
-        <button className="text-text-tertiary/50">
-          <Shuffle size={18} />
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('theodore:seekBy', { detail: { seconds: -15 } }))}
+          disabled={!currentChapterId || !!generating}
+          className="text-text-secondary disabled:opacity-25 transition-colors relative"
+          aria-label="Rewind 15 seconds"
+        >
+          <RotateCcw size={26} />
+          <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold pointer-events-none">15</span>
         </button>
         <button
           onClick={skipPrev}
           disabled={chapterIdx <= 0 || !!generating}
           className="text-text-secondary disabled:opacity-25 transition-colors"
+          aria-label="Previous chapter"
         >
           <SkipBack size={28} fill="currentColor" />
         </button>
@@ -282,11 +289,18 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
           onClick={skipNext}
           disabled={chapterIdx >= playableChapters.length - 1 || !!generating}
           className="text-text-secondary disabled:opacity-25 transition-colors"
+          aria-label="Next chapter"
         >
           <SkipForward size={28} fill="currentColor" />
         </button>
-        <button className="text-text-tertiary/50">
-          <Repeat size={18} />
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('theodore:seekBy', { detail: { seconds: 15 } }))}
+          disabled={!currentChapterId || !!generating}
+          className="text-text-secondary disabled:opacity-25 transition-colors relative"
+          aria-label="Forward 15 seconds"
+        >
+          <RotateCw size={26} />
+          <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold pointer-events-none">15</span>
         </button>
       </div>
 
