@@ -271,15 +271,18 @@ export default function App() {
     }
     if (showGuestChat) {
       return (
-        <ChatCreation
-          onClose={() => setShowGuestChat(false)}
-          guestMode
-          onRequireAuth={() => {
-            setReturnToChatAfterAuth(true);
-            setShowAuth(true);
-            setShowGuestChat(false);
-          }}
-        />
+        <>
+          <ChatCreation
+            onClose={() => setShowGuestChat(false)}
+            guestMode
+            onRequireAuth={() => {
+              setReturnToChatAfterAuth(true);
+              setShowAuth(true);
+              setShowGuestChat(false);
+            }}
+          />
+          <GenerationProgressBar />
+        </>
       );
     }
     // Guest just created a project — let them experience the workspace first
@@ -377,9 +380,12 @@ export default function App() {
   // Show ChatCreation as authenticated user after signing up from guest flow
   if (showPostAuthChat) {
     return (
-      <ChatCreation
-        onClose={() => setShowPostAuthChat(false)}
-      />
+      <>
+        <ChatCreation
+          onClose={() => setShowPostAuthChat(false)}
+        />
+        <GenerationProgressBar />
+      </>
     );
   }
 
