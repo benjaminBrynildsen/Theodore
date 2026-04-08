@@ -983,8 +983,32 @@ ${childrensRule}`,
   };
 
   const createProject = async () => {
-    const settings = editedSettings || proposedSettings;
-    if (!settings) return;
+    let settings = editedSettings || proposedSettings;
+    // If the parallel background derive hasn't finished yet (or hasn't been
+    // run), kick off / await one synchronously so the user always gets a
+    // novel built from the current chat instead of a silent no-op.
+    if (!settings) {
+      if (!messages.some((m) => m.role === 'user')) return;
+      setCreatingProject(true);
+      try {
+        const derived = await deriveSettingsFromConversation(messages);
+        if (derived?.settings) {
+          applyProposedSettings(derived.settings, true);
+          if (derived.canon) {
+            setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
+          }
+          settings = derived.settings;
+        }
+      } catch {
+        // Fall through — handled by the !settings check below.
+      } finally {
+        setCreatingProject(false);
+      }
+    }
+    if (!settings) {
+      setCreationMessage("I couldn't build the project plan from this chat. Try sending one more detail and try again.");
+      return;
+    }
     await createProjectFromSettings(settings);
   };
 
@@ -1227,13 +1251,14 @@ ${childrensRule}`,
                   <Send size={16} />
                 </button>
               </div>
-              {selectedSettings && (
+              {messages.some((m) => m.role === 'user') && (
                 <button
                   onClick={createProject}
                   disabled={creatingProject}
                   className="mt-3 w-full lg:hidden py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold shadow-md hover:shadow-lg active:scale-[0.98] transition-all disabled:opacity-60"
                 >
-                  {creatingProject ? 'Creating...'
+                  {creatingProject
+                    ? selectedSettings ? 'Creating…' : 'Building plan…'
                     : bookType === 'childrens-book' ? "Create Children's Book" : 'Create Novel'}
                 </button>
               )}
@@ -1282,13 +1307,11 @@ ${childrensRule}`,
 
               <button
                 onClick={createProject}
-                disabled={creatingProject || !selectedSettings}
+                disabled={creatingProject || !messages.some((m) => m.role === 'user')}
                 className="w-full py-5 rounded-2xl bg-text-primary text-text-inverse text-lg font-semibold shadow-lg hover:shadow-2xl active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {creatingProject
-                  ? 'Creating...'
-                  : !selectedSettings
-                  ? 'Keep chatting to build your story…'
+                  ? selectedSettings ? 'Creating…' : 'Building plan…'
                   : bookType === 'childrens-book'
                   ? "Create Children's Book"
                   : 'Create Novel'}
