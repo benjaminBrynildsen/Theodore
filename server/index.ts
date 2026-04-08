@@ -126,7 +126,10 @@ function resolveFrontendOrigin(req: express.Request): string {
 
 function respondInternalError(res: express.Response, scope: string, error: unknown): void {
   console.error(`[${scope}]`, error);
-  res.status(500).json({ error: 'Internal server error' });
+  const message = error instanceof Error ? error.message : String(error);
+  // Surface the actual error message + scope so users can paste it back to us
+  // for diagnosis. We deliberately do NOT include stack traces.
+  res.status(500).json({ error: `[${scope}] ${message || 'Internal server error'}` });
 }
 
 type RateLimitEntry = { count: number; resetAt: number };
