@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Users, CreditCard, TrendingUp, Activity, FileText,
   ChevronRight, ArrowLeft, BarChart3, Zap, BookOpen,
-  Headphones, Image, Music, Sparkles, RefreshCw,
+  Headphones, Image, Music, Sparkles, RefreshCw, Globe,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -75,6 +75,16 @@ interface DailyStats {
   creditsPerDay: { day: string; total: number; count: number }[];
 }
 
+interface TrafficStats {
+  views: { total: number; last24h: number; last7d: number; last30d: number };
+  visitors: { total: number; last24h: number; last7d: number; last30d: number };
+  topReferrers: { host: string; count: number }[];
+  topCountries: { country: string; count: number }[];
+  topPaths: { path: string; count: number }[];
+  topCampaigns: { source: string | null; medium: string | null; campaign: string | null; count: number }[];
+  daily: { day: string; views: number; visitors: number }[];
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`${res.status}`);
@@ -141,7 +151,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'users' | 'activity' | 'user-detail';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'user-detail';
 
 export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<View>('overview');
@@ -150,6 +160,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [activityList, setActivityList] = useState<ActivityRow[]>([]);
   const [userDetail, setUserDetail] = useState<UserDetail | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStats | null>(null);
+  const [traffic, setTraffic] = useState<TrafficStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -178,6 +189,15 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     setLoading(false);
   };
 
+  const loadTraffic = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchJson<TrafficStats>('/traffic');
+      setTraffic(data);
+    } catch { setError('Failed to load traffic.'); }
+    setLoading(false);
+  };
+
   const loadActivity = async () => {
     setLoading(true);
     try {
@@ -202,6 +222,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (view === 'users' && !usersList) loadUsers();
     if (view === 'activity' && activityList.length === 0) loadActivity();
+    if (view === 'traffic' && !traffic) loadTraffic();
   }, [view]);
 
   if (error === 'Access denied — admin only.') {
@@ -219,6 +240,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
   const tabs: { id: View; label: string; icon: typeof Users }[] = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
+    { id: 'traffic', label: 'Traffic', icon: Globe },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'activity', label: 'Activity', icon: Activity },
   ];
@@ -232,7 +254,12 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         </button>
         <h1 className="text-lg font-serif font-semibold">Admin Dashboard</h1>
         <button
-          onClick={() => { if (view === 'overview') loadOverview(); else if (view === 'users') loadUsers(); else loadActivity(); }}
+          onClick={() => {
+            if (view === 'overview') loadOverview();
+            else if (view === 'traffic') loadTraffic();
+            else if (view === 'users') loadUsers();
+            else loadActivity();
+          }}
           className="ml-auto p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
         >
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
@@ -438,6 +465,150 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
               <StatCard label="Monthly Signups" value={overview.monthlySignups} icon={TrendingUp} />
               <StatCard label="Avg Credits/User" value={overview.totalUsers > 0 ? Math.round(overview.totalCreditsUsed / overview.totalUsers) : 0} icon={FileText} />
             </div>
+          </div>
+        )}
+
+        {/* ========== Traffic ========== */}
+        {view === 'traffic' && (
+          <div className="max-w-5xl mx-auto space-y-6">
+            {!traffic && !loading && (
+              <div className="glass-pill rounded-2xl p-8 text-center text-sm text-text-tertiary">
+                No traffic data yet. Visits will start appearing here on the next deploy.
+              </div>
+            )}
+            {traffic && (
+              <>
+                {/* Top stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <StatCard label="Views (24h)" value={traffic.views.last24h.toLocaleString()} sub={`${traffic.visitors.last24h} visitors`} icon={Activity} />
+                  <StatCard label="Views (7d)" value={traffic.views.last7d.toLocaleString()} sub={`${traffic.visitors.last7d} visitors`} icon={TrendingUp} />
+                  <StatCard label="Views (30d)" value={traffic.views.last30d.toLocaleString()} sub={`${traffic.visitors.last30d} visitors`} icon={BarChart3} />
+                  <StatCard label="Total Views" value={traffic.views.total.toLocaleString()} sub={`${traffic.visitors.total.toLocaleString()} visitors`} icon={Globe} />
+                </div>
+
+                {/* Daily sparkline (14d) */}
+                <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                  <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Last 14 Days</h3>
+                  {traffic.daily.length === 0 ? (
+                    <div className="text-xs text-text-tertiary">No visits in the last 14 days.</div>
+                  ) : (
+                    <div className="flex items-end gap-1 h-24">
+                      {traffic.daily.map((d) => {
+                        const max = Math.max(...traffic.daily.map((x) => x.views), 1);
+                        const pct = (d.views / max) * 100;
+                        const date = new Date(d.day);
+                        return (
+                          <div key={d.day} className="flex-1 flex flex-col items-center gap-1 group">
+                            <div className="flex-1 w-full flex items-end">
+                              <div
+                                className="w-full bg-text-primary/30 rounded-t group-hover:bg-text-primary/60 transition-colors"
+                                style={{ height: `${pct}%` }}
+                                title={`${date.toLocaleDateString()}: ${d.views} views · ${d.visitors} visitors`}
+                              />
+                            </div>
+                            <span className="text-[9px] text-text-tertiary">{date.getDate()}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Two-col: Referrers + Countries */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                    <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Top Referrers (30d)</h3>
+                    {traffic.topReferrers.length === 0 ? (
+                      <div className="text-xs text-text-tertiary">No referrer data yet.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {traffic.topReferrers.map((r) => {
+                          const max = traffic.topReferrers[0]?.count || 1;
+                          const pct = (r.count / max) * 100;
+                          return (
+                            <div key={r.host} className="flex items-center gap-3">
+                              <span className="text-xs font-medium text-text-secondary truncate w-32">{r.host}</span>
+                              <div className="flex-1 h-2 bg-black/5 rounded-full overflow-hidden">
+                                <div className="h-full bg-text-primary/30 rounded-full" style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="text-sm font-medium text-text-secondary w-10 text-right">{r.count}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                    <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Top Countries (30d)</h3>
+                    {traffic.topCountries.length === 0 ? (
+                      <div className="text-xs text-text-tertiary">
+                        No country data yet — Cloudflare's <code>cf-ipcountry</code> header is required for this.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {traffic.topCountries.map((r) => {
+                          const max = traffic.topCountries[0]?.count || 1;
+                          const pct = (r.count / max) * 100;
+                          return (
+                            <div key={r.country} className="flex items-center gap-3">
+                              <span className="text-xs font-mono font-medium text-text-secondary w-10">{r.country}</span>
+                              <div className="flex-1 h-2 bg-black/5 rounded-full overflow-hidden">
+                                <div className="h-full bg-text-primary/30 rounded-full" style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="text-sm font-medium text-text-secondary w-10 text-right">{r.count}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Top paths */}
+                <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                  <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Top Pages (30d)</h3>
+                  <div className="space-y-2">
+                    {traffic.topPaths.map((r) => {
+                      const max = traffic.topPaths[0]?.count || 1;
+                      const pct = (r.count / max) * 100;
+                      return (
+                        <div key={r.path} className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-text-secondary truncate flex-1">{r.path}</span>
+                          <div className="w-32 h-2 bg-black/5 rounded-full overflow-hidden">
+                            <div className="h-full bg-text-primary/30 rounded-full" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-sm font-medium text-text-secondary w-10 text-right">{r.count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* UTM campaigns */}
+                <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                  <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Ad Campaigns (UTM, 30d)</h3>
+                  {traffic.topCampaigns.length === 0 ? (
+                    <div className="text-xs text-text-tertiary">
+                      No tagged traffic yet. Add <code>?utm_source=facebook&amp;utm_medium=cpc&amp;utm_campaign=launch</code> to your ad URLs to track them here.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {traffic.topCampaigns.map((r, i) => (
+                        <div key={i} className="flex items-center gap-3 text-xs">
+                          <span className="font-mono font-medium text-text-secondary">{r.source || '—'}</span>
+                          <span className="text-text-tertiary">/</span>
+                          <span className="font-mono text-text-secondary">{r.medium || '—'}</span>
+                          <span className="text-text-tertiary">/</span>
+                          <span className="font-mono text-text-secondary flex-1 truncate">{r.campaign || '—'}</span>
+                          <span className="font-medium text-text-secondary w-10 text-right">{r.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
 

@@ -26,6 +26,7 @@ import { generate, generateStream } from './ai.js';
 import { generateImage, generateImageOpenAI, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, getVoicesWithPreviews } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats } from './admin.js';
+import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
@@ -2184,6 +2185,7 @@ app.get('/api/admin/users', getUsers);
 app.get('/api/admin/users/:userId', getUserDetail);
 app.get('/api/admin/activity', getActivity);
 app.get('/api/admin/stats/daily', getDailyStats);
+app.get('/api/admin/traffic', getTrafficStats);
 
 // ========== Serve generated images ==========
 const uploadsPath = path.resolve(process.cwd(), 'uploads');
@@ -2220,6 +2222,9 @@ app.get('/api/share/audio/:chapterId', async (req, res) => {
 });
 
 const distPath = path.resolve(process.cwd(), 'dist');
+// Log pageviews BEFORE the static handler so we capture HTML navigations
+// (bundled assets are skipped inside the middleware via /assets/ prefix).
+app.use(pageViewMiddleware);
 app.use(express.static(distPath));
 app.get('/{*splat}', (_req, res) => {
   const indexFile = path.join(distPath, 'index.html');

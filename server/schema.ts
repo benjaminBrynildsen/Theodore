@@ -158,6 +158,25 @@ export const supportRequests = pgTable('support_requests', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ========== Page Views (site analytics) ==========
+// Lightweight visit log for the marketing/landing side of theodore.tools.
+// Populated by a middleware on non-API HTML GETs. Admin dashboard reads
+// aggregates from here (total / 24h / 7d / top referrers / top countries).
+export const pageViews = pgTable('page_views', {
+  id: serial('id').primaryKey(),
+  path: text('path').notNull(),
+  referrer: text('referrer'),
+  referrerHost: text('referrer_host'),
+  userAgent: text('user_agent'),
+  ipHash: text('ip_hash'), // sha256 of ip + salt (privacy)
+  country: text('country'),
+  utmSource: text('utm_source'),
+  utmMedium: text('utm_medium'),
+  utmCampaign: text('utm_campaign'),
+  userId: text('user_id'), // null for anon visitors
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),
