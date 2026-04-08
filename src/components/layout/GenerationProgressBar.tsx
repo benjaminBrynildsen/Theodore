@@ -61,24 +61,30 @@ export function GenerationProgressBar() {
       : subtitle;
 
   return (
-    <div className="fixed top-12 inset-x-0 z-[60] pointer-events-none flex justify-center px-3 animate-fade-in">
-      <div className="pointer-events-auto w-full max-w-md rounded-2xl bg-[#181818]/95 text-white shadow-2xl backdrop-blur-md border border-white/10 overflow-hidden">
-        <div className="flex items-center gap-3 px-4 py-2.5">
+    <div className="fixed top-12 sm:top-16 inset-x-0 z-[60] pointer-events-none flex justify-center px-3 animate-fade-in">
+      <div className="pointer-events-auto w-full max-w-md sm:max-w-xl rounded-2xl bg-[#181818]/95 text-white shadow-2xl backdrop-blur-md border border-white/10 overflow-hidden">
+        <div className="flex items-center gap-3 sm:gap-4 px-4 py-2.5 sm:px-6 sm:py-4">
           {phase === 'done' ? (
-            <Check size={14} className="text-emerald-400 flex-shrink-0" />
+            <>
+              <Check size={14} className="sm:hidden text-emerald-400 flex-shrink-0" />
+              <Check size={20} className="hidden sm:block text-emerald-400 flex-shrink-0" />
+            </>
           ) : (
-            <Loader2 size={14} className="animate-spin flex-shrink-0" />
+            <>
+              <Loader2 size={14} className="sm:hidden animate-spin flex-shrink-0" />
+              <Loader2 size={20} className="hidden sm:block animate-spin flex-shrink-0" />
+            </>
           )}
           <div className="flex-1 min-w-0">
-            <div className="text-[11px] font-medium truncate">
+            <div className="text-[11px] sm:text-sm font-semibold truncate">
               {verb} {label}
             </div>
             {displaySubtitle && (
-              <div className="text-[9px] text-white/50 truncate">{displaySubtitle}</div>
+              <div className="text-[9px] sm:text-xs text-white/60 truncate mt-0.5">{displaySubtitle}</div>
             )}
           </div>
         </div>
-        <div className="h-1 bg-white/10 relative overflow-hidden">
+        <div className="h-1 sm:h-1.5 bg-white/10 relative overflow-hidden">
           {indeterminate && phase !== 'done' ? (
             // Sliding gradient bar for tasks without a real percentage
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent w-1/3 animate-indeterminate-slide" />
