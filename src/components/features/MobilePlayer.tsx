@@ -5,7 +5,11 @@ import { useAudioStore } from '../../store/audio';
 import { cn } from '../../lib/utils';
 
 function CoverArt({ project, chapterImage, size = 'full' }: { project: { title: string; coverUrl?: string }; chapterImage?: string; size?: 'mini' | 'full' }) {
-  const src = chapterImage || project.coverUrl;
+  // Prefer chapter image, then AI-generated project cover. Skip the old
+  // procedural data-URL covers (just white bg + text) — the text fallback
+  // below looks better than those.
+  const projectCover = project.coverUrl && !project.coverUrl.startsWith('data:') ? project.coverUrl : null;
+  const src = chapterImage || projectCover;
   if (src) {
     return <img src={src} alt="" className="w-full h-full object-cover" />;
   }

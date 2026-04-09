@@ -13,13 +13,24 @@ const COVER_STYLES = [
   { id: 'bold', label: 'Bold Graphic' },
 ] as const;
 
+// Font configurations per cover style — each produces a different visual feel.
+// Uses system/loaded fonts: Inter (already loaded), Impact/Arial Black (system).
+const STYLE_FONTS: Record<string, { font: string; letterSpacing: number; uppercase: boolean }> = {
+  minimalist: { font: '900 Inter, system-ui, sans-serif', letterSpacing: 6, uppercase: true },
+  illustrated: { font: '800 "Palatino Linotype", "Book Antiqua", Palatino, serif', letterSpacing: 1, uppercase: false },
+  dark: { font: '900 "Arial Black", "Arial Bold", Impact, sans-serif', letterSpacing: 3, uppercase: true },
+  vintage: { font: '700 "Palatino Linotype", "Book Antiqua", Georgia, serif', letterSpacing: 2, uppercase: false },
+  bold: { font: '900 Inter, system-ui, sans-serif', letterSpacing: 4, uppercase: true },
+};
+
 /**
- * Composites the book title onto a background image using Canvas.
+ * Composites the book title + Theodore watermark onto a background image.
  * Returns a base64 data URL of the final cover (1024x1024 square).
  */
 async function compositeTitle(
   backgroundUrl: string,
   title: string,
+  coverStyle: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -37,23 +48,33 @@ async function compositeTitle(
       ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
 
       // Bottom gradient overlay for text readability
-      const grad = ctx.createLinearGradient(0, size * 0.55, 0, size);
+      const grad = ctx.createLinearGradient(0, size * 0.45, 0, size);
       grad.addColorStop(0, 'rgba(0,0,0,0)');
-      grad.addColorStop(0.5, 'rgba(0,0,0,0.4)');
-      grad.addColorStop(1, 'rgba(0,0,0,0.75)');
+      grad.addColorStop(0.4, 'rgba(0,0,0,0.3)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.8)');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, size, size);
 
-      // Title text — auto-size to fit, max 3 lines
+      // Get style-specific font config
+      const fontConfig = STYLE_FONTS[coverStyle] || STYLE_FONTS.illustrated;
+      const displayTitle = fontConfig.uppercase ? title.toUpperCase() : title;
+
+      // Title text — auto-size BIG, max 3 lines
       ctx.textAlign = 'center';
       ctx.fillStyle = '#ffffff';
-      const maxWidth = size * 0.82;
-      const words = title.split(/\s+/);
+      const maxWidth = size * 0.80;
+      const words = displayTitle.split(/\s+/);
 
-      let fontSize = 72;
+      // Start much larger (160px) for the bold, impactful look of real covers
+      let fontSize = 160;
       let lines: string[] = [];
-      for (; fontSize >= 28; fontSize -= 2) {
-        ctx.font = `800 ${fontSize}px Georgia, serif`;
+      for (; fontSize >= 36; fontSize -= 4) {
+        ctx.font = `${fontConfig.font}`.replace(/^\d+/, String(fontSize));
+        // Actually need to rebuild the font string with size
+        const weight = fontConfig.font.match(/^\d+/)?.[0] || '800';
+        const family = fontConfig.font.replace(/^\d+\s*/, '');
+        ctx.font = `${weight} ${fontSize}px ${family}`;
+        ctx.letterSpacing = `${fontConfig.letterSpacing}px`;
         lines = [];
         let currentLine = '';
         for (const word of words) {
@@ -69,14 +90,32 @@ async function compositeTitle(
         if (lines.length <= 3) break;
       }
 
-      const lineHeight = fontSize * 1.15;
+      const lineHeight = fontSize * 1.12;
       const totalHeight = lines.length * lineHeight;
-      const startY = size - 80 - totalHeight + fontSize;
+      const startY = size - 100 - totalHeight + fontSize;
 
+      // Text shadow for depth
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetY = 4;
+
+      const weight = fontConfig.font.match(/^\d+/)?.[0] || '800';
+      const family = fontConfig.font.replace(/^\d+\s*/, '');
       for (let i = 0; i < lines.length; i++) {
-        ctx.font = `800 ${fontSize}px Georgia, serif`;
+        ctx.font = `${weight} ${fontSize}px ${family}`;
         ctx.fillText(lines[i], size / 2, startY + i * lineHeight);
       }
+
+      // Reset shadow
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+
+      // "Powered by Theodore" watermark — subtle, bottom center
+      ctx.font = '500 14px Inter, system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.letterSpacing = '1px';
+      ctx.fillText('powered by Theodore', size / 2, size - 24);
 
       resolve(canvas.toDataURL('image/png'));
     };
@@ -138,7 +177,7 @@ export function BookCoverSection({ projectId }: Props) {
 
       useGenerationStore.getState().setSubtitle('Adding title…');
 
-      const composited = await compositeTitle(result.imageUrl, project.title);
+      const composited = await compositeTitle(result.imageUrl, project.title, style);
 
       const uploadRes = await fetch('/api/upload/cover', {
         method: 'POST',

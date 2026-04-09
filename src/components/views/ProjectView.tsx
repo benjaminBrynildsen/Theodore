@@ -547,15 +547,25 @@ export function ProjectView() {
                     onClick={() => setActiveChapter(chapter.id)}
                     className="w-full text-left"
                   >
-                  <div className="flex items-start gap-4 p-5 rounded-2xl glass hover:bg-white/70 active:scale-[0.995] transition-all duration-200">
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="relative flex items-start gap-4 p-5 rounded-2xl glass hover:bg-white/70 active:scale-[0.995] transition-all duration-200 overflow-hidden">
+                    {/* Cover art background with large chapter number */}
+                    <div className="flex items-center gap-1 flex-shrink-0 relative z-10">
                       <GripVertical size={14} className="text-text-tertiary/30 opacity-0 group-hover:opacity-100 cursor-grab transition-opacity" />
-                      <div className="w-10 h-10 rounded-xl glass-pill flex items-center justify-center text-sm font-mono text-text-tertiary group-hover:bg-text-primary group-hover:text-text-inverse transition-all duration-200">
-                        {chapter.number}
-                      </div>
+                      {project.coverUrl && !project.coverUrl.startsWith('data:') ? (
+                        <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 relative shadow-sm">
+                          <img src={project.coverUrl} alt="" className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                            <span className="text-2xl font-black text-white">{chapter.number}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-14 h-14 rounded-xl glass-pill flex items-center justify-center text-2xl font-black text-text-tertiary group-hover:bg-text-primary group-hover:text-text-inverse transition-all duration-200">
+                          {chapter.number}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 relative z-10">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-medium">{chapter.title}</span>
                         <Badge status={chapter.status} />
@@ -567,7 +577,7 @@ export function ProjectView() {
                       )}
                     </div>
 
-                    <StatusIcon size={16} className="text-text-tertiary mt-1 flex-shrink-0" />
+                    <StatusIcon size={16} className="text-text-tertiary mt-1 flex-shrink-0 relative z-10" />
                   </div>
                   </button>
                 </div>

@@ -6,7 +6,8 @@ import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 
 function CoverArt({ project, chapterImage }: { project: { title: string; coverUrl?: string }; chapterImage?: string }) {
-  const src = chapterImage || project.coverUrl;
+  const projectCover = project.coverUrl && !project.coverUrl.startsWith('data:') ? project.coverUrl : null;
+  const src = chapterImage || projectCover;
   if (src) {
     return <img src={src} alt="" className="w-full h-full object-cover" />;
   }

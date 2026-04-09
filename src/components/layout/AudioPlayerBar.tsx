@@ -268,7 +268,7 @@ export function AudioPlayerBar() {
     if (!('mediaSession' in navigator)) return;
     if (!currentChapter || !project) return;
 
-    const coverUrl = project.coverUrl || '/icons/icon-512.png';
+    const coverUrl = (project.coverUrl && !project.coverUrl.startsWith('data:') ? project.coverUrl : null) || '/icons/icon-512.png';
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentChapter.title || `Chapter ${currentChapter.number}`,
       artist: project.title,
@@ -611,7 +611,9 @@ export function AudioPlayerBar() {
   if (!shouldShow) return <></>;
 
   const chapterIdx = currentChapterId ? chapters.findIndex(c => c.id === currentChapterId) : -1;
-  const chapterImage = currentChapter?.imageUrl;
+  // Use chapter image if available, otherwise fall back to the project cover
+  const coverArt = currentChapter?.imageUrl || project?.coverUrl || null;
+  const hasCoverArt = coverArt && !coverArt.startsWith('data:');
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
   const isMuted = volume === 0;
 
@@ -636,8 +638,8 @@ export function AudioPlayerBar() {
             onClick={() => window.dispatchEvent(new CustomEvent('theodore:expandPlayer'))}
           >
             <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-white/10">
-              {chapterImage ? (
-                <img src={chapterImage} alt="" className="w-full h-full object-cover" />
+              {hasCoverArt ? (
+                <img src={coverArt} alt="" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-white/10 to-white/5">
                   <Headphones size={20} className="text-white/40" />
