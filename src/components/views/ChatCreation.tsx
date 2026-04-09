@@ -1152,29 +1152,75 @@ ${childrensRule}`,
     let settings = editedSettings || proposedSettings;
     if (!settings) {
       if (!messages.some((m) => m.role === 'user')) return;
+      setCreatingProject(true);
 
-      // Don't wait — create a minimal project NOW and let the derive
-      // populate chapters in the background. The user sees ProjectView
-      // instantly with a "Building chapters…" skeleton.
-      const conversation = messages.map(m => m.content).join(' ');
-      // Extract a title from the conversation (first noun phrase or fallback)
-      const inferredTitle = messages.find(m => m.role === 'assistant')?.content?.match(/"([^"]+)"/)?.[1]
-        || 'Untitled Novel';
-      settings = {
-        title: inferredTitle,
-        subtype: bookType,
-        targetLength: 'medium',
-        assistanceLevel: 3,
-        narrativeControls: {
-          toneMood: { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 },
-          pacing: 'balanced',
-          dialogueWeight: 'balanced',
-          focusMix: { character: 40, plot: 40, world: 20 },
-          genreEmphasis: [],
-        },
-        chapterCount: 12,
-        chapters: [], // empty — will be filled by background derive
-      } as any;
+      useGenerationStore.getState().start({
+        kind: 'create-project',
+        label: 'your novel',
+        subtitle: 'Building quick outline…',
+        indeterminate: true,
+      });
+
+      // Fast path: single Haiku call for just a title + 12 chapter titles.
+      // ~1-3 seconds. Full premises come later from the background derive.
+      try {
+        const convo = messages.map(m => `${m.role}: ${m.content}`).join('\n');
+        const quickResult = await generate({
+          userId,
+          action: 'plan-project',
+          model: 'claude-haiku-4-5',
+          temperature: 0.7,
+          maxTokens: 600,
+          prompt: `Based on this conversation, generate a book title and 12 chapter titles.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown:\n{"title":"...","chapters":["Ch 1 title","Ch 2 title",...]}`,
+        });
+        try {
+          const parsed = JSON.parse((quickResult.text || '').trim().match(/\{[\s\S]*\}/)?.[0] || '{}');
+          if (parsed.title && Array.isArray(parsed.chapters) && parsed.chapters.length > 0) {
+            settings = {
+              title: parsed.title,
+              subtype: bookType,
+              targetLength: 'medium',
+              assistanceLevel: 3,
+              narrativeControls: {
+                toneMood: { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 },
+                pacing: 'balanced', dialogueWeight: 'balanced',
+                focusMix: { character: 40, plot: 40, world: 20 },
+                genreEmphasis: [],
+              },
+              chapterCount: parsed.chapters.length,
+              chapters: parsed.chapters.map((t: string, i: number) => ({
+                number: i + 1,
+                title: t,
+                premise: '',
+              })),
+            } as any;
+          }
+        } catch {}
+      } catch (e) {
+        console.warn('[Creation] Quick outline failed:', e);
+      }
+
+      // Fallback if quick call failed
+      if (!settings) {
+        const inferredTitle = messages.find(m => m.role === 'assistant')?.content?.match(/"([^"]+)"/)?.[1]
+          || 'Untitled Novel';
+        settings = {
+          title: inferredTitle,
+          subtype: bookType,
+          targetLength: 'medium',
+          assistanceLevel: 3,
+          narrativeControls: {
+            toneMood: { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 },
+            pacing: 'balanced', dialogueWeight: 'balanced',
+            focusMix: { character: 40, plot: 40, world: 20 },
+            genreEmphasis: [],
+          },
+          chapterCount: 12,
+          chapters: [],
+        } as any;
+      }
+
+      setCreatingProject(false);
     }
     // createProjectFromSettings calls its own start() which replaces the
     // "Building chapter outline" bar with the actual creation progress.
