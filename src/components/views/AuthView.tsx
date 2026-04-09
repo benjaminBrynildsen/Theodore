@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Lock, Mail, Sparkles, ArrowLeft } from 'lucide-react';
+import { Lock, Mail, Sparkles, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
@@ -16,6 +16,7 @@ export function AuthView({ onBack }: AuthViewProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const [devResetToken, setDevResetToken] = useState('');
@@ -197,13 +198,21 @@ export function AuthView({ onBack }: AuthViewProps) {
               <div className="relative mt-1">
                 <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary" />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={mode === 'register' ? 'At least 8 characters' : 'Your password'}
-                  className="w-full rounded-xl border border-black/10 bg-white pl-9 pr-3 py-2.5 text-sm outline-none focus:border-black/20 focus:ring-2 focus:ring-black/5"
+                  className="w-full rounded-xl border border-black/10 bg-white pl-9 pr-10 py-2.5 text-sm outline-none focus:border-black/20 focus:ring-2 focus:ring-black/5"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
               </div>
             </div>
           )}
