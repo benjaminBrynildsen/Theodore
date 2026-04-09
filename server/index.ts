@@ -1686,8 +1686,8 @@ app.post('/api/generate/image', async (req, res) => {
     res.json({
       imageUrl: result.imageUrl,
       prompt: result.prompt,
-      creditsUsed: result.creditsUsed,
-      creditsRemaining: Math.max(0, (auth.user.creditsRemaining ?? 0) - result.creditsUsed),
+      creditsUsed: auth?.user ? result.creditsUsed : 0,
+      creditsRemaining: auth?.user ? Math.max(0, (auth.user.creditsRemaining ?? 0) - result.creditsUsed) : null,
     });
   } catch (e: any) {
     console.error('Image generation error:', e);
