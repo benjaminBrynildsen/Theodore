@@ -1528,25 +1528,34 @@ app.get('/api/users/:id/credits', async (req, res) => {
 app.post('/api/generate/image', async (req, res) => {
   try {
     const auth = await getAuth(req);
-    if (!auth) return res.status(401).json({ error: 'Not signed in' });
-
     const { prompt, aspectRatio, style, projectId, target, targetId, provider } = req.body;
     if (!prompt && !target) return res.status(400).json({ error: 'Missing prompt or target' });
 
-    const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    // Guests can generate covers (Gemini is free). Other image types require auth.
+    const isGuestCover = !auth && target === 'cover';
+    if (!auth && !isGuestCover) return res.status(401).json({ error: 'Not signed in' });
 
-    // OpenAI image gen is the children's book beta path. Restricted to publisher
-    // tier only. Other tiers fall back to the default Gemini provider regardless
-    // of what the client requests, so we don't surface a 403 mid-flow.
+    if (isGuestCover) {
+      const ip = requestClientIp(req);
+      if (!takeRateLimitToken(res, 'image.guest', ip, 5, 60 * 60 * 1000)) return;
+    }
+
+    let user: any = null;
+    if (auth) {
+      const [u] = await db.select().from(users).where(eq(users.id, auth.user.id));
+      user = u;
+      if (!user) return res.status(404).json({ error: 'User not found' });
+    }
+
+    // OpenAI image gen is the children's book beta path. Restricted to publisher.
     const wantsOpenAI = provider === 'openai';
-    if (wantsOpenAI && user.plan !== 'publisher') {
+    if (wantsOpenAI && user?.plan !== 'publisher') {
       return res.status(403).json({
         error: 'Image generation is currently available on the Publisher plan only.',
       });
     }
 
-    if (user.creditsRemaining < IMAGE_CREDITS_PER_GEN) {
+    if (user && user.creditsRemaining < IMAGE_CREDITS_PER_GEN) {
       return res.status(402).json({ error: 'INSUFFICIENT_CREDITS', message: 'Not enough credits for image generation.' });
     }
 
@@ -1640,20 +1649,21 @@ app.post('/api/generate/image', async (req, res) => {
       projectId,
     });
 
-    // Deduct credits
-    await db.update(users).set({
-      creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
-    }).where(eq(users.id, auth.user.id));
+    // Deduct credits (skip for guests)
+    if (auth?.user) {
+      await db.update(users).set({
+        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
+      }).where(eq(users.id, auth.user.id));
 
-    // Log the transaction
-    await db.insert(creditTransactions).values({
-      userId: auth.user.id,
-      action: 'generate-image',
-      creditsUsed: result.creditsUsed,
-      model: result.model,
-      chapterId: null,
-      metadata: { projectId, prompt: result.prompt, imageUrl: result.imageUrl },
-    });
+      await db.insert(creditTransactions).values({
+        userId: auth.user.id,
+        action: 'generate-image',
+        creditsUsed: result.creditsUsed,
+        model: result.model,
+        chapterId: null,
+        metadata: { projectId, prompt: result.prompt, imageUrl: result.imageUrl },
+      });
+    }
 
     // If target is a canon entry, update its imageUrl
     if ((target === 'character' || target === 'location') && targetId) {
