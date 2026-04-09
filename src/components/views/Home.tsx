@@ -82,9 +82,15 @@ export function Home() {
                 className="w-full flex items-center gap-4 p-5 rounded-2xl glass hover:bg-white/70 active:scale-[0.99] transition-all duration-200 group animate-scale-in"
                 style={{ animationDelay: `${i * 60}ms` }}
               >
-                <div className="w-11 h-11 rounded-xl glass-pill flex items-center justify-center group-hover:bg-text-primary group-hover:text-text-inverse transition-all duration-200">
-                  <BookOpen size={18} />
-                </div>
+                {project.coverUrl && !project.coverUrl.startsWith('data:') ? (
+                  <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 shadow-sm">
+                    <img src={project.coverUrl} alt="" className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="w-14 h-14 rounded-xl glass-pill flex items-center justify-center group-hover:bg-text-primary group-hover:text-text-inverse transition-all duration-200">
+                    <BookOpen size={20} />
+                  </div>
+                )}
                 <div className="flex-1 text-left min-w-0">
                   <div className="font-medium">{project.title}</div>
                   <div className="text-sm text-text-tertiary capitalize">

@@ -31,7 +31,7 @@ export function ProjectView() {
   const [scaffoldCount, setScaffoldCount] = useState(12);
   const [scaffolding, setScaffolding] = useState(false);
   const [scaffoldError, setScaffoldError] = useState<string | null>(null);
-  const [showArcLabels, setShowArcLabels] = useState(true);
+  const [showArcLabels, setShowArcLabels] = useState(false);
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
   const project = getActiveProject();
@@ -173,12 +173,23 @@ export function ProjectView() {
     updateProject(project.id, { childrensBookSettings: updated });
   };
 
+  const hasCover = project.coverUrl && !project.coverUrl.startsWith('data:');
+
   return (
     <div className="flex-1 overflow-y-auto">
+      {/* Cover Hero — full-width book cover above chapters */}
+      {hasCover && (
+        <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-8">
+          <div className="rounded-2xl overflow-hidden shadow-lg aspect-square max-w-[320px] sm:max-w-[400px] mx-auto">
+            <img src={project.coverUrl} alt={project.title} className="w-full h-full object-cover" />
+          </div>
+        </div>
+      )}
+
       {/* Project Header */}
-      <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-12 pb-8">
-        <h1 className="text-3xl font-serif font-semibold tracking-tight mb-2">{project.title}</h1>
-        <div className="flex items-center gap-3">
+      <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-8 pb-8">
+        <h1 className="text-3xl font-serif font-semibold tracking-tight mb-2 text-center">{project.title}</h1>
+        <div className="flex items-center justify-center gap-3">
           <p className="text-text-tertiary text-sm capitalize">
             {project.subtype?.replace('-', ' ') || project.type} · {chapters.length} {isChildrensBook ? 'pages' : 'chapters'}
             {isChildrensBook && cbs
@@ -291,7 +302,7 @@ export function ProjectView() {
               <div>
                 <h3 className="text-sm font-semibold flex items-center gap-2">
                   <LayoutGrid size={15} className="text-purple-500" />
-                  Scaffold Story Outline
+                  Chapter Outline
                 </h3>
                 <p className="text-xs text-text-tertiary mt-1">
                   AI generates titles, premises, and beats for every {isChildrensBook ? 'page' : 'chapter'}
@@ -377,7 +388,7 @@ export function ProjectView() {
               )}
             >
               <Sparkles size={13} />
-              Scaffold Outline
+              Chapter Outline
             </button>
           ) : <div />}
           {chapters.length >= 2 && structure && !structure.isProcess && (
@@ -390,7 +401,7 @@ export function ProjectView() {
                   : 'glass-pill text-text-tertiary hover:bg-white/60'
               )}
             >
-              <span className="text-sm">📐</span>
+              <Sparkles size={13} />
               {structure.name}
             </button>
           )}
@@ -609,7 +620,7 @@ export function ProjectView() {
               )}
             >
               <Sparkles size={16} />
-              Scaffold Pages
+              Chapter Outline
             </button>
           </div>
         )}
