@@ -1600,27 +1600,38 @@ app.post('/api/generate/image', async (req, res) => {
         summary: scene.summary,
         characters: (chapter.premise as any)?.characters,
       });
-    } else if (target === 'cover' && projectId) {
-      const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
-      if (!project) return res.status(404).json({ error: 'Project not found' });
-      const nc = (project.narrativeControls as any) || {};
-      // Pull first 3 chapter premises for story context
-      const coverChapters = await db.select({ premise: chapters.premise })
-        .from(chapters).where(eq(chapters.projectId, projectId))
-        .orderBy(chapters.number).limit(3);
-      const chapterHints = coverChapters
-        .map(c => (c.premise as any)?.purpose).filter(Boolean).join('; ').slice(0, 300);
-      // Client can pass extra prompt context (e.g. chapter hints it already has)
+    } else if (target === 'cover') {
+      // Try DB first (authenticated users). Fall back to client-provided
+      // prompt for guests (whose projects only exist in localStorage).
+      const [project] = projectId
+        ? await db.select().from(projects).where(eq(projects.id, projectId))
+        : [];
       const clientPrompt = typeof prompt === 'string' ? prompt : '';
-      finalPrompt = buildBookCoverPrompt({
-        title: project.title,
-        type: project.type,
-        subtype: project.subtype || undefined,
-        genreEmphasis: nc.genreEmphasis,
-        toneMood: nc.toneMood,
-        coverStyle: style || 'illustrated',
-        chapterHints: clientPrompt || chapterHints,
-      });
+      if (project) {
+        const nc = (project.narrativeControls as any) || {};
+        const coverChapters = await db.select({ premise: chapters.premise })
+          .from(chapters).where(eq(chapters.projectId, projectId!))
+          .orderBy(chapters.number).limit(3);
+        const chapterHints = coverChapters
+          .map(c => (c.premise as any)?.purpose).filter(Boolean).join('; ').slice(0, 300);
+        finalPrompt = buildBookCoverPrompt({
+          title: project.title,
+          type: project.type,
+          subtype: project.subtype || undefined,
+          genreEmphasis: nc.genreEmphasis,
+          toneMood: nc.toneMood,
+          coverStyle: style || 'illustrated',
+          chapterHints: clientPrompt || chapterHints,
+        });
+      } else {
+        // Guest fallback: build prompt from whatever the client sent
+        finalPrompt = buildBookCoverPrompt({
+          title: 'Novel',
+          type: 'book',
+          coverStyle: style || 'illustrated',
+          chapterHints: clientPrompt,
+        });
+      }
     } else if (target === 'page' && targetId) {
       const [chapter] = await db.select().from(chapters).where(eq(chapters.id, targetId));
       if (!chapter) return res.status(404).json({ error: 'Page not found' });
