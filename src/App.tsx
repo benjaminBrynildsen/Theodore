@@ -112,13 +112,15 @@ export default function App() {
   }, [currentView]);
 
   // ── Meta Pixel: track sign-up ──
-  const prevUser = useRef(user);
+  // Only fire on ACTUAL new registrations, not session restoration.
+  // We listen for a custom event dispatched by the auth flow after
+  // a successful registration API call, not the user state change
+  // (which also fires on every page load when the session hydrates).
   useEffect(() => {
-    if (user && !prevUser.current) {
-      pixel.trackCompleteRegistration();
-    }
-    prevUser.current = user;
-  }, [user]);
+    const handler = () => pixel.trackCompleteRegistration();
+    window.addEventListener('theodore:registered', handler);
+    return () => window.removeEventListener('theodore:registered', handler);
+  }, []);
 
   const [showGuestChat, setShowGuestChat] = useState(false);
   const [guestInitialMessage, setGuestInitialMessage] = useState<string | undefined>();

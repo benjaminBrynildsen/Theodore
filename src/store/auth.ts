@@ -101,6 +101,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const user = coerceAuthUser(result);
       if (!user) throw new Error('Invalid auth response. Verify Theodore API is running on port 3001.');
       set({ user, loading: false, initialized: true });
+      window.dispatchEvent(new Event('theodore:registered'));
     } catch (e: any) {
       set({ loading: false, error: e?.message || 'Registration failed.' });
       throw e;
