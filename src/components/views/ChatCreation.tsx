@@ -675,8 +675,9 @@ Rules:
     const hydrationSeq = ++planHydrationSeqRef.current;
     const derivePromise = deriveSettingsFromConversation(newMessages);
     pendingDeriveRef.current = derivePromise;
+    // Don't clear the ref on resolve — createProject's background IIFE may
+    // need to await it after navigation. A resolved promise awaits instantly.
     derivePromise.then((derived) => {
-      pendingDeriveRef.current = null;
       if (!derived) return;
       if (hydrationSeq !== planHydrationSeqRef.current) return;
       if (derived.settings) {
@@ -1002,6 +1003,11 @@ ${childrensRule}`,
             }
           }
 
+          // Update the project title if the derive produced a better one
+          if (deriveSettings.title && deriveSettings.title !== 'Untitled Novel') {
+            useStore.getState().updateProject(projectId, { title: deriveSettings.title });
+          }
+
           // Create or refine chapters
           if (existingChapters.length === 0 && deriveSettings.chapters?.length > 0) {
             // Create chapters from scratch (navigated with empty project)
@@ -1052,10 +1058,11 @@ ${childrensRule}`,
         }
 
         try {
+          const currentChapters = useStore.getState().chapters.filter(c => c.projectId === projectId);
           const planningCorpus = [
             ...messages.map((m) => m.content),
             finalSettings.title,
-            ...scaffoldResults.map((ch) => `${ch.title}. ${ch.purpose}`),
+            ...currentChapters.map((ch) => `${ch.title}. ${ch.premise?.purpose || ''}`),
           ];
           const heuristicCanon = extractCanonFromConversation(planningCorpus);
           const canon = mergeCanonDrafts(aiCanonDraft, heuristicCanon);
