@@ -58,7 +58,7 @@ async function compositeTitle(
       // "Theodore" wordmark — top-left, elegant serif
       ctx.textAlign = 'left';
       ctx.font = '600 18px Georgia, "Palatino Linotype", serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fillStyle = '#ffffff';
       ctx.shadowColor = 'rgba(0,0,0,0.3)';
       ctx.shadowBlur = 4;
       ctx.shadowOffsetY = 1;
