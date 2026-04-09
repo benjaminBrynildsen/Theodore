@@ -15,7 +15,6 @@ import type { ElevenLabsVoice } from '../../lib/tts-types';
 import type { CharacterEntry } from '../../types/canon';
 import { autoAssignVoice, autoAssignVoiceFromPool, voiceAssignmentReason } from '../../lib/voice-assign';
 import { analyzeChapterScenes, isMetadataStale } from '../../lib/emotion-analyzer';
-import { BookCoverSection } from './BookCoverSection';
 import { tagDialogue } from '../../lib/dialogue-tagger';
 import { tagSFX } from '../../lib/sfx-tagger';
 import { tagDirections } from '../../lib/direction-tagger';
@@ -1129,9 +1128,6 @@ export function AudiobookPanel() {
             <button onClick={() => audioStore.setError(null)} className="ml-2 underline">dismiss</button>
           </div>
         )}
-
-        {/* Book Cover */}
-        <BookCoverSection projectId={project.id} />
 
         {/* Chapter List */}
         <div className="p-5">

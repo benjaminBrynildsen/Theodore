@@ -16,6 +16,7 @@ import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
 import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/MobilePlayer';
+import { MobileStudioPanel } from './components/layout/MobileStudioPanel';
 import * as pixel from './lib/pixel';
 
 const ProjectView = lazy(async () => {
@@ -351,23 +352,10 @@ export default function App() {
 
           {/* Mobile fullscreen — Studio (audiobook panel) */}
           {mobilePanel === 'studio' && (
-            <div className="sm:hidden fixed inset-0 z-40 bg-bg flex flex-col animate-fade-in">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-black/5">
-                <span className="text-sm font-semibold">Studio</span>
-                <button
-                  onClick={() => setMobilePanel(null)}
-                  className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
-                >
-                  <span className="text-xs font-medium">Done</span>
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto pb-16 min-h-0 [&>div]:h-auto [&>div]:min-h-0">
-                <AudiobookPanel />
-              </div>
-              <div className="flex-shrink-0 mb-14">
-                <MobilePlayerBar onExpand={() => setMobilePlayerExpanded(true)} />
-              </div>
-            </div>
+            <MobileStudioPanel
+              onClose={() => setMobilePanel(null)}
+              onExpandPlayer={() => setMobilePlayerExpanded(true)}
+            />
           )}
           {mobilePlayerExpanded && (
             <MobilePlayerFullscreen onCollapse={() => setMobilePlayerExpanded(false)} />
@@ -462,25 +450,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Mobile fullscreen — Studio (audiobook panel) */}
+      {/* Mobile fullscreen — Studio (audio + cover tabs) */}
       {mobilePanel === 'studio' && (
-        <div className="sm:hidden fixed inset-0 z-40 bg-bg flex flex-col animate-fade-in">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-black/5">
-            <span className="text-sm font-semibold">Studio</span>
-            <button
-              onClick={() => setMobilePanel(null)}
-              className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
-            >
-              <span className="text-xs font-medium">Done</span>
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto pb-16 min-h-0 [&>div]:h-auto [&>div]:min-h-0">
-            <AudiobookPanel />
-          </div>
-          <div className="flex-shrink-0 mb-14">
-            <MobilePlayerBar onExpand={() => setMobilePlayerExpanded(true)} />
-          </div>
-        </div>
+        <MobileStudioPanel
+          onClose={() => setMobilePanel(null)}
+          onExpandPlayer={() => setMobilePlayerExpanded(true)}
+        />
       )}
       {mobilePlayerExpanded && (
         <MobilePlayerFullscreen onCollapse={() => setMobilePlayerExpanded(false)} />
