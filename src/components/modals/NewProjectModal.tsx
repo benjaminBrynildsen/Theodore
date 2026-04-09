@@ -28,7 +28,7 @@ const projectTypes = [
 const bookSubtypes: { type: BookSubtype; label: string; desc: string; comingSoon?: boolean }[] = [
   { type: 'novel', label: 'Novel', desc: 'Full-length narrative fiction' },
   { type: 'short-stories', label: 'Short Story Collection', desc: 'Multiple connected or standalone stories' },
-  { type: 'childrens-book', label: "Children's Book", desc: 'Illustrated stories for young readers', comingSoon: true },
+  { type: 'childrens-book', label: "Children's Book", desc: 'Illustrated stories for young readers' },
 ];
 
 interface Props {
