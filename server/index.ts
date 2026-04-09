@@ -1906,8 +1906,8 @@ app.post('/api/tts/generate/guest', async (req, res) => {
     if ((provider || 'openai') !== 'openai') {
       return res.status(403).json({ error: 'Guest audio sample is only available with OpenAI TTS.' });
     }
-    if (typeof prose !== 'string' || prose.length > 2000) {
-      return res.status(400).json({ error: 'Guest audio sample is limited to 2000 characters.' });
+    if (typeof prose !== 'string' || prose.length > 20000) {
+      return res.status(400).json({ error: 'Guest audio sample is limited to 20,000 characters.' });
     }
 
     const ip = requestClientIp(req);
