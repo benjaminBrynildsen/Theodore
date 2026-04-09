@@ -19,6 +19,7 @@ interface Overview {
   mrr: number;
   funnel?: {
     signedUp: number;
+    guestsUsedChat?: number;
     openedImagineChat: number;
     createdProject: number;
     wroteChapter: number;
@@ -60,14 +61,15 @@ interface UserRow {
 
 interface ActivityRow {
   id: number;
-  userId: string;
+  userId: string | null;
   action: string;
   creditsUsed: number;
-  model: string;
+  model: string | null;
   createdAt: string;
   userName: string | null;
   userEmail: string | null;
   userPlan: string | null;
+  isGuest?: boolean;
 }
 
 interface UserDetail {
@@ -325,8 +327,9 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                     const f = overview.funnel!;
                     const base = Math.max(f.signedUp, 1);
                     const steps: { label: string; value: number; hint: string }[] = [
+                      { label: 'Guest visitors (chat)', value: f.guestsUsedChat || 0, hint: 'Tried Imagine without signing up' },
                       { label: 'Signed up', value: f.signedUp, hint: 'Accounts created' },
-                      { label: 'Opened Imagine chat', value: f.openedImagineChat, hint: 'Started planning a story' },
+                      { label: 'Opened Imagine chat', value: f.openedImagineChat, hint: 'Started planning a story (signed-in)' },
                       { label: 'Created a project', value: f.createdProject, hint: 'Saved a project' },
                       { label: 'Wrote a chapter', value: f.wroteChapter, hint: 'At least one chapter' },
                       { label: 'Generated AI content', value: f.generatedAi, hint: 'Used write/continue' },
@@ -342,7 +345,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                           <div className="flex-1 h-3 bg-black/5 rounded-full overflow-hidden">
                             <div
                               className="h-full bg-text-primary/40 rounded-full transition-all"
-                              style={{ width: `${pct}%` }}
+                              style={{ width: `${Math.min(pct, 100)}%` }}
                             />
                           </div>
                           <span className="text-sm font-semibold text-text-primary w-12 text-right tabular-nums">{s.value}</span>
@@ -774,22 +777,40 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {/* ========== Activity Feed ========== */}
         {view === 'activity' && (
           <div className="max-w-5xl mx-auto">
-            <div className="text-xs text-text-tertiary mb-3">Recent generations across all users</div>
+            <div className="text-xs text-text-tertiary mb-3">Recent generations across all users (including signed-out guests)</div>
             <div className="space-y-1">
               {activityList.map((a) => {
                 const Icon = ACTION_ICONS[a.action] || Zap;
                 return (
-                  <div key={a.id} className="flex items-center gap-3 px-4 py-2.5 rounded-xl glass-pill">
+                  <div
+                    key={`${a.isGuest ? 'g' : 'u'}-${a.id}`}
+                    className={cn(
+                      'flex items-center gap-3 px-4 py-2.5 rounded-xl glass-pill',
+                      a.isGuest && 'border border-dashed border-black/10'
+                    )}
+                  >
                     <Icon size={14} className="text-text-tertiary flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-text-primary truncate">
-                        {a.userName || a.userEmail || 'Unknown'}
+                        {a.isGuest ? (
+                          <span className="italic text-text-secondary">{a.userName || 'Anonymous guest'}</span>
+                        ) : (
+                          a.userName || a.userEmail || 'Unknown'
+                        )}
                       </div>
-                      <div className="text-[11px] text-text-tertiary">{a.action} · {a.model}</div>
+                      <div className="text-[11px] text-text-tertiary">{a.action}{a.model ? ` · ${a.model}` : ''}</div>
                     </div>
-                    {a.userPlan && <PlanBadge plan={a.userPlan} />}
+                    {a.isGuest ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-800">
+                        Guest
+                      </span>
+                    ) : (
+                      a.userPlan && <PlanBadge plan={a.userPlan} />
+                    )}
                     <div className="text-right">
-                      <div className="text-xs font-medium text-text-primary">-{a.creditsUsed}</div>
+                      <div className="text-xs font-medium text-text-primary">
+                        {a.isGuest ? 'free' : `-${a.creditsUsed}`}
+                      </div>
                       <div className="text-[10px] text-text-tertiary">{timeAgo(a.createdAt)}</div>
                     </div>
                   </div>

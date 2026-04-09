@@ -1,7 +1,7 @@
 // Admin API — dashboard endpoints for platform analytics
 import type { Request, Response, NextFunction } from 'express';
 import { db } from './db.js';
-import { users, projects, chapters, creditTransactions, audioGenerations } from './schema.js';
+import { users, projects, chapters, creditTransactions, audioGenerations, guestEvents } from './schema.js';
 import { sql, eq, desc, count, sum } from 'drizzle-orm';
 import { getAuth } from './auth.js';
 
@@ -233,8 +233,14 @@ export async function getOverview(_req: Request, res: Response) {
         .where(sql`${creditTransactions.action} IN ('generate', 'generate-stream')`),
     ]);
 
+    // Guest visitors who hit the Imagine chat without signing up
+    const [{ value: guestVisitors }] = await db
+      .select({ value: sql<number>`COUNT(DISTINCT ${guestEvents.ipHash})` })
+      .from(guestEvents);
+
     const funnel = {
       signedUp: Number(totalUsers),
+      guestsUsedChat: Number(guestVisitors) || 0,
       openedImagineChat: Number(usersOpenedChat) || 0,
       createdProject: Number(usersWithProject) || 0,
       wroteChapter: Number(usersWithChapter) || 0,
@@ -394,7 +400,7 @@ export async function getActivity(req: Request, res: Response) {
 
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
 
-    const rows = await db
+    const authedRows = await db
       .select({
         id: creditTransactions.id,
         userId: creditTransactions.userId,
@@ -413,7 +419,45 @@ export async function getActivity(req: Request, res: Response) {
       .orderBy(desc(creditTransactions.createdAt))
       .limit(limit);
 
-    res.json({ activity: rows });
+    // Fold in guest (signed-out) activity — these users don't have accounts
+    // so they're invisible in credit_transactions. Show them as anonymous
+    // rows tagged with isGuest:true and a stable ipHash-prefix label.
+    const guestRows = await db
+      .select({
+        id: guestEvents.id,
+        ipHash: guestEvents.ipHash,
+        event: guestEvents.event,
+        action: guestEvents.action,
+        model: guestEvents.model,
+        createdAt: guestEvents.createdAt,
+      })
+      .from(guestEvents)
+      .orderBy(desc(guestEvents.createdAt))
+      .limit(limit);
+
+    const guestAsActivity = guestRows.map((g) => ({
+      id: -g.id, // negative to avoid key collision with credit_transactions ids
+      userId: null as string | null,
+      action: g.action || g.event,
+      creditsUsed: 0,
+      model: g.model || null,
+      chapterId: null as string | null,
+      metadata: null,
+      createdAt: g.createdAt,
+      userName: `Guest · ${(g.ipHash || '').slice(0, 6)}`,
+      userEmail: null as string | null,
+      userPlan: 'guest' as string,
+      isGuest: true as const,
+    }));
+
+    const merged = [
+      ...authedRows.map((r) => ({ ...r, isGuest: false as const })),
+      ...guestAsActivity,
+    ]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit);
+
+    res.json({ activity: merged });
   } catch (e: any) {
     console.error('[Admin] activity error:', e);
     res.status(500).json({ error: 'Internal server error' });
