@@ -566,10 +566,12 @@ export function ChatCreation({ onClose, guestMode, initialMessage, onRequireAuth
     if (!liveMessages.some((m) => m.role === 'user')) return null;
     try {
       const conversation = liveMessages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
+      // Use Haiku for the derive — it's structured JSON output that
+      // doesn't need Sonnet's reasoning, and Haiku is ~3x faster.
       const result = await generate({
         userId,
         action: 'plan-project',
-        model: resolveModel(settings.ai.preferredModel),
+        model: 'claude-haiku-4-5',
         temperature: 0.55,
         maxTokens: 4000,
         systemPrompt: `You maintain Theodore's live planning card while a conversation is still in progress.
@@ -961,8 +963,16 @@ ${childrensRule}`,
       onClose();
 
       // Best-effort: background tasks run AFTER navigation.
-      // Cover gen, scaffold refinement, API persistence, canon seeding.
+      // Show the progress bar so the user sees things are happening.
       void (async () => {
+        const genStore = useGenerationStore.getState();
+        genStore.start({
+          kind: 'create-project',
+          label: finalSettings.title || project.title,
+          subtitle: 'Building chapter outline…',
+          indeterminate: true,
+        });
+
         // 1. Cover generation (Gemini image — parallel with everything else)
         const seedHints = finalSettings.chapters
           .slice(0, 3).map(ch => ch.premise).filter(Boolean).join('; ').slice(0, 300);
@@ -976,9 +986,7 @@ ${childrensRule}`,
           }
         });
 
-        // 2. Scaffold: if we navigated with zero chapters (derive wasn't ready),
-        //    we need to AWAIT the derive + create chapters from scratch. If we
-        //    already have seed chapters, just refine them in the background.
+        // 2. Scaffold: get chapters from derive then add them
         try {
           let deriveSettings = finalSettings;
           const existingChapters = useStore.getState().chapters
@@ -986,6 +994,7 @@ ${childrensRule}`,
 
           // If no chapters exist yet, we navigated early — wait for derive
           if (existingChapters.length === 0 && pendingDeriveRef.current) {
+            useGenerationStore.getState().setSubtitle('Waiting for chapter outline…');
             const derived = await pendingDeriveRef.current;
             if (derived?.settings) {
               deriveSettings = normalizeProposedSettings(derived.settings);
@@ -997,21 +1006,23 @@ ${childrensRule}`,
 
           // If still no chapters from derive, try a fresh one
           if (existingChapters.length === 0 && (!deriveSettings.chapters || deriveSettings.chapters.length === 0)) {
+            useGenerationStore.getState().setSubtitle('Building chapter outline…');
             const derived = await deriveSettingsFromConversation(messages);
             if (derived?.settings) {
               deriveSettings = normalizeProposedSettings(derived.settings);
             }
           }
 
-          // Update the project title if the derive produced a better one
+          // Update the project title
           if (deriveSettings.title && deriveSettings.title !== 'Untitled Novel') {
             useStore.getState().updateProject(projectId, { title: deriveSettings.title });
+            useGenerationStore.getState().setSubtitle(`Adding chapters for "${deriveSettings.title}"…`);
           }
 
           // Create or refine chapters
           if (existingChapters.length === 0 && deriveSettings.chapters?.length > 0) {
-            // Create chapters from scratch (navigated with empty project)
             for (const ch of deriveSettings.chapters) {
+              useGenerationStore.getState().setSubtitle(`Adding Ch. ${ch.number}: ${ch.title}…`);
               await addChapter({
                 id: generateId(),
                 ...createChapterFromScaffold(projectId, {
@@ -1022,7 +1033,7 @@ ${childrensRule}`,
             }
             console.log(`[Creation] Background: created ${deriveSettings.chapters.length} chapters`);
           } else if (existingChapters.length > 0) {
-            // Refine existing seed chapters with Haiku scaffold
+            useGenerationStore.getState().setSubtitle('Refining chapter outlines…');
             const refined = await generateAutomaticOutline(project, deriveSettings, now);
             if (refined.length > 0) {
               const current = useStore.getState().chapters
@@ -1037,7 +1048,6 @@ ${childrensRule}`,
                   });
                 }
               }
-              console.log(`[Creation] Scaffold refined ${refined.length} chapters`);
             }
           }
         } catch (e) {
