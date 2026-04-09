@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Users, CreditCard, TrendingUp, Activity, FileText,
   ChevronRight, ArrowLeft, BarChart3, Zap, BookOpen,
-  Headphones, Image, Music, Sparkles, RefreshCw,
+  Headphones, Image, Music, Sparkles, RefreshCw, Globe,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -17,6 +17,14 @@ interface Overview {
   recentSignups: number;
   monthlySignups: number;
   mrr: number;
+  funnel?: {
+    signedUp: number;
+    guestsUsedChat?: number;
+    openedImagineChat: number;
+    createdProject: number;
+    wroteChapter: number;
+    generatedAi: number;
+  };
   planBreakdown: { plan: string; count: number }[];
   creditsByAction: { action: string; totalCredits: number; count: number }[];
   costs?: {
@@ -53,14 +61,15 @@ interface UserRow {
 
 interface ActivityRow {
   id: number;
-  userId: string;
+  userId: string | null;
   action: string;
   creditsUsed: number;
-  model: string;
+  model: string | null;
   createdAt: string;
   userName: string | null;
   userEmail: string | null;
   userPlan: string | null;
+  isGuest?: boolean;
 }
 
 interface UserDetail {
@@ -73,6 +82,16 @@ interface UserDetail {
 interface DailyStats {
   signups: { day: string; count: number }[];
   creditsPerDay: { day: string; total: number; count: number }[];
+}
+
+interface TrafficStats {
+  views: { total: number; last24h: number; last7d: number; last30d: number };
+  visitors: { total: number; last24h: number; last7d: number; last30d: number };
+  topReferrers: { host: string; count: number }[];
+  topCountries: { country: string; count: number }[];
+  topPaths: { path: string; count: number }[];
+  topCampaigns: { source: string | null; medium: string | null; campaign: string | null; count: number }[];
+  daily: { day: string; views: number; visitors: number }[];
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
@@ -141,7 +160,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'users' | 'activity' | 'user-detail';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'user-detail';
 
 export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<View>('overview');
@@ -150,6 +169,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [activityList, setActivityList] = useState<ActivityRow[]>([]);
   const [userDetail, setUserDetail] = useState<UserDetail | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStats | null>(null);
+  const [traffic, setTraffic] = useState<TrafficStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -178,6 +198,15 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     setLoading(false);
   };
 
+  const loadTraffic = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchJson<TrafficStats>('/traffic');
+      setTraffic(data);
+    } catch { setError('Failed to load traffic.'); }
+    setLoading(false);
+  };
+
   const loadActivity = async () => {
     setLoading(true);
     try {
@@ -202,6 +231,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (view === 'users' && !usersList) loadUsers();
     if (view === 'activity' && activityList.length === 0) loadActivity();
+    if (view === 'traffic' && !traffic) loadTraffic();
   }, [view]);
 
   if (error === 'Access denied — admin only.') {
@@ -219,6 +249,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
   const tabs: { id: View; label: string; icon: typeof Users }[] = [
     { id: 'overview', label: 'Overview', icon: BarChart3 },
+    { id: 'traffic', label: 'Traffic', icon: Globe },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'activity', label: 'Activity', icon: Activity },
   ];
@@ -232,7 +263,12 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         </button>
         <h1 className="text-lg font-serif font-semibold">Admin Dashboard</h1>
         <button
-          onClick={() => { if (view === 'overview') loadOverview(); else if (view === 'users') loadUsers(); else loadActivity(); }}
+          onClick={() => {
+            if (view === 'overview') loadOverview();
+            else if (view === 'traffic') loadTraffic();
+            else if (view === 'users') loadUsers();
+            else loadActivity();
+          }}
           className="ml-auto p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
         >
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
@@ -280,6 +316,47 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
               <StatCard label="Credits Used" value={overview.totalCreditsUsed.toLocaleString()} icon={Zap} />
               <StatCard label="Projects" value={overview.totalProjects} sub={`${overview.totalChapters} chapters`} icon={BookOpen} />
             </div>
+
+            {/* ===== Activation Funnel ===== */}
+            {overview.funnel && (
+              <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Activation Funnel</h3>
+                <p className="text-[11px] text-text-tertiary mb-4">How many signups are actually using the product.</p>
+                <div className="space-y-2">
+                  {(() => {
+                    const f = overview.funnel!;
+                    const base = Math.max(f.signedUp, 1);
+                    const steps: { label: string; value: number; hint: string }[] = [
+                      { label: 'Guest visitors (chat)', value: f.guestsUsedChat || 0, hint: 'Tried Imagine without signing up' },
+                      { label: 'Signed up', value: f.signedUp, hint: 'Accounts created' },
+                      { label: 'Opened Imagine chat', value: f.openedImagineChat, hint: 'Started planning a story (signed-in)' },
+                      { label: 'Created a project', value: f.createdProject, hint: 'Saved a project' },
+                      { label: 'Wrote a chapter', value: f.wroteChapter, hint: 'At least one chapter' },
+                      { label: 'Generated AI content', value: f.generatedAi, hint: 'Used write/continue' },
+                    ];
+                    return steps.map((s) => {
+                      const pct = (s.value / base) * 100;
+                      return (
+                        <div key={s.label} className="flex items-center gap-3">
+                          <div className="w-40 shrink-0">
+                            <div className="text-xs font-medium text-text-secondary">{s.label}</div>
+                            <div className="text-[10px] text-text-tertiary">{s.hint}</div>
+                          </div>
+                          <div className="flex-1 h-3 bg-black/5 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-text-primary/40 rounded-full transition-all"
+                              style={{ width: `${Math.min(pct, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-semibold text-text-primary w-12 text-right tabular-nums">{s.value}</span>
+                          <span className="text-[11px] text-text-tertiary w-10 text-right tabular-nums">{Math.round(pct)}%</span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            )}
 
             {/* Plan breakdown + Credits by action */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -441,6 +518,150 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        {/* ========== Traffic ========== */}
+        {view === 'traffic' && (
+          <div className="max-w-5xl mx-auto space-y-6">
+            {!traffic && !loading && (
+              <div className="glass-pill rounded-2xl p-8 text-center text-sm text-text-tertiary">
+                No traffic data yet. Visits will start appearing here on the next deploy.
+              </div>
+            )}
+            {traffic && (
+              <>
+                {/* Top stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <StatCard label="Views (24h)" value={traffic.views.last24h.toLocaleString()} sub={`${traffic.visitors.last24h} visitors`} icon={Activity} />
+                  <StatCard label="Views (7d)" value={traffic.views.last7d.toLocaleString()} sub={`${traffic.visitors.last7d} visitors`} icon={TrendingUp} />
+                  <StatCard label="Views (30d)" value={traffic.views.last30d.toLocaleString()} sub={`${traffic.visitors.last30d} visitors`} icon={BarChart3} />
+                  <StatCard label="Total Views" value={traffic.views.total.toLocaleString()} sub={`${traffic.visitors.total.toLocaleString()} visitors`} icon={Globe} />
+                </div>
+
+                {/* Daily sparkline (14d) */}
+                <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                  <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Last 14 Days</h3>
+                  {traffic.daily.length === 0 ? (
+                    <div className="text-xs text-text-tertiary">No visits in the last 14 days.</div>
+                  ) : (
+                    <div className="flex items-end gap-1 h-24">
+                      {traffic.daily.map((d) => {
+                        const max = Math.max(...traffic.daily.map((x) => x.views), 1);
+                        const pct = (d.views / max) * 100;
+                        const date = new Date(d.day);
+                        return (
+                          <div key={d.day} className="flex-1 flex flex-col items-center gap-1 group">
+                            <div className="flex-1 w-full flex items-end">
+                              <div
+                                className="w-full bg-text-primary/30 rounded-t group-hover:bg-text-primary/60 transition-colors"
+                                style={{ height: `${pct}%` }}
+                                title={`${date.toLocaleDateString()}: ${d.views} views · ${d.visitors} visitors`}
+                              />
+                            </div>
+                            <span className="text-[9px] text-text-tertiary">{date.getDate()}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Two-col: Referrers + Countries */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                    <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Top Referrers (30d)</h3>
+                    {traffic.topReferrers.length === 0 ? (
+                      <div className="text-xs text-text-tertiary">No referrer data yet.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {traffic.topReferrers.map((r) => {
+                          const max = traffic.topReferrers[0]?.count || 1;
+                          const pct = (r.count / max) * 100;
+                          return (
+                            <div key={r.host} className="flex items-center gap-3">
+                              <span className="text-xs font-medium text-text-secondary truncate w-32">{r.host}</span>
+                              <div className="flex-1 h-2 bg-black/5 rounded-full overflow-hidden">
+                                <div className="h-full bg-text-primary/30 rounded-full" style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="text-sm font-medium text-text-secondary w-10 text-right">{r.count}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                    <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Top Countries (30d)</h3>
+                    {traffic.topCountries.length === 0 ? (
+                      <div className="text-xs text-text-tertiary">
+                        No country data yet — Cloudflare's <code>cf-ipcountry</code> header is required for this.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {traffic.topCountries.map((r) => {
+                          const max = traffic.topCountries[0]?.count || 1;
+                          const pct = (r.count / max) * 100;
+                          return (
+                            <div key={r.country} className="flex items-center gap-3">
+                              <span className="text-xs font-mono font-medium text-text-secondary w-10">{r.country}</span>
+                              <div className="flex-1 h-2 bg-black/5 rounded-full overflow-hidden">
+                                <div className="h-full bg-text-primary/30 rounded-full" style={{ width: `${pct}%` }} />
+                              </div>
+                              <span className="text-sm font-medium text-text-secondary w-10 text-right">{r.count}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Top paths */}
+                <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                  <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Top Pages (30d)</h3>
+                  <div className="space-y-2">
+                    {traffic.topPaths.map((r) => {
+                      const max = traffic.topPaths[0]?.count || 1;
+                      const pct = (r.count / max) * 100;
+                      return (
+                        <div key={r.path} className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-text-secondary truncate flex-1">{r.path}</span>
+                          <div className="w-32 h-2 bg-black/5 rounded-full overflow-hidden">
+                            <div className="h-full bg-text-primary/30 rounded-full" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-sm font-medium text-text-secondary w-10 text-right">{r.count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* UTM campaigns */}
+                <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                  <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Ad Campaigns (UTM, 30d)</h3>
+                  {traffic.topCampaigns.length === 0 ? (
+                    <div className="text-xs text-text-tertiary">
+                      No tagged traffic yet. Add <code>?utm_source=facebook&amp;utm_medium=cpc&amp;utm_campaign=launch</code> to your ad URLs to track them here.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {traffic.topCampaigns.map((r, i) => (
+                        <div key={i} className="flex items-center gap-3 text-xs">
+                          <span className="font-mono font-medium text-text-secondary">{r.source || '—'}</span>
+                          <span className="text-text-tertiary">/</span>
+                          <span className="font-mono text-text-secondary">{r.medium || '—'}</span>
+                          <span className="text-text-tertiary">/</span>
+                          <span className="font-mono text-text-secondary flex-1 truncate">{r.campaign || '—'}</span>
+                          <span className="font-medium text-text-secondary w-10 text-right">{r.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* ========== Users ========== */}
         {view === 'users' && usersList && (
           <div className="max-w-5xl mx-auto">
@@ -556,22 +777,40 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {/* ========== Activity Feed ========== */}
         {view === 'activity' && (
           <div className="max-w-5xl mx-auto">
-            <div className="text-xs text-text-tertiary mb-3">Recent generations across all users</div>
+            <div className="text-xs text-text-tertiary mb-3">Recent generations across all users (including signed-out guests)</div>
             <div className="space-y-1">
               {activityList.map((a) => {
                 const Icon = ACTION_ICONS[a.action] || Zap;
                 return (
-                  <div key={a.id} className="flex items-center gap-3 px-4 py-2.5 rounded-xl glass-pill">
+                  <div
+                    key={`${a.isGuest ? 'g' : 'u'}-${a.id}`}
+                    className={cn(
+                      'flex items-center gap-3 px-4 py-2.5 rounded-xl glass-pill',
+                      a.isGuest && 'border border-dashed border-black/10'
+                    )}
+                  >
                     <Icon size={14} className="text-text-tertiary flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-text-primary truncate">
-                        {a.userName || a.userEmail || 'Unknown'}
+                        {a.isGuest ? (
+                          <span className="italic text-text-secondary">{a.userName || 'Anonymous guest'}</span>
+                        ) : (
+                          a.userName || a.userEmail || 'Unknown'
+                        )}
                       </div>
-                      <div className="text-[11px] text-text-tertiary">{a.action} · {a.model}</div>
+                      <div className="text-[11px] text-text-tertiary">{a.action}{a.model ? ` · ${a.model}` : ''}</div>
                     </div>
-                    {a.userPlan && <PlanBadge plan={a.userPlan} />}
+                    {a.isGuest ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-800">
+                        Guest
+                      </span>
+                    ) : (
+                      a.userPlan && <PlanBadge plan={a.userPlan} />
+                    )}
                     <div className="text-right">
-                      <div className="text-xs font-medium text-text-primary">-{a.creditsUsed}</div>
+                      <div className="text-xs font-medium text-text-primary">
+                        {a.isGuest ? 'free' : `-${a.creditsUsed}`}
+                      </div>
                       <div className="text-[10px] text-text-tertiary">{timeAgo(a.createdAt)}</div>
                     </div>
                   </div>

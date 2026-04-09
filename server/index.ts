@@ -6,7 +6,8 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { db, pool } from './db.js';
-import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests } from './schema.js';
+import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents } from './schema.js';
+import crypto from 'crypto';
 import {
   clearAllUserSessions,
   createSession,
@@ -26,6 +27,7 @@ import { generate, generateStream } from './ai.js';
 import { generateImage, generateImageOpenAI, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, getVoicesWithPreviews } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats } from './admin.js';
+import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
@@ -1164,6 +1166,27 @@ const GUEST_ALLOWED_ACTIONS = new Set([
 ]);
 const activeGuestIps = new Set<string>();
 
+const GUEST_SALT = process.env.PAGEVIEW_SALT || process.env.SESSION_SECRET || 'theodore-guest-salt';
+function hashGuestIp(ip: string): string {
+  return crypto.createHash('sha256').update(ip + GUEST_SALT).digest('hex').slice(0, 32);
+}
+async function logGuestEvent(opts: {
+  ip: string; event: string; action?: string; model?: string; inputTokens?: number; outputTokens?: number;
+}) {
+  try {
+    await db.insert(guestEvents).values({
+      ipHash: hashGuestIp(opts.ip),
+      event: opts.event,
+      action: opts.action ?? null,
+      model: opts.model ?? null,
+      inputTokens: opts.inputTokens ?? 0,
+      outputTokens: opts.outputTokens ?? 0,
+    });
+  } catch (err) {
+    console.warn('[guest-events] log failed:', (err as Error)?.message);
+  }
+}
+
 app.post('/api/generate/guest', async (req, res) => {
   try {
     const { prompt, systemPrompt, model, maxTokens, temperature, action } = req.body;
@@ -1191,6 +1214,11 @@ app.post('/api/generate/guest', async (req, res) => {
         projectId: undefined,
         chapterId: undefined,
         action,
+      });
+
+      void logGuestEvent({
+        ip, event: 'generate', action, model: result.model,
+        inputTokens: result.inputTokens, outputTokens: result.outputTokens,
       });
 
       res.json({
@@ -1313,6 +1341,11 @@ app.post('/api/generate/guest/stream', async (req, res) => {
         { prompt, systemPrompt, model, maxTokens: cappedMaxTokens, temperature, userId: undefined, projectId: undefined, chapterId: undefined, action },
         res,
       );
+
+      void logGuestEvent({
+        ip, event: 'generate-stream', action,
+        inputTokens: result.inputTokens, outputTokens: result.outputTokens,
+      });
 
       res.write(`data: ${JSON.stringify({
         type: 'done',
@@ -1828,6 +1861,8 @@ app.post('/api/tts/generate/guest', async (req, res) => {
     // 1 free guest TTS per IP per day. The same helper that auth/generate use.
     if (!takeRateLimitToken(res, 'tts.guest', ip, 1, 24 * 60 * 60 * 1000)) return;
 
+    void logGuestEvent({ ip, event: 'tts', action: 'generate-audio', model: model || 'openai-gpt-4o-mini-tts' });
+
     const jobId = `tts-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const job: TTSJob = { id: jobId, status: 'pending', createdAt: Date.now() };
     ttsJobs.set(jobId, job);
@@ -2184,6 +2219,7 @@ app.get('/api/admin/users', getUsers);
 app.get('/api/admin/users/:userId', getUserDetail);
 app.get('/api/admin/activity', getActivity);
 app.get('/api/admin/stats/daily', getDailyStats);
+app.get('/api/admin/traffic', getTrafficStats);
 
 // ========== Serve generated images ==========
 const uploadsPath = path.resolve(process.cwd(), 'uploads');
@@ -2220,6 +2256,9 @@ app.get('/api/share/audio/:chapterId', async (req, res) => {
 });
 
 const distPath = path.resolve(process.cwd(), 'dist');
+// Log pageviews BEFORE the static handler so we capture HTML navigations
+// (bundled assets are skipped inside the middleware via /assets/ prefix).
+app.use(pageViewMiddleware);
 app.use(express.static(distPath));
 app.get('/{*splat}', (_req, res) => {
   const indexFile = path.join(distPath, 'index.html');

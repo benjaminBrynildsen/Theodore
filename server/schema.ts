@@ -158,6 +158,40 @@ export const supportRequests = pgTable('support_requests', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ========== Guest Events ==========
+// Anonymous visitor activity on the Imagine chat / guest endpoints.
+// Logged because guests have no userId → they never hit credit_transactions,
+// which means signed-out activity is otherwise invisible to the admin.
+export const guestEvents = pgTable('guest_events', {
+  id: serial('id').primaryKey(),
+  ipHash: text('ip_hash').notNull(),
+  event: text('event').notNull(), // 'generate', 'generate-stream', 'tts'
+  action: text('action'), // sub-action (e.g. 'plan-project')
+  model: text('model'),
+  inputTokens: integer('input_tokens').default(0),
+  outputTokens: integer('output_tokens').default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ========== Page Views (site analytics) ==========
+// Lightweight visit log for the marketing/landing side of theodore.tools.
+// Populated by a middleware on non-API HTML GETs. Admin dashboard reads
+// aggregates from here (total / 24h / 7d / top referrers / top countries).
+export const pageViews = pgTable('page_views', {
+  id: serial('id').primaryKey(),
+  path: text('path').notNull(),
+  referrer: text('referrer'),
+  referrerHost: text('referrer_host'),
+  userAgent: text('user_agent'),
+  ipHash: text('ip_hash'), // sha256 of ip + salt (privacy)
+  country: text('country'),
+  utmSource: text('utm_source'),
+  utmMedium: text('utm_medium'),
+  utmCampaign: text('utm_campaign'),
+  userId: text('user_id'), // null for anon visitors
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),

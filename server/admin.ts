@@ -1,7 +1,7 @@
 // Admin API — dashboard endpoints for platform analytics
 import type { Request, Response, NextFunction } from 'express';
 import { db } from './db.js';
-import { users, projects, chapters, creditTransactions, audioGenerations } from './schema.js';
+import { users, projects, chapters, creditTransactions, audioGenerations, guestEvents } from './schema.js';
 import { sql, eq, desc, count, sum } from 'drizzle-orm';
 import { getAuth } from './auth.js';
 
@@ -213,10 +213,45 @@ export async function getOverview(_req: Request, res: Response) {
     const totalProviderCost = Math.round((elevenLabsCost + openaiTextCost + openaiTTSCost) * 100) / 100;
     const totalMonthlyCost = totalProviderCost;
 
+    // ===== Activation funnel =====
+    // How far do users actually get after signing up?
+    //   1. Signed up             → row in users
+    //   2. Opened Imagine chat   → at least one 'plan-project' credit txn
+    //   3. Created a project     → row in projects
+    //   4. Wrote a chapter       → row in chapters (scaffolded or AI-generated)
+    //   5. Generated AI content  → any 'generate' / 'generate-stream' txn
+    const [[{ value: usersOpenedChat }], [{ value: usersWithProject }], [{ value: usersWithChapter }], [{ value: usersGenerated }]] = await Promise.all([
+      db.select({ value: sql<number>`COUNT(DISTINCT ${creditTransactions.userId})` })
+        .from(creditTransactions)
+        .where(sql`${creditTransactions.action} IN ('plan-project', 'scaffold-chapters')`),
+      db.select({ value: sql<number>`COUNT(DISTINCT ${projects.userId})` }).from(projects),
+      db.select({ value: sql<number>`COUNT(DISTINCT ${projects.userId})` })
+        .from(chapters)
+        .innerJoin(projects, eq(chapters.projectId, projects.id)),
+      db.select({ value: sql<number>`COUNT(DISTINCT ${creditTransactions.userId})` })
+        .from(creditTransactions)
+        .where(sql`${creditTransactions.action} IN ('generate', 'generate-stream')`),
+    ]);
+
+    // Guest visitors who hit the Imagine chat without signing up
+    const [{ value: guestVisitors }] = await db
+      .select({ value: sql<number>`COUNT(DISTINCT ${guestEvents.ipHash})` })
+      .from(guestEvents);
+
+    const funnel = {
+      signedUp: Number(totalUsers),
+      guestsUsedChat: Number(guestVisitors) || 0,
+      openedImagineChat: Number(usersOpenedChat) || 0,
+      createdProject: Number(usersWithProject) || 0,
+      wroteChapter: Number(usersWithChapter) || 0,
+      generatedAi: Number(usersGenerated) || 0,
+    };
+
     res.json({
       totalUsers,
       totalProjects,
       totalChapters,
+      funnel,
       totalCreditsUsed: Number(totalCreditsUsed) || 0,
       totalAudioGens,
       recentSignups,
@@ -365,7 +400,7 @@ export async function getActivity(req: Request, res: Response) {
 
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
 
-    const rows = await db
+    const authedRows = await db
       .select({
         id: creditTransactions.id,
         userId: creditTransactions.userId,
@@ -384,7 +419,45 @@ export async function getActivity(req: Request, res: Response) {
       .orderBy(desc(creditTransactions.createdAt))
       .limit(limit);
 
-    res.json({ activity: rows });
+    // Fold in guest (signed-out) activity — these users don't have accounts
+    // so they're invisible in credit_transactions. Show them as anonymous
+    // rows tagged with isGuest:true and a stable ipHash-prefix label.
+    const guestRows = await db
+      .select({
+        id: guestEvents.id,
+        ipHash: guestEvents.ipHash,
+        event: guestEvents.event,
+        action: guestEvents.action,
+        model: guestEvents.model,
+        createdAt: guestEvents.createdAt,
+      })
+      .from(guestEvents)
+      .orderBy(desc(guestEvents.createdAt))
+      .limit(limit);
+
+    const guestAsActivity = guestRows.map((g) => ({
+      id: -g.id, // negative to avoid key collision with credit_transactions ids
+      userId: null as string | null,
+      action: g.action || g.event,
+      creditsUsed: 0,
+      model: g.model || null,
+      chapterId: null as string | null,
+      metadata: null,
+      createdAt: g.createdAt,
+      userName: `Guest · ${(g.ipHash || '').slice(0, 6)}`,
+      userEmail: null as string | null,
+      userPlan: 'guest' as string,
+      isGuest: true as const,
+    }));
+
+    const merged = [
+      ...authedRows.map((r) => ({ ...r, isGuest: false as const })),
+      ...guestAsActivity,
+    ]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit);
+
+    res.json({ activity: merged });
   } catch (e: any) {
     console.error('[Admin] activity error:', e);
     res.status(500).json({ error: 'Internal server error' });

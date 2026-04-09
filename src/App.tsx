@@ -11,6 +11,7 @@ import { useAuthStore } from './store/auth';
 import { useCreditsStore } from './store/credits';
 import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
+import { CookieConsent } from './components/layout/CookieConsent';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
@@ -426,6 +427,7 @@ export default function App() {
       {showWorkspaceChrome && <AudioPlayerBar />}
       <GenerationProgressBar />
       <BottomNav />
+      <CookieConsent />
 
       {/* Mobile drawer — Left sidebar (chapters/canon) */}
       {mobilePanel === 'left' && (
