@@ -82,7 +82,13 @@ export async function generateImage(req: ImageGenRequest): Promise<ImageGenResul
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
-    throw new Error(`Gemini API error ${response.status}: ${(err as any).error?.message || response.statusText}`);
+    const geminiMsg = (err as any).error?.message || response.statusText;
+    // Runtime fallback: if Gemini rate-limits (429) or errors, try OpenAI
+    if (process.env.OPENAI_API_KEY) {
+      console.warn(`[ImageGen] Gemini failed (${response.status}), falling back to OpenAI: ${geminiMsg}`);
+      return generateImageOpenAI(req);
+    }
+    throw new Error(`Gemini API error ${response.status}: ${geminiMsg}`);
   }
 
   const data = await response.json() as any;
