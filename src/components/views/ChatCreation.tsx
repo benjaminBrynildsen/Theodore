@@ -1225,7 +1225,7 @@ ${childrensRule}`,
                   <div className="absolute bottom-full left-0 mb-1 w-56 rounded-2xl bg-white border border-black/10 shadow-xl z-50 overflow-hidden animate-fade-in">
                     {([
                       { type: 'novel' as BookSubtype, label: 'Novel', desc: 'Full-length narrative fiction', icon: BookOpen, comingSoon: false },
-                      { type: 'childrens-book' as BookSubtype, label: "Children's Book", desc: 'Illustrated stories for young readers', icon: ImageIcon, comingSoon: true },
+                      { type: 'childrens-book' as BookSubtype, label: "Children's Book", desc: 'Illustrated stories for young readers', icon: ImageIcon, comingSoon: false },
                     ]).map(({ type, label, desc, icon: Icon, comingSoon }) => (
                       <button
                         key={type}
