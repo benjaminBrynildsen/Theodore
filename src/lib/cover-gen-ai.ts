@@ -77,12 +77,16 @@ export function compositeWatermark(
 export async function generateCover(project: Project, chapterHints?: string): Promise<string> {
   const style = autoSelectCoverStyle(project.narrativeControls);
 
+  // Include title + hints in the prompt so the server can build a good
+  // cover even for guest projects that aren't in the DB.
+  const promptParts = [`Book: "${project.title}" (${project.subtype || project.type || 'novel'})`];
+  if (chapterHints) promptParts.push(`Story context: ${chapterHints}`);
   const result = await generateImageApi({
     target: 'cover',
     projectId: project.id,
     aspectRatio: '1:1',
     style: style as any,
-    prompt: chapterHints ? `Story context: ${chapterHints}` : undefined,
+    prompt: promptParts.join('. '),
   });
 
   const composited = await compositeWatermark(result.imageUrl);
