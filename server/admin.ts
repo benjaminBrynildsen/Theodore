@@ -443,6 +443,7 @@ export async function getActivity(req: Request, res: Response) {
         action: guestEvents.action,
         model: guestEvents.model,
         country: guestEvents.country,
+        guestMetadata: guestEvents.metadata,
         createdAt: guestEvents.createdAt,
       })
       .from(guestEvents)
@@ -464,6 +465,7 @@ export async function getActivity(req: Request, res: Response) {
       isGuest: true as const,
       country: g.country || null,
       ipHashPrefix: (g.ipHash || '').slice(0, 6),
+      guestMetadata: g.guestMetadata || null,
     }));
 
     const merged = [

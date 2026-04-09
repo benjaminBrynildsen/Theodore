@@ -1207,7 +1207,7 @@ function extractCountry(req: express.Request): string | null {
 }
 
 async function logGuestEvent(req: express.Request, opts: {
-  ip: string; event: string; action?: string; model?: string; inputTokens?: number; outputTokens?: number;
+  ip: string; event: string; action?: string; model?: string; metadata?: string; inputTokens?: number; outputTokens?: number;
 }) {
   try {
     await db.insert(guestEvents).values({
@@ -1216,6 +1216,7 @@ async function logGuestEvent(req: express.Request, opts: {
       action: opts.action ?? null,
       model: opts.model ?? null,
       country: extractCountry(req),
+      metadata: opts.metadata ?? null,
       inputTokens: opts.inputTokens ?? 0,
       outputTokens: opts.outputTokens ?? 0,
     });
@@ -1223,6 +1224,21 @@ async function logGuestEvent(req: express.Request, opts: {
     console.warn('[guest-events] log failed:', (err as Error)?.message);
   }
 }
+
+// Lightweight guest event logger — lets the client record events that don't
+// go through the generate endpoints (e.g. project creation with a title).
+app.post('/api/guest/log', async (req, res) => {
+  try {
+    const { event, action, metadata } = req.body;
+    if (!event) return res.status(400).json({ error: 'Missing event' });
+    const ip = requestClientIp(req);
+    if (!takeRateLimitToken(res, 'guest-log', ip, 30, 60 * 60 * 1000)) return;
+    void logGuestEvent(req, { ip, event, action, metadata });
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: 'Log failed' });
+  }
+});
 
 app.post('/api/generate/guest', async (req, res) => {
   try {

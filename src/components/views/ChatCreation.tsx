@@ -936,6 +936,21 @@ ${childrensRule}`,
       // and runs after the user is already on ProjectView.
       generationStore.setPhase('finalizing');
       generationStore.setSubtitle('Opening project…');
+
+      // Log project creation for admin visibility (especially useful for
+      // distinguishing guest testing vs real users in the activity feed).
+      if (isGuest) {
+        void fetch('/api/guest/log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'project-created',
+            action: 'scaffold-chapters',
+            metadata: finalSettings.title,
+          }),
+        }).catch(() => {});
+      }
+
       setActiveProject(projectId);
       setCurrentView('project');
       localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY);

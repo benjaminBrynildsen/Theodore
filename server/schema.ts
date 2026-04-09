@@ -165,10 +165,11 @@ export const supportRequests = pgTable('support_requests', {
 export const guestEvents = pgTable('guest_events', {
   id: serial('id').primaryKey(),
   ipHash: text('ip_hash').notNull(),
-  event: text('event').notNull(), // 'generate', 'generate-stream', 'tts'
+  event: text('event').notNull(), // 'generate', 'generate-stream', 'tts', 'project-created'
   action: text('action'), // sub-action (e.g. 'plan-project')
   model: text('model'),
   country: text('country'), // 2-letter ISO code from CDN headers (cf-ipcountry etc.)
+  metadata: text('metadata'), // freeform context (e.g. novel title)
   inputTokens: integer('input_tokens').default(0),
   outputTokens: integer('output_tokens').default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),

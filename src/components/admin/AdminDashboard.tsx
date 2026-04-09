@@ -72,6 +72,7 @@ interface ActivityRow {
   isGuest?: boolean;
   country?: string | null;
   ipHashPrefix?: string;
+  guestMetadata?: string | null;
 }
 
 /** Human-readable labels for raw action strings in the admin activity feed. */
@@ -94,6 +95,7 @@ const ACTION_LABELS: Record<string, string> = {
   'generate-stream': '💬 Chatted in Imagine',
   'generate': '💬 Chatted in Imagine',
   'tts': '🎧 Generated Audio',
+  'project-created': '📚 Created Novel',
 };
 
 interface UserDetail {
@@ -914,7 +916,9 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                         )}
                       </div>
                       <div className="text-[11px] text-text-tertiary">
-                        {ACTION_LABELS[a.action] || a.action}
+                        {a.guestMetadata && a.action === 'project-created'
+                          ? `📚 Created novel: "${a.guestMetadata}"`
+                          : (ACTION_LABELS[a.action] || a.action)}
                         {a.model ? ` · ${a.model}` : ''}
                       </div>
                     </div>
