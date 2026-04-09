@@ -1254,14 +1254,9 @@ app.post('/api/generate/guest', async (req, res) => {
     // Rate limit: 20 guest generations per hour per IP
     if (!takeRateLimitToken(res, 'guest-generate', ip, 20, 60 * 60 * 1000)) return;
 
-    // Namespace the lock so non-streaming derive requests don't collide
-    // with concurrent streaming chat requests from the same guest IP.
-    const lockKey = `sync:${ip}`;
-    if (hasFreshLock(activeGuestIps, lockKey)) {
-      return res.status(429).json({ error: 'Generation already in progress.' });
-    }
-
-    activeGuestIps.set(lockKey, Date.now());
+    // No per-IP concurrency lock for guests — rate limiting (20/hr) is
+    // sufficient, and the lock was causing cascading 429s when the chat
+    // derive + quick outline + scaffold all competed for the same lock.
     try {
       const result = await generate({
         prompt, systemPrompt, model,
@@ -1289,7 +1284,6 @@ app.post('/api/generate/guest', async (req, res) => {
         },
       });
     } finally {
-      activeGuestIps.delete(lockKey);
     }
   } catch (e: any) {
     console.error('Guest generate error:', e.message);
@@ -1381,12 +1375,6 @@ app.post('/api/generate/guest/stream', async (req, res) => {
 
     const ip = requestClientIp(req);
     if (!takeRateLimitToken(res, 'guest-generate', ip, 20, 60 * 60 * 1000)) return;
-    const streamLockKey = `stream:${ip}`;
-    if (hasFreshLock(activeGuestIps, streamLockKey)) {
-      return res.status(429).json({ error: 'Generation already in progress.' });
-    }
-
-    activeGuestIps.set(streamLockKey, Date.now());
     try {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -1416,7 +1404,6 @@ app.post('/api/generate/guest/stream', async (req, res) => {
       })}\n\n`);
       res.end();
     } finally {
-      activeGuestIps.delete(streamLockKey);
     }
   } catch (e: any) {
     console.error('Guest stream error:', e.message);
