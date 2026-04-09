@@ -47,19 +47,41 @@ async function compositeTitle(
       const h = img.height * scale;
       ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
 
-      // Subtle bottom gradient — just enough for text, doesn't kill the art
+      // ===== Brightness detection =====
+      // Sample pixels in the watermark zone (top strip) and title zone (bottom strip)
+      // to decide whether text should be white or black.
+      function avgBrightness(x: number, y: number, regionW: number, regionH: number): number {
+        const data = ctx.getImageData(x, y, regionW, regionH).data;
+        let sum = 0;
+        const step = 16; // sample every 16th pixel for speed
+        let count = 0;
+        for (let i = 0; i < data.length; i += 4 * step) {
+          sum += data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+          count++;
+        }
+        return count > 0 ? sum / count : 128;
+      }
+      const topBrightness = avgBrightness(0, 0, size, 70);
+      const bottomBrightness = avgBrightness(0, size - 200, size, 200);
+
+      // Light bg (>140) → black text + light gradient; dark bg → white text + dark gradient
+      const titleColor = bottomBrightness > 140 ? '#000000' : '#ffffff';
+      const watermarkColor = topBrightness > 140 ? '#000000' : '#ffffff';
+      const gradDark = bottomBrightness > 140;
+
+      // Subtle bottom gradient
       const grad = ctx.createLinearGradient(0, size * 0.65, 0, size);
-      grad.addColorStop(0, 'rgba(0,0,0,0)');
-      grad.addColorStop(0.5, 'rgba(0,0,0,0.25)');
-      grad.addColorStop(1, 'rgba(0,0,0,0.6)');
+      grad.addColorStop(0, 'rgba(' + (gradDark ? '255,255,255' : '0,0,0') + ',0)');
+      grad.addColorStop(0.5, 'rgba(' + (gradDark ? '255,255,255' : '0,0,0') + ',0.2)');
+      grad.addColorStop(1, 'rgba(' + (gradDark ? '255,255,255' : '0,0,0') + ',0.5)');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, size, size);
 
-      // "Theodore" wordmark — top center, elegant serif
+      // "Theodore" wordmark — top center
       ctx.textAlign = 'center';
       ctx.font = '600 26px Georgia, "Palatino Linotype", serif';
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = 'rgba(0,0,0,0.3)';
+      ctx.fillStyle = watermarkColor;
+      ctx.shadowColor = topBrightness > 140 ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
       ctx.shadowBlur = 4;
       ctx.shadowOffsetY = 1;
       ctx.fillText('Theodore', size / 2, 50);
@@ -67,27 +89,23 @@ async function compositeTitle(
       ctx.shadowBlur = 0;
       ctx.shadowOffsetY = 0;
 
-      // Get style-specific font config
+      // ===== Title typography =====
       const fontConfig = STYLE_FONTS[coverStyle] || STYLE_FONTS.illustrated;
       const displayTitle = fontConfig.uppercase ? title.toUpperCase() : title;
+      const fontWeight = fontConfig.font.match(/^\d+/)?.[0] || '800';
+      const fontFamily = fontConfig.font.replace(/^\d+\s*/, '');
+      const pad = 40;
+      const maxWidth = size - pad * 2;
 
-      // Title text — LEFT-aligned, bottom-left, sized to be prominent but
-      // not overwhelming. Smaller than before so the art isn't blocked.
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#ffffff';
-      const leftPad = 40;
-      const maxWidth = size - leftPad * 2;
-      const words = displayTitle.split(/\s+/);
-
-      let fontSize = 100;
+      // Word-wrap to max 3 lines at a base font size
+      let baseFontSize = 90;
       let lines: string[] = [];
-      for (; fontSize >= 32; fontSize -= 3) {
-        const weight = fontConfig.font.match(/^\d+/)?.[0] || '800';
-        const family = fontConfig.font.replace(/^\d+\s*/, '');
-        ctx.font = `${weight} ${fontSize}px ${family}`;
+      const wordList = displayTitle.split(/\s+/);
+      for (; baseFontSize >= 32; baseFontSize -= 3) {
+        ctx.font = `${fontWeight} ${baseFontSize}px ${fontFamily}`;
         lines = [];
         let currentLine = '';
-        for (const word of words) {
+        for (const word of wordList) {
           const test = currentLine ? `${currentLine} ${word}` : word;
           if (ctx.measureText(test).width > maxWidth && currentLine) {
             lines.push(currentLine);
@@ -100,20 +118,29 @@ async function compositeTitle(
         if (lines.length <= 3) break;
       }
 
-      const lineHeight = fontSize * 1.1;
+      // Stretch each line to fill the full width individually.
+      // This gives the bold, justified-typography look of modern covers.
+      const lineHeight = baseFontSize * 1.12;
       const totalHeight = lines.length * lineHeight;
-      const startY = size - 44 - totalHeight + fontSize;
+      const startY = size - 50 - totalHeight + baseFontSize;
 
-      // Text shadow for depth
-      ctx.shadowColor = 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 10;
-      ctx.shadowOffsetY = 3;
+      ctx.fillStyle = titleColor;
+      ctx.shadowColor = bottomBrightness > 140 ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 2;
 
-      const weight = fontConfig.font.match(/^\d+/)?.[0] || '800';
-      const family = fontConfig.font.replace(/^\d+\s*/, '');
       for (let i = 0; i < lines.length; i++) {
-        ctx.font = `${weight} ${fontSize}px ${family}`;
-        ctx.fillText(lines[i], leftPad, startY + i * lineHeight);
+        // Calculate per-line font size that stretches to fill maxWidth
+        let lineFontSize = baseFontSize;
+        ctx.font = `${fontWeight} ${lineFontSize}px ${fontFamily}`;
+        const naturalWidth = ctx.measureText(lines[i]).width;
+        if (naturalWidth > 0) {
+          const scaleFactor = maxWidth / naturalWidth;
+          lineFontSize = Math.min(baseFontSize * 1.6, lineFontSize * scaleFactor);
+        }
+        ctx.font = `${fontWeight} ${Math.round(lineFontSize)}px ${fontFamily}`;
+        ctx.textAlign = 'center';
+        ctx.fillText(lines[i], size / 2, startY + i * lineHeight);
       }
 
       // Reset shadow

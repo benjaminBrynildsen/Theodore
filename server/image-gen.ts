@@ -299,8 +299,8 @@ export function buildBookCoverPrompt(project: {
   const stylePrompt = COVER_STYLES[project.coverStyle || 'illustrated'] || COVER_STYLES.illustrated;
   parts.push(stylePrompt);
 
-  // Critical: no text in the image. Title will be overlaid programmatically.
-  parts.push('professional book cover art, portrait orientation, leave clear space at top and bottom for title text overlay, DO NOT include any text or letters or words in the image, no typography, purely visual artwork');
+  // Critical instructions to prevent mockups, frames, and text
+  parts.push('FULL BLEED artwork that fills the entire canvas edge to edge, NO borders NO frames NO mockup NO book shape NO 3D rendering of a physical book, the artwork IS the cover not a picture OF a cover, DO NOT include any text or letters or words in the image, no typography, purely visual scene artwork, square 1:1 aspect ratio');
 
   return parts.join(', ');
 }
