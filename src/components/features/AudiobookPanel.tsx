@@ -1154,13 +1154,6 @@ export function AudiobookPanel() {
                     {preparingAll ? 'Preparing...' : taggingAll ? 'Tagging dialogue...' : taggingAllSFX ? 'Tagging SFX...' : taggingDirections ? 'Adding directions...' : planningSFX ? 'Planning sounds...' : 'Prepare All'}
                   </button>
                 )}
-                <button
-                  onClick={generateAll}
-                  disabled={generating !== null || chapters.length === 0}
-                  className="text-[11px] font-medium px-3 py-2 rounded-lg bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-50 flex-1 text-center"
-                >
-                  {generating ? 'Generating...' : 'Generate All'}
-                </button>
               </div>
             </div>
             {/* Individual actions — collapsed by default (V2 features) */}
