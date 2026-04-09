@@ -1029,9 +1029,18 @@ ${childrensRule}`,
     if (!settings) {
       if (!messages.some((m) => m.role === 'user')) return;
       setCreatingProject(true);
+      // Show the progress bar during the sync derive — this can take 10-20s
+      // while Sonnet builds the full chapter outline + canon JSON.
+      useGenerationStore.getState().start({
+        kind: 'create-project',
+        label: 'your novel',
+        subtitle: 'Building chapter outline…',
+        indeterminate: true,
+      });
       try {
         const derived = await deriveSettingsFromConversation(messages);
         if (derived?.settings) {
+          useGenerationStore.getState().setSubtitle('Outline ready — creating project…');
           applyProposedSettings(derived.settings, true);
           if (derived.canon) {
             setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
@@ -1039,15 +1048,19 @@ ${childrensRule}`,
           settings = derived.settings;
         }
       } catch {
+        useGenerationStore.getState().end();
         // Fall through — handled by the !settings check below.
       } finally {
         setCreatingProject(false);
       }
     }
     if (!settings) {
+      useGenerationStore.getState().end();
       setCreationMessage("I couldn't build the project plan from this chat. Try sending one more detail and try again.");
       return;
     }
+    // createProjectFromSettings calls its own start() which replaces the
+    // "Building chapter outline" bar with the actual creation progress.
     await createProjectFromSettings(settings);
   };
 
