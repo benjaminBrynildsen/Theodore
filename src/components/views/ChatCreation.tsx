@@ -1059,6 +1059,24 @@ ${childrensRule}`,
         } catch (e) {
           console.warn('[Creation] Canon seeding failed (non-fatal):', e);
         }
+
+        // Cover generation (Gemini image — runs after canon so progress bar stays visible)
+        try {
+          useGenerationStore.getState().setSubtitle('Generating cover art…');
+          const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
+          const coverChapters = useStore.getState().chapters
+            .filter(c => c.projectId === projectId)
+            .slice(0, 3);
+          const coverHints = coverChapters
+            .map(c => c.premise?.purpose).filter(Boolean).join('; ').slice(0, 300)
+            || `${latestProject.title} novel`;
+          const { generateCover: genCover } = await import('../../lib/cover-gen-ai');
+          const coverUrl = await genCover(latestProject, coverHints);
+          useStore.getState().updateProject(projectId, { coverUrl });
+        } catch (e) {
+          console.warn('[Creation] Auto-cover failed (non-fatal):', e);
+        }
+
         useGenerationStore.getState().setPhase('done');
       })();
     } catch (e) {
