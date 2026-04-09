@@ -902,6 +902,27 @@ ${childrensRule}`,
       generationStore.setSubtitle('Saving project…');
       await addProject(project);
 
+      // Kick off cover generation IN PARALLEL with the chapter scaffold.
+      // Uses seed chapter premises (already available from Imagine chat) for
+      // story context — doesn't need to wait for the full outline. Cover gen
+      // hits Gemini image API while scaffold hits Claude text API, so they're
+      // fully independent and run simultaneously.
+      const seedHints = finalSettings.chapters
+        .slice(0, 3)
+        .map(ch => ch.premise)
+        .filter(Boolean)
+        .join('; ')
+        .slice(0, 300);
+      const coverPromise = import('../../lib/cover-gen-ai').then(async ({ generateCover: genCover }) => {
+        try {
+          const url = await genCover(project, seedHints);
+          updateProject(projectId, { coverUrl: url });
+          console.log('[Creation] Auto-cover generated:', url);
+        } catch (e) {
+          console.warn('[Creation] Auto-cover failed (non-fatal):', e);
+        }
+      });
+
       generationStore.setSubtitle('Building chapter outlines…');
       let scaffoldResults: Awaited<ReturnType<typeof generateAutomaticOutline>> = [];
       try {
@@ -918,6 +939,9 @@ ${childrensRule}`,
           constraints: [],
         }));
       }
+
+      // Wait for cover to finish before navigating (so it shows on ProjectView)
+      await coverPromise;
 
       generationStore.setSubtitle(`Adding ${scaffoldResults.length} chapters…`);
       for (const ch of scaffoldResults) {
