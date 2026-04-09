@@ -1130,6 +1130,9 @@ export function AudiobookPanel() {
           </div>
         )}
 
+        {/* Book Cover */}
+        <BookCoverSection projectId={project.id} />
+
         {/* Chapter List */}
         <div className="p-5">
           <div className="space-y-2 mb-3">
@@ -1806,9 +1809,6 @@ export function AudiobookPanel() {
             </div>
           )}
         </div>}
-
-        {/* Book Cover */}
-        <BookCoverSection projectId={project.id} />
 
         {/* Download All — pinned to bottom */}
         {audioCount > 0 && (
