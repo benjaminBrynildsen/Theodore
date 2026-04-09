@@ -51,6 +51,7 @@ export const projects = pgTable('projects', {
   ageRange: text('age_range'),
   childrensBookSettings: jsonb('childrens_book_settings').$type<Record<string, any>>(),
   narrativeControls: jsonb('narrative_controls').$type<Record<string, any>>().notNull(),
+  coverUrl: text('cover_url'),
   status: text('status').notNull().default('active'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
