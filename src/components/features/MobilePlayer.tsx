@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Play, Pause, SkipBack, SkipForward, ChevronDown, Volume2, VolumeX, RotateCcw, RotateCw, Loader2, Sparkles } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
+import { extractDominantColor } from '../../lib/color-extract';
 import { cn } from '../../lib/utils';
 
 function CoverArt({ project, chapterImage, size = 'full' }: { project: { title: string; coverUrl?: string }; chapterImage?: string; size?: 'mini' | 'full' }) {
@@ -66,7 +67,7 @@ function MobileScrubber({ progressPct, onSeek }: { progressPct: number; onSeek: 
   return (
     <div
       ref={barRef}
-      className="h-3 bg-black/15 rounded-full cursor-pointer relative touch-none select-none"
+      className="h-3 bg-white/20 rounded-full cursor-pointer relative touch-none select-none"
       onPointerDown={(e) => {
         e.preventDefault();
         (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -77,12 +78,12 @@ function MobileScrubber({ progressPct, onSeek }: { progressPct: number; onSeek: 
       }}
     >
       <div
-        className="absolute inset-y-0 left-0 bg-text-primary rounded-full"
+        className="absolute inset-y-0 left-0 bg-white rounded-full"
         style={{ width: `${displayPct}%`, transition: dragging ? 'none' : 'width 200ms' }}
       />
       <div
         className={cn(
-          'absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-text-primary rounded-full shadow-sm',
+          'absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-sm',
           dragging ? 'scale-125' : ''
         )}
         style={{ left: `calc(${displayPct}% - 8px)` }}
@@ -187,9 +188,19 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
   const playableChapters = allChapters.filter(c => c?.id && c.prose);
   const currentChapter = playableChapters.find(c => c.id === currentChapterId);
   const chapterIdx = currentChapterId ? playableChapters.findIndex(c => c.id === currentChapterId) : -1;
+  const projectCover = project?.coverUrl && !project.coverUrl.startsWith('data:') ? project.coverUrl : null;
   const chapterImage = currentChapter?.imageUrl;
+  const coverSrc = chapterImage || projectCover;
   const isMuted = volume === 0;
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  // Extract dominant color from cover for dynamic background
+  const [bgColor, setBgColor] = useState('rgb(24, 24, 30)');
+  useEffect(() => {
+    if (coverSrc) {
+      void extractDominantColor(coverSrc).then(setBgColor);
+    }
+  }, [coverSrc]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -225,35 +236,38 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
     : project.title;
 
   return (
-    <div className="fixed inset-0 z-[70] bg-gradient-to-b from-[#e8e8e8] to-[#d0d0d0] flex flex-col animate-slide-up safe-area-top">
+    <div
+      className="fixed inset-0 z-[70] flex flex-col animate-slide-up safe-area-top transition-colors duration-700"
+      style={{ background: `linear-gradient(to bottom, ${bgColor}, ${bgColor}dd, ${bgColor}88)` }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-4 pb-2">
         <button onClick={onCollapse} className="p-1">
-          <ChevronDown size={24} className="text-text-secondary" />
+          <ChevronDown size={24} className="text-white/70" />
         </button>
-        <span className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">{project.title}</span>
-        <div className="w-8" /> {/* Spacer */}
+        <span className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">{project.title}</span>
+        <div className="w-8" />
       </div>
 
       {/* Cover art */}
       <div className="flex-1 flex items-center justify-center px-8 py-4 min-h-0">
-        <div className="aspect-square w-full max-w-[85vw] rounded-xl overflow-hidden shadow-xl">
+        <div className="aspect-square w-full max-w-[85vw] rounded-xl overflow-hidden shadow-2xl">
           <CoverArt project={project} chapterImage={chapterImage} />
         </div>
       </div>
 
       {/* Track info */}
       <div className="px-8 pt-2">
-        <h2 className="text-lg font-bold text-text-primary truncate">{trackTitle}</h2>
-        <p className="text-sm text-text-tertiary truncate">{project.title}</p>
+        <h2 className="text-lg font-bold text-white truncate">{trackTitle}</h2>
+        <p className="text-sm text-white/50 truncate">{project.title}</p>
       </div>
 
       {/* Progress bar — draggable */}
       <div className="px-8 pt-4">
         <MobileScrubber progressPct={progressPct} onSeek={seekTo} />
         <div className="flex justify-between mt-1.5">
-          <span className="text-[10px] text-text-tertiary">{formatTime(currentTime)}</span>
-          <span className="text-[10px] text-text-tertiary">{formatTime(duration || currentAudio?.durationEstimate || 0)}</span>
+          <span className="text-[10px] text-white/40">{formatTime(currentTime)}</span>
+          <span className="text-[10px] text-white/40">{formatTime(duration || currentAudio?.durationEstimate || 0)}</span>
         </div>
       </div>
 
@@ -262,7 +276,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('theodore:seekBy', { detail: { seconds: -15 } }))}
           disabled={!currentChapterId || !!generating}
-          className="text-text-secondary disabled:opacity-25 transition-colors relative"
+          className="text-white/70 disabled:opacity-25 transition-colors relative"
           aria-label="Rewind 15 seconds"
         >
           <RotateCcw size={26} />
@@ -271,7 +285,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
         <button
           onClick={skipPrev}
           disabled={chapterIdx <= 0 || !!generating}
-          className="text-text-secondary disabled:opacity-25 transition-colors"
+          className="text-white/80 disabled:opacity-25 transition-colors"
           aria-label="Previous chapter"
         >
           <SkipBack size={28} fill="currentColor" />
@@ -279,7 +293,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
         <button
           onClick={() => { if (currentChapterId) window.dispatchEvent(new CustomEvent('theodore:togglePlayback')); }}
           disabled={!currentChapterId || !!generating}
-          className="w-16 h-16 rounded-full bg-text-primary text-text-inverse flex items-center justify-center disabled:opacity-40 transition-all shadow-lg active:scale-95"
+          className="w-16 h-16 rounded-full bg-white text-black flex items-center justify-center disabled:opacity-40 transition-all shadow-lg active:scale-95"
         >
           {generating ? (
             <Loader2 size={28} className="animate-spin" />
@@ -292,7 +306,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
         <button
           onClick={skipNext}
           disabled={chapterIdx >= playableChapters.length - 1 || !!generating}
-          className="text-text-secondary disabled:opacity-25 transition-colors"
+          className="text-white/80 disabled:opacity-25 transition-colors"
           aria-label="Next chapter"
         >
           <SkipForward size={28} fill="currentColor" />
@@ -300,7 +314,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('theodore:seekBy', { detail: { seconds: 15 } }))}
           disabled={!currentChapterId || !!generating}
-          className="text-text-secondary disabled:opacity-25 transition-colors relative"
+          className="text-white/70 disabled:opacity-25 transition-colors relative"
           aria-label="Forward 15 seconds"
         >
           <RotateCw size={26} />
@@ -310,7 +324,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
 
       {/* Volume */}
       <div className="flex items-center gap-3 px-8 pb-8">
-        <button onClick={() => setVolume(isMuted ? 1 : 0)} className="text-text-tertiary">
+        <button onClick={() => setVolume(isMuted ? 1 : 0)} className="text-white/40">
           {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
         <input
@@ -318,7 +332,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
           min="0" max="1" step="0.05"
           value={volume}
           onChange={(e) => setVolume(parseFloat(e.target.value))}
-          className="flex-1 h-1 appearance-none bg-black/15 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-text-primary [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-sm"
+          className="flex-1 h-1 appearance-none bg-white/20 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-sm"
         />
       </div>
     </div>
