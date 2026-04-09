@@ -32,6 +32,7 @@ import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
 import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN } from './billing.js';
+import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './meta-capi.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001');
@@ -577,6 +578,7 @@ app.post('/api/billing/checkout', async (req, res) => {
       },
     });
 
+    trackCheckoutInitiated(req as any, auth.user.email);
     res.json({ url: session.url, sessionId: session.id });
   } catch (e: any) {
     respondInternalError(res, 'billing.checkout', e);
@@ -717,6 +719,10 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
           stripeCancelAtPeriodEnd: false as any,
           updatedAt: new Date(),
         } as any).where(eq(users.id, user.id));
+        // Meta CAPI: track subscription server-side
+        const tierConfig = getPaidTierConfig(nextPlan);
+        const priceDollars = tierConfig ? tierConfig.priceCents / 100 : 0;
+        trackSubscription(req as any, user.email, priceDollars);
       }
     }
 
@@ -831,6 +837,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     const token = await createSession(user.id, req, res);
+    trackRegistration(req as any);
     res.json({ user: toSafeUser(user), token });
   } catch (e: any) {
     respondInternalError(res, 'auth.register', e);
