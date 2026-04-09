@@ -409,10 +409,11 @@ function normalizeProposedSettings(raw: ProposedSettings): ProposedSettings {
 interface Props {
   onClose: () => void;
   guestMode?: boolean;
+  initialMessage?: string;
   onRequireAuth?: () => void;
 }
 
-export function ChatCreation({ onClose, guestMode, onRequireAuth }: Props) {
+export function ChatCreation({ onClose, guestMode, initialMessage, onRequireAuth }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -493,6 +494,22 @@ export function ChatCreation({ onClose, guestMode, onRequireAuth }: Props) {
 
     return () => window.clearTimeout(timer);
   }, [messages.length]);
+
+  // Auto-send the initial message from the landing page chat input.
+  // Fires once after the intro animation completes and messages are initialized.
+  const initialMessageSent = useRef(false);
+  useEffect(() => {
+    if (!initialMessage || initialMessageSent.current) return;
+    if (messages.length === 0) return; // wait for intro message to load
+    initialMessageSent.current = true;
+    // Stuff the message into the input and trigger send on the next tick
+    // so the chat flow handles it exactly like a user-typed message.
+    setInput(initialMessage);
+    requestAnimationFrame(() => {
+      const sendBtn = document.querySelector('[data-send-btn]') as HTMLButtonElement | null;
+      if (sendBtn) sendBtn.click();
+    });
+  }, [initialMessage, messages.length]);
 
   useEffect(() => {
     const hasUserMessage = messages.some((m) => m.role === 'user');
@@ -1291,6 +1308,7 @@ ${childrensRule}`,
                   className="flex-1 min-h-[4.5rem] max-h-[4.5rem] overflow-y-auto bg-transparent border-none outline-none resize-none text-base sm:text-sm px-2 py-1 leading-relaxed placeholder:text-text-tertiary/60"
                 />
                 <button
+                  data-send-btn
                   onClick={sendMessage}
                   disabled={!input.trim() || isTyping}
                   className={cn(

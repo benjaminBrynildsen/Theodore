@@ -121,6 +121,7 @@ export default function App() {
   }, [user]);
 
   const [showGuestChat, setShowGuestChat] = useState(false);
+  const [guestInitialMessage, setGuestInitialMessage] = useState<string | undefined>();
   const [returnToChatAfterAuth, setReturnToChatAfterAuth] = useState(false);
   const [showPostAuthChat, setShowPostAuthChat] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -295,8 +296,9 @@ export default function App() {
       return (
         <>
           <ChatCreation
-            onClose={() => setShowGuestChat(false)}
+            onClose={() => { setShowGuestChat(false); setGuestInitialMessage(undefined); }}
             guestMode
+            initialMessage={guestInitialMessage}
             onRequireAuth={() => {
               setReturnToChatAfterAuth(true);
               setShowAuth(true);
@@ -380,7 +382,7 @@ export default function App() {
     }
     return (
       <Suspense fallback={<ViewLoader label="Loading Theodore..." />}>
-        <LandingPage onGetStarted={() => { pixel.trackCustom('StartGuestChat'); setShowGuestChat(true); }} onSignIn={() => setShowAuth(true)} />
+        <LandingPage onGetStarted={(msg) => { pixel.trackCustom('StartGuestChat'); setGuestInitialMessage(msg); setShowGuestChat(true); }} onSignIn={() => setShowAuth(true)} />
       </Suspense>
     );
   }
