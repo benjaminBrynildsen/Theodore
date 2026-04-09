@@ -114,7 +114,7 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
         {/* Inline chat input — Motion.so style */}
         <div className="w-full max-w-lg">
           <div className="rounded-2xl bg-[#1c1c1e] shadow-[0_8px_40px_rgba(0,0,0,0.15)] overflow-hidden">
-            <div className="flex items-end gap-2 p-3">
+            <div className="flex items-end gap-2 p-4">
               <textarea
                 ref={inputRef}
                 value={input}
@@ -126,8 +126,8 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
                   }
                 }}
                 placeholder="Describe your story idea..."
-                rows={2}
-                className="flex-1 bg-transparent text-white/90 placeholder:text-white/30 text-sm resize-none outline-none px-2 py-2 min-h-[3rem] max-h-[4rem]"
+                rows={3}
+                className="flex-1 bg-transparent text-white/90 placeholder:text-white/30 text-sm resize-none outline-none px-2 py-2 min-h-[4.5rem] max-h-[5.5rem]"
               />
               <button
                 onClick={handleSubmit}
@@ -143,8 +143,10 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
             </div>
           </div>
 
+          <p className="mt-3 text-xs text-black/35 italic">Don't overthink it — even one sentence is enough.</p>
+
           {/* Prompt suggestion pills */}
-          <div className="flex flex-wrap justify-center gap-1.5 mt-4">
+          <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-1.5 mt-3">
             {PROMPT_SUGGESTIONS.slice(0, 3).map((prompt) => (
               <button
                 key={prompt}
@@ -152,9 +154,9 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
                   setInput(prompt);
                   inputRef.current?.focus();
                 }}
-                className="text-[11px] px-3 py-1.5 rounded-full border border-black/[0.08] text-black/45 hover:text-black/70 hover:border-black/15 hover:bg-white/60 transition-all truncate max-w-[200px]"
+                className="text-[11px] px-3 py-1.5 rounded-full border border-black/[0.08] text-black/45 hover:text-black/70 hover:border-black/15 hover:bg-white/60 transition-all text-left"
               >
-                {prompt}
+                "{prompt}"
               </button>
             ))}
           </div>
