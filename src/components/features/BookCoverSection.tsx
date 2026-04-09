@@ -55,14 +55,14 @@ async function compositeTitle(
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, size, size);
 
-      // "Theodore" wordmark — top-left, elegant serif
-      ctx.textAlign = 'left';
-      ctx.font = '600 18px Georgia, "Palatino Linotype", serif';
+      // "Theodore" wordmark — top center, elegant serif
+      ctx.textAlign = 'center';
+      ctx.font = '600 26px Georgia, "Palatino Linotype", serif';
       ctx.fillStyle = '#ffffff';
       ctx.shadowColor = 'rgba(0,0,0,0.3)';
       ctx.shadowBlur = 4;
       ctx.shadowOffsetY = 1;
-      ctx.fillText('Theodore', 40, 46);
+      ctx.fillText('Theodore', size / 2, 50);
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
       ctx.shadowOffsetY = 0;
