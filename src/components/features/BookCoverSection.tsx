@@ -47,34 +47,44 @@ async function compositeTitle(
       const h = img.height * scale;
       ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
 
-      // Bottom gradient overlay for text readability
-      const grad = ctx.createLinearGradient(0, size * 0.45, 0, size);
+      // Subtle bottom gradient — just enough for text, doesn't kill the art
+      const grad = ctx.createLinearGradient(0, size * 0.65, 0, size);
       grad.addColorStop(0, 'rgba(0,0,0,0)');
-      grad.addColorStop(0.4, 'rgba(0,0,0,0.3)');
-      grad.addColorStop(1, 'rgba(0,0,0,0.8)');
+      grad.addColorStop(0.5, 'rgba(0,0,0,0.25)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.6)');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, size, size);
+
+      // "Theodore" wordmark — top-left, elegant serif
+      ctx.textAlign = 'left';
+      ctx.font = '600 18px Georgia, "Palatino Linotype", serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.shadowColor = 'rgba(0,0,0,0.3)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetY = 1;
+      ctx.fillText('Theodore', 40, 46);
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
 
       // Get style-specific font config
       const fontConfig = STYLE_FONTS[coverStyle] || STYLE_FONTS.illustrated;
       const displayTitle = fontConfig.uppercase ? title.toUpperCase() : title;
 
-      // Title text — auto-size BIG, max 3 lines
-      ctx.textAlign = 'center';
+      // Title text — LEFT-aligned, bottom-left, sized to be prominent but
+      // not overwhelming. Smaller than before so the art isn't blocked.
+      ctx.textAlign = 'left';
       ctx.fillStyle = '#ffffff';
-      const maxWidth = size * 0.80;
+      const leftPad = 40;
+      const maxWidth = size - leftPad * 2;
       const words = displayTitle.split(/\s+/);
 
-      // Start much larger (160px) for the bold, impactful look of real covers
-      let fontSize = 160;
+      let fontSize = 100;
       let lines: string[] = [];
-      for (; fontSize >= 36; fontSize -= 4) {
-        ctx.font = `${fontConfig.font}`.replace(/^\d+/, String(fontSize));
-        // Actually need to rebuild the font string with size
+      for (; fontSize >= 32; fontSize -= 3) {
         const weight = fontConfig.font.match(/^\d+/)?.[0] || '800';
         const family = fontConfig.font.replace(/^\d+\s*/, '');
         ctx.font = `${weight} ${fontSize}px ${family}`;
-        ctx.letterSpacing = `${fontConfig.letterSpacing}px`;
         lines = [];
         let currentLine = '';
         for (const word of words) {
@@ -90,32 +100,26 @@ async function compositeTitle(
         if (lines.length <= 3) break;
       }
 
-      const lineHeight = fontSize * 1.12;
+      const lineHeight = fontSize * 1.1;
       const totalHeight = lines.length * lineHeight;
-      const startY = size - 100 - totalHeight + fontSize;
+      const startY = size - 44 - totalHeight + fontSize;
 
       // Text shadow for depth
       ctx.shadowColor = 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 12;
-      ctx.shadowOffsetY = 4;
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetY = 3;
 
       const weight = fontConfig.font.match(/^\d+/)?.[0] || '800';
       const family = fontConfig.font.replace(/^\d+\s*/, '');
       for (let i = 0; i < lines.length; i++) {
         ctx.font = `${weight} ${fontSize}px ${family}`;
-        ctx.fillText(lines[i], size / 2, startY + i * lineHeight);
+        ctx.fillText(lines[i], leftPad, startY + i * lineHeight);
       }
 
       // Reset shadow
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
       ctx.shadowOffsetY = 0;
-
-      // "Powered by Theodore" watermark — subtle, bottom center
-      ctx.font = '500 14px Inter, system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.45)';
-      ctx.letterSpacing = '1px';
-      ctx.fillText('powered by Theodore', size / 2, size - 24);
 
       resolve(canvas.toDataURL('image/png'));
     };
