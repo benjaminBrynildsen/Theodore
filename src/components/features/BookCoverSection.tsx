@@ -23,7 +23,9 @@ async function compositeTitle(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // No crossOrigin needed — the image is served from the same origin
+    // (/uploads/generated/...). Setting crossOrigin='anonymous' would
+    // force a CORS preflight that the static file middleware doesn't handle.
     img.onload = () => {
       const size = 1024;
       const canvas = document.createElement('canvas');
