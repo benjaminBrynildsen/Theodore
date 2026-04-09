@@ -2305,10 +2305,9 @@ app.post('/api/upload/cover', async (req, res) => {
     const filename = `${randomUUID()}.png`;
     fs.writeFileSync(path.join(dir, filename), buffer);
     const coverUrl = `/uploads/covers/${filename}`;
-    // Auto-save to project if projectId provided and user is authenticated
-    if (projectId && auth?.user) {
-      await db.update(projects).set({ coverUrl }).where(eq(projects.id, String(projectId)));
-    }
+    // coverUrl is stored client-side via updateProject (zustand + localStorage).
+    // The projects table doesn't have a cover_url column — the cover is a
+    // client-only field. We just return the URL and let the client save it.
     res.json({ coverUrl });
   } catch (e: any) {
     respondInternalError(res, 'upload.cover', e);
