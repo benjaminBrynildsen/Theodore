@@ -246,10 +246,23 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const loadActivity = async () => {
     setLoading(true);
     try {
-      const data = await fetchJson<{ activity: ActivityRow[]; adminIpHash?: string }>('/activity?limit=100');
+      const data = await fetchJson<{
+        activity: ActivityRow[];
+        adminIpHash?: string;
+        knownAdminIps?: string[];
+      }>('/activity?limit=100');
       setActivityList(data.activity);
-      // Auto-detect & mark the admin's current IP so "You" tags show up.
-      if (data.adminIpHash) {
+      // The server accumulates every IP hash the admin has ever loaded the
+      // dashboard from (stored in the admin user's settings). Use the full
+      // server-side list so all devices share the same "You" tags.
+      if (data.knownAdminIps?.length) {
+        setAdminIpHash(data.adminIpHash || null);
+        setMyIpHashes(() => {
+          const next = new Set(data.knownAdminIps!);
+          localStorage.setItem('theodore:admin-my-ips', JSON.stringify([...next]));
+          return next;
+        });
+      } else if (data.adminIpHash) {
         setAdminIpHash(data.adminIpHash);
         setMyIpHashes((prev) => {
           const next = new Set(prev);

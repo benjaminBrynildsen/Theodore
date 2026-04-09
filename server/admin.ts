@@ -472,12 +472,24 @@ export async function getActivity(req: Request, res: Response) {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, limit);
 
-    // Include the requesting admin's own IP hash so the dashboard can
-    // tag "You" rows and filter out the admin's test traffic.
+    // Accumulate every IP the admin has ever loaded the dashboard from.
+    // Stored server-side in the admin user's settings.knownAdminIps so
+    // ALL devices share the same "You" list — the whole point of opening
+    // the dashboard from each device.
     const adminIp = requestClientIp(req);
     const adminIpHash = hashIpForAdmin(adminIp).slice(0, 6);
+    const adminSettings = ((admin.user.settings || {}) as Record<string, any>);
+    const knownIps: string[] = Array.isArray(adminSettings.knownAdminIps)
+      ? adminSettings.knownAdminIps
+      : [];
+    if (!knownIps.includes(adminIpHash)) {
+      knownIps.push(adminIpHash);
+      await db.update(users).set({
+        settings: sql`COALESCE(settings, '{}'::jsonb) || ${JSON.stringify({ knownAdminIps: knownIps })}::jsonb`,
+      }).where(eq(users.id, admin.user.id));
+    }
 
-    res.json({ activity: merged, adminIpHash });
+    res.json({ activity: merged, adminIpHash, knownAdminIps: knownIps });
   } catch (e: any) {
     console.error('[Admin] activity error:', e);
     res.status(500).json({ error: 'Internal server error' });
