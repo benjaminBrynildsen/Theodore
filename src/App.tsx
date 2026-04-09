@@ -367,7 +367,7 @@ export default function App() {
           )}
 
           {/* Mobile fullscreen — Studio (audiobook panel) */}
-          {mobilePanel === 'studio' && (
+          {mobilePanel === 'studio' && !mobilePlayerExpanded && (
             <MobileStudioPanel
               onClose={() => setMobilePanel(null)}
               onExpandPlayer={() => setMobilePlayerExpanded(true)}
@@ -467,7 +467,7 @@ export default function App() {
       )}
 
       {/* Mobile fullscreen — Studio (audio + cover tabs) */}
-      {mobilePanel === 'studio' && (
+      {mobilePanel === 'studio' && !mobilePlayerExpanded && (
         <MobileStudioPanel
           onClose={() => setMobilePanel(null)}
           onExpandPlayer={() => setMobilePlayerExpanded(true)}
