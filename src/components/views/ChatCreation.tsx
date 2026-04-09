@@ -617,10 +617,12 @@ Rules:
     }));
 
     try {
+      // Use Haiku for the scaffold — it's structured JSON output that
+      // doesn't need Sonnet's reasoning, and Haiku is ~3x faster.
       const result = await generate({
         userId,
         action: 'scaffold-chapters',
-        model: resolveModel(settings.ai.preferredModel),
+        model: 'claude-haiku-4-5',
         temperature: 0.7,
         maxTokens: 4096,
         projectId: project.id,
@@ -902,49 +904,22 @@ ${childrensRule}`,
       generationStore.setSubtitle('Saving project…');
       await addProject(project);
 
-      // Kick off cover generation IN PARALLEL with the chapter scaffold.
-      // Uses seed chapter premises (already available from Imagine chat) for
-      // story context — doesn't need to wait for the full outline. Cover gen
-      // hits Gemini image API while scaffold hits Claude text API, so they're
-      // fully independent and run simultaneously.
-      const seedHints = finalSettings.chapters
-        .slice(0, 3)
-        .map(ch => ch.premise)
-        .filter(Boolean)
-        .join('; ')
-        .slice(0, 300);
-      const coverPromise = import('../../lib/cover-gen-ai').then(async ({ generateCover: genCover }) => {
-        try {
-          const url = await genCover(project, seedHints);
-          updateProject(projectId, { coverUrl: url });
-          console.log('[Creation] Auto-cover generated:', url);
-        } catch (e) {
-          console.warn('[Creation] Auto-cover failed (non-fatal):', e);
-        }
-      });
+      // ===== FAST PATH: use seed chapters immediately, refine in background =====
+      // The derive already produced titles + premises. Add those to the store
+      // NOW so the user can navigate instantly. The full scaffold refinement
+      // and cover generation run in the background after navigation.
+      const seedChapters = finalSettings.chapters.map((ch) => ({
+        number: ch.number,
+        title: ch.title,
+        purpose: ch.premise,
+        changes: '',
+        emotionalBeat: '',
+        characters: [],
+        constraints: [],
+      }));
 
-      generationStore.setSubtitle('Building chapter outlines…');
-      let scaffoldResults: Awaited<ReturnType<typeof generateAutomaticOutline>> = [];
-      try {
-        scaffoldResults = await generateAutomaticOutline(project, finalSettings, now);
-      } catch (e) {
-        console.warn('[Creation] Auto scaffold failed, using seed chapters:', e);
-        scaffoldResults = finalSettings.chapters.map((ch) => ({
-          number: ch.number,
-          title: ch.title,
-          purpose: ch.premise,
-          changes: '',
-          emotionalBeat: '',
-          characters: [],
-          constraints: [],
-        }));
-      }
-
-      // Wait for cover to finish before navigating (so it shows on ProjectView)
-      await coverPromise;
-
-      generationStore.setSubtitle(`Adding ${scaffoldResults.length} chapters…`);
-      for (const ch of scaffoldResults) {
+      generationStore.setSubtitle('Adding chapters…');
+      for (const ch of seedChapters) {
         try {
           await addChapter({
             id: generateId(),
@@ -955,9 +930,7 @@ ${childrensRule}`,
         }
       }
 
-      // Navigate IMMEDIATELY now that the project + chapters are in the local
-      // store. Anything below (canon entries, server retry) is non-essential
-      // and runs after the user is already on ProjectView.
+      // Navigate NOW — user sees the project with seed chapters instantly.
       generationStore.setPhase('finalizing');
       generationStore.setSubtitle('Opening project…');
 
@@ -980,21 +953,56 @@ ${childrensRule}`,
       localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY);
       onClose();
 
-      // Best-effort: API persistence retry, canon entries.
-      // Wrapped so any throw can't strand the user back on ChatCreation.
+      // Best-effort: background tasks run AFTER navigation.
+      // Cover gen, scaffold refinement, API persistence, canon seeding.
       void (async () => {
+        // 1. Cover generation (Gemini image — parallel with everything else)
+        const seedHints = finalSettings.chapters
+          .slice(0, 3).map(ch => ch.premise).filter(Boolean).join('; ').slice(0, 300);
+        void import('../../lib/cover-gen-ai').then(async ({ generateCover: genCover }) => {
+          try {
+            const url = await genCover(project, seedHints);
+            useStore.getState().updateProject(projectId, { coverUrl: url });
+            console.log('[Creation] Auto-cover generated:', url);
+          } catch (e) {
+            console.warn('[Creation] Auto-cover failed (non-fatal):', e);
+          }
+        });
+
+        // 2. Scaffold refinement (Haiku — fast, refines the seed chapters with
+        //    better premises/beats). Updates chapters in-place silently.
+        try {
+          const refined = await generateAutomaticOutline(project, finalSettings, now);
+          if (refined.length > 0) {
+            const existingChapters = useStore.getState().chapters
+              .filter(c => c.projectId === projectId)
+              .sort((a, b) => a.number - b.number);
+            for (const ch of refined) {
+              const existing = existingChapters.find(e => e.number === ch.number);
+              if (existing) {
+                useStore.getState().updateChapter(existing.id, {
+                  title: ch.title,
+                  premise: { purpose: ch.purpose, changes: ch.changes, emotionalBeat: ch.emotionalBeat, characters: ch.characters, constraints: ch.constraints, setupPayoff: [] },
+                });
+              }
+            }
+            console.log(`[Creation] Scaffold refinement updated ${refined.length} chapters`);
+          }
+        } catch (e) {
+          console.warn('[Creation] Scaffold refinement failed (non-fatal):', e);
+        }
+
+        // 3. API persistence retry
         try {
           const persistedChapters = await api.listChapters(projectId).catch(() => []);
           if (!persistedChapters.length) {
-            for (const ch of scaffoldResults) {
-              await api.createChapter({
-                id: generateId(),
-                ...createChapterFromScaffold(projectId, ch, now),
-              }).catch(() => {});
+            const localChapters = useStore.getState().chapters.filter(c => c.projectId === projectId);
+            for (const ch of localChapters) {
+              await api.createChapter(ch).catch(() => {});
             }
           }
         } catch {
-          // Guest mode — API persistence not available, local storage is fine
+          // Guest mode — API persistence not available
         }
 
         try {
