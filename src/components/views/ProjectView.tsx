@@ -178,10 +178,24 @@ export function ProjectView() {
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Cover Hero — full-width book cover above chapters */}
-      {hasCover && (
+      {hasCover ? (
         <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-8">
-          <div className="rounded-2xl overflow-hidden shadow-lg aspect-square max-w-[320px] sm:max-w-[400px] mx-auto">
+          <div className="rounded-2xl overflow-hidden shadow-lg aspect-square max-w-[320px] sm:max-w-[400px] mx-auto animate-fade-in">
             <img src={project.coverUrl} alt={project.title} className="w-full h-full object-cover" />
+          </div>
+        </div>
+      ) : chapters.length > 0 && (
+        /* Skeleton placeholder while cover is generating in the background */
+        <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-8">
+          <div className="rounded-2xl aspect-square max-w-[320px] sm:max-w-[400px] mx-auto bg-black/[0.04] overflow-hidden relative">
+            {/* Shimmer animation */}
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-indeterminate-slide" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-text-tertiary">
+              <div className="w-12 h-12 rounded-xl bg-black/[0.06] flex items-center justify-center">
+                <ImageIcon size={20} className="text-text-tertiary/50" />
+              </div>
+              <span className="text-xs font-medium">Generating cover…</span>
+            </div>
           </div>
         </div>
       )}
