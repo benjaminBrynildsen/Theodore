@@ -975,27 +975,67 @@ ${childrensRule}`,
           }
         });
 
-        // 2. Scaffold refinement (Haiku — fast, refines the seed chapters with
-        //    better premises/beats). Updates chapters in-place silently.
+        // 2. Scaffold: if we navigated with zero chapters (derive wasn't ready),
+        //    we need to AWAIT the derive + create chapters from scratch. If we
+        //    already have seed chapters, just refine them in the background.
         try {
-          const refined = await generateAutomaticOutline(project, finalSettings, now);
-          if (refined.length > 0) {
-            const existingChapters = useStore.getState().chapters
-              .filter(c => c.projectId === projectId)
-              .sort((a, b) => a.number - b.number);
-            for (const ch of refined) {
-              const existing = existingChapters.find(e => e.number === ch.number);
-              if (existing) {
-                useStore.getState().updateChapter(existing.id, {
-                  title: ch.title,
-                  premise: { purpose: ch.purpose, changes: ch.changes, emotionalBeat: ch.emotionalBeat, characters: ch.characters, constraints: ch.constraints, setupPayoff: [] },
-                });
+          let deriveSettings = finalSettings;
+          const existingChapters = useStore.getState().chapters
+            .filter(c => c.projectId === projectId);
+
+          // If no chapters exist yet, we navigated early — wait for derive
+          if (existingChapters.length === 0 && pendingDeriveRef.current) {
+            const derived = await pendingDeriveRef.current;
+            if (derived?.settings) {
+              deriveSettings = normalizeProposedSettings(derived.settings);
+              if (derived.canon) {
+                setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
               }
             }
-            console.log(`[Creation] Scaffold refinement updated ${refined.length} chapters`);
+          }
+
+          // If still no chapters from derive, try a fresh one
+          if (existingChapters.length === 0 && (!deriveSettings.chapters || deriveSettings.chapters.length === 0)) {
+            const derived = await deriveSettingsFromConversation(messages);
+            if (derived?.settings) {
+              deriveSettings = normalizeProposedSettings(derived.settings);
+            }
+          }
+
+          // Create or refine chapters
+          if (existingChapters.length === 0 && deriveSettings.chapters?.length > 0) {
+            // Create chapters from scratch (navigated with empty project)
+            for (const ch of deriveSettings.chapters) {
+              await addChapter({
+                id: generateId(),
+                ...createChapterFromScaffold(projectId, {
+                  number: ch.number, title: ch.title, purpose: ch.premise,
+                  changes: '', emotionalBeat: '', characters: [], constraints: [],
+                }, now),
+              }).catch(() => {});
+            }
+            console.log(`[Creation] Background: created ${deriveSettings.chapters.length} chapters`);
+          } else if (existingChapters.length > 0) {
+            // Refine existing seed chapters with Haiku scaffold
+            const refined = await generateAutomaticOutline(project, deriveSettings, now);
+            if (refined.length > 0) {
+              const current = useStore.getState().chapters
+                .filter(c => c.projectId === projectId)
+                .sort((a, b) => a.number - b.number);
+              for (const ch of refined) {
+                const existing = current.find(e => e.number === ch.number);
+                if (existing) {
+                  useStore.getState().updateChapter(existing.id, {
+                    title: ch.title,
+                    premise: { purpose: ch.purpose, changes: ch.changes, emotionalBeat: ch.emotionalBeat, characters: ch.characters, constraints: ch.constraints, setupPayoff: [] },
+                  });
+                }
+              }
+              console.log(`[Creation] Scaffold refined ${refined.length} chapters`);
+            }
           }
         } catch (e) {
-          console.warn('[Creation] Scaffold refinement failed (non-fatal):', e);
+          console.warn('[Creation] Background scaffold failed (non-fatal):', e);
         }
 
         // 3. API persistence retry
@@ -1095,55 +1135,29 @@ ${childrensRule}`,
     let settings = editedSettings || proposedSettings;
     if (!settings) {
       if (!messages.some((m) => m.role === 'user')) return;
-      setCreatingProject(true);
-      useGenerationStore.getState().start({
-        kind: 'create-project',
-        label: 'your novel',
-        subtitle: 'Building chapter outline…',
-        indeterminate: true,
-      });
 
-      // If the background derive is still in-flight, await it instead of
-      // starting a competing request that would 429 on the generation lock.
-      if (pendingDeriveRef.current) {
-        useGenerationStore.getState().setSubtitle('Waiting for outline…');
-        try {
-          const derived = await pendingDeriveRef.current;
-          if (derived?.settings) {
-            applyProposedSettings(derived.settings, true);
-            if (derived.canon) {
-              setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
-            }
-            settings = derived.settings;
-          }
-        } catch {
-          // Background derive failed — try our own below
-        }
-      }
-
-      // If still no settings, try a fresh sync derive
-      if (!settings) {
-        useGenerationStore.getState().setSubtitle('Building chapter outline…');
-        try {
-          const derived = await deriveSettingsFromConversation(messages);
-          if (derived?.settings) {
-            applyProposedSettings(derived.settings, true);
-            if (derived.canon) {
-              setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
-            }
-            settings = derived.settings;
-          }
-        } catch (e) {
-          console.warn('[Creation] Sync derive failed:', e);
-        }
-      }
-
-      setCreatingProject(false);
-    }
-    if (!settings) {
-      useGenerationStore.getState().end();
-      setCreationMessage("I couldn't build the project plan from this chat. Try sending one more detail and try again.");
-      return;
+      // Don't wait — create a minimal project NOW and let the derive
+      // populate chapters in the background. The user sees ProjectView
+      // instantly with a "Building chapters…" skeleton.
+      const conversation = messages.map(m => m.content).join(' ');
+      // Extract a title from the conversation (first noun phrase or fallback)
+      const inferredTitle = messages.find(m => m.role === 'assistant')?.content?.match(/"([^"]+)"/)?.[1]
+        || 'Untitled Novel';
+      settings = {
+        title: inferredTitle,
+        subtype: bookType,
+        targetLength: 'medium',
+        assistanceLevel: 3,
+        narrativeControls: {
+          toneMood: { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 },
+          pacing: 'balanced',
+          dialogueWeight: 'balanced',
+          focusMix: { character: 40, plot: 40, world: 20 },
+          genreEmphasis: [],
+        },
+        chapterCount: 12,
+        chapters: [], // empty — will be filled by background derive
+      } as any;
     }
     // createProjectFromSettings calls its own start() which replaces the
     // "Building chapter outline" bar with the actual creation progress.
