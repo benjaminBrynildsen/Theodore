@@ -1060,7 +1060,7 @@ ${childrensRule}`,
           console.warn('[Creation] Canon seeding failed (non-fatal):', e);
         }
 
-        // Cover generation (Gemini image — runs after canon so progress bar stays visible)
+        // Cover generation (Gemini image)
         try {
           useGenerationStore.getState().setSubtitle('Generating cover art…');
           const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
@@ -1070,11 +1070,17 @@ ${childrensRule}`,
           const coverHints = coverChapters
             .map(c => c.premise?.purpose).filter(Boolean).join('; ').slice(0, 300)
             || `${latestProject.title} novel`;
+          console.log('[Creation] Starting auto-cover gen for:', latestProject.title, 'hints:', coverHints.slice(0, 50));
           const { generateCover: genCover } = await import('../../lib/cover-gen-ai');
           const coverUrl = await genCover(latestProject, coverHints);
           useStore.getState().updateProject(projectId, { coverUrl });
-        } catch (e) {
-          console.warn('[Creation] Auto-cover failed (non-fatal):', e);
+          useGenerationStore.getState().setSubtitle('Cover generated!');
+          console.log('[Creation] Auto-cover done:', coverUrl);
+        } catch (e: any) {
+          console.error('[Creation] Auto-cover FAILED:', e);
+          useGenerationStore.getState().setSubtitle(`Cover error: ${e?.message?.slice(0, 80) || 'unknown'}`);
+          // Keep the error visible for 5 seconds before completing
+          await new Promise(r => setTimeout(r, 5000));
         }
 
         useGenerationStore.getState().setPhase('done');
