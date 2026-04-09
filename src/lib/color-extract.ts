@@ -34,11 +34,9 @@ export function extractDominantColor(imageUrl: string): Promise<string> {
           const a = data[i + 3];
           if (a < 128) continue; // skip transparent
 
-          // Skip very light colors (we want a dark-ish background)
+          // Skip near-black (boring) and pure white (uninformative)
           const luminance = r * 0.299 + g * 0.587 + b * 0.114;
-          if (luminance > 200) continue;
-          // Skip very dark/near-black (boring)
-          if (luminance < 15) continue;
+          if (luminance > 245 || luminance < 10) continue;
 
           const key = `${Math.floor(r / 32)}-${Math.floor(g / 32)}-${Math.floor(b / 32)}`;
           const existing = buckets.get(key);
@@ -58,11 +56,12 @@ export function extractDominantColor(imageUrl: string): Promise<string> {
           if (bucket.count > best.count) best = bucket;
         }
 
-        // Average the bucket and darken it for a background-friendly color.
-        // Return as hex so callers can safely append alpha (e.g. #1a1a1edd).
-        const avgR = Math.round((best.r / best.count) * 0.5);
-        const avgG = Math.round((best.g / best.count) * 0.5);
-        const avgB = Math.round((best.b / best.count) * 0.5);
+        // Average the bucket colors. Slight darken (0.7) so it works as a
+        // background without washing out, but preserves the actual hue —
+        // warm covers stay warm, cool covers stay cool, light covers stay light-ish.
+        const avgR = Math.round((best.r / best.count) * 0.7);
+        const avgG = Math.round((best.g / best.count) * 0.7);
+        const avgB = Math.round((best.b / best.count) * 0.7);
         const toHex = (n: number) => n.toString(16).padStart(2, '0');
 
         const color = `#${toHex(avgR)}${toHex(avgG)}${toHex(avgB)}`;
