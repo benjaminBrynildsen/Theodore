@@ -991,73 +991,10 @@ ${childrensRule}`,
           }
         });
 
-        // 2. Scaffold: get chapters from derive then add them
-        try {
-          let deriveSettings = finalSettings;
-          const existingChapters = useStore.getState().chapters
-            .filter(c => c.projectId === projectId);
-
-          // If no chapters exist yet, we navigated early — wait for derive
-          if (existingChapters.length === 0 && pendingDeriveRef.current) {
-            useGenerationStore.getState().setSubtitle('Waiting for chapter outline…');
-            const derived = await pendingDeriveRef.current;
-            if (derived?.settings) {
-              deriveSettings = normalizeProposedSettings(derived.settings);
-              if (derived.canon) {
-                setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
-              }
-            }
-          }
-
-          // If still no chapters from derive, try a fresh one
-          if (existingChapters.length === 0 && (!deriveSettings.chapters || deriveSettings.chapters.length === 0)) {
-            useGenerationStore.getState().setSubtitle('Building chapter outline…');
-            const derived = await deriveSettingsFromConversation(messages);
-            if (derived?.settings) {
-              deriveSettings = normalizeProposedSettings(derived.settings);
-            }
-          }
-
-          // Update the project title
-          if (deriveSettings.title && deriveSettings.title !== 'Untitled Novel') {
-            useStore.getState().updateProject(projectId, { title: deriveSettings.title });
-            useGenerationStore.getState().setSubtitle(`Adding chapters for "${deriveSettings.title}"…`);
-          }
-
-          // Create or refine chapters
-          if (existingChapters.length === 0 && deriveSettings.chapters?.length > 0) {
-            for (const ch of deriveSettings.chapters) {
-              useGenerationStore.getState().setSubtitle(`Adding Ch. ${ch.number}: ${ch.title}…`);
-              await addChapter({
-                id: generateId(),
-                ...createChapterFromScaffold(projectId, {
-                  number: ch.number, title: ch.title, purpose: ch.premise,
-                  changes: '', emotionalBeat: '', characters: [], constraints: [],
-                }, now),
-              }).catch(() => {});
-            }
-            console.log(`[Creation] Background: created ${deriveSettings.chapters.length} chapters`);
-          } else if (existingChapters.length > 0) {
-            useGenerationStore.getState().setSubtitle('Refining chapter outlines…');
-            const refined = await generateAutomaticOutline(project, deriveSettings, now);
-            if (refined.length > 0) {
-              const current = useStore.getState().chapters
-                .filter(c => c.projectId === projectId)
-                .sort((a, b) => a.number - b.number);
-              for (const ch of refined) {
-                const existing = current.find(e => e.number === ch.number);
-                if (existing) {
-                  useStore.getState().updateChapter(existing.id, {
-                    title: ch.title,
-                    premise: { purpose: ch.purpose, changes: ch.changes, emotionalBeat: ch.emotionalBeat, characters: ch.characters, constraints: ch.constraints, setupPayoff: [] },
-                  });
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('[Creation] Background scaffold failed (non-fatal):', e);
-        }
+        // 2. Chapters are already created from the quick Haiku call.
+        //    No background derive or scaffold needed — the quick call
+        //    produced titles + premises upfront.
+        useGenerationStore.getState().setSubtitle('Setting up canon…');
 
         // 3. API persistence retry
         try {
@@ -1166,8 +1103,8 @@ ${childrensRule}`,
         indeterminate: true,
       });
 
-      // Fast path: single Haiku call for just a title + 12 chapter titles.
-      // ~1-3 seconds. Full premises come later from the background derive.
+      // Single Haiku call for title + chapters with premises. ~2-4 seconds.
+      // This replaces the full derive — no background enrichment needed.
       try {
         const convo = messages.map(m => `${m.role}: ${m.content}`).join('\n');
         const quickResult = await generate({
@@ -1175,8 +1112,8 @@ ${childrensRule}`,
           action: 'plan-project',
           model: 'claude-haiku-4-5',
           temperature: 0.7,
-          maxTokens: 600,
-          prompt: `Based on this conversation, generate a book title and 12 chapter titles.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown:\n{"title":"...","chapters":["Ch 1 title","Ch 2 title",...]}`,
+          maxTokens: 1500,
+          prompt: `Based on this conversation, generate a complete novel outline.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown fences:\n{"title":"Book Title","chapters":[{"number":1,"title":"Chapter Title","premise":"One sentence synopsis of what happens"},...]}\n\nRules:\n- Generate exactly 12 chapters\n- Each premise must be a specific story synopsis using character names\n- No meta-language like "stakes are raised" — write like a synopsis`,
         });
         try {
           const parsed = JSON.parse((quickResult.text || '').trim().match(/\{[\s\S]*\}/)?.[0] || '{}');
@@ -1193,10 +1130,10 @@ ${childrensRule}`,
                 genreEmphasis: [],
               },
               chapterCount: parsed.chapters.length,
-              chapters: parsed.chapters.map((t: string, i: number) => ({
-                number: i + 1,
-                title: t,
-                premise: '',
+              chapters: parsed.chapters.map((ch: any, i: number) => ({
+                number: ch.number || i + 1,
+                title: ch.title || `Chapter ${i + 1}`,
+                premise: ch.premise || '',
               })),
             } as any;
           }
