@@ -170,12 +170,13 @@ export function BookCoverSection({ projectId }: Props) {
         .join('; ')
         .slice(0, 300);
 
+      // Use Gemini (free, fast) as default. Falls back to OpenAI if
+      // GEMINI_API_KEY isn't configured on the server.
       const result = await generateImageApi({
         target: 'cover',
         projectId,
         aspectRatio: '1:1',
         style: style as any,
-        provider: 'openai',
         prompt: chapterHints ? `Story context: ${chapterHints}` : undefined,
       });
 
