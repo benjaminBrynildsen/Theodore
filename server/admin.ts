@@ -12,9 +12,10 @@ const GUEST_SALT = process.env.PAGEVIEW_SALT || process.env.SESSION_SECRET || 't
 function hashIpForAdmin(ip: string): string {
   return crypto.createHash('sha256').update(ip + GUEST_SALT).digest('hex').slice(0, 32);
 }
+// Must match the logic in server/index.ts exactly or the hashes won't
+// match between guest events and admin dashboard captures.
 function requestClientIp(req: Request): string {
-  return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
-    || req.ip || req.socket?.remoteAddress || 'unknown';
+  return req.ip || req.socket?.remoteAddress || 'unknown';
 }
 
 // Admin user IDs — only these accounts can access admin endpoints
