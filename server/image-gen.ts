@@ -299,8 +299,8 @@ export function buildBookCoverPrompt(project: {
   const stylePrompt = COVER_STYLES[project.coverStyle || 'illustrated'] || COVER_STYLES.illustrated;
   parts.push(stylePrompt);
 
-  // Critical instructions to prevent mockups, frames, and text
-  parts.push('FULL BLEED artwork that fills the entire canvas edge to edge, NO borders NO frames NO mockup NO book shape NO 3D rendering of a physical book, the artwork IS the cover not a picture OF a cover, DO NOT include any text or letters or words in the image, no typography, purely visual scene artwork, square 1:1 aspect ratio');
+  // Critical instructions to prevent mockups, frames, text of any kind
+  parts.push('FULL BLEED artwork that fills the entire canvas edge to edge, NO borders NO frames NO mockup NO book shape NO 3D rendering of a physical book, the artwork IS the cover not a picture OF a cover, ABSOLUTELY NO TEXT of any kind anywhere in the image — no titles, no letters, no words, no signs with writing, no readable text on objects, no typography, no watermarks, no labels, purely visual scene artwork with zero text elements, square 1:1 aspect ratio');
 
   return parts.join(', ');
 }

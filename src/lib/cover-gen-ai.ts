@@ -22,20 +22,11 @@ export function autoSelectCoverStyle(nc: Project['narrativeControls']): string {
   return 'illustrated';
 }
 
-// Canvas: composite title + Theodore watermark onto background image.
+// Canvas: add Theodore watermark onto background image.
+// No title text — title is displayed in the UI everywhere the cover appears.
 // Returns a base64 data URL.
-const STYLE_FONTS: Record<string, { font: string; uppercase: boolean }> = {
-  minimalist: { font: '900 Inter, system-ui, sans-serif', uppercase: true },
-  illustrated: { font: '800 "Palatino Linotype", "Book Antiqua", Palatino, serif', uppercase: false },
-  dark: { font: '900 "Arial Black", "Arial Bold", Impact, sans-serif', uppercase: true },
-  vintage: { font: '700 "Palatino Linotype", "Book Antiqua", Georgia, serif', uppercase: false },
-  bold: { font: '900 Inter, system-ui, sans-serif', uppercase: true },
-};
-
-export function compositeTitle(
+export function compositeWatermark(
   backgroundUrl: string,
-  title: string,
-  coverStyle: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -62,75 +53,16 @@ export function compositeTitle(
         return count > 0 ? sum / count : 128;
       }
       const topBright = avgBrightness(0, 0, size, 70);
-      const bottomBright = avgBrightness(0, size - 200, size, 200);
-      const titleColor = bottomBright > 140 ? '#000000' : '#ffffff';
       const watermarkColor = topBright > 140 ? '#000000' : '#ffffff';
-      const gradDark = bottomBright > 140;
 
-      // Bottom gradient
-      const grad = ctx.createLinearGradient(0, size * 0.65, 0, size);
-      const gc = gradDark ? '255,255,255' : '0,0,0';
-      grad.addColorStop(0, `rgba(${gc},0)`);
-      grad.addColorStop(0.5, `rgba(${gc},0.2)`);
-      grad.addColorStop(1, `rgba(${gc},0.5)`);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, size, size);
-
-      // Theodore wordmark — top center
+      // Theodore wordmark — top center, brightness-adaptive
       ctx.textAlign = 'center';
-      ctx.font = '600 26px Georgia, "Palatino Linotype", serif';
+      ctx.font = '600 32px Georgia, "Palatino Linotype", serif';
       ctx.fillStyle = watermarkColor;
-      ctx.shadowColor = topBright > 140 ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
-      ctx.shadowBlur = 4;
+      ctx.shadowColor = topBright > 140 ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.4)';
+      ctx.shadowBlur = 6;
       ctx.shadowOffsetY = 1;
-      ctx.fillText('Theodore', size / 2, 50);
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetY = 0;
-
-      // Title
-      const fontConfig = STYLE_FONTS[coverStyle] || STYLE_FONTS.illustrated;
-      const displayTitle = fontConfig.uppercase ? title.toUpperCase() : title;
-      const fontWeight = fontConfig.font.match(/^\d+/)?.[0] || '800';
-      const fontFamily = fontConfig.font.replace(/^\d+\s*/, '');
-      const pad = 40;
-      const maxWidth = size - pad * 2;
-      const wordList = displayTitle.split(/\s+/);
-
-      let baseFontSize = 90;
-      let lines: string[] = [];
-      for (; baseFontSize >= 32; baseFontSize -= 3) {
-        ctx.font = `${fontWeight} ${baseFontSize}px ${fontFamily}`;
-        lines = [];
-        let cur = '';
-        for (const word of wordList) {
-          const test = cur ? `${cur} ${word}` : word;
-          if (ctx.measureText(test).width > maxWidth && cur) { lines.push(cur); cur = word; }
-          else cur = test;
-        }
-        if (cur) lines.push(cur);
-        if (lines.length <= 3) break;
-      }
-
-      const lineHeight = baseFontSize * 1.12;
-      const totalHeight = lines.length * lineHeight;
-      const startY = size - 50 - totalHeight + baseFontSize;
-
-      ctx.fillStyle = titleColor;
-      ctx.shadowColor = bottomBright > 140 ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 8;
-      ctx.shadowOffsetY = 2;
-
-      for (let i = 0; i < lines.length; i++) {
-        let lfs = baseFontSize;
-        ctx.font = `${fontWeight} ${lfs}px ${fontFamily}`;
-        const nw = ctx.measureText(lines[i]).width;
-        if (nw > 0) lfs = Math.min(baseFontSize * 1.6, lfs * (maxWidth / nw));
-        ctx.font = `${fontWeight} ${Math.round(lfs)}px ${fontFamily}`;
-        ctx.textAlign = 'center';
-        ctx.fillText(lines[i], size / 2, startY + i * lineHeight);
-      }
-
+      ctx.fillText('Theodore', size / 2, 54);
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
       ctx.shadowOffsetY = 0;
@@ -141,7 +73,7 @@ export function compositeTitle(
   });
 }
 
-// Full cover generation pipeline: generate art → composite title → upload → return URL
+// Full cover generation pipeline: generate art → add watermark → upload → return URL
 export async function generateCover(project: Project, chapterHints?: string): Promise<string> {
   const style = autoSelectCoverStyle(project.narrativeControls);
 
@@ -153,7 +85,7 @@ export async function generateCover(project: Project, chapterHints?: string): Pr
     prompt: chapterHints ? `Story context: ${chapterHints}` : undefined,
   });
 
-  const composited = await compositeTitle(result.imageUrl, project.title, style);
+  const composited = await compositeWatermark(result.imageUrl);
 
   const uploadRes = await fetch('/api/upload/cover', {
     method: 'POST',
