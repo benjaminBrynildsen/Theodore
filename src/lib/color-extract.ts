@@ -58,19 +58,21 @@ export function extractDominantColor(imageUrl: string): Promise<string> {
           if (bucket.count > best.count) best = bucket;
         }
 
-        // Average the bucket and darken it for a background-friendly color
+        // Average the bucket and darken it for a background-friendly color.
+        // Return as hex so callers can safely append alpha (e.g. #1a1a1edd).
         const avgR = Math.round((best.r / best.count) * 0.5);
         const avgG = Math.round((best.g / best.count) * 0.5);
         const avgB = Math.round((best.b / best.count) * 0.5);
+        const toHex = (n: number) => n.toString(16).padStart(2, '0');
 
-        const color = `rgb(${avgR}, ${avgG}, ${avgB})`;
+        const color = `#${toHex(avgR)}${toHex(avgG)}${toHex(avgB)}`;
         cache.set(imageUrl, color);
         resolve(color);
       } catch {
-        resolve('rgb(24, 24, 30)'); // fallback
+        resolve('#18181e'); // fallback
       }
     };
-    img.onerror = () => resolve('rgb(24, 24, 30)');
+    img.onerror = () => resolve('#18181e');
     img.src = imageUrl;
   });
 }
