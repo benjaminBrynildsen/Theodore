@@ -249,19 +249,32 @@ export function buildSceneIllustrationPrompt(scene: {
   return parts.join(', ');
 }
 
+// Cover styles that map to prompt modifiers. These match current KDP/Amazon
+// bestseller cover trends so generated covers look commercially viable.
+export const COVER_STYLES: Record<string, string> = {
+  minimalist: 'minimalist design, clean composition, bold negative space, subtle gradient background, modern and elegant',
+  illustrated: 'richly illustrated scene, digital painting, vibrant colors, detailed environment, cinematic depth',
+  dark: 'dark moody atmosphere, dramatic chiaroscuro lighting, deep shadows, mysterious and intense',
+  vintage: 'vintage aesthetic, aged paper texture, classic composition, warm muted tones, retro illustration style',
+  bold: 'bold graphic design, high contrast shapes, striking color palette, modern and eye-catching',
+};
+
 export function buildBookCoverPrompt(project: {
   title: string;
   type: string;
   subtype?: string;
   genreEmphasis?: string[];
   toneMood?: { lightDark?: number; hopefulGrim?: number };
+  coverStyle?: string;
+  chapterHints?: string;
 }): string {
   const parts: string[] = [];
-  parts.push(`Book cover design for "${project.title}"`);
-  if (project.subtype) parts.push(`${project.subtype} ${project.type}`);
-  else parts.push(project.type);
-  if (project.genreEmphasis?.length) parts.push(`genres: ${project.genreEmphasis.join(', ')}`);
-  
+
+  // Context about the book (NOT as visible text — just to guide the imagery)
+  parts.push(`Book cover BACKGROUND ART for a ${project.subtype || project.type} titled "${project.title}"`);
+  if (project.genreEmphasis?.length) parts.push(`genre: ${project.genreEmphasis.join(', ')}`);
+  if (project.chapterHints) parts.push(`story context: ${project.chapterHints}`);
+
   // Tone-based atmosphere
   if (project.toneMood) {
     if (project.toneMood.lightDark !== undefined) {
@@ -271,8 +284,14 @@ export function buildBookCoverPrompt(project: {
       parts.push(project.toneMood.hopefulGrim > 60 ? 'grim, foreboding' : 'hopeful, uplifting');
     }
   }
-  
-  parts.push('professional book cover, typography-ready negative space, compelling composition, high quality');
+
+  // Style
+  const stylePrompt = COVER_STYLES[project.coverStyle || 'illustrated'] || COVER_STYLES.illustrated;
+  parts.push(stylePrompt);
+
+  // Critical: no text in the image. Title will be overlaid programmatically.
+  parts.push('professional book cover art, portrait orientation, leave clear space at top and bottom for title text overlay, DO NOT include any text or letters or words in the image, no typography, purely visual artwork');
+
   return parts.join(', ');
 }
 

@@ -13,6 +13,7 @@ export type GenerationKind =
   | 'generate-chapter'
   | 'extend-chapter'
   | 'generate-audio'
+  | 'generate-image'
   | 'create-project'
   | 'inline-edit';
 

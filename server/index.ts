@@ -1594,12 +1594,22 @@ app.post('/api/generate/image', async (req, res) => {
       const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
       if (!project) return res.status(404).json({ error: 'Project not found' });
       const nc = (project.narrativeControls as any) || {};
+      // Pull first 3 chapter premises for story context
+      const coverChapters = await db.select({ premise: chapters.premise })
+        .from(chapters).where(eq(chapters.projectId, projectId))
+        .orderBy(chapters.number).limit(3);
+      const chapterHints = coverChapters
+        .map(c => (c.premise as any)?.purpose).filter(Boolean).join('; ').slice(0, 300);
+      // Client can pass extra prompt context (e.g. chapter hints it already has)
+      const clientPrompt = typeof prompt === 'string' ? prompt : '';
       finalPrompt = buildBookCoverPrompt({
         title: project.title,
         type: project.type,
         subtype: project.subtype || undefined,
         genreEmphasis: nc.genreEmphasis,
         toneMood: nc.toneMood,
+        coverStyle: style || 'illustrated',
+        chapterHints: clientPrompt || chapterHints,
       });
     } else if (target === 'page' && targetId) {
       const [chapter] = await db.select().from(chapters).where(eq(chapters.id, targetId));
@@ -2278,6 +2288,32 @@ app.get('/api/admin/traffic', getTrafficStats);
 const uploadsPath = path.resolve(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadsPath)) fs.mkdirSync(uploadsPath, { recursive: true });
 app.use('/uploads', express.static(uploadsPath));
+
+// Upload a composited cover image (base64 → file). Used by the client-side
+// Canvas overlay that bakes the title text onto the AI-generated background.
+app.post('/api/upload/cover', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    const { image, projectId } = req.body;
+    if (!image || typeof image !== 'string') return res.status(400).json({ error: 'Missing image data' });
+    // Accept both raw base64 and data URLs
+    const base64 = image.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'Image too large (5MB max)' });
+    const dir = path.join(uploadsPath, 'covers');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const filename = `${randomUUID()}.png`;
+    fs.writeFileSync(path.join(dir, filename), buffer);
+    const coverUrl = `/uploads/covers/${filename}`;
+    // Auto-save to project if projectId provided and user is authenticated
+    if (projectId && auth?.user) {
+      await db.update(projects).set({ coverUrl }).where(eq(projects.id, String(projectId)));
+    }
+    res.json({ coverUrl });
+  } catch (e: any) {
+    respondInternalError(res, 'upload.cover', e);
+  }
+});
 
 // ========== Serve static in production ==========
 // ========== Shareable Audio ==========

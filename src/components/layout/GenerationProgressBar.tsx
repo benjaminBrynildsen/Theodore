@@ -44,6 +44,7 @@ export function GenerationProgressBar() {
     'generate-chapter': 'Generating',
     'extend-chapter': 'Extending',
     'generate-audio': 'Generating audio for',
+    'generate-image': 'Generating cover for',
     'create-project': 'Creating',
     'inline-edit': 'Editing',
   };

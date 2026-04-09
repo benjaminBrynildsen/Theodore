@@ -15,6 +15,7 @@ import type { ElevenLabsVoice } from '../../lib/tts-types';
 import type { CharacterEntry } from '../../types/canon';
 import { autoAssignVoice, autoAssignVoiceFromPool, voiceAssignmentReason } from '../../lib/voice-assign';
 import { analyzeChapterScenes, isMetadataStale } from '../../lib/emotion-analyzer';
+import { BookCoverSection } from './BookCoverSection';
 import { tagDialogue } from '../../lib/dialogue-tagger';
 import { tagSFX } from '../../lib/sfx-tagger';
 import { tagDirections } from '../../lib/direction-tagger';
@@ -1805,6 +1806,9 @@ export function AudiobookPanel() {
             </div>
           )}
         </div>}
+
+        {/* Book Cover */}
+        <BookCoverSection projectId={project.id} />
 
         {/* Download All — pinned to bottom */}
         {audioCount > 0 && (
