@@ -100,7 +100,7 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
           onClick={onGetStarted}
           className="group inline-flex items-center gap-2.5 bg-black text-white rounded-2xl px-8 py-4 text-base font-semibold hover:shadow-[0_8px_30px_rgba(0,0,0,0.2)] active:scale-[0.98] transition-all duration-200"
         >
-          Start Writing
+          Create Free Story
           <ArrowRight size={18} className="group-hover:translate-x-0.5 transition-transform" />
         </button>
 
