@@ -50,7 +50,11 @@ function buildImagePrompt(req: ImageGenRequest): string {
 
 export async function generateImage(req: ImageGenRequest): Promise<ImageGenResult> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('GEMINI_API_KEY not configured. Add it to your .env file.');
+  // Fall back to OpenAI if Gemini key isn't configured
+  if (!apiKey) {
+    if (process.env.OPENAI_API_KEY) return generateImageOpenAI(req);
+    throw new Error('No image generation API key configured (GEMINI_API_KEY or OPENAI_API_KEY).');
+  }
 
   ensureUploadsDir();
 
