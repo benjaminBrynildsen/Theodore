@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { useCanonStore } from './store/canon';
 import { TopBar } from './components/layout/TopBar';
@@ -16,6 +16,7 @@ import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
 import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/MobilePlayer';
+import * as pixel from './lib/pixel';
 
 const ProjectView = lazy(async () => {
   const mod = await import('./components/views/ProjectView');
@@ -100,6 +101,25 @@ export default function App() {
     return () => window.removeEventListener('theodore:expandPlayer', handler);
   }, []);
 
+  // ── Meta Pixel: track view changes ──
+  const prevView = useRef(currentView);
+  useEffect(() => {
+    if (currentView !== prevView.current) {
+      prevView.current = currentView;
+      pixel.trackPageView();
+      pixel.trackViewContent({ content_name: currentView, content_category: 'view' });
+    }
+  }, [currentView]);
+
+  // ── Meta Pixel: track sign-up ──
+  const prevUser = useRef(user);
+  useEffect(() => {
+    if (user && !prevUser.current) {
+      pixel.trackCompleteRegistration();
+    }
+    prevUser.current = user;
+  }, [user]);
+
   const [showGuestChat, setShowGuestChat] = useState(false);
   const [returnToChatAfterAuth, setReturnToChatAfterAuth] = useState(false);
   const [showPostAuthChat, setShowPostAuthChat] = useState(false);
@@ -129,6 +149,7 @@ export default function App() {
       window.history.replaceState({}, '', url.pathname + url.search);
       // Re-fetch user data to get updated plan
       if (billingResult === 'success') {
+        pixel.trackSubscribe(0); // value filled when pricing is known
         bootstrap();
       }
     }
@@ -359,7 +380,7 @@ export default function App() {
     }
     return (
       <Suspense fallback={<ViewLoader label="Loading Theodore..." />}>
-        <LandingPage onGetStarted={() => setShowGuestChat(true)} onSignIn={() => setShowAuth(true)} />
+        <LandingPage onGetStarted={() => { pixel.trackCustom('StartGuestChat'); setShowGuestChat(true); }} onSignIn={() => setShowAuth(true)} />
       </Suspense>
     );
   }
