@@ -71,6 +71,7 @@ interface ActivityRow {
   userPlan: string | null;
   isGuest?: boolean;
   country?: string | null;
+  ipHashPrefix?: string;
 }
 
 /** Human-readable labels for raw action strings in the admin activity feed. */
@@ -190,6 +191,18 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [usersList, setUsersList] = useState<{ users: UserRow[]; total: number } | null>(null);
   const [activityList, setActivityList] = useState<ActivityRow[]>([]);
+  const [adminIpHash, setAdminIpHash] = useState<string | null>(null);
+  // IP hashes the admin has marked as "me" (persisted in localStorage).
+  // Supports multiple devices — click "Mark as me" on any guest row to add it.
+  const [myIpHashes, setMyIpHashes] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('theodore:admin-my-ips');
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch { return new Set(); }
+  });
+  const [hideMyGuest, setHideMyGuest] = useState(() => {
+    try { return localStorage.getItem('theodore:admin-hide-my-guest') === 'true'; } catch { return false; }
+  });
   const [userDetail, setUserDetail] = useState<UserDetail | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStats | null>(null);
   const [traffic, setTraffic] = useState<TrafficStats | null>(null);
@@ -233,10 +246,38 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const loadActivity = async () => {
     setLoading(true);
     try {
-      const data = await fetchJson<{ activity: ActivityRow[] }>('/activity?limit=100');
+      const data = await fetchJson<{ activity: ActivityRow[]; adminIpHash?: string }>('/activity?limit=100');
       setActivityList(data.activity);
+      // Auto-detect & mark the admin's current IP so "You" tags show up.
+      if (data.adminIpHash) {
+        setAdminIpHash(data.adminIpHash);
+        setMyIpHashes((prev) => {
+          const next = new Set(prev);
+          next.add(data.adminIpHash!);
+          localStorage.setItem('theodore:admin-my-ips', JSON.stringify([...next]));
+          return next;
+        });
+      }
     } catch { setError('Failed to load activity.'); }
     setLoading(false);
+  };
+
+  const toggleMyIp = (hash: string) => {
+    setMyIpHashes((prev) => {
+      const next = new Set(prev);
+      if (next.has(hash)) next.delete(hash);
+      else next.add(hash);
+      localStorage.setItem('theodore:admin-my-ips', JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  const toggleHideMyGuest = () => {
+    setHideMyGuest((prev) => {
+      const next = !prev;
+      localStorage.setItem('theodore:admin-hide-my-guest', String(next));
+      return next;
+    });
   };
 
   const loadUserDetail = async (userId: string) => {
@@ -800,16 +841,37 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {/* ========== Activity Feed ========== */}
         {view === 'activity' && (
           <div className="max-w-5xl mx-auto">
-            <div className="text-xs text-text-tertiary mb-3">Recent generations across all users (including signed-out guests)</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs text-text-tertiary">Recent generations across all users (including signed-out guests)</div>
+              <button
+                onClick={toggleHideMyGuest}
+                className={cn(
+                  'text-[10px] px-2.5 py-1 rounded-full border transition-all',
+                  hideMyGuest
+                    ? 'bg-text-primary text-text-inverse border-text-primary'
+                    : 'border-black/10 text-text-tertiary hover:text-text-primary'
+                )}
+              >
+                {hideMyGuest ? 'Showing real users only' : 'Hide my testing'}
+              </button>
+            </div>
             <div className="space-y-1">
-              {activityList.map((a) => {
+              {activityList
+                .filter((a) => {
+                  if (!hideMyGuest) return true;
+                  if (!a.isGuest) return true;
+                  return !myIpHashes.has(a.ipHashPrefix || '');
+                })
+                .map((a) => {
                 const Icon = ACTION_ICONS[a.action] || Zap;
+                const isMe = a.isGuest && myIpHashes.has(a.ipHashPrefix || '');
                 return (
                   <div
                     key={`${a.isGuest ? 'g' : 'u'}-${a.id}`}
                     className={cn(
                       'flex items-center gap-3 px-4 py-2.5 rounded-xl glass-pill',
-                      a.isGuest && 'border border-dashed border-black/10'
+                      a.isGuest && !isMe && 'border border-dashed border-black/10',
+                      isMe && 'border border-dashed border-blue-200 bg-blue-50/30'
                     )}
                   >
                     <Icon size={14} className="text-text-tertiary flex-shrink-0" />
@@ -824,6 +886,18 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                           <span className="text-[10px] text-text-tertiary" title={a.country}>
                             {a.country}
                           </span>
+                        )}
+                        {isMe && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">You</span>
+                        )}
+                        {a.isGuest && !isMe && (
+                          <button
+                            onClick={() => a.ipHashPrefix && toggleMyIp(a.ipHashPrefix)}
+                            className="text-[9px] px-1.5 py-0.5 rounded-full border border-black/10 text-text-tertiary hover:text-text-primary hover:border-black/20 transition-colors"
+                            title="Mark this IP as yours (for filtering)"
+                          >
+                            Mark as me
+                          </button>
                         )}
                       </div>
                       <div className="text-[11px] text-text-tertiary">

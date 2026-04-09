@@ -1,9 +1,21 @@
 // Admin API — dashboard endpoints for platform analytics
 import type { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { db } from './db.js';
 import { users, projects, chapters, creditTransactions, audioGenerations, guestEvents } from './schema.js';
 import { sql, eq, desc, count, sum } from 'drizzle-orm';
 import { getAuth } from './auth.js';
+
+// Must match the hashing in server/index.ts so the admin's own IP
+// resolves to the same prefix shown in the guest activity feed.
+const GUEST_SALT = process.env.PAGEVIEW_SALT || process.env.SESSION_SECRET || 'theodore-guest-salt';
+function hashIpForAdmin(ip: string): string {
+  return crypto.createHash('sha256').update(ip + GUEST_SALT).digest('hex').slice(0, 32);
+}
+function requestClientIp(req: Request): string {
+  return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+    || req.ip || req.socket?.remoteAddress || 'unknown';
+}
 
 // Admin user IDs — only these accounts can access admin endpoints
 const ADMIN_EMAILS = new Set([
@@ -450,6 +462,7 @@ export async function getActivity(req: Request, res: Response) {
       userPlan: 'guest' as string,
       isGuest: true as const,
       country: g.country || null,
+      ipHashPrefix: (g.ipHash || '').slice(0, 6),
     }));
 
     const merged = [
@@ -459,7 +472,12 @@ export async function getActivity(req: Request, res: Response) {
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .slice(0, limit);
 
-    res.json({ activity: merged });
+    // Include the requesting admin's own IP hash so the dashboard can
+    // tag "You" rows and filter out the admin's test traffic.
+    const adminIp = requestClientIp(req);
+    const adminIpHash = hashIpForAdmin(adminIp).slice(0, 6);
+
+    res.json({ activity: merged, adminIpHash });
   } catch (e: any) {
     console.error('[Admin] activity error:', e);
     res.status(500).json({ error: 'Internal server error' });
