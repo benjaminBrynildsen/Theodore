@@ -1,16 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Plus, BookOpen, Clock, ChevronRight, MessageSquare, Upload, ArrowLeft } from 'lucide-react';
+import { Plus, BookOpen, Clock, ChevronRight, Upload } from 'lucide-react';
 import { useStore } from '../../store';
 import { ImportProjectModal } from '../modals/ImportProjectModal';
 import { ChatCreation } from './ChatCreation';
-import { cn } from '../../lib/utils';
-
-type HomeScreen = 'main' | 'choose-method';
 
 export function Home() {
   const [showChatCreation, setShowChatCreation] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [screen, setScreen] = useState<HomeScreen>('main');
   const { projects, setActiveProject, setCurrentView } = useStore();
 
   const sortedProjects = useMemo(() => {
@@ -35,57 +31,6 @@ export function Home() {
     return <ChatCreation onClose={() => setShowChatCreation(false)} />;
   }
 
-  // Method selection screen
-  if (screen === 'choose-method') {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8 animate-fade-in overflow-y-auto">
-        <button
-          onClick={() => setScreen('main')}
-          className="self-start flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm mb-8 ml-2 sm:ml-0 transition-colors"
-        >
-          <ArrowLeft size={16} />
-          <span>Back</span>
-        </button>
-
-        <div className="text-center mb-8 sm:mb-12 max-w-lg px-4">
-          <h2 className="text-2xl sm:text-3xl font-serif font-semibold tracking-tight mb-3">How would you like to start?</h2>
-          <p className="text-text-secondary text-sm sm:text-base">Choose how you want to set up your project</p>
-        </div>
-
-        <div className="flex flex-col gap-3 w-full max-w-md px-4">
-          <button
-            onClick={() => setShowChatCreation(true)}
-            className="glass px-6 py-5 rounded-2xl flex items-center gap-4 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-full"
-          >
-            <div className="w-10 h-10 rounded-xl glass-pill flex items-center justify-center flex-shrink-0">
-              <MessageSquare size={20} />
-            </div>
-            <div className="text-left">
-              <div className="font-medium">Imagine</div>
-              <div className="text-xs text-text-tertiary mt-0.5">Describe your idea, Theodore builds the blueprint</div>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setShowImport(true)}
-            className="glass px-6 py-5 rounded-2xl flex items-center gap-4 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 w-full"
-          >
-            <div className="w-10 h-10 rounded-xl glass-pill flex items-center justify-center flex-shrink-0">
-              <Upload size={20} />
-            </div>
-            <div className="text-left">
-              <div className="font-medium">Import Existing Work</div>
-              <div className="text-xs text-text-tertiary mt-0.5">Bring your unfinished or finished manuscript, notes and outlines etc</div>
-            </div>
-          </button>
-
-        </div>
-
-        {showImport && <ImportProjectModal onClose={() => setShowImport(false)} />}
-      </div>
-    );
-  }
-
   // Main home screen
   return (
     <div className="flex-1 overflow-y-auto animate-fade-in">
@@ -98,13 +43,22 @@ export function Home() {
         </p>
       </div>
 
-      {/* Single CTA */}
+      {/* Single CTA — straight into Imagine */}
       <button
-        onClick={() => setScreen('choose-method')}
-        className="glass px-8 py-4 rounded-2xl flex items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 mb-8 sm:mb-12"
+        onClick={() => setShowChatCreation(true)}
+        className="glass px-8 py-4 rounded-2xl flex items-center gap-3 text-text-primary hover:bg-white/70 active:scale-[0.98] transition-all duration-200 mb-3"
       >
         <Plus size={20} />
         <span className="font-medium">Create New Project</span>
+      </button>
+
+      {/* Secondary import option for users with existing manuscripts */}
+      <button
+        onClick={() => setShowImport(true)}
+        className="text-xs text-text-tertiary hover:text-text-primary inline-flex items-center gap-1.5 mb-8 sm:mb-12 transition-colors"
+      >
+        <Upload size={12} />
+        <span>or import existing work</span>
       </button>
 
       {/* Existing Projects */}
@@ -157,6 +111,7 @@ export function Home() {
         </div>
       )}
       </div>
+      {showImport && <ImportProjectModal onClose={() => setShowImport(false)} />}
     </div>
   );
 }
