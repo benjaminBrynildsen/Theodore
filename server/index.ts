@@ -1647,7 +1647,7 @@ app.post('/api/generate/image', async (req, res) => {
       prompt: finalPrompt,
       aspectRatio: aspectRatio || '1:1',
       style: style || 'concept-art',
-      userId: auth.user.id,
+      userId: auth?.user?.id || 'guest',
       projectId,
     });
 
