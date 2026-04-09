@@ -18,7 +18,7 @@ export function MobileStudioPanel({ onClose, onExpandPlayer }: Props) {
   const project = useStore((s) => s.getActiveProject());
 
   return (
-    <div className="sm:hidden fixed inset-0 z-40 bg-bg flex flex-col animate-fade-in">
+    <div className="sm:hidden fixed inset-x-0 top-14 bottom-0 z-40 bg-bg flex flex-col animate-fade-in">
       {/* Header with segmented control */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-black/5">
         <div className="flex items-center gap-1 p-0.5 rounded-xl bg-black/[0.04]">
