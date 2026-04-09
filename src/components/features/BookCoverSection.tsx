@@ -133,6 +133,20 @@ interface CoverOption {
   style: string;     // which style was used
 }
 
+// Persist cover history in localStorage so regenerating doesn't lose previous options
+function loadCoverHistory(projectId: string): CoverOption[] {
+  try {
+    const raw = localStorage.getItem(`theodore:covers:${projectId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function saveCoverHistory(projectId: string, options: CoverOption[]) {
+  try {
+    // Keep last 10 to avoid unbounded growth
+    localStorage.setItem(`theodore:covers:${projectId}`, JSON.stringify(options.slice(-10)));
+  } catch {}
+}
+
 interface Props {
   projectId: string;
 }
@@ -143,8 +157,13 @@ export function BookCoverSection({ projectId }: Props) {
   const [style, setStyle] = useState('illustrated');
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [options, setOptions] = useState<CoverOption[]>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [options, setOptions] = useState<CoverOption[]>(() => loadCoverHistory(projectId));
+  const [activeIndex, setActiveIndex] = useState(() => {
+    // Default to the currently-kept cover if it's in the history
+    const history = loadCoverHistory(projectId);
+    const keptIdx = project?.coverUrl ? history.findIndex(o => o.url === project.coverUrl) : -1;
+    return keptIdx >= 0 ? keptIdx : Math.max(0, history.length - 1);
+  });
   const carouselRef = useRef<HTMLDivElement>(null);
 
   const handleGenerate = useCallback(async () => {
@@ -196,8 +215,8 @@ export function BookCoverSection({ projectId }: Props) {
       const newOption: CoverOption = { url: uploadData.coverUrl, style };
       setOptions(prev => {
         const next = [...prev, newOption];
-        // Auto-select the new one
         setActiveIndex(next.length - 1);
+        saveCoverHistory(projectId, next);
         return next;
       });
 
