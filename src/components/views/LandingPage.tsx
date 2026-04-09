@@ -80,8 +80,9 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
         </button>
       </header>
 
-      {/* Hero */}
-      <section className="flex-1 flex flex-col items-center justify-center px-6 sm:px-10 py-12 sm:py-20 text-center max-w-3xl mx-auto">
+      {/* Hero — justify-center on desktop only. On mobile, natural top-down
+           flow prevents the keyboard from pushing the headline off-screen. */}
+      <section className="flex-1 flex flex-col items-center sm:justify-center px-6 sm:px-10 py-12 sm:py-20 text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-6">
           <Sparkles size={12} />
           Story Engine
