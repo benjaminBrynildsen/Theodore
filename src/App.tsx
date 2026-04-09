@@ -135,6 +135,20 @@ export default function App() {
     }
   }, []);
 
+  // Handle ?prompt= from the static /go landing page
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const prompt = params.get('prompt');
+    if (prompt) {
+      setGuestInitialMessage(prompt);
+      setShowGuestChat(true);
+      // Clean URL without reloading
+      const url = new URL(window.location.href);
+      url.searchParams.delete('prompt');
+      window.history.replaceState({}, '', url.pathname + url.search || '/');
+    }
+  }, []);
+
   // Resolve session on mount
   useEffect(() => {
     bootstrap();
