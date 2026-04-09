@@ -258,6 +258,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         childrensBookSettings: p.childrensBookSettings || p.childrens_book_settings,
         storyStructureId: p.storyStructureId || p.story_structure_id,
         narrativeControls: p.narrativeControls || p.narrative_controls || {},
+        coverUrl: p.coverUrl || p.cover_url || undefined,
         status: p.status,
         createdAt: p.createdAt || p.created_at,
         updatedAt: p.updatedAt || p.updated_at,

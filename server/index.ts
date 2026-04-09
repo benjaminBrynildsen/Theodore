@@ -306,6 +306,7 @@ function buildProjectUpdate(bodyRaw: unknown) {
   if ('ageRange' in body) updates.ageRange = body.ageRange === null ? null : asOptionalString(body.ageRange);
   if ('childrensBookSettings' in body) updates.childrensBookSettings = body.childrensBookSettings ? asObject(body.childrensBookSettings) : null;
   if ('narrativeControls' in body) updates.narrativeControls = asObject(body.narrativeControls, DEFAULT_NARRATIVE_CONTROLS);
+  if ('coverUrl' in body) updates.coverUrl = body.coverUrl === null ? null : asOptionalString(body.coverUrl);
   if ('status' in body && typeof body.status === 'string') updates.status = body.status;
 
   return updates;
