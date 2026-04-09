@@ -168,6 +168,7 @@ export const guestEvents = pgTable('guest_events', {
   event: text('event').notNull(), // 'generate', 'generate-stream', 'tts'
   action: text('action'), // sub-action (e.g. 'plan-project')
   model: text('model'),
+  country: text('country'), // 2-letter ISO code from CDN headers (cf-ipcountry etc.)
   inputTokens: integer('input_tokens').default(0),
   outputTokens: integer('output_tokens').default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),

@@ -70,7 +70,30 @@ interface ActivityRow {
   userEmail: string | null;
   userPlan: string | null;
   isGuest?: boolean;
+  country?: string | null;
 }
+
+/** Human-readable labels for raw action strings in the admin activity feed. */
+const ACTION_LABELS: Record<string, string> = {
+  'plan-project': '💬 Chatted in Imagine',
+  'scaffold-chapters': '📚 Created Novel',
+  'generate-chapter': '✏️ Generated Chapter',
+  'extend-chapter': '✏️ Extended Chapter',
+  'dialogue-clarity-pass': '✏️ Dialogue Cleanup',
+  'generate-chapter-outline': '📋 Scene Outline',
+  'scene-prose-split': '📋 Split Prose → Scenes',
+  'inline-edit': '✏️ Inline Edit',
+  'generate-audio': '🎧 Generated Audio',
+  'generate-image': '🖼️ Generated Image',
+  'sfx-ambience': '🔊 SFX Planning',
+  'dialogue-tagging': '🏷️ Dialogue Tagging',
+  'extract-continuity': '🔗 Continuity Extraction',
+  'entity-refine': '🧩 Canon Refinement',
+  'auto-fill': '🧩 Canon Auto-fill',
+  'generate-stream': '💬 Chatted in Imagine',
+  'generate': '💬 Chatted in Imagine',
+  'tts': '🎧 Generated Audio',
+};
 
 interface UserDetail {
   user: UserRow & { stripeCustomerId: string | null; stripeSubscriptionId: string | null; stripeCancelAtPeriodEnd: boolean };
@@ -791,14 +814,22 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                   >
                     <Icon size={14} className="text-text-tertiary flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-text-primary truncate">
+                      <div className="text-sm text-text-primary truncate flex items-center gap-1.5">
                         {a.isGuest ? (
                           <span className="italic text-text-secondary">{a.userName || 'Anonymous guest'}</span>
                         ) : (
                           a.userName || a.userEmail || 'Unknown'
                         )}
+                        {a.isGuest && a.country && (
+                          <span className="text-[10px] text-text-tertiary" title={a.country}>
+                            {a.country}
+                          </span>
+                        )}
                       </div>
-                      <div className="text-[11px] text-text-tertiary">{a.action}{a.model ? ` · ${a.model}` : ''}</div>
+                      <div className="text-[11px] text-text-tertiary">
+                        {ACTION_LABELS[a.action] || a.action}
+                        {a.model ? ` · ${a.model}` : ''}
+                      </div>
                     </div>
                     {a.isGuest ? (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-800">
