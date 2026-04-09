@@ -973,27 +973,7 @@ ${childrensRule}`,
           indeterminate: true,
         });
 
-        // 1. Cover generation (Gemini image — parallel with everything else)
-        const seedHints = finalSettings.chapters
-          .slice(0, 3).map(ch => ch.premise).filter(Boolean).join('; ').slice(0, 300);
-        void import('../../lib/cover-gen-ai').then(async ({ generateCover: genCover }) => {
-          try {
-            useGenerationStore.getState().setSubtitle('Generating cover art…');
-            // Pass the latest project state (may have updated title by now)
-            const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
-            const url = await genCover(latestProject, seedHints || `${latestProject.title} novel`);
-            useStore.getState().updateProject(projectId, { coverUrl: url });
-            console.log('[Creation] Auto-cover generated:', url);
-          } catch (e: any) {
-            console.error('[Creation] Auto-cover failed:', e);
-            // Surface the error briefly so we can debug
-            useGenerationStore.getState().setSubtitle(`Cover failed: ${e?.message?.slice(0, 60) || 'unknown'}`);
-          }
-        });
-
-        // 2. Chapters are already created from the quick Haiku call.
-        //    No background derive or scaffold needed — the quick call
-        //    produced titles + premises upfront.
+        // 1. Canon seeding first (instant, no API calls)
         useGenerationStore.getState().setSubtitle('Setting up canon…');
 
         // 3. API persistence retry
