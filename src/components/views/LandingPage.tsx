@@ -127,7 +127,7 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
                 }}
                 placeholder="Describe your story idea..."
                 rows={3}
-                className="flex-1 bg-transparent text-white/90 placeholder:text-white/30 text-sm resize-none outline-none px-2 py-2 min-h-[4.5rem] max-h-[5.5rem]"
+                className="flex-1 bg-transparent text-white/90 placeholder:text-white/30 text-base sm:text-sm resize-none outline-none px-2 py-2 min-h-[4.5rem] max-h-[5.5rem]"
               />
               <button
                 onClick={handleSubmit}
