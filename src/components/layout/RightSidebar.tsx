@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Shield, Headphones, FileOutput, Sliders, Disc3 } from 'lucide-react';
+import { Shield, Headphones, FileOutput, Sliders, Disc3, ImageIcon } from 'lucide-react';
 import { useStore } from '../../store';
 import { Slider } from '../ui/Slider';
 import { StoryBibleExport } from '../features/StoryBibleExport';
 import { ManuscriptFormatter } from '../features/ManuscriptFormatter';
 import { AudiobookPanel } from '../features/AudiobookPanel';
 import { NowPlayingPanel } from '../features/NowPlayingPanel';
+import { BookCoverSection } from '../features/BookCoverSection';
 import { useAudioStore } from '../../store/audio';
 import { cn } from '../../lib/utils';
 import type { Chapter } from '../../types';
 
-type SidebarTab = 'playing' | 'controls' | 'audio' | 'export';
+type SidebarTab = 'playing' | 'controls' | 'audio' | 'cover' | 'export';
 
 function cleanSnippet(text: string, fallback: string) {
   const normalized = text.replace(/\s+/g, ' ').trim();
@@ -82,7 +83,8 @@ export function RightSidebar() {
   const tabs = [
     { id: 'playing' as const, icon: Disc3, label: 'Playing', pulse: hasAudioActivity },
     { id: 'controls' as const, icon: Sliders, label: 'Settings' },
-    { id: 'audio' as const, icon: Headphones, label: 'Studio' },
+    { id: 'audio' as const, icon: Headphones, label: 'Audio' },
+    { id: 'cover' as const, icon: ImageIcon, label: 'Cover' },
     { id: 'export' as const, icon: FileOutput, label: 'Export' },
   ];
 
@@ -123,6 +125,12 @@ export function RightSidebar() {
       {activeTab === 'audio' && (
         <div className="flex-1 overflow-y-auto min-h-0">
           <AudiobookPanel />
+        </div>
+      )}
+
+      {activeTab === 'cover' && (
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <BookCoverSection projectId={project.id} />
         </div>
       )}
 

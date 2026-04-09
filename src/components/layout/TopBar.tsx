@@ -94,8 +94,15 @@ export function TopBar() {
 
   return (
     <header className="h-14 glass-subtle flex items-center px-3 sm:px-4 gap-2 sm:gap-3 z-50 border-b-0 overflow-x-auto">
-      {/* Invisible spacer on mobile to balance the settings gear on the right */}
-      <div className="w-[30px] flex-shrink-0 sm:hidden" />
+      {/* Theodore logo — navigates to projects/home */}
+      <button
+        onClick={goHome}
+        className="flex items-center gap-1.5 p-1.5 rounded-xl hover:bg-white/30 transition-colors flex-shrink-0"
+        title="Projects"
+      >
+        <BookOpen size={16} className="text-text-primary" />
+        <span className="text-sm font-serif font-semibold tracking-tight hidden sm:inline">Theodore</span>
+      </button>
 
       {/* Left sidebar toggle — hidden on mobile */}
       <button
@@ -112,13 +119,6 @@ export function TopBar() {
       <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3 min-w-0">
         {project ? (
           <>
-            <button
-              onClick={goHome}
-              className="p-1.5 rounded-xl hover:bg-white/30 transition-colors hidden sm:block flex-shrink-0"
-              title="Home"
-            >
-              <BookOpen size={16} className="text-text-primary" />
-            </button>
             <EditableProjectTitle
               value={project.title}
               onSave={(title) => updateProject(project.id, { title })}
@@ -251,15 +251,6 @@ export function TopBar() {
         </button>
       )}
 
-      {project && (
-        <button
-          onClick={goHome}
-          className="hidden sm:inline-flex px-2.5 py-1.5 rounded-xl text-xs text-text-tertiary hover:text-text-primary hover:bg-white/30 transition-all"
-          title="Projects"
-        >
-          Projects
-        </button>
-      )}
     </header>
   );
 }
