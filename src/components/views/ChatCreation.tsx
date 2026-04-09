@@ -432,6 +432,9 @@ export function ChatCreation({ onClose, guestMode, initialMessage, onRequireAuth
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const planHydrationSeqRef = useRef(0);
+  // Holds the in-flight background derive promise so createProject can
+  // await it instead of starting a competing request that 429s.
+  const pendingDeriveRef = useRef<Promise<{ settings?: any; canon?: any } | null> | null>(null);
 
   const { addProject, setActiveProject, setCurrentView, addChapter } = useStore();
   const { createCharacter, createLocation, createSystem, createArtifact, createRule, createEvent, addEntry } = useCanonStore();
@@ -670,7 +673,10 @@ Rules:
     // right panel to populate while the chat is still streaming. Cost is one
     // extra Sonnet call per message — explicitly accepted tradeoff.
     const hydrationSeq = ++planHydrationSeqRef.current;
-    deriveSettingsFromConversation(newMessages).then((derived) => {
+    const derivePromise = deriveSettingsFromConversation(newMessages);
+    pendingDeriveRef.current = derivePromise;
+    derivePromise.then((derived) => {
+      pendingDeriveRef.current = null;
       if (!derived) return;
       if (hydrationSeq !== planHydrationSeqRef.current) return;
       if (derived.settings) {
@@ -1087,36 +1093,52 @@ ${childrensRule}`,
 
   const createProject = async () => {
     let settings = editedSettings || proposedSettings;
-    // If the parallel background derive hasn't finished yet (or hasn't been
-    // run), kick off / await one synchronously so the user always gets a
-    // novel built from the current chat instead of a silent no-op.
     if (!settings) {
       if (!messages.some((m) => m.role === 'user')) return;
       setCreatingProject(true);
-      // Show the progress bar during the sync derive — this can take 10-20s
-      // while Sonnet builds the full chapter outline + canon JSON.
       useGenerationStore.getState().start({
         kind: 'create-project',
         label: 'your novel',
         subtitle: 'Building chapter outline…',
         indeterminate: true,
       });
-      try {
-        const derived = await deriveSettingsFromConversation(messages);
-        if (derived?.settings) {
-          useGenerationStore.getState().setSubtitle('Outline ready — creating project…');
-          applyProposedSettings(derived.settings, true);
-          if (derived.canon) {
-            setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
+
+      // If the background derive is still in-flight, await it instead of
+      // starting a competing request that would 429 on the generation lock.
+      if (pendingDeriveRef.current) {
+        useGenerationStore.getState().setSubtitle('Waiting for outline…');
+        try {
+          const derived = await pendingDeriveRef.current;
+          if (derived?.settings) {
+            applyProposedSettings(derived.settings, true);
+            if (derived.canon) {
+              setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
+            }
+            settings = derived.settings;
           }
-          settings = derived.settings;
+        } catch {
+          // Background derive failed — try our own below
         }
-      } catch {
-        useGenerationStore.getState().end();
-        // Fall through — handled by the !settings check below.
-      } finally {
-        setCreatingProject(false);
       }
+
+      // If still no settings, try a fresh sync derive
+      if (!settings) {
+        useGenerationStore.getState().setSubtitle('Building chapter outline…');
+        try {
+          const derived = await deriveSettingsFromConversation(messages);
+          if (derived?.settings) {
+            applyProposedSettings(derived.settings, true);
+            if (derived.canon) {
+              setAiCanonDraft((prev) => mergeCanonDrafts(derived.canon, prev));
+            }
+            settings = derived.settings;
+          }
+        } catch (e) {
+          console.warn('[Creation] Sync derive failed:', e);
+        }
+      }
+
+      setCreatingProject(false);
     }
     if (!settings) {
       useGenerationStore.getState().end();
