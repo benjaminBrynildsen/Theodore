@@ -156,7 +156,25 @@ function respondInternalError(res: express.Response, scope: string, error: unkno
 
 type RateLimitEntry = { count: number; resetAt: number };
 const rateLimitStore = new Map<string, RateLimitEntry>();
-const activeGenerationUsers = new Set<string>();
+
+// Concurrent-generation locks. Stored as Maps with start timestamps so a
+// stuck request (model hang, network failure, missed finally cleanup) can't
+// permanently block a user. Entries older than GENERATION_LOCK_TTL_MS are
+// considered stale and replaced.
+const GENERATION_LOCK_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const activeGenerationUsers = new Map<string, number>();
+const activeGuestIps = new Map<string, number>();
+
+/** True if the user already has a fresh (non-stale) generation in flight. */
+function hasFreshLock(map: Map<string, number>, key: string): boolean {
+  const startedAt = map.get(key);
+  if (startedAt == null) return false;
+  if (Date.now() - startedAt > GENERATION_LOCK_TTL_MS) {
+    map.delete(key);
+    return false;
+  }
+  return true;
+}
 
 function pruneRateLimitStore(now: number): void {
   if (rateLimitStore.size < 2000) return;
@@ -1164,7 +1182,7 @@ const GUEST_ALLOWED_ACTIONS = new Set([
   // Post-generation enhancements
   'sfx-ambience', 'dialogue-tagging', 'auto-fill',
 ]);
-const activeGuestIps = new Set<string>();
+// activeGuestIps is declared at the top of the file as a TTL Map.
 
 const GUEST_SALT = process.env.PAGEVIEW_SALT || process.env.SESSION_SECRET || 'theodore-guest-salt';
 function hashGuestIp(ip: string): string {
@@ -1200,11 +1218,11 @@ app.post('/api/generate/guest', async (req, res) => {
     // Rate limit: 20 guest generations per hour per IP
     if (!takeRateLimitToken(res, 'guest-generate', ip, 20, 60 * 60 * 1000)) return;
 
-    if (activeGuestIps.has(ip)) {
+    if (hasFreshLock(activeGuestIps, ip)) {
       return res.status(429).json({ error: 'Generation already in progress.' });
     }
 
-    activeGuestIps.add(ip);
+    activeGuestIps.set(ip, Date.now());
     try {
       const result = await generate({
         prompt, systemPrompt, model,
@@ -1264,11 +1282,11 @@ app.post('/api/generate', async (req, res) => {
     if (user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
-    if (activeGenerationUsers.has(user.id)) {
+    if (hasFreshLock(activeGenerationUsers, user.id)) {
       return res.status(429).json({ error: 'Generation already in progress for this account.' });
     }
 
-    activeGenerationUsers.add(user.id);
+    activeGenerationUsers.set(user.id, Date.now());
     try {
       const result = await generate({
         prompt, systemPrompt, model, maxTokens, temperature,
@@ -1324,11 +1342,11 @@ app.post('/api/generate/guest/stream', async (req, res) => {
 
     const ip = requestClientIp(req);
     if (!takeRateLimitToken(res, 'guest-generate', ip, 20, 60 * 60 * 1000)) return;
-    if (activeGuestIps.has(ip)) {
+    if (hasFreshLock(activeGuestIps, ip)) {
       return res.status(429).json({ error: 'Generation already in progress.' });
     }
 
-    activeGuestIps.add(ip);
+    activeGuestIps.set(ip, Date.now());
     try {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -1394,11 +1412,11 @@ app.post('/api/generate/stream', async (req, res) => {
     if (user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
-    if (activeGenerationUsers.has(user.id)) {
+    if (hasFreshLock(activeGenerationUsers, user.id)) {
       return res.status(429).json({ error: 'Generation already in progress for this account.' });
     }
 
-    activeGenerationUsers.add(user.id);
+    activeGenerationUsers.set(user.id, Date.now());
     try {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
