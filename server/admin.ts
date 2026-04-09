@@ -213,10 +213,39 @@ export async function getOverview(_req: Request, res: Response) {
     const totalProviderCost = Math.round((elevenLabsCost + openaiTextCost + openaiTTSCost) * 100) / 100;
     const totalMonthlyCost = totalProviderCost;
 
+    // ===== Activation funnel =====
+    // How far do users actually get after signing up?
+    //   1. Signed up             → row in users
+    //   2. Opened Imagine chat   → at least one 'plan-project' credit txn
+    //   3. Created a project     → row in projects
+    //   4. Wrote a chapter       → row in chapters (scaffolded or AI-generated)
+    //   5. Generated AI content  → any 'generate' / 'generate-stream' txn
+    const [[{ value: usersOpenedChat }], [{ value: usersWithProject }], [{ value: usersWithChapter }], [{ value: usersGenerated }]] = await Promise.all([
+      db.select({ value: sql<number>`COUNT(DISTINCT ${creditTransactions.userId})` })
+        .from(creditTransactions)
+        .where(sql`${creditTransactions.action} IN ('plan-project', 'scaffold-chapters')`),
+      db.select({ value: sql<number>`COUNT(DISTINCT ${projects.userId})` }).from(projects),
+      db.select({ value: sql<number>`COUNT(DISTINCT ${projects.userId})` })
+        .from(chapters)
+        .innerJoin(projects, eq(chapters.projectId, projects.id)),
+      db.select({ value: sql<number>`COUNT(DISTINCT ${creditTransactions.userId})` })
+        .from(creditTransactions)
+        .where(sql`${creditTransactions.action} IN ('generate', 'generate-stream')`),
+    ]);
+
+    const funnel = {
+      signedUp: Number(totalUsers),
+      openedImagineChat: Number(usersOpenedChat) || 0,
+      createdProject: Number(usersWithProject) || 0,
+      wroteChapter: Number(usersWithChapter) || 0,
+      generatedAi: Number(usersGenerated) || 0,
+    };
+
     res.json({
       totalUsers,
       totalProjects,
       totalChapters,
+      funnel,
       totalCreditsUsed: Number(totalCreditsUsed) || 0,
       totalAudioGens,
       recentSignups,

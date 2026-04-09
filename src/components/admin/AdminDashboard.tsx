@@ -17,6 +17,13 @@ interface Overview {
   recentSignups: number;
   monthlySignups: number;
   mrr: number;
+  funnel?: {
+    signedUp: number;
+    openedImagineChat: number;
+    createdProject: number;
+    wroteChapter: number;
+    generatedAi: number;
+  };
   planBreakdown: { plan: string; count: number }[];
   creditsByAction: { action: string; totalCredits: number; count: number }[];
   costs?: {
@@ -307,6 +314,46 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
               <StatCard label="Credits Used" value={overview.totalCreditsUsed.toLocaleString()} icon={Zap} />
               <StatCard label="Projects" value={overview.totalProjects} sub={`${overview.totalChapters} chapters`} icon={BookOpen} />
             </div>
+
+            {/* ===== Activation Funnel ===== */}
+            {overview.funnel && (
+              <div className="glass-pill rounded-2xl p-4 sm:p-5">
+                <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-3">Activation Funnel</h3>
+                <p className="text-[11px] text-text-tertiary mb-4">How many signups are actually using the product.</p>
+                <div className="space-y-2">
+                  {(() => {
+                    const f = overview.funnel!;
+                    const base = Math.max(f.signedUp, 1);
+                    const steps: { label: string; value: number; hint: string }[] = [
+                      { label: 'Signed up', value: f.signedUp, hint: 'Accounts created' },
+                      { label: 'Opened Imagine chat', value: f.openedImagineChat, hint: 'Started planning a story' },
+                      { label: 'Created a project', value: f.createdProject, hint: 'Saved a project' },
+                      { label: 'Wrote a chapter', value: f.wroteChapter, hint: 'At least one chapter' },
+                      { label: 'Generated AI content', value: f.generatedAi, hint: 'Used write/continue' },
+                    ];
+                    return steps.map((s) => {
+                      const pct = (s.value / base) * 100;
+                      return (
+                        <div key={s.label} className="flex items-center gap-3">
+                          <div className="w-40 shrink-0">
+                            <div className="text-xs font-medium text-text-secondary">{s.label}</div>
+                            <div className="text-[10px] text-text-tertiary">{s.hint}</div>
+                          </div>
+                          <div className="flex-1 h-3 bg-black/5 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-text-primary/40 rounded-full transition-all"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className="text-sm font-semibold text-text-primary w-12 text-right tabular-nums">{s.value}</span>
+                          <span className="text-[11px] text-text-tertiary w-10 text-right tabular-nums">{Math.round(pct)}%</span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            )}
 
             {/* Plan breakdown + Credits by action */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
