@@ -1135,6 +1135,16 @@ export function SettingsView() {
             {activeSection === 'notifications' && <NotificationsSection />}
             {activeSection === 'beta' && <BetaSection />}
           </div>
+
+          {/* Sign out */}
+          <div className="max-w-xl mx-auto px-4 sm:px-8 pb-12">
+            <button
+              onClick={() => { void useAuthStore.getState().logout(); }}
+              className="w-full py-3 rounded-xl border border-red-200 text-red-600 text-sm font-medium hover:bg-red-50 transition-all"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </div>
     </div>
