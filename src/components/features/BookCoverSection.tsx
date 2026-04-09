@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { ImageIcon, Loader2, ChevronLeft, ChevronRight, Check } from 'lucide-react';
 import { useStore } from '../../store';
 import { useGenerationStore } from '../../store/generation';
-import { generateImageApi } from '../../lib/image-gen';
+import { generateCover } from '../../lib/cover-gen-ai';
 import { cn } from '../../lib/utils';
 
 const COVER_STYLES = [
@@ -12,148 +12,6 @@ const COVER_STYLES = [
   { id: 'vintage', label: 'Vintage' },
   { id: 'bold', label: 'Bold Graphic' },
 ] as const;
-
-// Font configurations per cover style — each produces a different visual feel.
-// Uses system/loaded fonts: Inter (already loaded), Impact/Arial Black (system).
-const STYLE_FONTS: Record<string, { font: string; letterSpacing: number; uppercase: boolean }> = {
-  minimalist: { font: '900 Inter, system-ui, sans-serif', letterSpacing: 6, uppercase: true },
-  illustrated: { font: '800 "Palatino Linotype", "Book Antiqua", Palatino, serif', letterSpacing: 1, uppercase: false },
-  dark: { font: '900 "Arial Black", "Arial Bold", Impact, sans-serif', letterSpacing: 3, uppercase: true },
-  vintage: { font: '700 "Palatino Linotype", "Book Antiqua", Georgia, serif', letterSpacing: 2, uppercase: false },
-  bold: { font: '900 Inter, system-ui, sans-serif', letterSpacing: 4, uppercase: true },
-};
-
-/**
- * Composites the book title + Theodore watermark onto a background image.
- * Returns a base64 data URL of the final cover (1024x1024 square).
- */
-async function compositeTitle(
-  backgroundUrl: string,
-  title: string,
-  coverStyle: string,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const size = 1024;
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d')!;
-
-      // Draw background, scaled to cover the square
-      const scale = Math.max(size / img.width, size / img.height);
-      const w = img.width * scale;
-      const h = img.height * scale;
-      ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
-
-      // ===== Brightness detection =====
-      // Sample pixels in the watermark zone (top strip) and title zone (bottom strip)
-      // to decide whether text should be white or black.
-      function avgBrightness(x: number, y: number, regionW: number, regionH: number): number {
-        const data = ctx.getImageData(x, y, regionW, regionH).data;
-        let sum = 0;
-        const step = 16; // sample every 16th pixel for speed
-        let count = 0;
-        for (let i = 0; i < data.length; i += 4 * step) {
-          sum += data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-          count++;
-        }
-        return count > 0 ? sum / count : 128;
-      }
-      const topBrightness = avgBrightness(0, 0, size, 70);
-      const bottomBrightness = avgBrightness(0, size - 200, size, 200);
-
-      // Light bg (>140) → black text + light gradient; dark bg → white text + dark gradient
-      const titleColor = bottomBrightness > 140 ? '#000000' : '#ffffff';
-      const watermarkColor = topBrightness > 140 ? '#000000' : '#ffffff';
-      const gradDark = bottomBrightness > 140;
-
-      // Subtle bottom gradient
-      const grad = ctx.createLinearGradient(0, size * 0.65, 0, size);
-      grad.addColorStop(0, 'rgba(' + (gradDark ? '255,255,255' : '0,0,0') + ',0)');
-      grad.addColorStop(0.5, 'rgba(' + (gradDark ? '255,255,255' : '0,0,0') + ',0.2)');
-      grad.addColorStop(1, 'rgba(' + (gradDark ? '255,255,255' : '0,0,0') + ',0.5)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, size, size);
-
-      // "Theodore" wordmark — top center
-      ctx.textAlign = 'center';
-      ctx.font = '600 26px Georgia, "Palatino Linotype", serif';
-      ctx.fillStyle = watermarkColor;
-      ctx.shadowColor = topBrightness > 140 ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetY = 1;
-      ctx.fillText('Theodore', size / 2, 50);
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetY = 0;
-
-      // ===== Title typography =====
-      const fontConfig = STYLE_FONTS[coverStyle] || STYLE_FONTS.illustrated;
-      const displayTitle = fontConfig.uppercase ? title.toUpperCase() : title;
-      const fontWeight = fontConfig.font.match(/^\d+/)?.[0] || '800';
-      const fontFamily = fontConfig.font.replace(/^\d+\s*/, '');
-      const pad = 40;
-      const maxWidth = size - pad * 2;
-
-      // Word-wrap to max 3 lines at a base font size
-      let baseFontSize = 90;
-      let lines: string[] = [];
-      const wordList = displayTitle.split(/\s+/);
-      for (; baseFontSize >= 32; baseFontSize -= 3) {
-        ctx.font = `${fontWeight} ${baseFontSize}px ${fontFamily}`;
-        lines = [];
-        let currentLine = '';
-        for (const word of wordList) {
-          const test = currentLine ? `${currentLine} ${word}` : word;
-          if (ctx.measureText(test).width > maxWidth && currentLine) {
-            lines.push(currentLine);
-            currentLine = word;
-          } else {
-            currentLine = test;
-          }
-        }
-        if (currentLine) lines.push(currentLine);
-        if (lines.length <= 3) break;
-      }
-
-      // Stretch each line to fill the full width individually.
-      // This gives the bold, justified-typography look of modern covers.
-      const lineHeight = baseFontSize * 1.12;
-      const totalHeight = lines.length * lineHeight;
-      const startY = size - 50 - totalHeight + baseFontSize;
-
-      ctx.fillStyle = titleColor;
-      ctx.shadowColor = bottomBrightness > 140 ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 8;
-      ctx.shadowOffsetY = 2;
-
-      for (let i = 0; i < lines.length; i++) {
-        // Calculate per-line font size that stretches to fill maxWidth
-        let lineFontSize = baseFontSize;
-        ctx.font = `${fontWeight} ${lineFontSize}px ${fontFamily}`;
-        const naturalWidth = ctx.measureText(lines[i]).width;
-        if (naturalWidth > 0) {
-          const scaleFactor = maxWidth / naturalWidth;
-          lineFontSize = Math.min(baseFontSize * 1.6, lineFontSize * scaleFactor);
-        }
-        ctx.font = `${fontWeight} ${Math.round(lineFontSize)}px ${fontFamily}`;
-        ctx.textAlign = 'center';
-        ctx.fillText(lines[i], size / 2, startY + i * lineHeight);
-      }
-
-      // Reset shadow
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetY = 0;
-
-      resolve(canvas.toDataURL('image/png'));
-    };
-    img.onerror = () => reject(new Error('Failed to load cover background'));
-    img.src = backgroundUrl;
-  });
-}
 
 interface CoverOption {
   url: string;       // composited cover URL (uploaded)
@@ -216,30 +74,9 @@ export function BookCoverSection({ projectId }: Props) {
         .join('; ')
         .slice(0, 300);
 
-      // Use Gemini (free, fast) as default. Falls back to OpenAI if
-      // GEMINI_API_KEY isn't configured on the server.
-      const result = await generateImageApi({
-        target: 'cover',
-        projectId,
-        aspectRatio: '1:1',
-        style: style as any,
-        prompt: chapterHints ? `Story context: ${chapterHints}` : undefined,
-      });
+      const coverUrl = await generateCover(project, chapterHints);
 
-      useGenerationStore.getState().setSubtitle('Adding title…');
-
-      const composited = await compositeTitle(result.imageUrl, project.title, style);
-
-      const uploadRes = await fetch('/api/upload/cover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ image: composited, projectId }),
-      });
-      const uploadData = await uploadRes.json();
-      if (!uploadRes.ok) throw new Error(uploadData.error || 'Upload failed');
-
-      const newOption: CoverOption = { url: uploadData.coverUrl, style };
+      const newOption: CoverOption = { url: coverUrl, style };
       setOptions(prev => {
         const next = [...prev, newOption];
         setActiveIndex(next.length - 1);
@@ -247,9 +84,8 @@ export function BookCoverSection({ projectId }: Props) {
         return next;
       });
 
-      // Auto-keep the first generated cover; subsequent ones are browseable
       if (options.length === 0) {
-        updateProject(projectId, { coverUrl: uploadData.coverUrl });
+        updateProject(projectId, { coverUrl });
       }
 
       useGenerationStore.getState().setPhase('done');
