@@ -195,7 +195,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
   // Extract dominant color from cover for dynamic background
-  const [bgColor, setBgColor] = useState('rgb(24, 24, 30)');
+  const [bgColor, setBgColor] = useState('#18181e');
   useEffect(() => {
     if (coverSrc) {
       void extractDominantColor(coverSrc).then(setBgColor);
@@ -238,7 +238,7 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
   return (
     <div
       className="fixed inset-0 z-[70] flex flex-col animate-slide-up safe-area-top transition-colors duration-700"
-      style={{ background: `linear-gradient(to bottom, ${bgColor}, ${bgColor}dd, ${bgColor}88)` }}
+      style={{ background: `linear-gradient(to bottom, ${bgColor}, ${bgColor}ee, ${bgColor}cc)` }}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-4 pb-2">
