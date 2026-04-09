@@ -162,7 +162,6 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
             ))}
           </div>
 
-          <p className="mt-4 text-xs text-black/30">Free to start · No credit card required</p>
         </div>
       </section>
 
