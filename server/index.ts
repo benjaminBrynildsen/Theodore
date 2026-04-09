@@ -1188,7 +1188,18 @@ const GUEST_SALT = process.env.PAGEVIEW_SALT || process.env.SESSION_SECRET || 't
 function hashGuestIp(ip: string): string {
   return crypto.createHash('sha256').update(ip + GUEST_SALT).digest('hex').slice(0, 32);
 }
-async function logGuestEvent(opts: {
+function extractCountry(req: express.Request): string | null {
+  // CDN headers: Cloudflare (cf-ipcountry), Vercel (x-vercel-ip-country),
+  // Render (x-country), AWS CloudFront (cloudfront-viewer-country)
+  const raw = req.headers['cf-ipcountry']
+    || req.headers['x-vercel-ip-country']
+    || req.headers['x-country']
+    || req.headers['cloudfront-viewer-country']
+    || null;
+  return raw ? String(raw).slice(0, 4).toUpperCase() : null;
+}
+
+async function logGuestEvent(req: express.Request, opts: {
   ip: string; event: string; action?: string; model?: string; inputTokens?: number; outputTokens?: number;
 }) {
   try {
@@ -1197,6 +1208,7 @@ async function logGuestEvent(opts: {
       event: opts.event,
       action: opts.action ?? null,
       model: opts.model ?? null,
+      country: extractCountry(req),
       inputTokens: opts.inputTokens ?? 0,
       outputTokens: opts.outputTokens ?? 0,
     });
@@ -1234,7 +1246,7 @@ app.post('/api/generate/guest', async (req, res) => {
         action,
       });
 
-      void logGuestEvent({
+      void logGuestEvent(req, {
         ip, event: 'generate', action, model: result.model,
         inputTokens: result.inputTokens, outputTokens: result.outputTokens,
       });
@@ -1360,7 +1372,7 @@ app.post('/api/generate/guest/stream', async (req, res) => {
         res,
       );
 
-      void logGuestEvent({
+      void logGuestEvent(req, {
         ip, event: 'generate-stream', action,
         inputTokens: result.inputTokens, outputTokens: result.outputTokens,
       });
@@ -1879,7 +1891,7 @@ app.post('/api/tts/generate/guest', async (req, res) => {
     // 1 free guest TTS per IP per day. The same helper that auth/generate use.
     if (!takeRateLimitToken(res, 'tts.guest', ip, 1, 24 * 60 * 60 * 1000)) return;
 
-    void logGuestEvent({ ip, event: 'tts', action: 'generate-audio', model: model || 'openai-gpt-4o-mini-tts' });
+    void logGuestEvent(req, { ip, event: 'tts', action: 'generate-audio', model: model || 'openai-gpt-4o-mini-tts' });
 
     const jobId = `tts-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const job: TTSJob = { id: jobId, status: 'pending', createdAt: Date.now() };

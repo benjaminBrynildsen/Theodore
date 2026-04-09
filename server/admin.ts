@@ -429,6 +429,7 @@ export async function getActivity(req: Request, res: Response) {
         event: guestEvents.event,
         action: guestEvents.action,
         model: guestEvents.model,
+        country: guestEvents.country,
         createdAt: guestEvents.createdAt,
       })
       .from(guestEvents)
@@ -448,6 +449,7 @@ export async function getActivity(req: Request, res: Response) {
       userEmail: null as string | null,
       userPlan: 'guest' as string,
       isGuest: true as const,
+      country: g.country || null,
     }));
 
     const merged = [
