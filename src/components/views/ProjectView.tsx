@@ -364,18 +364,22 @@ export function ProjectView() {
       <div className="max-w-[53rem] mx-auto px-4 sm:px-8 pb-16">
         {/* Arc toggle */}
         <div className="flex items-center justify-between mb-3">
-          <button
-            onClick={() => setShowScaffold(!showScaffold)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
-              showScaffold
-                ? 'bg-purple-100 text-purple-700'
-                : 'glass-pill text-text-tertiary hover:bg-white/60'
-            )}
-          >
-            <Sparkles size={13} />
-            Scaffold Outline
-          </button>
+          {/* Only show the scaffold button when there are no chapters yet.
+              After Imagine → Create, chapters are already scaffolded. */}
+          {chapters.length === 0 ? (
+            <button
+              onClick={() => setShowScaffold(!showScaffold)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                showScaffold
+                  ? 'bg-purple-100 text-purple-700'
+                  : 'glass-pill text-text-tertiary hover:bg-white/60'
+              )}
+            >
+              <Sparkles size={13} />
+              Scaffold Outline
+            </button>
+          ) : <div />}
           {chapters.length >= 2 && structure && !structure.isProcess && (
             <button
               onClick={() => setShowArcLabels(!showArcLabels)}
@@ -582,8 +586,8 @@ export function ProjectView() {
           </div>
         )}
 
-        {/* Children's Book bottom actions */}
-        {isChildrensBook && (
+        {/* Children's Book bottom actions — only when no pages exist */}
+        {isChildrensBook && chapters.length === 0 && (
           <div className="flex gap-3 mt-6">
             <button
               onClick={() => setShowScaffold(!showScaffold)}
