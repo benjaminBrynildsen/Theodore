@@ -421,6 +421,24 @@ export function ProjectView() {
           )}
         </div>
 
+        {/* Building chapters skeleton — shown when navigated before derive finished */}
+        {chapters.length === 0 && (
+          <div className="space-y-3 mb-6">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <div key={n} className="flex items-start gap-4 p-5 rounded-2xl glass animate-pulse" style={{ animationDelay: `${n * 100}ms` }}>
+                <div className="w-14 h-14 rounded-xl bg-black/[0.06] flex items-center justify-center text-2xl font-black text-text-tertiary/30">
+                  {n}
+                </div>
+                <div className="flex-1 space-y-2 py-1">
+                  <div className="h-4 bg-black/[0.06] rounded-lg w-2/3" />
+                  <div className="h-3 bg-black/[0.04] rounded-lg w-full" />
+                </div>
+              </div>
+            ))}
+            <p className="text-xs text-text-tertiary text-center pt-2">Building your chapter outline…</p>
+          </div>
+        )}
+
         {/* Children's Book Grid Layout */}
         {isChildrensBook ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
