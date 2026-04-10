@@ -267,6 +267,12 @@ export async function getFishVoicesWithPreviews(): Promise<(FishAudioVoiceInfo &
 function addFishPacing(text: string): string {
   let result = text;
 
+  // 0. Protect common abbreviations from being treated as sentence endings
+  const abbrevs = ['Mr', 'Mrs', 'Ms', 'Dr', 'St', 'Jr', 'Sr', 'Prof', 'Gen', 'Gov', 'Sgt', 'Cpl', 'Lt', 'Col', 'Capt', 'Rev', 'vs', 'etc', 'approx'];
+  for (const a of abbrevs) {
+    result = result.replace(new RegExp(`\\b${a}\\.`, 'g'), `${a}\u00B7`); // temp marker
+  }
+
   // All possible closing quote characters:
   const closeQuotes = '[""\u201D\u201C\'\u2019\u2018\u00BB)\\]]';
 
@@ -280,18 +286,22 @@ function addFishPacing(text: string): string {
   result = result.replace(sentenceEndNl, '$1$2\n[pause]\n');
 
   // 2c. Multiple closing quotes: ?"' or ."") — catch the second quote too
-  const doubleClose = new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})\\s+`, 'g');
+  const doubleClose = new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})[ \\t]+`, 'g');
   result = result.replace(doubleClose, '$1$2$3\n[pause]\n');
 
   // 3. Before opening dialogue quotes → long pause (narrator → character shift)
+  //    Only upgrade if next char is an opening quote AND is followed by uppercase (new speaker)
   const openQuotes = '[""\u201C\u2018\u00AB]';
-  result = result.replace(new RegExp(`\\[pause\\]\\n(${openQuotes})`, 'g'), '[long pause]\n$1');
+  result = result.replace(new RegExp(`\\[pause\\]\\n(${openQuotes}[A-Z])`, 'g'), '[long pause]\n$1');
 
-  // 4. After closing dialogue quotes → long pause (character → narrator shift)
-  result = result.replace(new RegExp(`(${closeQuotes}[.!?,]?)\\n\\[pause\\]\\n([A-Z])`, 'g'), '$1\n[long pause]\n$2');
+  // 4. After closing dialogue + punctuation → long pause ONLY before uppercase (new sentence, not attribution)
+  //    "Run!" She turned. → long pause (new sentence)
+  //    "Run!" she screamed. → keep as [pause] (attribution)
+  result = result.replace(new RegExp(`(${closeQuotes}[.!?])\\n\\[pause\\]\\n([A-Z])`, 'g'), '$1\n[long pause]\n$2');
 
-  // 4b. Dialogue with comma attribution: "Get out," he said. → pause after comma-quote
-  result = result.replace(new RegExp(`(${closeQuotes},?)\\s+([a-z])`, 'g'), '$1\n[pause]\n$2');
+  // 4b. Dialogue with comma attribution: "Get out," he said. → pause after closing-quote + comma
+  //     Only match closing double quotes + comma (not single quotes which could be apostrophes)
+  result = result.replace(/(["\u201D\u201C]),?\s+([a-z])/g, '$1,\n[pause]\n$2');
 
   // 5. Em dashes → short pause
   result = result.replace(/\s*—\s*/g, '\n[pause]\n');
@@ -324,6 +334,9 @@ function addFishPacing(text: string): string {
   // Clean up excessive whitespace but keep newlines around pauses
   result = result.replace(/\n{3,}/g, '\n\n');
 
+  // Restore abbreviation periods
+  result = result.replace(/\u00B7/g, '.');
+
   return result;
 }
 
@@ -335,8 +348,8 @@ async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> 
     text: text,
     reference_id: voiceId,
     format: 'mp3',
-    mp3_bitrate: 128,
-    normalize: true,
+    mp3_bitrate: 192,
+    normalize: false,
     latency: 'normal',
   });
 
