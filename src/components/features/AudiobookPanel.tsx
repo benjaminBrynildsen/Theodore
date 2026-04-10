@@ -953,7 +953,6 @@ export function AudiobookPanel() {
     });
 
     try {
-      // Auto-plan SFX for all scenes before generating
       await planSFXForChapter(chapterId);
 
       const { charVoiceMap, charDescriptions } = buildVoiceParams();
@@ -961,60 +960,162 @@ export function AudiobookPanel() {
       const effectiveCharacterVoices = ttsProvider === 'elevenlabs' ? charVoiceMap : {};
       const effectiveCharacterDescriptions = ttsProvider === 'elevenlabs' ? charDescriptions : {};
       const versionSuffix = `-v${Date.now()}`;
+      const provider = isGuest ? 'openai' : ttsProvider;
 
-      // Re-read chapter after SFX planning may have updated scenes
       const updatedChapters = useStore.getState().chapters;
       const updatedChapter = updatedChapters.find(c => c.id === chapterId) || chapter;
 
-      // Collect all scene SFX across the chapter for audio mixing
-      const allSceneSFX = (updatedChapter.scenes || []).flatMap(s =>
-        (s.sfx || []).map(sfx => ({
-          prompt: sfx.prompt,
-          audioUrl: sfx.audioUrl,
-          position: sfx.position,
-          enabled: sfx.enabled,
-        }))
-      );
+      // Get scenes sorted by order
+      const scenes = ((updatedChapter.scenes || []) as any[])
+        .filter((s: any) => s.prose?.trim())
+        .sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
 
-      const latestChapterProse = (updatedChapter.prose || chapter.prose || '').trim();
+      // If chapter has scenes, generate scene-by-scene for streaming playback.
+      // Scene 1 starts playing immediately; remaining scenes generate in parallel.
+      if (scenes.length >= 2) {
+        const sceneAudioUrls: string[] = [];
+        const sceneIds: string[] = [];
+        let totalDuration = 0;
+        let totalCredits = 0;
 
-      const result = await api.ttsGenerate({
-        chapterId: `${chapterId}${versionSuffix}`,
-        prose: latestChapterProse,
-        narratorVoice,
-        characterVoices: effectiveCharacterVoices,
-        characterDescriptions: effectiveCharacterDescriptions,
-        model: ttsModel,
-        provider: isGuest ? 'openai' : ttsProvider,
-        speed: (ttsProvider === 'openai' || ttsProvider === 'fish') ? 1.0 : speed,
-        multiVoice: effectiveMultiVoice,
-        sceneSFX: allSceneSFX,
-        chapterNumber: chapter.number,
-        chapterTitle: chapter.title || undefined,
-        onProgress: (pct) => {
-          if (pct >= 5) useGenerationStore.getState().setSubtitle('Generating audio…');
-        },
-        isGuest,
-      });
+        // ── Scene 1: generate and start playback immediately ──
+        const s0 = scenes[0];
+        useGenerationStore.getState().setSubtitle(`Scene 1 of ${scenes.length}…`);
 
-      // Update credit display
-      if (result.creditsUsed != null) {
-        useCreditsStore.getState().recordUsage({
-          action: 'generate-audio',
-          creditsUsed: result.creditsUsed,
-          tokensInput: 0,
-          tokensOutput: 0,
+        const sceneSFX0 = (s0.sfx || []).map((sfx: any) => ({
+          prompt: sfx.prompt, audioUrl: sfx.audioUrl, position: sfx.position, enabled: sfx.enabled,
+        }));
+
+        const r0 = await api.ttsGenerate({
+          chapterId: `${chapterId}-scene-${s0.id}${versionSuffix}`,
+          prose: s0.prose,
+          narratorVoice,
+          characterVoices: effectiveCharacterVoices,
+          characterDescriptions: effectiveCharacterDescriptions,
           model: ttsModel,
-          creditsRemaining: result.creditsRemaining ?? null,
+          provider,
+          speed: (provider === 'openai' || provider === 'fish') ? 1.0 : speed,
+          multiVoice: effectiveMultiVoice,
+          sceneSFX: sceneSFX0,
+          chapterNumber: chapter.number,
+          chapterTitle: chapter.title || undefined,
+          isGuest,
+        });
+
+        sceneAudioUrls.push(r0.audioUrl);
+        sceneIds.push(s0.id);
+        totalDuration += r0.durationEstimate;
+        totalCredits += r0.creditsUsed ?? 0;
+
+        // Store scene 1 and start playback right away
+        audioStore.addChapterAudio(chapterId, {
+          chapterId,
+          audioUrl: r0.audioUrl,
+          sceneAudioUrls: [r0.audioUrl],
+          sceneIds: [s0.id],
+          durationEstimate: totalDuration,
+          generatedAt: new Date().toISOString(),
+        });
+
+        // Auto-play scene 1
+        window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId } }));
+
+        // ── Remaining scenes: generate in parallel ──
+        useGenerationStore.getState().setSubtitle(`Scenes 2-${scenes.length} generating…`);
+
+        const remainingResults = await Promise.all(
+          scenes.slice(1).map(async (scene: any, idx: number) => {
+            const sceneSFX = (scene.sfx || []).map((sfx: any) => ({
+              prompt: sfx.prompt, audioUrl: sfx.audioUrl, position: sfx.position, enabled: sfx.enabled,
+            }));
+            return api.ttsGenerate({
+              chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
+              prose: scene.prose,
+              narratorVoice,
+              characterVoices: effectiveCharacterVoices,
+              characterDescriptions: effectiveCharacterDescriptions,
+              model: ttsModel,
+              provider,
+              speed: (provider === 'openai' || provider === 'fish') ? 1.0 : speed,
+              multiVoice: effectiveMultiVoice,
+              sceneSFX,
+              isGuest,
+            });
+          })
+        );
+
+        // Append remaining scene URLs in order
+        for (let i = 0; i < remainingResults.length; i++) {
+          const r = remainingResults[i];
+          sceneAudioUrls.push(r.audioUrl);
+          sceneIds.push(scenes[i + 1].id);
+          totalDuration += r.durationEstimate;
+          totalCredits += r.creditsUsed ?? 0;
+        }
+
+        // Update audio store with all scenes — player auto-chains them via onEnded
+        audioStore.addChapterAudio(chapterId, {
+          chapterId,
+          audioUrl: sceneAudioUrls[0],
+          sceneAudioUrls,
+          sceneIds,
+          durationEstimate: totalDuration,
+          generatedAt: new Date().toISOString(),
+        });
+
+        if (totalCredits > 0) {
+          useCreditsStore.getState().recordUsage({
+            action: 'generate-audio',
+            creditsUsed: totalCredits,
+            tokensInput: 0, tokensOutput: 0,
+            model: ttsModel,
+            creditsRemaining: remainingResults[remainingResults.length - 1]?.creditsRemaining ?? null,
+          });
+        }
+
+      } else {
+        // ── No scenes or single scene — original single-request path ──
+        const allSceneSFX = (updatedChapter.scenes || []).flatMap((s: any) =>
+          (s.sfx || []).map((sfx: any) => ({
+            prompt: sfx.prompt, audioUrl: sfx.audioUrl, position: sfx.position, enabled: sfx.enabled,
+          }))
+        );
+        const latestProse = (updatedChapter.prose || chapter.prose || '').trim();
+
+        const result = await api.ttsGenerate({
+          chapterId: `${chapterId}${versionSuffix}`,
+          prose: latestProse,
+          narratorVoice,
+          characterVoices: effectiveCharacterVoices,
+          characterDescriptions: effectiveCharacterDescriptions,
+          model: ttsModel,
+          provider,
+          speed: (provider === 'openai' || provider === 'fish') ? 1.0 : speed,
+          multiVoice: effectiveMultiVoice,
+          sceneSFX: allSceneSFX,
+          chapterNumber: chapter.number,
+          chapterTitle: chapter.title || undefined,
+          isGuest,
+        });
+
+        if (result.creditsUsed != null) {
+          useCreditsStore.getState().recordUsage({
+            action: 'generate-audio',
+            creditsUsed: result.creditsUsed,
+            tokensInput: 0, tokensOutput: 0,
+            model: ttsModel,
+            creditsRemaining: result.creditsRemaining ?? null,
+          });
+        }
+
+        audioStore.addChapterAudio(chapterId, {
+          chapterId,
+          audioUrl: result.audioUrl,
+          durationEstimate: result.durationEstimate,
+          generatedAt: new Date().toISOString(),
         });
       }
 
-      audioStore.addChapterAudio(chapterId, {
-        chapterId,
-        audioUrl: result.audioUrl,
-        durationEstimate: result.durationEstimate,
-        generatedAt: new Date().toISOString(),
-      });
       useGenerationStore.getState().setPhase('done');
     } catch (e: any) {
       audioStore.setError(e.message || 'Generation failed');
