@@ -278,7 +278,7 @@ function FeaturedBooksCarousel() {
       if (next >= books.length) return 0;
       return next;
     });
-  }, [stopAudio]);
+  }, [stopAudio, books.length]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -296,7 +296,7 @@ function FeaturedBooksCarousel() {
 
   const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
 
-  if (books.length === 0) return null;
+  if (books.length === 0 || !book) return null;
 
   return (
     <section className="w-full max-w-4xl mx-auto px-6 sm:px-10 pb-16 sm:pb-20">
@@ -324,7 +324,7 @@ function FeaturedBooksCarousel() {
           <div className="rounded-2xl border border-black/[0.06] bg-white/70 backdrop-blur-sm overflow-hidden shadow-sm">
             {/* Cover + play overlay */}
             <div className="relative aspect-square max-h-[320px] sm:max-h-[380px] mx-auto overflow-hidden bg-black/[0.03]">
-              {book.coverUrl && (
+              {book?.coverUrl && (
                 <img
                   src={book.coverUrl}
                   alt={book.title}
@@ -333,7 +333,7 @@ function FeaturedBooksCarousel() {
                 />
               )}
               {/* Play/pause overlay button */}
-              {book.audioUrl && (
+              {book?.audioUrl && (
                 <button
                   onClick={togglePlay}
                   className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors group"
@@ -355,8 +355,8 @@ function FeaturedBooksCarousel() {
             <div className="px-5 py-4">
               <div className="flex items-start justify-between gap-3 mb-1">
                 <div className="min-w-0">
-                  <h3 className="font-serif font-semibold text-lg truncate">{book.title}</h3>
-                  <p className="text-xs text-black/40">{book.chapterTitle} · {book.genre}</p>
+                  <h3 className="font-serif font-semibold text-lg truncate">{book?.title}</h3>
+                  <p className="text-xs text-black/40">{book?.chapterTitle} · {book?.genre}</p>
                 </div>
               </div>
 
