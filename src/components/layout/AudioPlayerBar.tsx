@@ -266,15 +266,26 @@ export function AudioPlayerBar() {
   // Media Session API — lock screen controls & metadata.
   // The artwork URL MUST be absolute — relative paths don't work for the OS
   // lock screen / car display since they fetch outside the browser context.
+  // Also updates document.title as a fallback for systems that read it.
   useEffect(() => {
+    if (!project) return;
+
+    const chapterTitle = currentChapter?.title || (currentChapterId ? `Chapter` : '');
+    const trackTitle = chapterTitle ? `${chapterTitle} — ${project.title}` : project.title;
+
+    // Update document.title so lock screen / car display has the right text
+    // even on browsers where MediaSession isn't fully supported.
+    document.title = playing && chapterTitle
+      ? `▶ ${trackTitle}`
+      : 'Theodore — Story Engine';
+
     if (!('mediaSession' in navigator)) return;
-    if (!currentChapter || !project) return;
 
     const relativeCover = (project.coverUrl && !project.coverUrl.startsWith('data:') ? project.coverUrl : null) || '/icons/icon-512.png';
     const absoluteCover = new URL(relativeCover, window.location.origin).href;
 
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: currentChapter.title || `Chapter ${currentChapter.number}`,
+      title: chapterTitle || project.title,
       artist: project.title,
       album: project.title,
       artwork: [
@@ -290,7 +301,11 @@ export function AudioPlayerBar() {
     navigator.mediaSession.setActionHandler('seekbackward', () => { if (audio) audio.currentTime = Math.max(0, audio.currentTime - 10); });
     navigator.mediaSession.setActionHandler('seekforward', () => { if (audio) audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 10); });
     navigator.mediaSession.setActionHandler('seekto', (details) => { if (audio && details.seekTime != null) audio.currentTime = details.seekTime; });
-  }, [currentChapterId, project?.id, project?.title, project?.coverUrl, currentChapter?.title]);
+
+    return () => {
+      document.title = 'Theodore — Story Engine';
+    };
+  }, [currentChapterId, project?.id, project?.title, project?.coverUrl, currentChapter?.title, playing]);
 
   // Sync volume
   useEffect(() => {
