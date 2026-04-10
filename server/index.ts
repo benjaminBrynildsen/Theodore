@@ -25,7 +25,7 @@ import {
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
 import { generateImage, generateImageOpenAI, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
-import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, getVoicesWithPreviews } from './tts.js';
+import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats } from './admin.js';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
@@ -1721,9 +1721,21 @@ app.get('/api/tts/free-sample', async (req, res) => {
 app.get('/api/tts/voices', async (_req, res) => {
   try {
     const voices = await getVoicesWithPreviews();
-    res.json({ voices });
+    res.json({
+      voices,
+      fishVoices: FISH_AUDIO_VOICES,
+      providers: {
+        openai: true,
+        fish: !!process.env.FISH_AUDIO_API_KEY,
+        elevenlabs: !!process.env.ELEVENLABS_API_KEY,
+      },
+    });
   } catch {
-    res.json({ voices: ELEVENLABS_VOICES });
+    res.json({
+      voices: ELEVENLABS_VOICES,
+      fishVoices: FISH_AUDIO_VOICES,
+      providers: { openai: true, fish: !!process.env.FISH_AUDIO_API_KEY, elevenlabs: !!process.env.ELEVENLABS_API_KEY },
+    });
   }
 });
 

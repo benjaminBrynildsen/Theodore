@@ -40,10 +40,20 @@ const OPENAI_TTS_VOICES = [
   { id: 'openai:echo', name: 'Echo', desc: 'Clear, direct' },
   { id: 'openai:fable', name: 'Fable', desc: 'Narrative-friendly' },
   { id: 'openai:nova', name: 'Nova', desc: 'Natural, smooth' },
-  // Onyx removed per Ben's request
   { id: 'openai:sage', name: 'Sage', desc: 'Balanced, calm' },
   { id: 'openai:shimmer', name: 'Shimmer', desc: 'Soft, airy' },
   { id: 'openai:verse', name: 'Verse', desc: 'Lyrical, dynamic' },
+] as const;
+
+const FISH_AUDIO_VOICES = [
+  { id: 'fish:933563129e564b19a115bedd57b7406a', name: 'Sarah', desc: 'Soft & intimate', gender: 'female' },
+  { id: 'fish:bf322df2096a46f18c579d0baa36f41d', name: 'Adrian', desc: 'Deep & dramatic', gender: 'male' },
+  { id: 'fish:536d3a5e000945adb7038665781a4aca', name: 'Ethan', desc: 'Clear & professional', gender: 'male' },
+  { id: 'fish:e3cd384158934cc9a01029cd7d278634', name: 'Laura', desc: 'Warm & confident', gender: 'female' },
+  { id: 'fish:b347db033a6549378b48d00acb0d06cd', name: 'Selene', desc: 'Gentle & meditative', gender: 'female' },
+  { id: 'fish:beb44e5fac1e4b33a15dfcdcc2a9421d', name: 'Historian', desc: 'British storyteller', gender: 'male' },
+  { id: 'fish:5e79e8f5d2b345f98baa8c83c947532d', name: 'Paddington', desc: 'Deep & wise', gender: 'male' },
+  { id: 'fish:4858e0be678c4449bf3a7646186edd42', name: 'Nahida', desc: 'Gentle & empathetic', gender: 'female' },
 ] as const;
 
 export function AudiobookPanel() {
@@ -571,6 +581,15 @@ export function AudiobookPanel() {
         age: 'middle' as const,
         tone: 'neutral',
       }))
+    : ttsProvider === 'fish'
+    ? FISH_AUDIO_VOICES.map(v => ({
+        id: v.id,
+        name: v.name,
+        desc: v.desc,
+        gender: v.gender as any,
+        age: 'middle' as const,
+        tone: 'neutral',
+      }))
     : allVoices;
 
   // ========== Auto-assign voices on mount (re-runs when server voices load) ==========
@@ -740,7 +759,7 @@ export function AudiobookPanel() {
     const words = prose.split(/\s+/).length;
     const chars = prose.length;
     const label = `Scene ${scene.order}: ${scene.title || 'Untitled'}`;
-    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI';
+    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : ttsProvider === 'fish' ? 'Fish Audio' : 'OpenAI';
     const isFreeSample = freeSampleAvailable && ttsProvider !== 'elevenlabs';
     const showSwitchToOpenAI = freeSampleAvailable && ttsProvider === 'elevenlabs';
     setConfirmModal({
@@ -773,7 +792,7 @@ export function AudiobookPanel() {
     const words = prose.split(/\s+/).length;
     const chars = prose.length;
     const label = `Ch ${chapter.number}: ${chapter.title}`;
-    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : 'OpenAI';
+    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : ttsProvider === 'fish' ? 'Fish Audio' : 'OpenAI';
     const isFreeSample = freeSampleAvailable && ttsProvider !== 'elevenlabs';
     const showSwitchToOpenAI = freeSampleAvailable && ttsProvider === 'elevenlabs';
     setConfirmModal({
@@ -854,7 +873,7 @@ export function AudiobookPanel() {
         characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
         provider: isGuest ? 'openai' : ttsProvider,
-        speed: ttsProvider === 'openai' ? 1.0 : speed,
+        speed: (ttsProvider === 'openai' || ttsProvider === 'fish') ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: sceneSFXData,
         onProgress: (pct) => {
@@ -948,7 +967,7 @@ export function AudiobookPanel() {
         characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
         provider: isGuest ? 'openai' : ttsProvider,
-        speed: ttsProvider === 'openai' ? 1.0 : speed,
+        speed: (ttsProvider === 'openai' || ttsProvider === 'fish') ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: allSceneSFX,
         onProgress: (pct) => {
@@ -1527,7 +1546,7 @@ export function AudiobookPanel() {
               {/* Provider + pricing */}
               <div>
                 <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">TTS Provider</label>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     onClick={() => audioStore.setTtsProvider('openai')}
                     className={cn(
@@ -1536,7 +1555,17 @@ export function AudiobookPanel() {
                     )}
                   >
                     <div className="font-medium">OpenAI</div>
-                    <div className={cn('text-[10px]', ttsProvider === 'openai' ? 'text-white/60' : 'text-emerald-600')}>Budget</div>
+                    <div className={cn('text-[10px]', ttsProvider === 'openai' ? 'text-white/60' : 'text-text-tertiary')}>Good</div>
+                  </button>
+                  <button
+                    onClick={() => audioStore.setTtsProvider('fish')}
+                    className={cn(
+                      'text-left p-2.5 rounded-xl transition-all text-xs',
+                      ttsProvider === 'fish' ? 'bg-text-primary text-text-inverse' : 'glass-pill hover:bg-white/60'
+                    )}
+                  >
+                    <div className="font-medium">Fish Audio</div>
+                    <div className={cn('text-[10px]', ttsProvider === 'fish' ? 'text-white/60' : 'text-emerald-600')}>Great</div>
                   </button>
                   <button
                     onClick={() => audioStore.setTtsProvider('elevenlabs')}

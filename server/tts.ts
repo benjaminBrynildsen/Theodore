@@ -107,7 +107,7 @@ export interface TTSRequest {
   chapterId: string;
   prose: string;
   voiceMap: VoiceMap;
-  provider?: 'elevenlabs' | 'openai';
+  provider?: 'elevenlabs' | 'openai' | 'fish';
   model?: string;
   speed?: number; // 0.5 – 2.0
   multiVoice?: boolean; // if false, use narrator for everything
@@ -195,6 +195,84 @@ async function callOpenAITTS(text: string, voice: string, speed = 1.0): Promise<
       throw new Error('Audio generation is temporarily unavailable due to API limits. Please try again later.');
     }
     throw new Error(`OpenAI TTS error ${response.status}: ${detail}`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+// ========== Fish Audio TTS ==========
+
+import { encode as msgpackEncode } from '@msgpack/msgpack';
+
+const FISH_AUDIO_API = 'https://api.fish.audio/v1/tts';
+
+export interface FishAudioVoiceInfo {
+  id: string;
+  name: string;
+  desc: string;
+  gender: string;
+  tone: string;
+}
+
+// Curated narration voices — high quality, popular, English
+export const FISH_AUDIO_VOICES: FishAudioVoiceInfo[] = [
+  { id: '933563129e564b19a115bedd57b7406a', name: 'Sarah', desc: 'Soft & intimate narrator', gender: 'female', tone: 'warm' },
+  { id: 'bf322df2096a46f18c579d0baa36f41d', name: 'Adrian', desc: 'Deep & dramatic storyteller', gender: 'male', tone: 'deep' },
+  { id: '536d3a5e000945adb7038665781a4aca', name: 'Ethan', desc: 'Clear & professional', gender: 'male', tone: 'calm' },
+  { id: 'e3cd384158934cc9a01029cd7d278634', name: 'Laura', desc: 'Warm & confident', gender: 'female', tone: 'warm' },
+  { id: 'b347db033a6549378b48d00acb0d06cd', name: 'Selene', desc: 'Gentle & meditative', gender: 'female', tone: 'gentle' },
+  { id: 'beb44e5fac1e4b33a15dfcdcc2a9421d', name: 'Sleepless Historian', desc: 'British storyteller', gender: 'male', tone: 'calm' },
+  { id: '5e79e8f5d2b345f98baa8c83c947532d', name: 'Paddington', desc: 'Deep & wise narrator', gender: 'male', tone: 'deep' },
+  { id: '4858e0be678c4449bf3a7646186edd42', name: 'Nahida', desc: 'Gentle & empathetic', gender: 'female', tone: 'warm' },
+];
+
+/**
+ * Convert our direction tags to Fish Audio S2-pro inline tags.
+ * Fish uses [tag] format which matches our existing tag system.
+ */
+function convertToFishTags(text: string): string {
+  return text
+    // Our pacing markers → Fish pause tags
+    .replace(/\.\.\.\s*\.\.\.\s*\.\.\./g, '[long pause]')
+    .replace(/\.\.\.\s*\.\.\./g, '[pause]')
+    // Keep existing direction tags that Fish supports
+    // Fish S2-pro supports: [pause], [long pause], [whisper], [laughing],
+    // [sigh], [excited], [angry], [sad], [emphasis], etc.
+    // These already match our tag format, so they pass through naturally
+    ;
+}
+
+async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> {
+  const apiKey = process.env.FISH_AUDIO_API_KEY;
+  if (!apiKey) throw new Error('FISH_AUDIO_API_KEY is required for Fish Audio TTS');
+
+  const taggedText = convertToFishTags(text);
+
+  const body = msgpackEncode({
+    text: taggedText,
+    reference_id: voiceId,
+    format: 'mp3',
+    mp3_bitrate: 128,
+    normalize: true,
+    latency: 'normal',
+  });
+
+  const response = await fetch(FISH_AUDIO_API, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/msgpack',
+      'model': 's2-pro',
+    },
+    body: body,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    if (response.status === 429) {
+      throw new Error('Fish Audio rate limit — too many concurrent requests. Please try again.');
+    }
+    throw new Error(`Fish Audio TTS error ${response.status}: ${detail}`);
   }
 
   return Buffer.from(await response.arrayBuffer());
@@ -808,6 +886,58 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     fs.writeFileSync(filepath, combined);
     const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND / openaiSpeed);
     // Budget tier pricing: ~5x cheaper than ElevenLabs baseline in Theodore credits
+    const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
+    return {
+      audioUrl: `/uploads/audio/${filename}`,
+      durationEstimate,
+      segments: chunks.length,
+      creditsUsed,
+    };
+  }
+
+  // ── Fish Audio path: single-voice, high-quality narration ──
+  if ((req.provider || '').toLowerCase() === 'fish') {
+    const clean = stripCharacterTags(req.prose)
+      .replace(/\{sfx:[^}]+\}\s*/g, '')
+      .trim();
+    const paced = addTTSPacing(clean);
+
+    // Fish Audio handles longer text than OpenAI but chunk at ~8000 chars for safety
+    const MAX_CHUNK_CHARS = 8000;
+    const chunks: string[] = [];
+    if (paced.length <= MAX_CHUNK_CHARS) {
+      chunks.push(paced);
+    } else {
+      const paragraphs = paced.split(/\n\n+/);
+      let current = '';
+      for (const para of paragraphs) {
+        if (current.length + para.length + 2 > MAX_CHUNK_CHARS && current.length > 0) {
+          chunks.push(current.trim());
+          current = para;
+        } else {
+          current += (current ? '\n\n' : '') + para;
+        }
+      }
+      if (current.trim()) chunks.push(current.trim());
+    }
+
+    // Strip 'fish:' prefix from voice ID
+    const fishVoiceId = voiceMap.narrator.replace(/^fish:/, '');
+    ttsLog(`Fish Audio TTS: ${chunks.length} chunks for ${paced.length} chars, voice=${fishVoiceId}`);
+    const audioBuffers: Buffer[] = [];
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const audio = await callFishAudioTTS(chunks[ci], fishVoiceId);
+      audioBuffers.push(audio);
+      req.onProgress?.(Math.round(((ci + 1) / chunks.length) * 100));
+    }
+
+    const combined = Buffer.concat(audioBuffers);
+    const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
+    const filename = `ch-${hash}.mp3`;
+    const filepath = path.join(AUDIO_DIR, filename);
+    fs.writeFileSync(filepath, combined);
+    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND);
+    // Same credit cost as OpenAI (similar API price)
     const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
     return {
       audioUrl: `/uploads/audio/${filename}`,

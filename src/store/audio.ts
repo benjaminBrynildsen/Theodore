@@ -48,7 +48,7 @@ interface AudioState {
   setNarratorVoice: (voice: ElevenLabsVoice) => void;
   setCharacterVoice: (name: string, voice: ElevenLabsVoice) => void;
   setMultiVoice: (enabled: boolean) => void;
-  setTtsProvider: (provider: 'elevenlabs' | 'openai') => void;
+  setTtsProvider: (provider: 'elevenlabs' | 'openai' | 'fish') => void;
   setTtsModel: (model: ElevenLabsModel | 'openai-gpt-4o-mini-tts') => void;
   setSpeed: (speed: number) => void;
   setGenerating: (id: string | null) => void;
@@ -234,8 +234,8 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   setMultiVoice: (enabled) => set({ multiVoice: enabled }),
   setTtsProvider: (provider) => set((s) => ({
     ttsProvider: provider,
-    ttsModel: provider === 'openai' ? 'openai-gpt-4o-mini-tts' : (s.ttsModel === 'openai-gpt-4o-mini-tts' ? 'eleven_v3' : s.ttsModel),
-    speed: provider === 'openai' ? 1.0 : s.speed,
+    ttsModel: provider === 'openai' ? 'openai-gpt-4o-mini-tts' : provider === 'fish' ? 'fish-s2-pro' : (s.ttsModel === 'openai-gpt-4o-mini-tts' ? 'eleven_v3' : s.ttsModel),
+    speed: (provider === 'openai' || provider === 'fish') ? 1.0 : s.speed,
   })),
   setTtsModel: (model) => set({ ttsModel: model }),
   setSpeed: (speed) => set({ speed }),
