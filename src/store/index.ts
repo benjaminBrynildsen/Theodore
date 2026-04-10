@@ -438,6 +438,10 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     set((s) => ({
       chapters: s.chapters.map((c) => c.id === id ? { ...c, ...mergedUpdates, updatedAt: new Date().toISOString() } : c),
     }));
+    // If prose changed, save it immediately so post-edit pipeline can't cancel it
+    if (typeof updates.prose === 'string') {
+      api.updateChapter(id, { prose: updates.prose, status: mergedUpdates.status }).catch(console.error);
+    }
     debounceSave(`chapter-${id}`, async () => {
       let payload: Partial<Chapter> = mergedUpdates;
       if (typeof updates.prose === 'string' && current) {

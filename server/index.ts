@@ -1320,6 +1320,7 @@ app.post('/api/generate', async (req, res) => {
     }
 
     activeGenerationUsers.set(user.id, Date.now());
+    res.on('close', () => { activeGenerationUsers.delete(user.id); });
     try {
       const result = await generate({
         prompt, systemPrompt, model, maxTokens, temperature,
@@ -1444,6 +1445,8 @@ app.post('/api/generate/stream', async (req, res) => {
     }
 
     activeGenerationUsers.set(user.id, Date.now());
+    // Clean up lock if client disconnects mid-stream
+    res.on('close', () => { activeGenerationUsers.delete(user.id); });
     try {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
