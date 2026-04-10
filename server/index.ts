@@ -2431,10 +2431,8 @@ app.get('/api/featured-books', async (_req, res) => {
   }
 });
 
-// TEMPORARY: list audio files for featured books config. Remove after use.
-app.get('/api/admin/list-audio', async (req, res) => {
-  const auth = await getAuth(req);
-  if (!auth?.user) return res.status(401).json({ error: 'Auth required' });
+// TEMPORARY: list audio files for featured books config. REMOVE AFTER USE.
+app.get('/api/admin/list-audio', async (_req, res) => {
   try {
     const audioDir = path.resolve(process.cwd(), 'uploads', 'audio');
     if (!fs.existsSync(audioDir)) return res.json([]);
