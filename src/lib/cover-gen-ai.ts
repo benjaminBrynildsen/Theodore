@@ -31,7 +31,7 @@ export function compositeWatermark(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => {
+    img.onload = async () => {
       const size = 1024;
       const canvas = document.createElement('canvas');
       canvas.width = size;
@@ -62,37 +62,36 @@ export function compositeWatermark(
       if (options?.style === 'typography' && options?.title) {
         const title = options.title.toUpperCase();
 
-        // Pick text color for maximum contrast against the background
-        // White on dark, dark on very light, or a bold accent color on mid-tones
-        let textColor: string;
-        if (centerBright < 80) {
-          textColor = '#FFFFFF';
-        } else if (centerBright > 200) {
-          textColor = '#1a1a1a';
-        } else if (centerBright > 140) {
-          textColor = '#FFFFFF';  // white pops more than black on mid-tones
-        } else {
-          textColor = '#FFFFFF';
-        }
+        // Always darken the background so white text pops
+        ctx.fillStyle = 'rgba(0,0,0,0.45)';
+        ctx.fillRect(0, 0, size, size);
+        const textColor = '#FFFFFF';
 
-        // Add a slight darkening overlay on mid-bright backgrounds for contrast
-        if (centerBright > 100 && centerBright < 180) {
-          ctx.fillStyle = 'rgba(0,0,0,0.3)';
-          ctx.fillRect(0, 0, size, size);
-          textColor = '#FFFFFF';
-        }
+        // Load Bebas Neue (heavy condensed) via FontFace API for consistent rendering
+        const fontFamily = 'BebasNeue-Cover';
+        const fontUrl = 'https://fonts.gstatic.com/s/bebasneue/v14/JTUSjIg69CK48gW7PXooxW5rygbi49c.woff2';
+        let fontLoaded = false;
+        try {
+          const face = new FontFace(fontFamily, `url(${fontUrl})`);
+          const loaded = await face.load();
+          (document.fonts as any).add(loaded);
+          fontLoaded = true;
+        } catch { /* fall back to Impact */ }
+
+        const fontStack = fontLoaded
+          ? `"${fontFamily}", Impact, sans-serif`
+          : 'Impact, "Arial Black", sans-serif';
 
         const maxWidth = size * 0.90;
         const padding = size * 0.05;
-        let fontSize = 320;
+        let fontSize = 340;
         let lines: string[] = [];
 
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
 
         function wrapText(fs: number): string[] {
-          // Impact has no weight variants — just use normal weight
-          ctx.font = `${fs}px Impact, "Arial Narrow Bold", sans-serif`;
+          ctx.font = `${fs}px ${fontStack}`;
           const words = title.split(' ');
           const result: string[] = [];
           let line = '';
@@ -109,37 +108,29 @@ export function compositeWatermark(
           return result;
         }
 
-        // Start huge (320px), shrink until text fills ~85% of canvas height
+        // Start at 340px, shrink until text fills ~85% of canvas
         while (fontSize > 60) {
           lines = wrapText(fontSize);
-          const blockHeight = lines.length * fontSize * 0.88;
+          const blockHeight = lines.length * fontSize * 0.90;
           if (blockHeight < size * 0.85) break;
           fontSize -= 8;
         }
 
-        // Very tight line height — stacked and compressed
-        const lineHeight = fontSize * 0.88;
+        const lineHeight = fontSize * 0.90;
         const blockHeight = lines.length * lineHeight;
         const startY = (size - blockHeight) / 2;
 
-        ctx.font = `${fontSize}px Impact, "Arial Narrow Bold", sans-serif`;
+        ctx.font = `${fontSize}px ${fontStack}`;
         ctx.fillStyle = textColor;
 
-        // Outline + fill for maximum weight and readability
-        ctx.strokeStyle = textColor;
-        ctx.lineWidth = Math.max(2, fontSize * 0.02);
-        ctx.lineJoin = 'round';
-
-        // Drop shadow for depth
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 16;
-        ctx.shadowOffsetX = 3;
-        ctx.shadowOffsetY = 5;
+        // Drop shadow
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 6;
 
         for (let i = 0; i < lines.length; i++) {
-          const y = startY + i * lineHeight;
-          ctx.strokeText(lines[i], padding, y);
-          ctx.fillText(lines[i], padding, y);
+          ctx.fillText(lines[i], padding, startY + i * lineHeight);
         }
 
         ctx.shadowColor = 'transparent';
