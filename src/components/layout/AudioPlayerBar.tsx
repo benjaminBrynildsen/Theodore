@@ -270,7 +270,9 @@ export function AudioPlayerBar() {
   useEffect(() => {
     if (!project) return;
 
-    const chapterTitle = currentChapter?.title || (currentChapterId ? `Chapter` : '');
+    const chapterTitle = currentChapter?.title
+      || (currentChapter ? `Chapter ${currentChapter.number}` : '')
+      || (currentChapterId ? `Chapter` : '');
     const trackTitle = chapterTitle ? `${chapterTitle} — ${project.title}` : project.title;
 
     // Update document.title so lock screen / car display has the right text
@@ -305,7 +307,7 @@ export function AudioPlayerBar() {
     return () => {
       document.title = 'Theodore — Story Engine';
     };
-  }, [currentChapterId, project?.id, project?.title, project?.coverUrl, currentChapter?.title, playing]);
+  }, [currentChapterId, project?.id, project?.title, project?.coverUrl, currentChapter?.title, currentChapter?.number, playing]);
 
   // Sync volume
   useEffect(() => {
