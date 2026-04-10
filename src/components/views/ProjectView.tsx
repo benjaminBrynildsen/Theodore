@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play } from 'lucide-react';
 import { computeArcBreakpoints, getStructureById } from '../../lib/story-structures';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
@@ -10,6 +10,7 @@ import { IllustrateButton } from '../features/IllustrateButton';
 import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../../lib/scaffold';
 import { generateStream } from '../../lib/generate';
 import { cn, generateId } from '../../lib/utils';
+import { useAudioStore } from '../../store/audio';
 import type { ChapterStatus, CharacterVisual } from '../../types';
 
 const statusIcons: Record<ChapterStatus, React.ElementType> = {
@@ -34,6 +35,7 @@ export function ProjectView() {
   const [showArcLabels, setShowArcLabels] = useState(false);
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
+  const { chapterAudio, generating: audioGenerating, playing } = useAudioStore();
   const project = getActiveProject();
 
   if (!project) return null;
@@ -199,6 +201,43 @@ export function ProjectView() {
           </div>
         </div>
       )}
+
+      {/* Listen button — below cover */}
+      {(() => {
+        const ch1 = chapters.find(c => c.number === 1 && c.prose?.trim());
+        if (!ch1) return null;
+        const hasAudio = !!chapterAudio[ch1.id]?.audioUrl;
+        const isGenerating = audioGenerating === ch1.id;
+        return (
+          <div className="flex justify-center pt-5">
+            <button
+              onClick={() => {
+                if (hasAudio) {
+                  window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch1.id } }));
+                } else {
+                  window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
+                }
+              }}
+              disabled={isGenerating}
+              className={cn(
+                'flex items-center gap-2.5 px-6 py-3 rounded-full font-medium text-sm transition-all shadow-sm',
+                hasAudio
+                  ? 'bg-text-primary text-text-inverse hover:opacity-90'
+                  : 'bg-text-primary text-text-inverse hover:opacity-90',
+                isGenerating && 'opacity-60 cursor-not-allowed',
+              )}
+            >
+              {isGenerating ? (
+                <><Loader2 size={18} className="animate-spin" /> Generating…</>
+              ) : hasAudio ? (
+                <><Play size={18} fill="currentColor" /> Listen to Chapter 1</>
+              ) : (
+                <><Headphones size={18} /> Listen to Chapter 1</>
+              )}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Project Header */}
       <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-8 pb-8">

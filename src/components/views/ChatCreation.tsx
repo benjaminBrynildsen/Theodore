@@ -1081,6 +1081,41 @@ ${childrensRule}`,
           console.warn('[Creation] Auto-cover failed (non-fatal):', e);
         }
 
+        // Auto-generate Chapter 1 prose in background
+        try {
+          const ch1 = useStore.getState().chapters
+            .filter(c => c.projectId === projectId)
+            .sort((a, b) => a.number - b.number)[0];
+          if (ch1 && !ch1.prose?.trim()) {
+            useGenerationStore.getState().setSubtitle('Writing Chapter 1…');
+            const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
+            const allCh = useStore.getState().chapters.filter(c => c.projectId === projectId).sort((a, b) => a.number - b.number);
+            const outlineContext = allCh.map(c => `Ch ${c.number}: ${c.title} — ${c.premise?.purpose || ''}`).join('\n');
+
+            let ch1Prose = '';
+            await generateStream(
+              {
+                prompt: `Write Chapter 1 of "${latestProject.title}".\n\nChapter 1: ${ch1.title}\nPremise: ${ch1.premise?.purpose || ''}\n\nFull outline:\n${outlineContext}\n\nWrite a complete, engaging first chapter of approximately 2000 words. Begin directly with prose — no chapter title or heading. Include dialogue, description, and interiority. Establish the protagonist, setting, and inciting tension.`,
+                model: 'claude-sonnet-4-6',
+                maxTokens: 4000,
+                action: 'generate-chapter',
+                projectId,
+                chapterId: ch1.id,
+              },
+              (text) => { ch1Prose += text; },
+            );
+
+            if (ch1Prose.trim()) {
+              useStore.getState().updateChapter(ch1.id, {
+                prose: ch1Prose.trim(),
+                status: 'draft-generated',
+              });
+            }
+          }
+        } catch (e) {
+          console.warn('[Creation] Auto-generate Ch1 failed (non-fatal):', e);
+        }
+
         useGenerationStore.getState().setPhase('done');
       })();
     } catch (e) {
