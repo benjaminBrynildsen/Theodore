@@ -235,6 +235,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [traffic, setTraffic] = useState<TrafficStats | null>(null);
   const [journeys, setJourneys] = useState<JourneySession[]>([]);
   const [journeyDetail, setJourneyDetail] = useState<JourneyDetail | null>(null);
+  const [journeyFilter, setJourneyFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -325,7 +326,9 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const loadJourneys = async () => {
     setLoading(true);
     try {
-      const data = await fetchJson<{ sessions: JourneySession[] }>('/journeys?limit=50');
+      const params = new URLSearchParams({ limit: '50' });
+      if (journeyFilter === '/go/') params.set('page', '/go/');
+      const data = await fetchJson<{ sessions: JourneySession[] }>(`/journeys?${params}`);
       setJourneys(data.sessions || []);
     } catch { setError('Failed to load journeys.'); }
     setLoading(false);
@@ -357,8 +360,8 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     if (view === 'users' && !usersList) loadUsers();
     if (view === 'activity' && activityList.length === 0) loadActivity();
     if (view === 'traffic' && !traffic) loadTraffic();
-    if (view === 'journey' && journeys.length === 0) loadJourneys();
-  }, [view]);
+    if (view === 'journey') loadJourneys();
+  }, [view, journeyFilter]);
 
   if (error === 'Access denied — admin only.') {
     return (
@@ -905,11 +908,42 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {/* ========== Journey ========== */}
         {view === 'journey' && (
           <div className="max-w-5xl mx-auto">
-            <div className="text-xs text-text-tertiary mb-3">
-              Every visitor's full session — from landing to exit. Click a session to see the timeline.
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs text-text-tertiary">
+                Every visitor's full session — from landing to exit. Click a session to see the timeline.
+              </div>
+              <div className="flex gap-1">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: '/go/', label: '/go/ only' },
+                  { id: 'engaged', label: 'Engaged' },
+                  { id: 'not-me', label: 'Not me' },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setJourneyFilter(f.id)}
+                    className={cn(
+                      'text-[10px] px-2.5 py-1 rounded-full border transition-all',
+                      journeyFilter === f.id
+                        ? 'bg-text-primary text-text-inverse border-text-primary'
+                        : 'border-black/10 text-text-tertiary hover:text-text-primary'
+                    )}
+                  >{f.label}</button>
+                ))}
+              </div>
             </div>
             <div className="space-y-1">
-              {journeys.map((s) => {
+              {journeys.filter((s) => {
+                const isStLouis = s.region === 'Missouri' || s.city?.includes('St. Louis') || s.city?.includes('Saint Louis');
+                const hasGoPage = s.event_types.some(e => e === 'page_load') && (s as any).pages?.includes('/go/');
+                const hasEngagement = s.event_types.some(e =>
+                  ['prompt_submit', 'play_audio', 'focus_input', 'chat_auto_send', 'first_ai_response'].includes(e)
+                );
+                if (journeyFilter === '/go/') return true; // server filter handles this
+                if (journeyFilter === 'engaged') return hasEngagement;
+                if (journeyFilter === 'not-me') return !isStLouis;
+                return true;
+              }).map((s) => {
                 const isStLouis = s.region === 'Missouri' || s.city?.includes('St. Louis') || s.city?.includes('Saint Louis');
                 const dur = s.duration_seconds;
                 const durLabel = dur < 60 ? `${dur}s` : `${Math.floor(dur / 60)}m ${dur % 60}s`;

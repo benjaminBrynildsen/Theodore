@@ -76,8 +76,10 @@ export async function receiveBeacon(req: Request, res: Response) {
 export async function getJourneys(req: Request, res: Response) {
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const pageFilter = req.query.page as string | undefined;
 
     // Get unique sessions with first/last event + event count
+    // When page filter is set, only return sessions that have events on that page
     const sessions = await db.execute(sql`
       SELECT
         session_id,
@@ -92,6 +94,7 @@ export async function getJourneys(req: Request, res: Response) {
         ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types
       FROM journey_events
       WHERE created_at > NOW() - INTERVAL '7 days'
+        ${pageFilter ? sql`AND session_id IN (SELECT DISTINCT session_id FROM journey_events WHERE page LIKE ${'%' + pageFilter + '%'})` : sql``}
       GROUP BY session_id
       ORDER BY MIN(created_at) DESC
       LIMIT ${limit}
