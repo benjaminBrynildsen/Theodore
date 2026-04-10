@@ -6,11 +6,14 @@ import { generateCover } from '../../lib/cover-gen-ai';
 import { cn } from '../../lib/utils';
 
 const COVER_STYLES = [
-  { id: 'minimalist', label: 'Minimalist' },
   { id: 'illustrated', label: 'Illustrated' },
   { id: 'dark', label: 'Dark & Moody' },
-  { id: 'vintage', label: 'Vintage' },
-  { id: 'bold', label: 'Bold Graphic' },
+  { id: 'photorealistic', label: 'Photorealistic' },
+  { id: 'iconic', label: 'Iconic Symbol' },
+  { id: 'silhouette', label: 'Silhouette' },
+  { id: 'abstract', label: 'Abstract' },
+  { id: 'typography', label: 'Bold Typography' },
+  { id: 'lineart', label: 'Line Art' },
 ] as const;
 
 interface CoverOption {
@@ -74,7 +77,7 @@ export function BookCoverSection({ projectId }: Props) {
         .join('; ')
         .slice(0, 300);
 
-      const coverUrl = await generateCover(project, chapterHints);
+      const coverUrl = await generateCover(project, chapterHints, style);
 
       const newOption: CoverOption = { url: coverUrl, style };
       setOptions(prev => {

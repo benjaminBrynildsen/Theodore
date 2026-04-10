@@ -16,17 +16,18 @@ export function autoSelectCoverStyle(nc: Project['narrativeControls']): string {
   const whimsical = (tm.whimsicalSerious ?? 50) < 35;
 
   if (dark && grim) return 'dark';
-  if (dark && !grim) return 'vintage';
-  if (serious && !dark) return 'minimalist';
-  if (whimsical) return 'bold';
-  return 'illustrated';
+  if (dark && !grim) return 'silhouette';
+  if (serious && !dark) return 'iconic';
+  if (whimsical) return 'illustrated';
+  return 'photorealistic';
 }
 
 // Canvas: add Theodore watermark onto background image.
-// No title text — title is displayed in the UI everywhere the cover appears.
+// For 'typography' style, also composites the book title as large bold text.
 // Returns a base64 data URL.
 export function compositeWatermark(
   backgroundUrl: string,
+  options?: { style?: string; title?: string },
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -52,13 +53,82 @@ export function compositeWatermark(
         }
         return count > 0 ? sum / count : 128;
       }
+      const centerBright = avgBrightness(size * 0.1, size * 0.2, size * 0.8, size * 0.6);
       const topBright = avgBrightness(0, 0, size, 70);
+      const isLight = centerBright > 140;
       const watermarkColor = topBright > 140 ? '#000000' : '#ffffff';
 
+      // Bold Typography style: render the title as the main visual element
+      if (options?.style === 'typography' && options?.title) {
+        const title = options.title.toUpperCase();
+        const textColor = isLight ? '#000000' : '#ffffff';
+
+        // Auto-size: start large, shrink until it fits with wrapping
+        const maxWidth = size * 0.82;
+        const padding = size * 0.09;
+        let fontSize = 160;
+        let lines: string[] = [];
+
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+
+        // Word-wrap at the current font size
+        function wrapText(fs: number): string[] {
+          ctx.font = `900 ${fs}px "Georgia", "Times New Roman", serif`;
+          const words = title.split(' ');
+          const result: string[] = [];
+          let line = '';
+          for (const word of words) {
+            const test = line ? `${line} ${word}` : word;
+            if (ctx.measureText(test).width > maxWidth && line) {
+              result.push(line);
+              line = word;
+            } else {
+              line = test;
+            }
+          }
+          if (line) result.push(line);
+          return result;
+        }
+
+        // Shrink font until text block fits vertically
+        while (fontSize > 40) {
+          lines = wrapText(fontSize);
+          const blockHeight = lines.length * fontSize * 1.05;
+          if (blockHeight < size * 0.65) break;
+          fontSize -= 4;
+        }
+
+        // Draw text centered vertically
+        const lineHeight = fontSize * 1.05;
+        const blockHeight = lines.length * lineHeight;
+        const startY = (size - blockHeight) / 2;
+
+        ctx.font = `900 ${fontSize}px "Georgia", "Times New Roman", serif`;
+        ctx.fillStyle = textColor;
+        // Subtle text shadow for depth
+        ctx.shadowColor = isLight ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 3;
+
+        for (let i = 0; i < lines.length; i++) {
+          ctx.fillText(lines[i], padding, startY + i * lineHeight);
+        }
+
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+      }
+
       // Theodore wordmark — top center, brightness-adaptive
+      const wmBright = options?.style === 'typography' ? centerBright : topBright;
+      const wmColor = options?.style === 'typography'
+        ? (isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)')
+        : watermarkColor;
       ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
       ctx.font = '600 32px Georgia, "Palatino Linotype", serif';
-      ctx.fillStyle = watermarkColor;
+      ctx.fillStyle = wmColor;
       ctx.shadowColor = topBright > 140 ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.4)';
       ctx.shadowBlur = 6;
       ctx.shadowOffsetY = 1;
@@ -66,6 +136,7 @@ export function compositeWatermark(
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
       ctx.shadowOffsetY = 0;
+
       resolve(canvas.toDataURL('image/png'));
     };
     img.onerror = () => reject(new Error('Failed to load cover background'));
@@ -74,8 +145,8 @@ export function compositeWatermark(
 }
 
 // Full cover generation pipeline: generate art → add watermark → upload → return URL
-export async function generateCover(project: Project, chapterHints?: string): Promise<string> {
-  const style = autoSelectCoverStyle(project.narrativeControls);
+export async function generateCover(project: Project, chapterHints?: string, styleOverride?: string): Promise<string> {
+  const style = styleOverride || autoSelectCoverStyle(project.narrativeControls);
 
   // Include title + hints in the prompt so the server can build a good
   // cover even for guest projects that aren't in the DB.
@@ -89,7 +160,10 @@ export async function generateCover(project: Project, chapterHints?: string): Pr
     prompt: promptParts.join('. '),
   });
 
-  const composited = await compositeWatermark(result.imageUrl);
+  const composited = await compositeWatermark(result.imageUrl, {
+    style,
+    title: project.title,
+  });
 
   const uploadRes = await fetch('/api/upload/cover', {
     method: 'POST',

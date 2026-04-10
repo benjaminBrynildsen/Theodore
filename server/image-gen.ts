@@ -259,14 +259,20 @@ export function buildSceneIllustrationPrompt(scene: {
   return parts.join(', ');
 }
 
-// Cover styles that map to prompt modifiers. These match current KDP/Amazon
-// bestseller cover trends so generated covers look commercially viable.
+// Cover styles that map to prompt modifiers. Each style produces a visually
+// distinct cover — not just mood variations of the same illustrated scene.
 export const COVER_STYLES: Record<string, string> = {
-  minimalist: 'minimalist design, clean composition, bold negative space, subtle gradient background, modern and elegant',
-  illustrated: 'richly illustrated scene, digital painting, vibrant colors, detailed environment, cinematic depth',
-  dark: 'dark moody atmosphere, dramatic chiaroscuro lighting, deep shadows, mysterious and intense',
-  vintage: 'vintage aesthetic, aged paper texture, classic composition, warm muted tones, retro illustration style',
-  bold: 'bold graphic design, high contrast shapes, striking color palette, modern and eye-catching',
+  // ── Scene-based styles ──
+  illustrated: 'richly illustrated scene, digital painting, vibrant saturated colors, detailed environment, cinematic depth of field, concept art quality',
+  dark: 'dark moody atmosphere, dramatic chiaroscuro lighting, deep blacks, single source of light cutting through shadow, mysterious and intense, noir aesthetic',
+  photorealistic: 'photorealistic cinematic scene, dramatic movie-poster lighting, shallow depth of field, hyper-detailed textures, could be a film still, realistic proportions and materials',
+
+  // ── Graphic/design-forward styles ──
+  iconic: 'single iconic symbolic object or element centered on a solid or simple gradient background, stark and bold, the symbol represents the story metaphorically, minimal detail around it, clean edges, commercial book cover design like a bestseller thriller',
+  silhouette: 'dramatic silhouette of a figure or key object against a vivid colorful sky or gradient, high contrast, the silhouette is solid black, the background is rich with color — sunset oranges, twilight purples, or stormy blues, cinematic and striking',
+  abstract: 'abstract art composition, bold shapes and color fields, textured brushstrokes or geometric forms, no literal scene depiction, the mood and emotion of the story expressed through color and form, modern literary fiction aesthetic',
+  typography: 'solid textured background — could be concrete, paper grain, fabric, wood, or a bold color wash, NO illustrations NO objects NO figures NO scenes, purely a tactile surface texture with visual interest and depth, the background must be suitable for large overlaid text',
+  lineart: 'black and white line art illustration, clean precise ink lines on white background, intricate hand-drawn style, could be a symbolic object, a pattern, or a scene rendered purely in linework, no shading no color no grayscale, like a woodcut or pen-and-ink drawing, elegant and literary',
 };
 
 export function buildBookCoverPrompt(project: {
