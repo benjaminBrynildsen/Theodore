@@ -362,6 +362,7 @@
       var text = input.value.trim();
       if(!text) return;
       if(window.fbq) fbq('trackCustom','StartGuestChat');
+      if(window.__jTrack) window.__jTrack('prompt_submit', {prompt: text.slice(0,100)});
       preserved.set('prompt', text);
       window.location.href = '/?' + preserved.toString();
     }
@@ -479,6 +480,7 @@
       });
 
       if(window.fbq) fbq('trackCustom', 'PlayFeaturedSample', { book: b.title });
+      if(window.__jTrack) window.__jTrack('play_audio', {book: b.title});
     }
 
     function updatePlayerUI() {
@@ -509,7 +511,41 @@
     // Render immediately — no API call
     renderBooks(featuredBooks);
 
-    // ── Engagement tracking ──
+    // ── Journey tracking ──
+    // Sends events to /api/journey for the admin Journey tab.
+    (function() {
+      var jSid = 's_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+      var jQueue = [];
+      var jGeo = {};
+      // Reuse the geo fetch from engagement tracking
+      fetch('https://ipapi.co/json/').then(function(r){return r.json()}).then(function(d){
+        jGeo = {city:d.city, region:d.region, country:d.country_code};
+      }).catch(function(){});
+      window.__jTrack = function(evt, data) {
+        jQueue.push({sessionId:jSid, event:evt, data:data||null, page:'/go/',
+          city:jGeo.city, region:jGeo.region, country:jGeo.country});
+      };
+      function jFlush() {
+        if (!jQueue.length) return;
+        var batch = jQueue.splice(0, 100);
+        fetch('/api/journey', {method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({events:batch})}).catch(function(){
+          jQueue.unshift.apply(jQueue, batch);
+        });
+      }
+      function jBeacon() {
+        if (!jQueue.length) return;
+        var batch = jQueue.splice(0, 100);
+        navigator.sendBeacon && navigator.sendBeacon('/api/beacon', JSON.stringify({events:batch}));
+      }
+      setInterval(jFlush, 5000);
+      document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='hidden') jBeacon(); });
+      window.addEventListener('pagehide', jBeacon);
+      // Track page load
+      window.__jTrack('page_load', {referrer: document.referrer, url: window.location.href});
+    })();
+
+    // ── Engagement tracking (pixel + journey) ──
     // Fires timed pixel events so we can see how long people stay
     // and what they interact with before leaving.
     (function() {
@@ -533,6 +569,7 @@
         if (!focusedInput) {
           focusedInput = true;
           if (window.fbq) fbq('trackCustom', 'FocusedPromptInput', region || {});
+          if (window.__jTrack) window.__jTrack('focus_input');
         }
       });
 
@@ -555,6 +592,7 @@
         if (!scrolledToBooks && pct > 60) {
           scrolledToBooks = true;
           if (window.fbq) fbq('trackCustom', 'ScrolledToBooks');
+          if (window.__jTrack) window.__jTrack('scrolled_to_books');
         }
       }, { passive: true });
 
@@ -566,7 +604,7 @@
       // Track prompt pill taps
       document.querySelectorAll('.pill').forEach(function(p) {
         p.addEventListener('click', function() {
-          if (!tapped) { tapped = true; if (window.fbq) fbq('trackCustom', 'TappedPromptPill'); }
+          if (!tapped) { tapped = true; if (window.fbq) fbq('trackCustom', 'TappedPromptPill'); if(window.__jTrack) window.__jTrack('tapped_pill'); }
         });
       });
 

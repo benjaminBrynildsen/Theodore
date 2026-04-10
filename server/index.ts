@@ -33,6 +33,7 @@ import type { ElevenLabsVoice } from './tts.js';
 type OpenAIVoice = ElevenLabsVoice;
 import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN } from './billing.js';
 import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './meta-capi.js';
+import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail } from './journey.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001');
@@ -2318,6 +2319,12 @@ app.get('/api/admin/users/:userId', getUserDetail);
 app.get('/api/admin/activity', getActivity);
 app.get('/api/admin/stats/daily', getDailyStats);
 app.get('/api/admin/traffic', getTrafficStats);
+app.get('/api/admin/journeys', getJourneys);
+app.get('/api/admin/journeys/:sessionId', getJourneyDetail);
+
+// Journey tracking — public endpoints (no auth, guests need to send events)
+app.post('/api/journey', express.json(), receiveJourneyEvents);
+app.post('/api/beacon', express.text({ type: '*/*' }), receiveBeacon);
 
 // ========== Serve generated images ==========
 const uploadsPath = path.resolve(process.cwd(), 'uploads');

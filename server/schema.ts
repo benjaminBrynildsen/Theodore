@@ -195,6 +195,24 @@ export const pageViews = pgTable('page_views', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ========== Journey Events ==========
+// Full session-level tracking of every visitor action from landing through
+// signup. Each row is a single event in a visitor's journey. Sessions are
+// grouped by session_id (generated client-side per page load).
+export const journeyEvents = pgTable('journey_events', {
+  id: serial('id').primaryKey(),
+  sessionId: text('session_id').notNull(),
+  event: text('event').notNull(),
+  data: jsonb('data'),           // event-specific payload (element, scroll %, etc.)
+  ipHash: text('ip_hash'),
+  city: text('city'),
+  region: text('region'),
+  country: text('country'),
+  userAgent: text('user_agent'),
+  page: text('page'),            // '/go/' or '/' or view name
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),

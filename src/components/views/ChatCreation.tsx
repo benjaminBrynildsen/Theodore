@@ -4,6 +4,7 @@ import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import * as pixel from '../../lib/pixel';
+import { track as jTrack } from '../../lib/journey';
 import { generateId, cn } from '../../lib/utils';
 import { generateText, generateTextGuest, generateStream } from '../../lib/generate';
 import { useGenerationStore } from '../../store/generation';
@@ -506,7 +507,8 @@ export function ChatCreation({ onClose, guestMode, initialMessage, onRequireAuth
     if (!initialMessage || initialMessageSent.current) return;
     if (messages.length === 0) return; // wait for intro message to load
     initialMessageSent.current = true;
-    pixel.trackCustom('ChatAutoSendFired'); // auto-send triggered from ?prompt=
+    pixel.trackCustom('ChatAutoSendFired');
+    jTrack('chat_auto_send', { prompt: initialMessage?.slice(0, 100) });
     setInput(initialMessage);
     requestAnimationFrame(() => {
       const sendBtn = document.querySelector('[data-send-btn]') as HTMLButtonElement | null;
@@ -732,7 +734,8 @@ ${childrensRule}`,
             const id = generateId();
             placeholderId = id;
             setIsTyping(false);
-            pixel.trackCustom('FirstAIResponse'); // AI started responding — user sees output
+            pixel.trackCustom('FirstAIResponse');
+            jTrack('first_ai_response');
             setMessages((prev) => [
               ...prev,
               { id, role: 'assistant', content: accumulated, timestamp: new Date(), model: chatModel },

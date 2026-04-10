@@ -18,6 +18,7 @@ import { AudiobookPanel } from './components/features/AudiobookPanel';
 import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/MobilePlayer';
 import { MobileStudioPanel } from './components/layout/MobileStudioPanel';
 import * as pixel from './lib/pixel';
+import { track as jTrack } from './lib/journey';
 
 const ProjectView = lazy(async () => {
   const mod = await import('./components/views/ProjectView');
@@ -141,7 +142,8 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const prompt = params.get('prompt');
     if (prompt) {
-      pixel.trackCustom('PromptRedirectArrived'); // they made it from /go/ to the React app
+      pixel.trackCustom('PromptRedirectArrived');
+      jTrack('prompt_redirect_arrived', { prompt: prompt.slice(0, 100) });
       setGuestInitialMessage(prompt);
       setShowGuestChat(true);
       const url = new URL(window.location.href);
