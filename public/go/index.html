@@ -275,12 +275,6 @@
       </form>
 
       <p class="hint">Don't overthink it — even one sentence is enough.</p>
-
-      <div class="suggestion-pills">
-        <button class="pill" data-prompt="Southern gothic. Humid. Suspicious.">"Southern gothic. Humid. Suspicious."</button>
-        <button class="pill" data-prompt="A spy who can't remember his mission.">"A spy who can't remember his mission."</button>
-        <button class="pill" data-prompt="Haunted lighthouse. Two sisters. One secret.">"Haunted lighthouse. Two sisters. One secret."</button>
-      </div>
     </div>
   </section>
 
@@ -362,15 +356,6 @@
       btn.classList.toggle('active', input.value.trim().length > 0);
     });
 
-    // Suggestion pills — tap to fill and auto-submit
-    document.querySelectorAll('.pill').forEach(function(pill){
-      pill.addEventListener('click', function(){
-        var text = pill.getAttribute('data-prompt');
-        input.value = text;
-        btn.classList.add('active');
-        setTimeout(go, 150);
-      });
-    });
 
     // Submit — redirect to the full app with prompt
     function go(){
