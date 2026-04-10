@@ -2431,24 +2431,6 @@ app.get('/api/featured-books', async (_req, res) => {
   }
 });
 
-// TEMPORARY: list audio files for featured books config. REMOVE AFTER USE.
-app.get('/api/admin/list-audio', async (_req, res) => {
-  try {
-    const audioDir = path.resolve(process.cwd(), 'uploads', 'audio');
-    if (!fs.existsSync(audioDir)) return res.json([]);
-    const files = fs.readdirSync(audioDir)
-      .filter(f => f.endsWith('.mp3'))
-      .map(f => {
-        const stat = fs.statSync(path.join(audioDir, f));
-        return { url: `/uploads/audio/${f}`, size: stat.size, modified: stat.mtime };
-      })
-      .sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
-    res.json(files);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 const distPath = path.resolve(process.cwd(), 'dist');
 // Log pageviews BEFORE the static handler so we capture HTML navigations
 // (bundled assets are skipped inside the middleware via /assets/ prefix).
