@@ -14,7 +14,7 @@ const DIRECTION_PATTERNS = [
   /^(whisper|shout|cry|laugh|sigh|gasp|groan|sob|scoff|chuckle|snicker|yawn|scream|moan|cough)s?$/i,
   /^(excited|sad|angry|annoyed|sarcastic|bitter|hopeful|fearful|disgusted|surprised|amused|tender|dramatic|gentle|urgent|hesitant|confident|nervous|cold|warm|deadpan|monotone|thoughtful|slow|fast|quiet|loud|longing)$/i,
   /^(whispering|shouting|crying|laughing|sighing|gasping|sobbing)$/i,
-  /^(pause|dramatic pause|clears throat)$/i,
+  /^(pause|short pause|long pause|dramatic pause|clears throat)$/i,
   /ly$/i, // adverbs: softly, angrily, etc.
 ];
 
@@ -1051,14 +1051,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'fish')
       : '';
     // Add announcement AFTER pacing so its pauses aren't deduplicated
-    let paced = announcement + addFishPacing(clean);
-    // Fish Audio doesn't understand [pause]/[long pause]/[short pause] tags.
-    // Strip them and rely on natural punctuation for intra-sentence pacing.
-    // Real silence is inserted between chunks during concatenation (below).
-    paced = paced
-      .replace(/\[long pause\]/gi, '\n\n')
-      .replace(/\[pause\]/gi, '\n')
-      .replace(/\[short pause\]/gi, '');
+    const paced = announcement + addFishPacing(clean);
 
     // Smaller chunks + parallel generation for speed.
     // Fish Audio's concurrency limit is 5 (starter tier), so we target 3-5 chunks.
