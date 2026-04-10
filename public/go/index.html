@@ -518,11 +518,33 @@
       var maxScroll = 0;
       var played = false;
       var tapped = false;
+      var focusedInput = false;
+      var region = null;
 
-      // Timed engagement milestones
+      // Get visitor's region (city/state) via free IP geolocation
+      fetch('https://ipapi.co/json/')
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          region = { city: d.city, region: d.region, country: d.country_code };
+        }).catch(function(){});
+
+      // Track when someone taps INTO the text box (shows intent)
+      input.addEventListener('focus', function() {
+        if (!focusedInput) {
+          focusedInput = true;
+          if (window.fbq) fbq('trackCustom', 'FocusedPromptInput', region || {});
+        }
+      });
+
+      // Track submit button click specifically (vs Enter key)
+      btn.addEventListener('click', function() {
+        if (window.fbq) fbq('trackCustom', 'ClickedSubmitBtn', region || {});
+      });
+
+      // Timed engagement milestones (include region when available)
       [5, 15, 30, 60].forEach(function(sec) {
         setTimeout(function() {
-          if (window.fbq) fbq('trackCustom', 'Engaged' + sec + 's');
+          if (window.fbq) fbq('trackCustom', 'Engaged' + sec + 's', region || {});
         }, sec * 1000);
       });
 
@@ -557,10 +579,13 @@
           played_audio: played,
           tapped_pill: tapped
         });
-        if (window.fbq) fbq('trackCustom', 'PageExit', {
+        var exitData = {
           time_on_page: sec, scrolled_pct: maxScroll,
-          played_audio: played, tapped_pill: tapped
-        });
+          played_audio: played, tapped_pill: tapped,
+          focused_input: focusedInput
+        };
+        if (region) { exitData.city = region.city; exitData.region = region.region; exitData.country = region.country; }
+        if (window.fbq) fbq('trackCustom', 'PageExit', exitData);
         // sendBeacon as backup (pixel might not fire on unload)
         if (navigator.sendBeacon) {
           navigator.sendBeacon('/api/beacon', data);
