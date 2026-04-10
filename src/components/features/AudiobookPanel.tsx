@@ -966,9 +966,25 @@ export function AudiobookPanel() {
       const updatedChapter = updatedChapters.find(c => c.id === chapterId) || chapter;
 
       // Get scenes sorted by order
-      const scenes = ((updatedChapter.scenes || []) as any[])
+      let scenes = ((updatedChapter.scenes || []) as any[])
         .filter((s: any) => s.prose?.trim())
         .sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+
+      // If no scenes exist yet, decompose the prose into scenes first
+      if (scenes.length < 2 && updatedChapter.prose && updatedChapter.prose.length > 500) {
+        useGenerationStore.getState().setSubtitle('Breaking chapter into scenes…');
+        try {
+          const { runSceneDecomposition } = await import('../../lib/post-generation-pipeline');
+          await (runSceneDecomposition as any)(chapterId);
+          // Re-read chapter after decomposition
+          const postDecomp = useStore.getState().chapters.find(c => c.id === chapterId);
+          scenes = ((postDecomp?.scenes || []) as any[])
+            .filter((s: any) => s.prose?.trim())
+            .sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
+        } catch (e) {
+          console.warn('[AudioGen] Scene decomposition failed, falling back to single request:', e);
+        }
+      }
 
       // If chapter has scenes, generate scene-by-scene for streaming playback.
       // Scene 1 starts playing immediately; remaining scenes generate in parallel.

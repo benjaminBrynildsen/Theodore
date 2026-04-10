@@ -214,7 +214,7 @@ async function runEntityScan(chapterId: string): Promise<void> {
 }
 
 /** Step 2: Scene decomposition — break prose into scenes */
-async function runSceneDecomposition(chapterId: string): Promise<Scene[] | null> {
+export async function runSceneDecomposition(chapterId: string): Promise<Scene[] | null> {
   const store = useStore.getState();
   const settings = useSettingsStore.getState().settings;
   const chapter = store.chapters.find((c) => c.id === chapterId);
