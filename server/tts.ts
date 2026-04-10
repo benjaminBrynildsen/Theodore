@@ -267,21 +267,16 @@ export async function getFishVoicesWithPreviews(): Promise<(FishAudioVoiceInfo &
 function addFishPacing(text: string): string {
   let result = text;
 
-  // 1. Paragraph breaks → double long pause for a real scene-change feel
-  result = result.replace(/\n\n+/g, '\n\n[long pause]\n[long pause]\n\n');
-
   // All possible closing quote characters:
-  // " (straight double), \u201D (curly double right), \u201C (curly double left — sometimes misused as close)
-  // ' (straight single), \u2019 (curly single right/apostrophe), \u2018 (curly single left)
-  // \u00BB (guillemet »), ) (paren), ] (bracket)
   const closeQuotes = '[""\u201D\u201C\'\u2019\u2018\u00BB)\\]]';
 
-  // 2. Every sentence boundary — punctuation + optional closing quote(s) + whitespace
-  const sentenceEnd = new RegExp(`([.!?])(${closeQuotes}?)\\s+`, 'g');
+  // 1. Sentence boundaries — punctuation + optional closing quote(s) + space(s)
+  //    Use [ \t]+ (not \s+) so we DON'T eat newlines — paragraph breaks handled separately
+  const sentenceEnd = new RegExp(`([.!?])(${closeQuotes}?)[ \\t]+`, 'g');
   result = result.replace(sentenceEnd, '$1$2\n[pause]\n');
 
-  // 2b. Same but at newlines (prose sometimes uses \n between sentences)
-  const sentenceEndNl = new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\[)`, 'g');
+  // 1b. Sentence ends at single newlines (not paragraph breaks)
+  const sentenceEndNl = new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\n|\\[)`, 'g');
   result = result.replace(sentenceEndNl, '$1$2\n[pause]\n');
 
   // 2c. Multiple closing quotes: ?"' or ."") — catch the second quote too
@@ -316,6 +311,10 @@ function addFishPacing(text: string): string {
 
   // 9. Convert our existing direction tags
   result = result.replace(/\[dramatic pause\]/gi, '[long pause]');
+
+  // 10. Paragraph breaks — run LAST so \n\n boundaries aren't eaten by earlier rules
+  //     Any remaining \n\n (original paragraph breaks) get long pauses
+  result = result.replace(/\n\n+/g, '\n[long pause]\n[long pause]\n');
 
   // Deduplicate adjacent short pauses → upgrade to long pause
   result = result.replace(/(\[(?:short )?pause\]\s*\n?\s*){2,}/g, '[long pause]\n');
