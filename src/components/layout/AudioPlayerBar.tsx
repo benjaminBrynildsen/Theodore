@@ -290,8 +290,12 @@ export function AudioPlayerBar() {
     const relativeCover = (project.coverUrl && !project.coverUrl.startsWith('data:') ? project.coverUrl : null) || '/icons/icon-512.png';
     const absoluteCover = new URL(relativeCover, window.location.origin).href;
 
+    const mediaTitle = currentChapter
+      ? `Chapter ${currentChapter.number} · ${currentChapter.title || ''}`
+      : chapterTitle || project.title;
+
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: chapterTitle || project.title,
+      title: mediaTitle,
       artist: project.title,
       album: project.title,
       artwork: [
