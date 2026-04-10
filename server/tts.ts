@@ -271,21 +271,27 @@ function addFishPacing(text: string): string {
   result = result.replace(/\n\n+/g, '\n\n[long pause]\n\n');
 
   // 2. Every sentence boundary — catch ALL patterns:
-  //    "word. Word"  "word!" "word?"  "word." "Word"  'word.' Word
-  //    Also handles closing quotes: word." Word  word?" Word
-  result = result.replace(/([.!?])([""\u201D']?)\s+/g, '$1$2\n[pause]\n');
+  //    period/excl/question + optional closing quote (double, single, curly) + whitespace
+  result = result.replace(/([.!?])([""\u201D'\u2019)\]]?)\s+/g, '$1$2\n[pause]\n');
+
+  // 2b. Catch sentence ends at newlines too (prose often uses \n between sentences)
+  result = result.replace(/([.!?])([""\u201D'\u2019)\]]?)\n(?!\[)/g, '$1$2\n[pause]\n');
 
   // 3. Before opening dialogue quotes → long pause (narrator → character shift)
-  result = result.replace(/\[pause\]\n([""\u201C])/g, '[long pause]\n$1');
+  result = result.replace(/\[pause\]\n([""\u201C\u2018])/g, '[long pause]\n$1');
 
   // 4. After closing dialogue quotes → long pause (character → narrator shift)
-  result = result.replace(/([""\u201D'][.!?]?)\n\[pause\]\n([A-Z])/g, '$1\n[long pause]\n$2');
+  result = result.replace(/([""\u201D\u2019'][.!?]?)\n\[pause\]\n([A-Z])/g, '$1\n[long pause]\n$2');
+
+  // 4b. Dialogue with comma attribution: "Get out," he said. → pause after comma-quote
+  result = result.replace(/([""\u201D\u2019'],?)\s+([a-z])/g, '$1\n[pause]\n$2');
 
   // 5. Em dashes → short pause
   result = result.replace(/\s*—\s*/g, '\n[pause]\n');
 
-  // 6. Semicolons → breath pause
+  // 6. Semicolons and colons → breath pause
   result = result.replace(/;\s*/g, ';\n[pause]\n');
+  result = result.replace(/:\s+/g, ':\n[short pause]\n');
 
   // 7. Existing ellipsis → pause
   result = result.replace(/\.{3}/g, '[pause]');
