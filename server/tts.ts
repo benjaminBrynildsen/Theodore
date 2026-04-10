@@ -993,13 +993,15 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       chunks.push(...safeChunks);
     }
 
-    ttsLog(`OpenAI TTS: ${chunks.length} chunks for ${paced.length} chars`);
-    const audioBuffers: Buffer[] = [];
-    for (let ci = 0; ci < chunks.length; ci++) {
-      const audio = await callOpenAITTS(chunks[ci], voiceMap.narrator, openaiSpeed);
-      audioBuffers.push(audio);
-      req.onProgress?.(Math.round(((ci + 1) / chunks.length) * 100));
-    }
+    ttsLog(`OpenAI TTS: ${chunks.length} chunks for ${paced.length} chars (parallel)`);
+    // Generate all chunks in parallel
+    const audioBuffers = await Promise.all(
+      chunks.map(async (chunk, ci) => {
+        const buf = await callOpenAITTS(chunk, voiceMap.narrator, openaiSpeed);
+        req.onProgress?.(Math.round(((ci + 1) / chunks.length) * 100));
+        return buf;
+      })
+    );
 
     // Concatenate MP3 buffers (MP3 frames are independently decodable)
     const combined = Buffer.concat(audioBuffers);
@@ -1028,34 +1030,34 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       : '';
     const paced = addFishPacing(announcement + clean);
 
-    // Fish Audio handles longer text than OpenAI but chunk at ~8000 chars for safety
-    const MAX_CHUNK_CHARS = 8000;
+    // Smaller chunks + parallel generation for speed.
+    // Fish Audio's concurrency limit is 5 (starter tier), so we target 3-5 chunks.
+    const MAX_CHUNK_CHARS = 3000;
     const chunks: string[] = [];
-    if (paced.length <= MAX_CHUNK_CHARS) {
-      chunks.push(paced);
-    } else {
-      const paragraphs = paced.split(/\n\n+/);
-      let current = '';
-      for (const para of paragraphs) {
-        if (current.length + para.length + 2 > MAX_CHUNK_CHARS && current.length > 0) {
-          chunks.push(current.trim());
-          current = para;
-        } else {
-          current += (current ? '\n\n' : '') + para;
-        }
+    const paragraphs = paced.split(/\n\n+/);
+    let current = '';
+    for (const para of paragraphs) {
+      if (current.length + para.length + 2 > MAX_CHUNK_CHARS && current.length > 0) {
+        chunks.push(current.trim());
+        current = para;
+      } else {
+        current += (current ? '\n\n' : '') + para;
       }
-      if (current.trim()) chunks.push(current.trim());
     }
+    if (current.trim()) chunks.push(current.trim());
 
     // Strip 'fish:' prefix from voice ID
     const fishVoiceId = voiceMap.narrator.replace(/^fish:/, '');
-    ttsLog(`Fish Audio TTS: ${chunks.length} chunks for ${paced.length} chars, voice=${fishVoiceId}`);
-    const audioBuffers: Buffer[] = [];
-    for (let ci = 0; ci < chunks.length; ci++) {
-      const audio = await callFishAudioTTS(chunks[ci], fishVoiceId);
-      audioBuffers.push(audio);
-      req.onProgress?.(Math.round(((ci + 1) / chunks.length) * 100));
-    }
+    ttsLog(`Fish Audio TTS: ${chunks.length} chunks for ${paced.length} chars (parallel), voice=${fishVoiceId}`);
+
+    // Generate all chunks in parallel — Fish allows 5 concurrent requests
+    const audioBuffers = await Promise.all(
+      chunks.map(async (chunk, ci) => {
+        const buf = await callFishAudioTTS(chunk, fishVoiceId);
+        req.onProgress?.(Math.round(((ci + 1) / chunks.length) * 100));
+        return buf;
+      })
+    );
 
     const combined = Buffer.concat(audioBuffers);
     const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
