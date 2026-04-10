@@ -277,9 +277,9 @@
       <p class="hint">Don't overthink it — even one sentence is enough.</p>
 
       <div class="suggestion-pills">
-        <button class="pill" data-prompt="A grief-struck botanist finds a greenhouse that should not exist.">"A grief-struck botanist finds a greenhouse that should not exist."</button>
         <button class="pill" data-prompt="Southern gothic. Humid. Suspicious.">"Southern gothic. Humid. Suspicious."</button>
-        <button class="pill" data-prompt="A prodigal son returns home and learns the town has been waiting.">"A prodigal son returns home and learns the town has been waiting."</button>
+        <button class="pill" data-prompt="A spy who can't remember his mission.">"A spy who can't remember his mission."</button>
+        <button class="pill" data-prompt="Haunted lighthouse. Two sisters. One secret.">"Haunted lighthouse. Two sisters. One secret."</button>
       </div>
     </div>
   </section>
@@ -347,6 +347,16 @@
     var btn = document.getElementById('submitBtn');
     var form = document.getElementById('promptForm');
 
+    // Pre-fill with a short random prompt
+    var shortPrompts = [
+      'Southern gothic. Humid. Suspicious.',
+      'A spy who can\'t remember his mission.',
+      'Haunted lighthouse. Two sisters. One secret.',
+      'Robots raising a human child.',
+      'A heist on a moving train.',
+    ];
+    input.value = shortPrompts[Math.floor(Math.random() * shortPrompts.length)];
+
     // Toggle submit button style
     input.addEventListener('input', function(){
       btn.classList.toggle('active', input.value.trim().length > 0);
@@ -386,14 +396,14 @@
         chapterTitle: 'The Robot in the Workshop',
         genre: 'Adventure',
         coverUrl: '/uploads/covers/f97a37c5-02d0-4526-b73d-3b8452ce8974.png',
-        audioUrl: '/uploads/audio/ch-1eedef809d71.mp3',
+        audioUrl: '/uploads/audio/ch-2dfbbe40a99c.mp3',
       },
       {
         title: 'On Ice and Lanes',
         chapterTitle: 'Spare Time',
         genre: 'Fiction',
         coverUrl: '/uploads/covers/b07fbe31-7eca-4432-ba84-f7a718d072ff.png',
-        audioUrl: '/uploads/audio/ch-ab41e70d778f.mp3',
+        audioUrl: '/uploads/audio/ch-87341070a4d5.mp3',
       },
       {
         title: 'Blind Target',
