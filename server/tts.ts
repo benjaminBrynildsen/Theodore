@@ -365,6 +365,28 @@ function buildChapterAnnouncement(
   }
 }
 
+// Cached 0.8-second silence buffer for inter-chunk pauses (Fish Audio path).
+// Generated once via ffmpeg, reused for every generation.
+let _silenceCache: Buffer | null = null;
+async function getFishSilenceBuffer(): Promise<Buffer> {
+  if (_silenceCache) return _silenceCache;
+  return new Promise((resolve, reject) => {
+    const args = ['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-t', '0.8',
+      '-b:a', '192k', '-f', 'mp3', 'pipe:1'];
+    const proc = execFile('ffmpeg', args, { encoding: 'buffer', maxBuffer: 200_000 }, (err, stdout) => {
+      if (err) {
+        // Fallback: 50ms of MP3 silence frame (valid MPEG audio frame header + padding)
+        console.warn('[tts] ffmpeg silence generation failed, using minimal fallback');
+        _silenceCache = Buffer.alloc(400, 0);
+        resolve(_silenceCache);
+        return;
+      }
+      _silenceCache = stdout as unknown as Buffer;
+      resolve(_silenceCache);
+    });
+  });
+}
+
 async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> {
   const apiKey = process.env.FISH_AUDIO_API_KEY;
   if (!apiKey) throw new Error('FISH_AUDIO_API_KEY is required for Fish Audio TTS');
@@ -1030,15 +1052,13 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       : '';
     // Add announcement AFTER pacing so its pauses aren't deduplicated
     let paced = announcement + addFishPacing(clean);
-    // Fish Audio doesn't understand [pause]/[long pause] tags — they get read
-    // as literal text. Convert to natural cues Fish actually respects:
-    // long pause → triple ellipsis + double newline (strong breath break)
-    // pause → ellipsis + newline (sentence-level breath)
-    // short pause → comma + ellipsis (clause-level micro-pause)
+    // Fish Audio doesn't understand [pause]/[long pause]/[short pause] tags.
+    // Strip them and rely on natural punctuation for intra-sentence pacing.
+    // Real silence is inserted between chunks during concatenation (below).
     paced = paced
-      .replace(/\[long pause\]/gi, '... ... ...\n\n')
-      .replace(/\[pause\]/gi, '...\n')
-      .replace(/\[short pause\]/gi, ', ...');
+      .replace(/\[long pause\]/gi, '\n\n')
+      .replace(/\[pause\]/gi, '\n')
+      .replace(/\[short pause\]/gi, '');
 
     // Smaller chunks + parallel generation for speed.
     // Fish Audio's concurrency limit is 5 (starter tier), so we target 3-5 chunks.
@@ -1060,16 +1080,29 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const fishVoiceId = voiceMap.narrator.replace(/^fish:/, '');
     ttsLog(`Fish Audio TTS: ${chunks.length} chunks for ${paced.length} chars (parallel), voice=${fishVoiceId}`);
 
+    // Filter out empty/whitespace-only chunks that would cause duplicate audio
+    const validChunks = chunks.filter(c => c.replace(/[.\s,;:!?\-—]/g, '').length > 0);
+    ttsLog(`Fish Audio TTS: ${validChunks.length} valid chunks (${chunks.length - validChunks.length} empty removed)`);
+
     // Generate all chunks in parallel — Fish allows 5 concurrent requests
     const audioBuffers = await Promise.all(
-      chunks.map(async (chunk, ci) => {
+      validChunks.map(async (chunk, ci) => {
         const buf = await callFishAudioTTS(chunk, fishVoiceId);
-        req.onProgress?.(Math.round(((ci + 1) / chunks.length) * 100));
+        req.onProgress?.(Math.round(((ci + 1) / validChunks.length) * 100));
         return buf;
       })
     );
 
-    const combined = Buffer.concat(audioBuffers);
+    // Insert 0.8s of silence between chunks for natural paragraph pauses.
+    // MP3 silence: a valid silent MPEG frame repeated. We use ffmpeg-generated
+    // silence cached in memory to avoid shelling out on every generation.
+    const silenceBuf = await getFishSilenceBuffer();
+    const parts: Buffer[] = [];
+    for (let i = 0; i < audioBuffers.length; i++) {
+      parts.push(audioBuffers[i]);
+      if (i < audioBuffers.length - 1) parts.push(silenceBuf);
+    }
+    const combined = Buffer.concat(parts);
     const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
     const filename = `ch-${hash}.mp3`;
     const filepath = path.join(AUDIO_DIR, filename);

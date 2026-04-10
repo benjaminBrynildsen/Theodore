@@ -409,15 +409,20 @@ export function AudioPlayerBar() {
 
         const audio = audioRef.current;
         if (audio) {
-          audio.src = result.audioUrl;
-          audio.load();
-          audio.play().then(() => {
-            pendingPlayRef.current = null;
-          }).catch(() => {
-            pendingPlayRef.current = result.audioUrl;
-            console.warn('[AudioPlayer] Post-generate play blocked, queued for user gesture');
-          });
-          setPlaying(true);
+          // Only auto-play if nothing is currently playing — don't cut off
+          // a chapter the user is already listening to.
+          const alreadyPlaying = playing && !audio.paused && audio.currentTime > 0;
+          if (!alreadyPlaying) {
+            audio.src = result.audioUrl;
+            audio.load();
+            audio.play().then(() => {
+              pendingPlayRef.current = null;
+            }).catch(() => {
+              pendingPlayRef.current = result.audioUrl;
+              console.warn('[AudioPlayer] Post-generate play blocked, queued for user gesture');
+            });
+            setPlaying(true);
+          }
         }
 
         sceneIndexRef.current = 0;
@@ -481,15 +486,18 @@ export function AudioPlayerBar() {
 
         const audio = audioRef.current;
         if (audio) {
-          audio.src = result.audioUrl;
-          audio.load();
-          audio.play().then(() => {
-            pendingPlayRef.current = null;
-          }).catch(() => {
-            pendingPlayRef.current = result.audioUrl;
-            console.warn('[AudioPlayer] Post-generate play blocked, queued for user gesture');
-          });
-          setPlaying(true);
+          const alreadyPlaying = playing && !audio.paused && audio.currentTime > 0;
+          if (!alreadyPlaying) {
+            audio.src = result.audioUrl;
+            audio.load();
+            audio.play().then(() => {
+              pendingPlayRef.current = null;
+            }).catch(() => {
+              pendingPlayRef.current = result.audioUrl;
+              console.warn('[AudioPlayer] Post-generate play blocked, queued for user gesture');
+            });
+            setPlaying(true);
+          }
         }
       }
       useGenerationStore.getState().setPhase('done');
