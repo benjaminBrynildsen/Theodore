@@ -77,7 +77,11 @@ export function AudioPlayerBar() {
 
   const project = getActiveProject();
   const chapters = project ? getProjectChapters(project.id).filter(c => c?.id && c.prose).sort((a, b) => a.number - b.number) : [];
-  const currentChapter = chapters.find(c => c.id === currentChapterId);
+  // currentChapterId may be a scene ID (prefixed 'scene-') during scene-level playback
+  const currentChapter = chapters.find(c => c.id === currentChapterId)
+    || (currentChapterId?.startsWith('scene-')
+      ? chapters.find(c => (c as any).scenes?.some((s: any) => `scene-${s.id}` === currentChapterId))
+      : undefined);
   const currentAudio = currentChapterId ? chapterAudio[currentChapterId] : null;
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
