@@ -98,7 +98,10 @@ export function MobilePlayerBar({ onExpand }: { onExpand: () => void }) {
 
   const project = getActiveProject();
   const chapters = project ? getProjectChapters(project.id).sort((a, b) => a.number - b.number) : [];
-  const currentChapter = chapters.find(c => c.id === currentChapterId);
+  const currentChapter = chapters.find(c => c.id === currentChapterId)
+    || (currentChapterId?.startsWith('scene-')
+      ? chapters.find(c => (c as any).scenes?.some((s: any) => `scene-${s.id}` === currentChapterId))
+      : undefined);
   const chapterImage = currentChapter?.imageUrl;
   const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
 
@@ -186,8 +189,11 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
   const project = getActiveProject();
   const allChapters = project ? getProjectChapters(project.id).sort((a, b) => a.number - b.number) : [];
   const playableChapters = allChapters.filter(c => c?.id && c.prose);
-  const currentChapter = playableChapters.find(c => c.id === currentChapterId);
-  const chapterIdx = currentChapterId ? playableChapters.findIndex(c => c.id === currentChapterId) : -1;
+  const currentChapter = playableChapters.find(c => c.id === currentChapterId)
+    || (currentChapterId?.startsWith('scene-')
+      ? playableChapters.find(c => (c as any).scenes?.some((s: any) => `scene-${s.id}` === currentChapterId))
+      : undefined);
+  const chapterIdx = currentChapter ? playableChapters.indexOf(currentChapter) : -1;
   const projectCover = project?.coverUrl && !project.coverUrl.startsWith('data:') ? project.coverUrl : null;
   const chapterImage = currentChapter?.imageUrl;
   const coverSrc = chapterImage || projectCover;
