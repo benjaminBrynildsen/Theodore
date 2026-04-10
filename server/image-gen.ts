@@ -272,7 +272,7 @@ export const COVER_STYLES: Record<string, string> = {
   silhouette: 'dramatic silhouette of a figure or key object against a vivid colorful sky or gradient, high contrast, the silhouette is solid black, the background is rich with color — sunset oranges, twilight purples, or stormy blues, cinematic and striking',
   abstract: 'abstract art composition, bold shapes and color fields, textured brushstrokes or geometric forms, no literal scene depiction, the mood and emotion of the story expressed through color and form, modern literary fiction aesthetic',
   typography: 'a single bold solid color background with subtle texture or gentle gradient, like a deep navy, rich burgundy, forest green, charcoal, or burnt orange wall, SIMPLE and CLEAN with minimal visual noise, NO illustrations NO objects NO figures NO scenes NO patterns, just a moody colored surface that lets overlaid white text pop, think book jacket back-cover simplicity',
-  lineart: 'black and white line art illustration, clean precise ink lines on white background, intricate hand-drawn style, could be a symbolic object, a pattern, or a scene rendered purely in linework, no shading no color no grayscale, like a woodcut or pen-and-ink drawing, elegant and literary',
+  lineart: 'minimalist black line art on clean white background, one single simple object or symbol drawn with thin elegant lines, lots of white space, sparse and refined, like a modern literary fiction cover or indie press design, NOT busy NOT detailed NOT intricate, just one quiet meaningful element centered with breathing room',
 };
 
 export function buildBookCoverPrompt(project: {

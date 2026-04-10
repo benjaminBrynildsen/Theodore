@@ -13,7 +13,7 @@ const COVER_STYLES = [
   { id: 'silhouette', label: 'Silhouette' },
   { id: 'abstract', label: 'Abstract' },
   { id: 'typography', label: 'Bold Typography' },
-  { id: 'lineart', label: 'Line Art' },
+  { id: 'lineart', label: 'Minimalist Line Art' },
 ] as const;
 
 interface CoverOption {
