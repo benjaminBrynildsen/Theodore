@@ -204,7 +204,8 @@ export function ProjectView() {
 
       {/* Listen button — below cover */}
       {(() => {
-        const ch1 = chapters.find(c => c.number === 1 && c.prose?.trim());
+        const sortedCh = [...chapters].sort((a, b) => a.number - b.number);
+        const ch1 = sortedCh.find(c => c.prose?.trim());
         if (!ch1) return null;
         const hasAudio = !!chapterAudio[ch1.id]?.audioUrl;
         const isGenerating = audioGenerating === ch1.id;
@@ -219,20 +220,14 @@ export function ProjectView() {
                 }
               }}
               disabled={isGenerating}
-              className={cn(
-                'flex items-center gap-2.5 px-6 py-3 rounded-full font-medium text-sm transition-all shadow-sm',
-                hasAudio
-                  ? 'bg-text-primary text-text-inverse hover:opacity-90'
-                  : 'bg-text-primary text-text-inverse hover:opacity-90',
-                isGenerating && 'opacity-60 cursor-not-allowed',
-              )}
+              className="flex items-center gap-2.5 px-6 py-3 rounded-full font-medium text-sm transition-all shadow-sm bg-text-primary text-text-inverse hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isGenerating ? (
                 <><Loader2 size={18} className="animate-spin" /> Generating…</>
               ) : hasAudio ? (
-                <><Play size={18} fill="currentColor" /> Listen to Chapter 1</>
+                <><Play size={18} fill="currentColor" /> Listen</>
               ) : (
-                <><Headphones size={18} /> Listen to Chapter 1</>
+                <><Headphones size={18} /> Listen to Chapter {ch1.number}</>
               )}
             </button>
           </div>
