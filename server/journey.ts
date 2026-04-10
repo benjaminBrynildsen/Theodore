@@ -83,8 +83,8 @@ export async function getJourneys(req: Request, res: Response) {
     const sessions = await db.execute(sql`
       SELECT
         session_id,
-        MIN(created_at) AS started_at,
-        MAX(created_at) AS last_event_at,
+        MIN(created_at)::text || 'Z' AS started_at,
+        MAX(created_at)::text || 'Z' AS last_event_at,
         COUNT(*) AS event_count,
         MAX(city) AS city,
         MAX(region) AS region,
