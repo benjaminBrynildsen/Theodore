@@ -2357,6 +2357,18 @@ app.get('/api/share/audio/:chapterId', async (req, res) => {
   }
 });
 
+// TEMP: list audio files. Remove after use.
+app.get('/api/admin/list-audio', async (_req, res) => {
+  try {
+    const audioDir = path.resolve(process.cwd(), 'uploads', 'audio');
+    if (!fs.existsSync(audioDir)) return res.json([]);
+    const files = fs.readdirSync(audioDir).filter(f => f.endsWith('.mp3'))
+      .map(f => { const s = fs.statSync(path.join(audioDir, f)); return { url: `/uploads/audio/${f}`, size: s.size, modified: s.mtime }; })
+      .sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+    res.json(files.slice(0, 10));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 // ========== Featured Books (public, for landing page) ==========
 // Returns curated book data for the landing page carousel.
 // Config lives here server-side so we can update without redeploying the frontend.
