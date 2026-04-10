@@ -141,9 +141,9 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     const prompt = params.get('prompt');
     if (prompt) {
+      pixel.trackCustom('PromptRedirectArrived'); // they made it from /go/ to the React app
       setGuestInitialMessage(prompt);
       setShowGuestChat(true);
-      // Clean URL without reloading
       const url = new URL(window.location.href);
       url.searchParams.delete('prompt');
       window.history.replaceState({}, '', url.pathname + url.search || '/');
