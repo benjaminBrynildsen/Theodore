@@ -1064,7 +1064,7 @@ ${childrensRule}`,
           console.warn('[Creation] Canon seeding failed (non-fatal):', e);
         }
 
-        // Cover generation (Gemini image)
+        // Cover generation (Gemini image) — works for both guests and signed-in
         try {
           useGenerationStore.getState().setSubtitle('Generating cover art…');
           const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
@@ -1081,43 +1081,48 @@ ${childrensRule}`,
           console.warn('[Creation] Auto-cover failed (non-fatal):', e);
         }
 
-        // Auto-generate Chapter 1 prose in background
-        try {
-          const ch1 = useStore.getState().chapters
-            .filter(c => c.projectId === projectId)
-            .sort((a, b) => a.number - b.number)[0];
-          if (ch1 && !ch1.prose?.trim()) {
-            useGenerationStore.getState().setSubtitle('Writing Chapter 1…');
-            const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
-            const allCh = useStore.getState().chapters.filter(c => c.projectId === projectId).sort((a, b) => a.number - b.number);
-            const outlineContext = allCh.map(c => `Ch ${c.number}: ${c.title} — ${c.premise?.purpose || ''}`).join('\n');
+        // Auto-generate Chapter 1 prose — only for signed-in users (requires auth)
+        if (!isGuest) {
+          try {
+            const ch1 = useStore.getState().chapters
+              .filter(c => c.projectId === projectId)
+              .sort((a, b) => a.number - b.number)[0];
+            if (ch1 && !ch1.prose?.trim()) {
+              useGenerationStore.getState().setSubtitle('Writing Chapter 1…');
+              const latestProject2 = useStore.getState().projects.find(p => p.id === projectId) || project;
+              const allCh = useStore.getState().chapters.filter(c => c.projectId === projectId).sort((a, b) => a.number - b.number);
+              const outlineContext = allCh.map(c => `Ch ${c.number}: ${c.title} — ${c.premise?.purpose || ''}`).join('\n');
 
-            let ch1Prose = '';
-            await generateStream(
-              {
-                prompt: `Write Chapter 1 of "${latestProject.title}".\n\nChapter 1: ${ch1.title}\nPremise: ${ch1.premise?.purpose || ''}\n\nFull outline:\n${outlineContext}\n\nWrite a complete, engaging first chapter of approximately 2000 words. Begin directly with prose — no chapter title or heading. Include dialogue, description, and interiority. Establish the protagonist, setting, and inciting tension.`,
-                model: 'claude-sonnet-4-6',
-                maxTokens: 4000,
-                action: 'generate-chapter',
-                projectId,
-                chapterId: ch1.id,
-              },
-              (text) => { ch1Prose += text; },
-            );
+              let ch1Prose = '';
+              await generateStream(
+                {
+                  prompt: `Write Chapter 1 of "${latestProject2.title}".\n\nChapter 1: ${ch1.title}\nPremise: ${ch1.premise?.purpose || ''}\n\nFull outline:\n${outlineContext}\n\nWrite a complete, engaging first chapter of approximately 2000 words. Begin directly with prose — no chapter title or heading. Include dialogue, description, and interiority. Establish the protagonist, setting, and inciting tension.`,
+                  model: 'claude-sonnet-4-6',
+                  maxTokens: 4000,
+                  action: 'generate-chapter',
+                  projectId,
+                  chapterId: ch1.id,
+                },
+                (text) => { ch1Prose += text; },
+              );
 
-            if (ch1Prose.trim()) {
-              useStore.getState().updateChapter(ch1.id, {
-                prose: ch1Prose.trim(),
-                status: 'draft-generated',
-              });
+              if (ch1Prose.trim()) {
+                useStore.getState().updateChapter(ch1.id, {
+                  prose: ch1Prose.trim(),
+                  status: 'draft-generated',
+                });
+              }
             }
+          } catch (e) {
+            console.warn('[Creation] Auto-generate Ch1 failed (non-fatal):', e);
           }
-        } catch (e) {
-          console.warn('[Creation] Auto-generate Ch1 failed (non-fatal):', e);
         }
 
         useGenerationStore.getState().setPhase('done');
-      })();
+      })().catch((e) => {
+        console.warn('[Creation] Background tasks failed:', e);
+        useGenerationStore.getState().end();
+      });
     } catch (e) {
       console.error('[Creation] Project creation failed:', e);
       setCreationMessage(`Project creation failed: ${e instanceof Error ? e.message : String(e)}`);
