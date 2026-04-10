@@ -130,6 +130,33 @@ function setupAutoTracking() {
     }
   });
 
+  // Track errors (502s, network failures, JS errors)
+  window.addEventListener('error', (e) => {
+    track('error', { message: e.message?.slice(0, 100), source: e.filename?.slice(-50) });
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const msg = e.reason?.message || String(e.reason);
+    if (msg.includes('502') || msg.includes('503') || msg.includes('504') || msg.includes('Failed to fetch')) {
+      track('error', { type: 'network', message: msg.slice(0, 100) });
+    }
+  });
+
+  // Intercept fetch to catch 502/503/504 responses
+  const origFetch = window.fetch;
+  window.fetch = async function (...args) {
+    try {
+      const res = await origFetch.apply(this, args);
+      if (res.status >= 500) {
+        const url = typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url || '';
+        track('error', { type: `HTTP ${res.status}`, url: url.slice(0, 80) });
+      }
+      return res;
+    } catch (err: any) {
+      track('error', { type: 'network', message: (err?.message || 'fetch failed').slice(0, 100) });
+      throw err;
+    }
+  };
+
   // Track page exit
   const sendExit = () => {
     const seconds = Math.round((Date.now() - landed) / 1000);

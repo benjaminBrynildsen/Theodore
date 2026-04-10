@@ -1027,34 +1027,67 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                     <div className="flex flex-col items-center flex-shrink-0 w-8">
                       <div className={cn(
                         'w-2.5 h-2.5 rounded-full mt-1.5',
-                        isKey ? 'bg-green-500' : e.event === 'exit' ? 'bg-red-400' : 'bg-black/20'
+                        isKey ? 'bg-green-500' : e.event === 'exit' ? 'bg-red-400' : e.event === 'error' ? 'bg-red-600' : 'bg-black/20'
                       )} />
                       {i < journeyDetail.events.length - 1 && (
                         <div className="w-px flex-1 bg-black/10 min-h-[1.5rem]" />
                       )}
                     </div>
-                    <div className="flex-1 pb-3">
+                    <div className="flex-1 pb-3 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className={cn(
                           'text-xs font-medium',
-                          isKey ? 'text-green-700' : e.event === 'exit' ? 'text-red-600' : 'text-text-primary'
+                          isKey ? 'text-green-700'
+                            : e.event === 'exit' ? 'text-red-600'
+                            : e.event === 'error' ? 'text-red-600'
+                            : 'text-text-primary'
                         )}>
                           {e.event.replace(/_/g, ' ')}
                         </span>
                         <span className="text-[10px] text-text-tertiary">
                           {i > 0 ? `+${gap}s` : '0s'}
                         </span>
-                        {e.page && <span className="text-[10px] text-text-tertiary">{e.page}</span>}
                       </div>
-                      {e.data && Object.keys(e.data).length > 0 && (
-                        <div className="text-[11px] text-text-tertiary mt-0.5 flex flex-wrap gap-1">
-                          {Object.entries(e.data).map(([k, v]) => (
-                            <span key={k} className="px-1.5 py-0.5 rounded bg-black/[0.04]">
-                              {k}: {typeof v === 'object' ? JSON.stringify(v) : String(v)}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      {e.data && Object.keys(e.data).length > 0 && (() => {
+                        // Clean up display — shorten URLs, hide noisy keys
+                        const clean: [string, string][] = [];
+                        for (const [k, v] of Object.entries(e.data as Record<string, unknown>)) {
+                          if (v === null || v === undefined) continue;
+                          const s = String(v);
+                          if (k === 'url') {
+                            try { const u = new URL(s); clean.push(['from', u.pathname.slice(0, 30)]); }
+                            catch { clean.push([k, s.slice(0, 40)]); }
+                          } else if (k === 'referrer') {
+                            if (!s || s === 'null') continue;
+                            try { clean.push(['via', new URL(s).hostname]); }
+                            catch { clean.push(['via', s.slice(0, 30)]); }
+                          } else if (k === 'prompt') {
+                            clean.push(['prompt', s.length > 50 ? s.slice(0, 50) + '…' : s]);
+                          } else if (k === 'element') {
+                            clean.push(['clicked', s.length > 30 ? s.slice(0, 30) + '…' : s]);
+                          } else if (k === 'time_on_page') {
+                            const sec = parseInt(s);
+                            clean.push(['duration', sec < 60 ? `${sec}s` : `${Math.floor(sec/60)}m ${sec%60}s`]);
+                          } else if (k === 'depth_pct' || k === 'max_scroll') {
+                            clean.push([k === 'depth_pct' ? 'scroll' : 'max scroll', `${s}%`]);
+                          } else if (k === 'seconds') {
+                            clean.push(['at', `${s}s`]);
+                          } else if (k === 'tag') {
+                            continue; // skip HTML tag name, not useful
+                          } else {
+                            clean.push([k, s.length > 40 ? s.slice(0, 40) + '…' : s]);
+                          }
+                        }
+                        return clean.length > 0 ? (
+                          <div className="text-[11px] text-text-tertiary mt-0.5 flex flex-wrap gap-1">
+                            {clean.map(([k, v]) => (
+                              <span key={k} className="px-1.5 py-0.5 rounded bg-black/[0.04] truncate max-w-[200px]">
+                                {k}: {v}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
                 );
