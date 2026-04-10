@@ -51,7 +51,7 @@ const FISH_AUDIO_VOICES = [
   { id: 'fish:536d3a5e000945adb7038665781a4aca', name: 'Ethan', desc: 'Clear & professional', gender: 'male' },
   { id: 'fish:e3cd384158934cc9a01029cd7d278634', name: 'Laura', desc: 'Warm & confident', gender: 'female' },
   { id: 'fish:b347db033a6549378b48d00acb0d06cd', name: 'Selene', desc: 'Gentle & meditative', gender: 'female' },
-  { id: 'fish:beb44e5fac1e4b33a15dfcdcc2a9421d', name: 'Historian', desc: 'British storyteller', gender: 'male' },
+  { id: 'fish:400b2a2c4aa44afc87b6d14adf0dd13c', name: 'Chosen', desc: 'British · deep & dramatic', gender: 'male' },
   { id: 'fish:5e79e8f5d2b345f98baa8c83c947532d', name: 'Paddington', desc: 'Deep & wise', gender: 'male' },
   { id: 'fish:4858e0be678c4449bf3a7646186edd42', name: 'Nahida', desc: 'Gentle & empathetic', gender: 'female' },
 ] as const;

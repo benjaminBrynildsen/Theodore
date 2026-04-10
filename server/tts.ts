@@ -221,7 +221,7 @@ export const FISH_AUDIO_VOICES: FishAudioVoiceInfo[] = [
   { id: '536d3a5e000945adb7038665781a4aca', name: 'Ethan', desc: 'Clear & professional', gender: 'male', tone: 'calm' },
   { id: 'e3cd384158934cc9a01029cd7d278634', name: 'Laura', desc: 'Warm & confident', gender: 'female', tone: 'warm' },
   { id: 'b347db033a6549378b48d00acb0d06cd', name: 'Selene', desc: 'Gentle & meditative', gender: 'female', tone: 'gentle' },
-  { id: 'beb44e5fac1e4b33a15dfcdcc2a9421d', name: 'Sleepless Historian', desc: 'British storyteller', gender: 'male', tone: 'calm' },
+  { id: '400b2a2c4aa44afc87b6d14adf0dd13c', name: 'Chosen', desc: 'British · deep & dramatic', gender: 'male', tone: 'dramatic' },
   { id: '5e79e8f5d2b345f98baa8c83c947532d', name: 'Paddington', desc: 'Deep & wise narrator', gender: 'male', tone: 'deep' },
   { id: '4858e0be678c4449bf3a7646186edd42', name: 'Nahida', desc: 'Gentle & empathetic', gender: 'female', tone: 'warm' },
 ];
