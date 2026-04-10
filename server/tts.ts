@@ -269,9 +269,11 @@ export async function getFishVoicesWithPreviews(): Promise<(FishAudioVoiceInfo &
 function addFishPacing(text: string): string {
   let result = text;
 
-  // Fish Audio S2-pro docs confirm only [pause] as a tag.
-  // For longer pauses, use punctuation: "..." creates natural breaks.
-  // normalize must be false (set in callFishAudioTTS) for tags to work.
+  // Fish Audio uses PARENTHESIS syntax for pauses (not brackets):
+  //   (break)      — short pause
+  //   (long-break) — extended pause
+  // Also supports filler words: "um", "uh" for natural hesitation.
+  // normalize must be false for these to work.
 
   // 0. Protect common abbreviations
   const abbrevs = ['Mr', 'Mrs', 'Ms', 'Dr', 'St', 'Jr', 'Sr', 'Prof', 'Gen', 'Gov', 'Sgt', 'Cpl', 'Lt', 'Col', 'Capt', 'Rev', 'vs', 'etc', 'approx'];
@@ -281,38 +283,42 @@ function addFishPacing(text: string): string {
 
   const closeQuotes = '[""\u201D\u201C\'\u2019\u2018\u00BB)\\]]';
 
-  // 1. Every sentence boundary → [pause] tag
-  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)[ \\t]+`, 'g'), '$1$2 [pause] ');
-  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\n|\\[)`, 'g'), '$1$2 [pause] ');
+  // 1. Every sentence boundary → (break)
+  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)[ \\t]+`, 'g'), '$1$2 (break) ');
+  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\n|\\()`, 'g'), '$1$2 (break) ');
   // Double closing quotes
-  result = result.replace(new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})[ \\t]+`, 'g'), '$1$2$3 [pause] ');
+  result = result.replace(new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})[ \\t]+`, 'g'), '$1$2$3 (break) ');
 
-  // 2. Before/after dialogue → double [pause] for longer break
+  // 2. Before/after dialogue → (long-break)
   const openQuotes = '[""\u201C\u2018\u00AB]';
-  result = result.replace(new RegExp(`\\[pause\\] (${openQuotes}[A-Z])`, 'g'), '[pause] [pause] $1');
-  result = result.replace(new RegExp(`(${closeQuotes}[.!?]) \\[pause\\] ([A-Z])`, 'g'), '$1 [pause] [pause] $2');
+  result = result.replace(new RegExp(`\\(break\\) (${openQuotes}[A-Z])`, 'g'), '(long-break) $1');
+  result = result.replace(new RegExp(`(${closeQuotes}[.!?]) \\(break\\) ([A-Z])`, 'g'), '$1 (long-break) $2');
   // Dialogue comma attribution
-  result = result.replace(/(["\u201D\u201C]),?\s+([a-z])/g, '$1, [pause] $2');
+  result = result.replace(/(["\u201D\u201C]),?\s+([a-z])/g, '$1, (break) $2');
 
   // 3. Em dashes
-  result = result.replace(/\s*—\s*/g, ' [pause] ');
+  result = result.replace(/\s*—\s*/g, ' (break) ');
 
   // 4. Semicolons and colons
-  result = result.replace(/;\s*/g, '; [pause] ');
-  result = result.replace(/:\s+/g, ': [pause] ');
+  result = result.replace(/;\s*/g, '; (break) ');
+  result = result.replace(/:\s+/g, ': (break) ');
 
-  // 5. Ellipsis → pause
-  result = result.replace(/\.{3}/g, ' [pause] ');
-  result = result.replace(/…/g, ' [pause] ');
+  // 5. Ellipsis → break
+  result = result.replace(/\.{3}/g, ' (break) ');
+  result = result.replace(/…/g, ' (break) ');
 
-  // 6. Paragraph breaks → triple [pause] for scene-change feel
-  result = result.replace(/\n\n+/g, ' [pause] [pause] [pause] ');
+  // 6. Paragraph breaks → (long-break) for scene-change feel
+  result = result.replace(/\n\n+/g, ' (long-break) (long-break) ');
 
-  // 7. Direction tags
-  result = result.replace(/\[dramatic pause\]/gi, '[pause] [pause]');
+  // 7. Direction tags → Fish parenthesis syntax
+  result = result.replace(/\[dramatic pause\]/gi, '(long-break)');
+  result = result.replace(/\[pause\]/gi, '(break)');
+  result = result.replace(/\[long pause\]/gi, '(long-break)');
+  result = result.replace(/\[short pause\]/gi, '(break)');
 
-  // Deduplicate: max 3 consecutive [pause] tags
-  result = result.replace(/(\[pause\]\s*){4,}/g, '[pause] [pause] [pause] ');
+  // Deduplicate adjacent breaks
+  result = result.replace(/(\(break\)\s*){3,}/g, '(long-break) ');
+  result = result.replace(/(\(long-break\)\s*){3,}/g, '(long-break) (long-break) ');
 
   // Clean up extra spaces
   result = result.replace(/  +/g, ' ');
@@ -333,8 +339,8 @@ function buildChapterAnnouncement(
   switch (provider) {
     case 'fish':
       return t
-        ? `Chapter ${number}. [pause] [pause] [pause] ${t}. [pause] [pause] [pause] [pause] `
-        : `Chapter ${number}. [pause] [pause] [pause] [pause] `;
+        ? `Chapter ${number}. (long-break) (long-break) ${t}. (long-break) (long-break) (long-break) `
+        : `Chapter ${number}. (long-break) (long-break) (long-break) `;
     case 'openai':
       return t
         ? `Chapter ${number}.\n\n\n${t}.\n\n\n\n`
@@ -952,7 +958,11 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const announcement = req.chapterNumber
       ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'openai')
       : '';
-    const paced = announcement + addTTSPacing(clean);
+    let proseBody = clean;
+    if (req.chapterNumber) {
+      proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
+    }
+    const paced = announcement + addTTSPacing(proseBody);
     const openaiSpeed = Math.max(0.5, Math.min(2.0, (req.speed ?? 1.0)));
 
     // OpenAI TTS has a ~4096 token input limit. Chunk long text by paragraphs
@@ -1031,8 +1041,14 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const announcement = req.chapterNumber
       ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'fish')
       : '';
+    // Strip any existing "Chapter N" / "Chapter N: Title" from the start of prose
+    // to avoid the narrator saying the chapter title twice
+    let proseBody = clean;
+    if (req.chapterNumber) {
+      proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
+    }
     // Add announcement AFTER pacing so its pauses aren't deduplicated
-    const paced = announcement + addFishPacing(clean);
+    const paced = announcement + addFishPacing(proseBody);
 
     // Smaller chunks + parallel generation for speed.
     // Fish Audio's concurrency limit is 5 (starter tier), so we target 3-5 chunks.
@@ -1145,7 +1161,11 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   const elAnnouncement = req.chapterNumber
     ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'elevenlabs')
     : '';
-  const proseWithAnnouncement = elAnnouncement + req.prose;
+  let elProse = req.prose;
+  if (req.chapterNumber) {
+    elProse = elProse.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
+  }
+  const proseWithAnnouncement = elAnnouncement + elProse;
 
   // Parse prose into segments (narration, dialogue, sfx markers)
   let segments: TTSSegment[];
