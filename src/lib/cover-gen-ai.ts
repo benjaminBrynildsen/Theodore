@@ -58,27 +58,41 @@ export function compositeWatermark(
       const isLight = centerBright > 140;
       const watermarkColor = topBright > 140 ? '#000000' : '#ffffff';
 
-      // Bold Typography style: render the title as the main visual element
+      // Bold Typography style: title IS the cover — huge, heavy, fills the canvas
       if (options?.style === 'typography' && options?.title) {
         const title = options.title.toUpperCase();
-        const textColor = isLight ? '#000000' : '#ffffff';
 
-        // Auto-size: start large, shrink until it fits with wrapping
-        // Big bold condensed — fills most of the canvas like a bestseller cover
-        const maxWidth = size * 0.88;
-        const padding = size * 0.06;
-        let fontSize = 280;
+        // Pick text color for maximum contrast against the background
+        // White on dark, dark on very light, or a bold accent color on mid-tones
+        let textColor: string;
+        if (centerBright < 80) {
+          textColor = '#FFFFFF';
+        } else if (centerBright > 200) {
+          textColor = '#1a1a1a';
+        } else if (centerBright > 140) {
+          textColor = '#FFFFFF';  // white pops more than black on mid-tones
+        } else {
+          textColor = '#FFFFFF';
+        }
+
+        // Add a slight darkening overlay on mid-bright backgrounds for contrast
+        if (centerBright > 100 && centerBright < 180) {
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
+          ctx.fillRect(0, 0, size, size);
+          textColor = '#FFFFFF';
+        }
+
+        const maxWidth = size * 0.90;
+        const padding = size * 0.05;
+        let fontSize = 320;
         let lines: string[] = [];
-        // Heavy condensed sans-serif stack: Impact is universally available,
-        // "Arial Black" and "Helvetica Neue" as fallbacks for different weight
-        const fontStack = '"Impact", "Arial Black", "Helvetica Neue", sans-serif';
 
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
 
-        // Word-wrap: one word per line for short titles, multi-word for long
         function wrapText(fs: number): string[] {
-          ctx.font = `900 ${fs}px ${fontStack}`;
+          // Impact has no weight variants — just use normal weight
+          ctx.font = `${fs}px Impact, "Arial Narrow Bold", sans-serif`;
           const words = title.split(' ');
           const result: string[] = [];
           let line = '';
@@ -95,32 +109,42 @@ export function compositeWatermark(
           return result;
         }
 
-        // Start huge, shrink until the text block fits ~80% of canvas height
-        while (fontSize > 50) {
+        // Start huge (320px), shrink until text fills ~85% of canvas height
+        while (fontSize > 60) {
           lines = wrapText(fontSize);
-          const blockHeight = lines.length * fontSize * 0.92;
-          if (blockHeight < size * 0.80) break;
-          fontSize -= 6;
+          const blockHeight = lines.length * fontSize * 0.88;
+          if (blockHeight < size * 0.85) break;
+          fontSize -= 8;
         }
 
-        // Tight line height for that stacked, compressed bestseller look
-        const lineHeight = fontSize * 0.92;
+        // Very tight line height — stacked and compressed
+        const lineHeight = fontSize * 0.88;
         const blockHeight = lines.length * lineHeight;
         const startY = (size - blockHeight) / 2;
 
-        ctx.font = `900 ${fontSize}px ${fontStack}`;
+        ctx.font = `${fontSize}px Impact, "Arial Narrow Bold", sans-serif`;
         ctx.fillStyle = textColor;
-        // Strong shadow for punch
-        ctx.shadowColor = isLight ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.6)';
-        ctx.shadowBlur = 12;
-        ctx.shadowOffsetY = 4;
+
+        // Outline + fill for maximum weight and readability
+        ctx.strokeStyle = textColor;
+        ctx.lineWidth = Math.max(2, fontSize * 0.02);
+        ctx.lineJoin = 'round';
+
+        // Drop shadow for depth
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 16;
+        ctx.shadowOffsetX = 3;
+        ctx.shadowOffsetY = 5;
 
         for (let i = 0; i < lines.length; i++) {
-          ctx.fillText(lines[i], padding, startY + i * lineHeight);
+          const y = startY + i * lineHeight;
+          ctx.strokeText(lines[i], padding, y);
+          ctx.fillText(lines[i], padding, y);
         }
 
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 0;
       }
 
