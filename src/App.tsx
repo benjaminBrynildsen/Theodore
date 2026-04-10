@@ -289,9 +289,13 @@ export default function App() {
   }, [user, returnToChatAfterAuth]);
 
   if (!initialized) {
+    const hasPrompt = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('prompt');
     return (
-      <div className="h-screen w-full flex items-center justify-center bg-bg">
-        <div className="glass-pill px-4 py-2 text-sm text-text-secondary">Checking session...</div>
+      <div className="h-screen w-full flex flex-col items-center justify-center bg-[#f6f6f4] gap-3">
+        <div className="w-6 h-6 border-2 border-black/20 border-t-black/70 rounded-full animate-spin" />
+        <p className="text-sm text-black/40">
+          {hasPrompt ? 'Building your story...' : 'Loading Theodore...'}
+        </p>
       </div>
     );
   }
