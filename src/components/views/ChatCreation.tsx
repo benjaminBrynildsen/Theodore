@@ -1070,17 +1070,11 @@ ${childrensRule}`,
           const coverHints = coverChapters
             .map(c => c.premise?.purpose).filter(Boolean).join('; ').slice(0, 300)
             || `${latestProject.title} novel`;
-          console.log('[Creation] Starting auto-cover gen for:', latestProject.title, 'hints:', coverHints.slice(0, 50));
           const { generateCover: genCover } = await import('../../lib/cover-gen-ai');
           const coverUrl = await genCover(latestProject, coverHints);
           useStore.getState().updateProject(projectId, { coverUrl });
-          useGenerationStore.getState().setSubtitle('Cover generated!');
-          console.log('[Creation] Auto-cover done:', coverUrl);
-        } catch (e: any) {
-          console.error('[Creation] Auto-cover FAILED:', e);
-          useGenerationStore.getState().setSubtitle(`Cover error: ${e?.message?.slice(0, 80) || 'unknown'}`);
-          // Keep the error visible for 5 seconds before completing
-          await new Promise(r => setTimeout(r, 5000));
+        } catch (e) {
+          console.warn('[Creation] Auto-cover failed (non-fatal):', e);
         }
 
         useGenerationStore.getState().setPhase('done');
