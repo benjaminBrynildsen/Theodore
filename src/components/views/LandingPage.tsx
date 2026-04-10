@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowUp, BookOpen, Sparkles, Headphones, Zap, Play, Pause, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowUp, BookOpen, Sparkles, Headphones, Zap, Play, Pause } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface LandingPageProps {
@@ -7,21 +7,37 @@ interface LandingPageProps {
   onSignIn: () => void;
 }
 
-interface FeaturedBook {
-  title: string;
-  coverUrl: string | null;
-  audioUrl: string | null;
-  audioLabel: string;
-  chapterTitle: string;
-  genre: string;
-}
+// ── Static featured books — matches /go page ──
+const FEATURED_BOOKS = [
+  {
+    title: 'Blind Target',
+    chapterTitle: 'Touch and Go',
+    genre: 'Thriller',
+    coverUrl: '/uploads/covers/343d93d9-1525-40fe-82cd-83b07e1bfcfb.png',
+    audioUrl: '/uploads/audio/ch-2d1e25b52425.mp3',
+  },
+  {
+    title: 'Henry & Husky',
+    chapterTitle: 'The Robot in the Workshop',
+    genre: 'Adventure',
+    coverUrl: '/uploads/covers/f97a37c5-02d0-4526-b73d-3b8452ce8974.png',
+    audioUrl: '/uploads/audio/ch-0b359cb08418.mp3',
+  },
+  {
+    title: 'On Ice and Lanes',
+    chapterTitle: 'Spare Time',
+    genre: 'Fiction',
+    coverUrl: '/uploads/covers/b07fbe31-7eca-4432-ba84-f7a718d072ff.png',
+    audioUrl: '/uploads/audio/ch-87341070a4d5.mp3',
+  },
+];
 
-const PROMPT_SUGGESTIONS = [
-  'A grief-struck botanist finds a greenhouse that should not exist.',
+const SHORT_PROMPTS = [
   'Southern gothic. Humid. Suspicious.',
-  'A prodigal son returns home and learns the town has been waiting.',
-  "A children's book about a fox afraid of the dark.",
-  'Two astronauts stranded on a generation ship that forgot its mission.',
+  'A spy who can\'t remember his mission.',
+  'Haunted lighthouse. Two sisters. One secret.',
+  'Robots raising a human child.',
+  'A heist on a moving train.',
 ];
 
 export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
@@ -29,7 +45,7 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
   const [wordIndex, setWordIndex] = useState(0);
   const [speedStep, setSpeedStep] = useState(0);
   const [wordVisible, setWordVisible] = useState(true);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(() => SHORT_PROMPTS[Math.floor(Math.random() * SHORT_PROMPTS.length)]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const speedCurveMs = [1000, 900, 820, 760, 700, 660, 620, 590, 560, 540];
   const finalWordIndex = rotatingWords.length - 1;
@@ -89,8 +105,7 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
         </button>
       </header>
 
-      {/* Hero — justify-center on desktop only. On mobile, natural top-down
-           flow prevents the keyboard from pushing the headline off-screen. */}
+      {/* Hero */}
       <section className="flex-1 flex flex-col items-center sm:justify-center px-6 sm:px-10 py-12 sm:py-20 text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-6">
           <Sparkles size={12} />
@@ -118,10 +133,10 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
         </h1>
 
         <p className="text-base sm:text-lg text-black/50 leading-relaxed max-w-md mb-8">
-          Type one sentence. Theodore turns it into a novel — then reads it to you.
+          Type one sentence. Get a full novel and audiobook. Free.
         </p>
 
-        {/* Inline chat input — Motion.so style */}
+        {/* Inline chat input */}
         <div className="w-full max-w-lg">
           <div className="rounded-2xl bg-[#1c1c1e] shadow-[0_8px_40px_rgba(0,0,0,0.15)] overflow-hidden">
             <div className="flex items-end gap-2 p-4">
@@ -154,27 +169,10 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
           </div>
 
           <p className="mt-3 text-xs text-black/35 italic">Don't overthink it — even one sentence is enough.</p>
-
-          {/* Prompt suggestion pills */}
-          <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-1.5 mt-3">
-            {PROMPT_SUGGESTIONS.slice(0, 3).map((prompt) => (
-              <button
-                key={prompt}
-                onClick={() => {
-                  setInput(prompt);
-                  inputRef.current?.focus();
-                }}
-                className="text-[11px] px-3 py-1.5 rounded-full border border-black/[0.08] text-black/45 hover:text-black/70 hover:border-black/15 hover:bg-white/60 transition-all text-left"
-              >
-                "{prompt}"
-              </button>
-            ))}
-          </div>
-
         </div>
       </section>
 
-      {/* Featured Books — "Hear what Theodore creates" */}
+      {/* Featured Books */}
       <FeaturedBooksCarousel />
 
       {/* Features */}
@@ -204,26 +202,15 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
   );
 }
 
-// ── Featured Books Carousel with inline audio player ──
+// ── Static Featured Books Carousel — horizontal scroll, matches /go ──
 
 function FeaturedBooksCarousel() {
-  const [books, setBooks] = useState<FeaturedBook[]>([]);
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressInterval = useRef<ReturnType<typeof setInterval>>();
-
-  // Fetch featured books from API
-  useEffect(() => {
-    fetch('/api/featured-books')
-      .then(r => r.json())
-      .then((data) => { if (Array.isArray(data) && data.length > 0) setBooks(data); })
-      .catch(() => {});
-  }, []);
-
-  const book = books[activeIdx] || null;
 
   const stopAudio = useCallback(() => {
     if (audioRef.current) {
@@ -236,51 +223,55 @@ function FeaturedBooksCarousel() {
     if (progressInterval.current) clearInterval(progressInterval.current);
   }, []);
 
-  const togglePlay = useCallback(() => {
+  const playBook = useCallback((idx: number) => {
+    const book = FEATURED_BOOKS[idx];
+    if (!book?.audioUrl) return;
+
     if (!audioRef.current) {
       audioRef.current = new Audio();
       audioRef.current.addEventListener('ended', () => {
         setPlaying(false);
         setProgress(0);
+        // Auto-play next
+        setActiveIdx((prev) => {
+          const next = (prev ?? 0) + 1;
+          if (next < FEATURED_BOOKS.length) {
+            setTimeout(() => playBook(next), 100);
+            return next;
+          }
+          return prev;
+        });
       });
       audioRef.current.addEventListener('loadedmetadata', () => {
         setDuration(audioRef.current?.duration || 0);
       });
     }
 
-    const audio = audioRef.current;
-
-    if (playing) {
-      audio.pause();
+    // Toggle if same book
+    if (activeIdx === idx && playing) {
+      audioRef.current.pause();
       setPlaying(false);
       if (progressInterval.current) clearInterval(progressInterval.current);
-    } else {
-      if (!audio.src || audio.src !== new URL(book?.audioUrl || '', window.location.origin).href) {
-        audio.src = book?.audioUrl || '';
-        audio.load();
-      }
-      audio.play().catch(() => {});
-      setPlaying(true);
-      progressInterval.current = setInterval(() => {
-        if (audio.duration && isFinite(audio.duration)) {
-          setProgress(audio.currentTime);
-          setDuration(audio.duration);
-        }
-      }, 250);
+      return;
     }
-  }, [playing, book?.audioUrl]);
 
-  const navigate = useCallback((dir: -1 | 1) => {
-    stopAudio();
-    setActiveIdx((prev) => {
-      const next = prev + dir;
-      if (next < 0) return books.length - 1;
-      if (next >= books.length) return 0;
-      return next;
-    });
-  }, [stopAudio, books.length]);
+    const audio = audioRef.current;
+    audio.src = book.audioUrl;
+    audio.load();
+    audio.play().catch(() => {});
+    setActiveIdx(idx);
+    setPlaying(true);
+    setProgress(0);
 
-  // Cleanup on unmount
+    if (progressInterval.current) clearInterval(progressInterval.current);
+    progressInterval.current = setInterval(() => {
+      if (audio.duration && isFinite(audio.duration)) {
+        setProgress(audio.currentTime);
+        setDuration(audio.duration);
+      }
+    }, 250);
+  }, [activeIdx, playing]);
+
   useEffect(() => {
     return () => {
       stopAudio();
@@ -295,113 +286,85 @@ function FeaturedBooksCarousel() {
   };
 
   const progressPct = duration > 0 ? (progress / duration) * 100 : 0;
-
-  if (books.length === 0 || !book) return null;
+  const activeBook = activeIdx != null ? FEATURED_BOOKS[activeIdx] : null;
 
   return (
     <section className="w-full max-w-4xl mx-auto px-6 sm:px-10 pb-16 sm:pb-20">
-      <div className="text-center mb-8">
-        <p className="text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-2">
+      <div className="text-center mb-6">
+        <p className="text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-1">
           <Headphones size={12} className="inline -mt-0.5 mr-1" />
           Hear What Theodore Creates
         </p>
         <p className="text-sm text-black/45">Real books written and narrated by Theodore authors</p>
       </div>
 
-      {/* Carousel */}
-      <div className="relative flex items-center justify-center gap-4 sm:gap-8">
-        {/* Prev arrow */}
-        <button
-          onClick={() => navigate(-1)}
-          className="flex-shrink-0 w-9 h-9 rounded-full border border-black/[0.08] bg-white/60 flex items-center justify-center hover:bg-white/90 transition-colors"
-          aria-label="Previous book"
-        >
-          <ChevronLeft size={18} className="text-black/50" />
-        </button>
-
-        {/* Active book card */}
-        <div className="flex-1 max-w-md">
-          <div className="rounded-2xl border border-black/[0.06] bg-white/70 backdrop-blur-sm overflow-hidden shadow-sm">
-            {/* Cover + play overlay */}
-            <div className="relative aspect-square max-h-[320px] sm:max-h-[380px] mx-auto overflow-hidden bg-black/[0.03]">
-              {book?.coverUrl && (
-                <img
-                  src={book.coverUrl}
-                  alt={book.title}
-                  className="w-full h-full object-cover"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              )}
-              {/* Play/pause overlay button */}
-              {book?.audioUrl && (
-                <button
-                  onClick={togglePlay}
-                  className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors group"
-                  aria-label={playing ? 'Pause' : 'Play sample'}
-                >
-                  <div className={cn(
-                    'w-16 h-16 rounded-full bg-white/90 shadow-lg flex items-center justify-center transition-all',
-                    playing ? 'opacity-80' : 'opacity-90 group-hover:scale-105'
-                  )}>
-                    {playing
-                      ? <Pause size={24} className="text-black" fill="currentColor" />
-                      : <Play size={24} className="text-black ml-1" fill="currentColor" />}
-                  </div>
-                </button>
-              )}
-            </div>
-
-            {/* Info + progress bar */}
-            <div className="px-5 py-4">
-              <div className="flex items-start justify-between gap-3 mb-1">
-                <div className="min-w-0">
-                  <h3 className="font-serif font-semibold text-lg truncate">{book?.title}</h3>
-                  <p className="text-xs text-black/40">{book?.chapterTitle} · {book?.genre}</p>
-                </div>
+      {/* Horizontal scroll cards */}
+      <div className="flex gap-4 overflow-x-auto snap-x snap-mandatory pb-3 scrollbar-hide sm:justify-center sm:overflow-visible"
+        style={{ scrollbarWidth: 'none' }}
+      >
+        {FEATURED_BOOKS.map((book, i) => (
+          <div
+            key={book.title}
+            onClick={() => playBook(i)}
+            className={cn(
+              'flex-shrink-0 w-[220px] sm:w-[240px] rounded-2xl overflow-hidden border cursor-pointer transition-all snap-center',
+              'bg-white/70 hover:shadow-lg hover:-translate-y-0.5',
+              activeIdx === i && playing
+                ? 'border-black/15 shadow-lg'
+                : 'border-black/[0.06]'
+            )}
+          >
+            {/* Cover */}
+            <div className="relative aspect-square overflow-hidden bg-black/[0.03]">
+              <img
+                src={book.coverUrl}
+                alt={book.title}
+                className="w-full h-full object-cover"
+              />
+              <div className={cn(
+                'absolute bottom-2.5 right-2.5 w-9 h-9 rounded-full bg-white/90 shadow-md flex items-center justify-center transition-transform',
+                'hover:scale-110'
+              )}>
+                {activeIdx === i && playing
+                  ? <Pause size={14} className="text-black" fill="currentColor" />
+                  : <Play size={14} className="text-black ml-0.5" fill="currentColor" />}
               </div>
-
-              {/* Progress bar — only visible when audio has been touched */}
-              {(playing || progress > 0) && (
-                <div className="mt-3">
-                  <div className="w-full h-1 rounded-full bg-black/[0.06] overflow-hidden">
-                    <div
-                      className="h-full bg-black/50 rounded-full transition-all duration-200"
-                      style={{ width: `${progressPct}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between mt-1 text-[10px] text-black/30">
-                    <span>{formatTime(progress)}</span>
-                    <span>{duration > 0 ? `-${formatTime(duration - progress)}` : ''}</span>
-                  </div>
-                </div>
-              )}
+            </div>
+            {/* Info */}
+            <div className="px-3.5 py-3">
+              <h3 className="font-serif font-semibold text-sm truncate">{book.title}</h3>
+              <p className="text-[11px] text-black/40">{book.chapterTitle} · {book.genre}</p>
             </div>
           </div>
-        </div>
-
-        {/* Next arrow */}
-        <button
-          onClick={() => navigate(1)}
-          className="flex-shrink-0 w-9 h-9 rounded-full border border-black/[0.08] bg-white/60 flex items-center justify-center hover:bg-white/90 transition-colors"
-          aria-label="Next book"
-        >
-          <ChevronRight size={18} className="text-black/50" />
-        </button>
-      </div>
-
-      {/* Dots */}
-      <div className="flex justify-center gap-2 mt-5">
-        {books.map((_, i) => (
-          <button
-            key={i}
-            onClick={() => { stopAudio(); setActiveIdx(i); }}
-            className={cn(
-              'w-2 h-2 rounded-full transition-all',
-              i === activeIdx ? 'bg-black/50 w-5' : 'bg-black/15 hover:bg-black/25'
-            )}
-          />
         ))}
       </div>
+
+      {/* Mini player bar */}
+      {activeBook && (playing || progress > 0) && (
+        <div className="mt-4 mx-auto max-w-xl flex items-center gap-3 rounded-2xl bg-[#1c1c1e] text-white px-4 py-3">
+          <img src={activeBook.coverUrl!} alt="" className="w-10 h-10 rounded-lg object-cover" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[13px] font-semibold truncate">{activeBook.title}</div>
+            <div className="text-[11px] text-white/50">{activeBook.chapterTitle} · {activeBook.genre}</div>
+          </div>
+          <div className="flex-1 min-w-[60px]">
+            <div className="w-full h-[3px] rounded-full bg-white/15 overflow-hidden">
+              <div className="h-full bg-white rounded-full transition-all duration-200" style={{ width: `${progressPct}%` }} />
+            </div>
+          </div>
+          <span className="text-[10px] text-white/40 whitespace-nowrap">
+            {formatTime(progress)} / {duration > 0 ? formatTime(duration) : '0:00'}
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); playing ? (audioRef.current?.pause(), setPlaying(false)) : (audioRef.current?.play(), setPlaying(true)); }}
+            className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center flex-shrink-0"
+          >
+            {playing
+              ? <Pause size={14} fill="currentColor" />
+              : <Play size={14} fill="currentColor" className="ml-0.5" />}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
