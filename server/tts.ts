@@ -349,7 +349,7 @@ async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> 
     reference_id: voiceId,
     format: 'mp3',
     mp3_bitrate: 192,
-    normalize: false,
+    normalize: true,
     latency: 'normal',
   });
 
