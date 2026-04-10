@@ -114,6 +114,8 @@ export interface TTSRequest {
   characterDescriptions?: Record<string, string>; // characterName → personality/speech description
   narratorStyle?: string; // e.g. "dramatic audiobook narrator"
   sceneSFX?: SceneSFXInput[]; // scene-level SFX (background ambience, intro/outro sounds)
+  chapterNumber?: number;   // prepend "Chapter N: Title" announcement
+  chapterTitle?: string;
 }
 
 export interface TTSResult {
@@ -338,6 +340,29 @@ function addFishPacing(text: string): string {
   result = result.replace(/\u00B7/g, '.');
 
   return result;
+}
+
+// Build a spoken chapter title announcement with provider-specific pauses
+function buildChapterAnnouncement(
+  number: number,
+  title: string | undefined,
+  provider: string,
+): string {
+  const t = title?.trim();
+  switch (provider) {
+    case 'fish':
+      return t
+        ? `Chapter ${number}. [long pause] [long pause] [long pause] ${t}. [long pause] [long pause] [long pause]\n\n`
+        : `Chapter ${number}. [long pause] [long pause] [long pause]\n\n`;
+    case 'openai':
+      return t
+        ? `Chapter ${number}.\n\n\n${t}.\n\n\n\n`
+        : `Chapter ${number}.\n\n\n\n`;
+    default: // elevenlabs
+      return t
+        ? `Chapter ${number}... ... ... ${t}... ... ... ... \n\n`
+        : `Chapter ${number}... ... ... ... \n\n`;
+  }
 }
 
 async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> {
@@ -921,8 +946,10 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const clean = stripCharacterTags(req.prose)
       .replace(/\{sfx:[^}]+\}\s*/g, '')
       .trim();
-    // Performance pass: add natural pacing for better TTS delivery
-    const paced = addTTSPacing(clean);
+    const announcement = req.chapterNumber
+      ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'openai')
+      : '';
+    const paced = addTTSPacing(announcement + clean);
     const openaiSpeed = Math.max(0.5, Math.min(2.0, (req.speed ?? 1.0)));
 
     // OpenAI TTS has a ~4096 token input limit. Chunk long text by paragraphs
@@ -996,7 +1023,10 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const clean = stripCharacterTags(req.prose)
       .replace(/\{sfx:[^}]+\}\s*/g, '')
       .trim();
-    const paced = addFishPacing(clean);
+    const announcement = req.chapterNumber
+      ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'fish')
+      : '';
+    const paced = addFishPacing(announcement + clean);
 
     // Fish Audio handles longer text than OpenAI but chunk at ~8000 chars for safety
     const MAX_CHUNK_CHARS = 8000;
@@ -1091,14 +1121,20 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   console.log(`[TTS] Direction tags in prose: ${directionTagsFound.length}`, directionTagsFound.slice(0, 10));
   console.log(`[TTS] Prose first 200 chars: ${req.prose.slice(0, 200)}`);
 
+  // Prepend chapter announcement for ElevenLabs
+  const elAnnouncement = req.chapterNumber
+    ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'elevenlabs')
+    : '';
+  const proseWithAnnouncement = elAnnouncement + req.prose;
+
   // Parse prose into segments (narration, dialogue, sfx markers)
   let segments: TTSSegment[];
   if (req.multiVoice && req.knownCharacters && req.knownCharacters.length > 0) {
-    segments = parseDialogue(req.prose, req.knownCharacters);
+    segments = parseDialogue(proseWithAnnouncement, req.knownCharacters);
     segments = applyVoiceMap(segments, voiceMap);
   } else {
     // Single-voice mode: parse for SFX markers only, force narrator voice on everything
-    segments = parseDialogue(req.prose, []);
+    segments = parseDialogue(proseWithAnnouncement, []);
     segments = segments.map(s => ({ ...s, voice: voiceMap.narrator }));
   }
 

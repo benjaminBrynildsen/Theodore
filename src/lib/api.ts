@@ -86,6 +86,8 @@ export const api = {
     speed?: number;
     multiVoice?: boolean;
     sceneSFX?: Array<{ prompt: string; audioUrl?: string; position: string; enabled: boolean }>;
+    chapterNumber?: number;
+    chapterTitle?: string;
     isGuest?: boolean;
   }) => {
     // Async job-based generation: submit job, then poll for completion.

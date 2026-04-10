@@ -1772,7 +1772,7 @@ app.post('/api/tts/generate', async (req, res) => {
     const auth = await getAuth(req);
     if (!auth) return res.status(401).json({ error: 'Not authenticated' });
 
-    const { chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle, model, provider, speed, multiVoice, sceneSFX } = req.body;
+    const { chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle, model, provider, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle } = req.body;
     if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
 
     // Credit check
@@ -1832,6 +1832,8 @@ app.post('/api/tts/generate', async (req, res) => {
         characterDescriptions: characterDescriptions || {},
         narratorStyle: narratorStyle || undefined,
         sceneSFX: sceneSFX || [],
+        chapterNumber: chapterNumber || undefined,
+        chapterTitle: chapterTitle || undefined,
         onProgress: (pct) => { job.progress = pct; },
       });
 
@@ -1942,7 +1944,7 @@ app.post('/api/tts/generate', async (req, res) => {
 // generation feels like before signing up.
 app.post('/api/tts/generate/guest', async (req, res) => {
   try {
-    const { chapterId, prose, narratorVoice, model, provider, speed, sceneSFX } = req.body;
+    const { chapterId, prose, narratorVoice, model, provider, speed, sceneSFX, chapterNumber, chapterTitle } = req.body;
     if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
     if ((provider || 'openai') !== 'openai') {
       return res.status(403).json({ error: 'Guest audio sample is only available with OpenAI TTS.' });
@@ -1983,6 +1985,8 @@ app.post('/api/tts/generate/guest', async (req, res) => {
         characterDescriptions: {},
         narratorStyle: undefined,
         sceneSFX: sceneSFX || [],
+        chapterNumber: chapterNumber || undefined,
+        chapterTitle: chapterTitle || undefined,
         onProgress: (pct) => { job.progress = pct; },
       });
 

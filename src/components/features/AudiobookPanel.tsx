@@ -878,6 +878,11 @@ export function AudiobookPanel() {
 
       const latestSceneProse = (updatedScene?.prose || scene.prose || '').trim();
 
+      // Only announce chapter title on the first scene
+      const isFirstScene = ((updatedChapter?.scenes || chapter.scenes || []) as any[])
+        .filter((s: any) => s.prose?.trim())
+        .sort((a: any, b: any) => (a.order || 0) - (b.order || 0))[0]?.id === sceneId;
+
       const result = await api.ttsGenerate({
         chapterId: `${chapterId}-scene-${sceneId}${versionSuffix}`,
         prose: latestSceneProse,
@@ -889,9 +894,10 @@ export function AudiobookPanel() {
         speed: (ttsProvider === 'openai' || ttsProvider === 'fish') ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: sceneSFXData,
+        chapterNumber: isFirstScene ? chapter.number : undefined,
+        chapterTitle: isFirstScene ? chapter.title || undefined : undefined,
         onProgress: (pct) => {
           setAudioGenProgress(pct);
-          // Indeterminate bar — just nudge the subtitle to reflect work is happening.
           if (pct >= 5) useGenerationStore.getState().setSubtitle('Generating audio…');
         },
         isGuest,
@@ -983,6 +989,8 @@ export function AudiobookPanel() {
         speed: (ttsProvider === 'openai' || ttsProvider === 'fish') ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: allSceneSFX,
+        chapterNumber: chapter.number,
+        chapterTitle: chapter.title || undefined,
         onProgress: (pct) => {
           if (pct >= 5) useGenerationStore.getState().setSubtitle('Generating audio…');
         },

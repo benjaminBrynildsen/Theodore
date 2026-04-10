@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Play, Pause, SkipBack, SkipForward, ChevronDown, Volume2, VolumeX, RotateCcw, RotateCw, Loader2, Sparkles } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, ChevronDown, Volume2, VolumeX, RotateCcw, RotateCw, Loader2, Sparkles, List, X, Check } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
 import { extractDominantColor } from '../../lib/color-extract';
@@ -234,6 +234,29 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
     if (chapterIdx < playableChapters.length - 1) dispatchPlay(playableChapters[chapterIdx + 1].id);
   }, [chapterIdx, playableChapters, dispatchPlay]);
 
+  const [showChapterList, setShowChapterList] = useState(false);
+  const chapterListRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to current chapter when list opens
+  useEffect(() => {
+    if (showChapterList && chapterListRef.current && currentChapter) {
+      const el = chapterListRef.current.querySelector(`[data-chapter="${currentChapter.id}"]`);
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [showChapterList, currentChapter?.id]);
+
+  // Check if a chapter has audio ready
+  function getChapterAudioStatus(ch: any) {
+    // Full chapter audio
+    if (chapterAudio[ch.id]?.audioUrl) return { ready: true, dispatchId: ch.id };
+    // Scene-level audio: check if first scene has audio
+    const scenes = (ch.scenes || []).filter((s: any) => s.prose?.trim()).sort((a: any, b: any) => a.order - b.order);
+    for (const s of scenes) {
+      if (chapterAudio[`scene-${s.id}`]?.audioUrl) return { ready: true, dispatchId: `scene-${s.id}` };
+    }
+    return { ready: false, dispatchId: ch.id };
+  }
+
   if (!project) return null;
 
   const currentAudio = currentChapterId ? chapterAudio[currentChapterId] : null;
@@ -252,7 +275,9 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
           <ChevronDown size={24} className="text-white/70" />
         </button>
         <span className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">{project.title}</span>
-        <div className="w-8" />
+        <button onClick={() => setShowChapterList(true)} className="p-1" aria-label="Chapter list">
+          <List size={22} className="text-white/70" />
+        </button>
       </div>
 
       {/* Cover art */}
@@ -267,6 +292,17 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
         <h2 className="text-lg font-bold text-white truncate">{trackTitle}</h2>
         <p className="text-sm text-white/50 truncate">{project.title}</p>
       </div>
+
+      {/* Chapter selector button — like Audible */}
+      <button
+        onClick={() => setShowChapterList(true)}
+        className="flex items-center justify-center gap-2 mx-auto mt-3 px-4 py-1.5 rounded-full bg-white/10 active:bg-white/20 transition-colors"
+      >
+        <List size={14} className="text-white/50" />
+        <span className="text-[13px] text-white/70 font-medium">
+          {currentChapter ? `Chapter ${currentChapter.number}` : 'Chapters'}
+        </span>
+      </button>
 
       {/* Progress bar — draggable */}
       <div className="px-8 pt-4">
@@ -341,6 +377,88 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
           className="flex-1 h-1 appearance-none bg-white/20 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-sm"
         />
       </div>
+
+      {/* Chapter list overlay */}
+      {showChapterList && (
+        <div className="absolute inset-0 z-[80] flex flex-col bg-black/95 animate-slide-up">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 pt-5 pb-3">
+            <h3 className="text-lg font-bold text-white">Chapters</h3>
+            <button onClick={() => setShowChapterList(false)} className="p-1">
+              <X size={22} className="text-white/60" />
+            </button>
+          </div>
+
+          {/* Scrollable chapter list */}
+          <div ref={chapterListRef} className="flex-1 overflow-y-auto px-4 pb-8" style={{ WebkitOverflowScrolling: 'touch' }}>
+            {allChapters.map((ch) => {
+              const hasProse = !!ch.prose?.trim();
+              const status = getChapterAudioStatus(ch);
+              const isCurrent = currentChapter?.id === ch.id;
+              const isGenerating = generating === ch.id;
+              const durationEst = chapterAudio[ch.id]?.durationEstimate
+                || chapterAudio[`scene-${(ch as any).scenes?.[0]?.id}`]?.durationEstimate;
+
+              return (
+                <button
+                  key={ch.id}
+                  data-chapter={ch.id}
+                  disabled={!hasProse}
+                  onClick={() => {
+                    if (status.ready) {
+                      dispatchPlay(status.dispatchId);
+                    }
+                    setShowChapterList(false);
+                  }}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-3 py-3.5 rounded-xl text-left transition-all',
+                    isCurrent ? 'bg-white/15' : 'active:bg-white/10',
+                    !hasProse && 'opacity-30 cursor-not-allowed',
+                  )}
+                >
+                  {/* Number / playing indicator */}
+                  <div className="w-8 h-8 flex items-center justify-center flex-shrink-0">
+                    {isGenerating ? (
+                      <Loader2 size={16} className="animate-spin text-white/60" />
+                    ) : isCurrent && playing ? (
+                      <div className="flex items-end gap-[3px] h-4">
+                        <div className="w-[3px] bg-white rounded-full animate-pulse" style={{ height: '60%', animationDelay: '0ms' }} />
+                        <div className="w-[3px] bg-white rounded-full animate-pulse" style={{ height: '100%', animationDelay: '150ms' }} />
+                        <div className="w-[3px] bg-white rounded-full animate-pulse" style={{ height: '40%', animationDelay: '300ms' }} />
+                      </div>
+                    ) : (
+                      <span className={cn('text-sm font-bold', isCurrent ? 'text-white' : 'text-white/40')}>
+                        {ch.number}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Title + duration */}
+                  <div className="flex-1 min-w-0">
+                    <div className={cn('text-sm font-medium truncate', isCurrent ? 'text-white' : 'text-white/70')}>
+                      {ch.title || `Chapter ${ch.number}`}
+                    </div>
+                    {durationEst && (
+                      <div className="text-[11px] text-white/30">
+                        ~{Math.ceil(durationEst / 60)} min
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Audio status */}
+                  <div className="flex-shrink-0">
+                    {status.ready ? (
+                      <Check size={16} className="text-emerald-400" />
+                    ) : hasProse ? (
+                      <div className="w-4 h-4 rounded-full border border-white/20" />
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
