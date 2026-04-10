@@ -50,16 +50,16 @@
     /* Hero */
     .hero {
       flex: 1; display: flex; flex-direction: column; align-items: center;
-      padding: 3rem 1.5rem 4rem; text-align: center; max-width: 48rem; margin: 0 auto; width: 100%;
+      padding: 2rem 1.5rem 3rem; text-align: center; max-width: 48rem; margin: 0 auto; width: 100%;
     }
     .badge {
       display: inline-flex; align-items: center; gap: 0.375rem;
       font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.2em;
-      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 1.5rem;
+      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 1.25rem;
     }
     h1 {
-      font-size: clamp(2.2rem, 6vw, 4rem); line-height: 1.06;
-      letter-spacing: -0.025em; margin-bottom: 1rem;
+      font-size: clamp(2rem, 5.5vw, 3.5rem); line-height: 1.08;
+      letter-spacing: -0.025em; margin-bottom: 0.75rem;
     }
     h1 .word {
       display: inline-block; font-weight: 500;
@@ -71,17 +71,53 @@
     }
     .tagline {
       font-size: 1rem; color: rgba(0,0,0,0.5); line-height: 1.6;
-      max-width: 28rem; margin-bottom: 2rem;
+      max-width: 28rem; margin-bottom: 1.5rem;
     }
     @media (min-width: 640px) {
-      .hero { padding: 5rem 2.5rem; justify-content: center; }
+      .hero { padding: 3.5rem 2.5rem 4rem; justify-content: center; }
       .tagline { font-size: 1.125rem; }
       header { padding: 1.25rem 2.5rem; }
     }
 
+    /* Prompt cards — ABOVE the input */
+    .prompt-section-label {
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.12em; color: rgba(0,0,0,0.3); margin-bottom: 0.75rem;
+    }
+    .prompt-cards {
+      display: grid; grid-template-columns: 1fr; gap: 0.5rem;
+      width: 100%; max-width: 32rem; margin-bottom: 1.5rem;
+    }
+    @media (min-width: 480px) {
+      .prompt-cards { grid-template-columns: 1fr 1fr; }
+      .prompt-cards .prompt-card:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+      }
+    }
+    .prompt-card {
+      display: flex; flex-direction: column; gap: 0.25rem;
+      padding: 0.875rem 1rem; border-radius: 0.875rem;
+      border: 1px solid rgba(0,0,0,0.08); background: rgba(255,255,255,0.7);
+      cursor: pointer; transition: all 0.2s; text-align: left;
+      font-family: inherit;
+    }
+    .prompt-card:hover {
+      border-color: rgba(0,0,0,0.15); background: #fff;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06); transform: translateY(-1px);
+    }
+    .prompt-card:active { transform: translateY(0); }
+    .prompt-card .genre {
+      font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: rgba(0,0,0,0.3);
+    }
+    .prompt-card .text {
+      font-size: 0.8125rem; line-height: 1.45; color: rgba(0,0,0,0.7);
+    }
+
     /* Input box */
+    .input-section { width: 100%; max-width: 32rem; }
     .input-wrap {
-      width: 100%; max-width: 32rem;
+      width: 100%;
       border-radius: 1rem; background: #1c1c1e;
       box-shadow: 0 8px 40px rgba(0,0,0,0.15); overflow: hidden;
     }
@@ -106,25 +142,92 @@
 
     /* What happens next */
     .next-step {
-      margin-top: 0.75rem; font-size: 0.8125rem; color: rgba(0,0,0,0.4);
+      margin-top: 0.875rem; font-size: 0.8125rem; color: rgba(0,0,0,0.4);
       line-height: 1.5;
     }
     .next-step strong { color: rgba(0,0,0,0.6); font-weight: 600; }
 
-    /* Prompt pills — below input */
-    .prompts { display: flex; flex-direction: column; gap: 0.375rem; margin-top: 0.75rem; }
-    .prompt-pill {
-      font-size: 0.9375rem; padding: 0.625rem 1.125rem;
-      border-radius: 9999px; border: 1px solid rgba(0,0,0,0.1);
-      color: rgba(0,0,0,0.55); background: rgba(255,255,255,0.5); cursor: pointer;
-      text-align: left; transition: all 0.15s; font-family: inherit;
+    /* Or divider */
+    .or-divider {
+      display: flex; align-items: center; gap: 0.75rem;
+      width: 100%; max-width: 32rem; margin: 0.25rem 0;
+      font-size: 0.6875rem; color: rgba(0,0,0,0.25); text-transform: uppercase;
+      letter-spacing: 0.1em; font-weight: 600;
     }
-    .prompt-pill:hover {
-      color: rgba(0,0,0,0.7); border-color: rgba(0,0,0,0.15);
-      background: rgba(255,255,255,0.6);
+    .or-divider::before, .or-divider::after {
+      content: ''; flex: 1; height: 1px; background: rgba(0,0,0,0.08);
     }
+
+    /* Featured books */
+    .featured {
+      width: 100%; max-width: 56rem; margin: 0 auto;
+      padding: 0 1.5rem 3rem; text-align: center;
+    }
+    .featured-label {
+      font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.2em;
+      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 0.25rem;
+    }
+    .featured-sub {
+      font-size: 0.875rem; color: rgba(0,0,0,0.4); margin-bottom: 1.5rem;
+    }
+    .book-carousel {
+      display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch; padding: 0.5rem 0 1rem;
+      scrollbar-width: none;
+    }
+    .book-carousel::-webkit-scrollbar { display: none; }
+    .book-card {
+      flex: 0 0 220px; scroll-snap-align: center;
+      border-radius: 1rem; overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.06); background: rgba(255,255,255,0.7);
+      cursor: pointer; transition: all 0.2s; text-align: left;
+    }
+    .book-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); transform: translateY(-2px); }
+    .book-card.active { border-color: rgba(0,0,0,0.15); box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    .book-cover {
+      position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: #e5e5e5;
+    }
+    .book-cover img { width: 100%; height: 100%; object-fit: cover; }
+    .play-badge {
+      position: absolute; bottom: 0.625rem; right: 0.625rem;
+      width: 2.25rem; height: 2.25rem; border-radius: 50%;
+      background: rgba(255,255,255,0.92); display: flex;
+      align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: transform 0.15s;
+    }
+    .book-card:hover .play-badge { transform: scale(1.08); }
+    .play-badge svg { width: 14px; height: 14px; margin-left: 2px; }
+    .play-badge.playing svg { margin-left: 0; }
+    .book-info { padding: 0.75rem 0.875rem; }
+    .book-info h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.125rem; }
+    .book-info p { font-size: 0.6875rem; color: rgba(0,0,0,0.4); }
+
+    /* Mini player bar */
+    .mini-player {
+      display: none; align-items: center; gap: 0.75rem;
+      max-width: 56rem; margin: 0 auto 2rem; padding: 0.75rem 1rem;
+      border-radius: 1rem; background: #1c1c1e; color: #fff;
+    }
+    .mini-player.visible { display: flex; }
+    .mini-player img { width: 40px; height: 40px; border-radius: 0.5rem; object-fit: cover; }
+    .mini-player .mp-info { flex: 1; min-width: 0; }
+    .mini-player .mp-title { font-size: 0.8125rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mini-player .mp-sub { font-size: 0.6875rem; color: rgba(255,255,255,0.5); }
+    .mini-player .mp-progress {
+      flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.15);
+      overflow: hidden; min-width: 60px;
+    }
+    .mini-player .mp-bar { height: 100%; background: #fff; border-radius: 2px; transition: width 0.25s; width: 0; }
+    .mini-player .mp-time { font-size: 0.625rem; color: rgba(255,255,255,0.4); white-space: nowrap; }
+    .mp-play-btn {
+      width: 2rem; height: 2rem; border-radius: 50%; border: none;
+      background: #fff; color: #000; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; flex-shrink: 0;
+    }
+
     @media (min-width: 640px) {
-      .prompts { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+      .book-carousel { justify-content: center; overflow: visible; }
+      .book-card { flex: 0 0 240px; }
     }
 
     /* Features */
@@ -189,9 +292,37 @@
     </h1>
     <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}</style>
 
-    <p class="tagline">Type one sentence. Theodore turns it into a novel — then reads it to you.</p>
+    <p class="tagline">Type one sentence. Get a full novel and audiobook. Free.</p>
 
-    <div style="width:100%;max-width:32rem">
+    <!-- Prompt cards — tappable, ABOVE the input -->
+    <p class="prompt-section-label">Tap one to try it</p>
+    <div class="prompt-cards">
+      <button class="prompt-card" data-prompt="A librarian finds a book that rewrites itself every night — and the new chapters are coming true.">
+        <span class="genre">Fantasy</span>
+        <span class="text">A librarian finds a book that rewrites itself every night — and the new chapters are coming true.</span>
+      </button>
+      <button class="prompt-card" data-prompt="A detective realizes every missing person case in her town leads back to the same house — her childhood home.">
+        <span class="genre">Thriller</span>
+        <span class="text">A detective realizes every missing person case leads back to one house — her childhood home.</span>
+      </button>
+      <button class="prompt-card" data-prompt="Two strangers keep getting seated next to each other on flights. By the fifth time, they stop pretending it's coincidence.">
+        <span class="genre">Romance</span>
+        <span class="text">Two strangers keep getting seated next to each other on flights. By the fifth time, they stop pretending it's coincidence.</span>
+      </button>
+      <button class="prompt-card" data-prompt="The last human alive discovers she's been dead for 200 years — and someone has been running her simulation the entire time.">
+        <span class="genre">Sci-Fi</span>
+        <span class="text">The last human alive discovers she's been dead for 200 years — and someone's been running her simulation the entire time.</span>
+      </button>
+      <button class="prompt-card" data-prompt="A therapist's newest patient describes dreams that perfectly match the therapist's own memories.">
+        <span class="genre">Horror</span>
+        <span class="text">A therapist's newest patient describes dreams that perfectly match the therapist's own memories.</span>
+      </button>
+    </div>
+
+    <div class="or-divider">or write your own</div>
+
+    <!-- Input box — pre-filled with a random prompt -->
+    <div class="input-section">
       <form id="promptForm" class="input-wrap" onsubmit="return false;">
         <div class="input-inner">
           <textarea id="promptInput" placeholder="Describe your story idea..." rows="3"></textarea>
@@ -204,14 +335,34 @@
       <p class="next-step">
         Hit enter <strong>→ full novel + audiobook in ~60 seconds.</strong> Free. No account needed.
       </p>
-
-      <div class="prompts">
-        <button class="prompt-pill" data-prompt="A blind James Bond-type spy">"A blind James Bond-type spy"</button>
-        <button class="prompt-pill" data-prompt="Murder mystery on a cruise ship in Hawaii">"Murder mystery on a cruise ship in Hawaii"</button>
-        <button class="prompt-pill" data-prompt="A kid discovers their dog can talk">"A kid discovers their dog can talk"</button>
-      </div>
     </div>
   </section>
+
+  <!-- Featured books + audio sample -->
+  <section class="featured">
+    <p class="featured-label">🎧 Hear What Theodore Creates</p>
+    <p class="featured-sub">Real books written and narrated by Theodore authors</p>
+
+    <div class="book-carousel" id="bookCarousel">
+      <!-- Books populated by /api/featured-books -->
+    </div>
+
+    <!-- Sticky mini player -->
+    <div class="mini-player" id="miniPlayer">
+      <img id="mpCover" src="" alt="">
+      <div class="mp-info">
+        <div class="mp-title" id="mpTitle"></div>
+        <div class="mp-sub" id="mpSub"></div>
+      </div>
+      <div class="mp-progress"><div class="mp-bar" id="mpBar"></div></div>
+      <span class="mp-time" id="mpTime"></span>
+      <button class="mp-play-btn" id="mpPlayBtn" aria-label="Play/Pause">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="6,4 20,12 6,20"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <audio id="featuredAudio" preload="none"></audio>
 
   <section class="features">
     <div class="feature">
@@ -250,11 +401,13 @@
     var btn = document.getElementById('submitBtn');
     var form = document.getElementById('promptForm');
 
-    // Pre-fill with a random prompt
+    // Pre-fill with a random prompt so the box is never empty
     var prompts = [
-      'A blind James Bond-type spy',
-      'Murder mystery on a cruise ship in Hawaii',
-      'A kid discovers their dog can talk',
+      'A librarian finds a book that rewrites itself every night — and the new chapters are coming true.',
+      'A detective realizes every missing person case in her town leads back to the same house — her childhood home.',
+      'Two strangers keep getting seated next to each other on flights. By the fifth time, they stop pretending it\'s coincidence.',
+      'The last human alive discovers she\'s been dead for 200 years — and someone has been running her simulation the entire time.',
+      'A therapist\'s newest patient describes dreams that perfectly match the therapist\'s own memories.',
     ];
     input.value = prompts[Math.floor(Math.random() * prompts.length)];
 
@@ -263,12 +416,14 @@
       btn.classList.toggle('active', input.value.trim().length > 0);
     });
 
-    // Prompt pills
-    document.querySelectorAll('.prompt-pill').forEach(function(pill){
-      pill.addEventListener('click', function(){
-        input.value = pill.getAttribute('data-prompt');
-        input.focus();
+    // Prompt cards — tap to fill AND auto-submit
+    document.querySelectorAll('.prompt-card').forEach(function(card){
+      card.addEventListener('click', function(){
+        var text = card.getAttribute('data-prompt');
+        input.value = text;
         btn.classList.add('active');
+        // Brief flash so they see it filled, then go
+        setTimeout(go, 150);
       });
     });
 
@@ -285,6 +440,144 @@
     input.addEventListener('keydown', function(e){
       if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); go(); }
     });
+
+    // ── Featured Books + Audio Player ──
+    // STATIC CONFIG — update these URLs from production.
+    // Cover: open the project → right-click cover image → Copy image address
+    // Audio: open Studio → right-click play button → Copy audio address (or network tab)
+    var featuredBooks = [
+      {
+        title: 'Henry and Husky',
+        chapterTitle: 'Chapter 1 · Scene 1',
+        genre: 'Adventure',
+        coverUrl: '/uploads/covers/TODO-henry-husky.png',
+        audioUrl: '/uploads/audio/TODO-henry-husky-ch1s1.mp3',
+      },
+      {
+        title: 'On Ice and Lanes',
+        chapterTitle: 'Chapter 4',
+        genre: 'Fiction',
+        coverUrl: '/uploads/covers/TODO-on-ice.png',
+        audioUrl: '/uploads/audio/TODO-on-ice-ch4.mp3',
+      },
+      {
+        title: 'Blind Target',
+        chapterTitle: 'Chapter 2',
+        genre: 'Thriller',
+        coverUrl: '/uploads/covers/TODO-blind-target.png',
+        audioUrl: '/uploads/audio/TODO-blind-target-ch2.mp3',
+      },
+    ];
+
+    var audio = document.getElementById('featuredAudio');
+    var carousel = document.getElementById('bookCarousel');
+    var player = document.getElementById('miniPlayer');
+    var mpCover = document.getElementById('mpCover');
+    var mpTitle = document.getElementById('mpTitle');
+    var mpSub = document.getElementById('mpSub');
+    var mpBar = document.getElementById('mpBar');
+    var mpTime = document.getElementById('mpTime');
+    var mpPlayBtn = document.getElementById('mpPlayBtn');
+    var playIcon = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="6,4 20,12 6,20"/></svg>';
+    var pauseIcon = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>';
+    var activeBook = null;
+    var isPlaying = false;
+
+    function fmtTime(s) {
+      var m = Math.floor(s/60), sec = Math.floor(s%60);
+      return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    function renderBooks(books) {
+      carousel.innerHTML = '';
+      books.forEach(function(b, i) {
+        var card = document.createElement('div');
+        card.className = 'book-card';
+        card.setAttribute('data-idx', i);
+        card.innerHTML =
+          '<div class="book-cover">' +
+            (b.coverUrl ? '<img src="' + b.coverUrl + '" alt="' + b.title + '">' : '') +
+            '<div class="play-badge">' +
+              '<svg viewBox="0 0 24 24" fill="#000"><polygon points="8,5 19,12 8,19"/></svg>' +
+            '</div>' +
+          '</div>' +
+          '<div class="book-info">' +
+            '<h3 class="serif">' + b.title + '</h3>' +
+            '<p>' + b.chapterTitle + ' · ' + b.genre + '</p>' +
+          '</div>';
+        card.addEventListener('click', function() { playBook(i); });
+        carousel.appendChild(card);
+      });
+    }
+
+    function playBook(idx) {
+      var b = featuredBooks[idx];
+      if (!b || !b.audioUrl) return;
+
+      // If same book, toggle
+      if (activeBook === idx && isPlaying) {
+        audio.pause();
+        isPlaying = false;
+        updatePlayerUI();
+        return;
+      }
+
+      activeBook = idx;
+      audio.src = b.audioUrl;
+      audio.load();
+      audio.play().catch(function(){});
+      isPlaying = true;
+
+      // Show mini player
+      mpCover.src = b.coverUrl || '';
+      mpTitle.textContent = b.title;
+      mpSub.textContent = b.chapterTitle + ' · ' + b.genre;
+      player.classList.add('visible');
+      updatePlayerUI();
+
+      // Highlight active card
+      document.querySelectorAll('.book-card').forEach(function(c, i) {
+        c.classList.toggle('active', i === idx);
+        var badge = c.querySelector('.play-badge');
+        if (i === idx && isPlaying) {
+          badge.innerHTML = pauseIcon.replace('width="14" height="14"', 'width="12" height="12"');
+          badge.classList.add('playing');
+        } else {
+          badge.innerHTML = '<svg viewBox="0 0 24 24" fill="#000"><polygon points="8,5 19,12 8,19"/></svg>';
+          badge.classList.remove('playing');
+        }
+      });
+
+      if(window.fbq) fbq('trackCustom', 'PlayFeaturedSample', { book: b.title });
+    }
+
+    function updatePlayerUI() {
+      mpPlayBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
+    }
+
+    audio.addEventListener('timeupdate', function() {
+      if (audio.duration && isFinite(audio.duration)) {
+        mpBar.style.width = (audio.currentTime / audio.duration * 100) + '%';
+        mpTime.textContent = fmtTime(audio.currentTime) + ' / ' + fmtTime(audio.duration);
+      }
+    });
+    audio.addEventListener('ended', function() {
+      isPlaying = false;
+      updatePlayerUI();
+      // Auto-play next
+      if (activeBook !== null && activeBook < featuredBooks.length - 1) {
+        playBook(activeBook + 1);
+      }
+    });
+    mpPlayBtn.addEventListener('click', function() {
+      if (activeBook === null) { if (featuredBooks.length) playBook(0); return; }
+      if (isPlaying) { audio.pause(); isPlaying = false; }
+      else { audio.play().catch(function(){}); isPlaying = true; }
+      updatePlayerUI();
+    });
+
+    // Render immediately — no API call
+    renderBooks(featuredBooks);
   </script>
 </body>
 </html>
