@@ -1093,17 +1093,34 @@ ${childrensRule}`,
               const allCh = useStore.getState().chapters.filter(c => c.projectId === projectId).sort((a, b) => a.number - b.number);
               const outlineContext = allCh.map(c => `Ch ${c.number}: ${c.title} — ${c.premise?.purpose || ''}`).join('\n');
 
+              const TARGET_WORDS = 1500;
               let ch1Prose = '';
+              // Switch progress bar to determinate mode for word count tracking
+              useGenerationStore.getState().start({
+                kind: 'generate-chapter',
+                label: `Ch. 1: ${ch1.title || 'Chapter 1'}`,
+                subtitle: `0 / ${TARGET_WORDS} words`,
+                indeterminate: false,
+              });
+
               await generateStream(
                 {
-                  prompt: `Write Chapter 1 of "${latestProject2.title}".\n\nChapter 1: ${ch1.title}\nPremise: ${ch1.premise?.purpose || ''}\n\nFull outline:\n${outlineContext}\n\nWrite a complete, engaging first chapter of approximately 2000 words. Begin directly with prose — no chapter title or heading. Include dialogue, description, and interiority. Establish the protagonist, setting, and inciting tension.`,
+                  prompt: `Write Chapter 1 of "${latestProject2.title}".\n\nChapter 1: ${ch1.title}\nPremise: ${ch1.premise?.purpose || ''}\n\nFull outline:\n${outlineContext}\n\nWrite a complete, engaging first chapter of approximately ${TARGET_WORDS} words. Begin directly with prose — no chapter title or heading. Include dialogue, description, and interiority. Establish the protagonist, setting, and inciting tension.`,
                   model: 'claude-sonnet-4-6',
-                  maxTokens: 4000,
+                  maxTokens: 3000,
                   action: 'generate-chapter',
                   projectId,
                   chapterId: ch1.id,
                 },
-                (text) => { ch1Prose += text; },
+                (text) => {
+                  ch1Prose += text;
+                  const words = ch1Prose.trim().split(/\s+/).length;
+                  const pct = Math.min(99, Math.round((words / TARGET_WORDS) * 100));
+                  useGenerationStore.getState().setProgress(pct);
+                  useGenerationStore.getState().setSubtitle(`${words} / ${TARGET_WORDS} words`);
+                  // Live-update the chapter prose so the user can see it building
+                  useStore.getState().updateChapter(ch1.id, { prose: ch1Prose });
+                },
               );
 
               if (ch1Prose.trim()) {
