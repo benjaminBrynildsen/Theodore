@@ -133,6 +133,19 @@ export function AudiobookPanel() {
           preloadedAudioRef.current[v.id] = audio;
         }
       }
+      // Fish Audio voice previews — keyed with 'fish:' prefix to match voice IDs
+      if (data.fishVoices) {
+        for (const v of data.fishVoices) {
+          if (v.previewUrl) {
+            const fishId = `fish:${v.id}`;
+            urls[fishId] = v.previewUrl;
+            const audio = new Audio();
+            audio.preload = 'none'; // Don't preload all — only on demand
+            audio.src = v.previewUrl;
+            preloadedAudioRef.current[fishId] = audio;
+          }
+        }
+      }
       setPreviewUrls(urls);
     }).catch(() => {});
   }, []);

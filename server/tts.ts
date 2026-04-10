@@ -226,30 +226,83 @@ export const FISH_AUDIO_VOICES: FishAudioVoiceInfo[] = [
   { id: '4858e0be678c4449bf3a7646186edd42', name: 'Nahida', desc: 'Gentle & empathetic', gender: 'female', tone: 'warm' },
 ];
 
+// Cache for Fish Audio preview URLs (signed, expire in 1hr — refresh every 30min)
+let fishPreviewCache: Record<string, string> = {};
+let fishPreviewFetchedAt = 0;
+const FISH_PREVIEW_TTL = 30 * 60 * 1000;
+
+export async function getFishVoicesWithPreviews(): Promise<(FishAudioVoiceInfo & { previewUrl?: string })[]> {
+  if (Object.keys(fishPreviewCache).length > 0 && Date.now() - fishPreviewFetchedAt < FISH_PREVIEW_TTL) {
+    return FISH_AUDIO_VOICES.map(v => ({ ...v, previewUrl: fishPreviewCache[v.id] }));
+  }
+
+  try {
+    const results = await Promise.all(
+      FISH_AUDIO_VOICES.map(async (voice) => {
+        try {
+          const res = await fetch(`https://api.fish.audio/model/${voice.id}`);
+          if (!res.ok) return voice;
+          const data = await res.json() as any;
+          const sample = data.samples?.[0];
+          const previewUrl = sample?.audio || undefined;
+          if (previewUrl) fishPreviewCache[voice.id] = previewUrl;
+          return { ...voice, previewUrl };
+        } catch {
+          return voice;
+        }
+      })
+    );
+    fishPreviewFetchedAt = Date.now();
+    return results;
+  } catch {
+    return FISH_AUDIO_VOICES;
+  }
+}
+
 /**
- * Convert our direction tags to Fish Audio S2-pro inline tags.
- * Fish uses [tag] format which matches our existing tag system.
+ * Add natural pacing for Fish Audio using [pause] / [long pause] tags.
+ * Fish S2-pro supports inline tags: [pause], [long pause], [whisper],
+ * [laughing], [sigh], [excited], [angry], [sad], [emphasis], etc.
  */
-function convertToFishTags(text: string): string {
-  return text
-    // Our pacing markers → Fish pause tags
-    .replace(/\.\.\.\s*\.\.\.\s*\.\.\./g, '[long pause]')
-    .replace(/\.\.\.\s*\.\.\./g, '[pause]')
-    // Keep existing direction tags that Fish supports
-    // Fish S2-pro supports: [pause], [long pause], [whisper], [laughing],
-    // [sigh], [excited], [angry], [sad], [emphasis], etc.
-    // These already match our tag format, so they pass through naturally
-    ;
+function addFishPacing(text: string): string {
+  let result = text;
+
+  // 1. Paragraph breaks → long pause
+  result = result.replace(/\n\n+/g, '\n\n[long pause]\n\n');
+
+  // 2. Sentence-ending before next sentence → short pause
+  result = result.replace(/([.!?])\s+([A-Z])/g, '$1 [pause] $2');
+
+  // 3. Before dialogue after narration → pause
+  result = result.replace(/([.!?])\s*([""\u201C])/g, '$1 [long pause] $2');
+
+  // 4. After dialogue closing before narration → pause
+  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1 [pause] $2');
+
+  // 5. Em dashes → pause
+  result = result.replace(/\s*—\s*/g, ' [pause] ');
+
+  // 6. Existing ellipsis → pause
+  result = result.replace(/\.{3}/g, '[pause]');
+  result = result.replace(/…/g, '[pause]');
+
+  // 7. Convert our existing direction tags — Fish supports them natively
+  // [dramatic pause] → [long pause], [pause] stays as-is
+  result = result.replace(/\[dramatic pause\]/gi, '[long pause]');
+
+  // Deduplicate adjacent pauses
+  result = result.replace(/(\[pause\]\s*){2,}/g, '[long pause] ');
+  result = result.replace(/(\[long pause\]\s*){2,}/g, '[long pause] ');
+
+  return result;
 }
 
 async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> {
   const apiKey = process.env.FISH_AUDIO_API_KEY;
   if (!apiKey) throw new Error('FISH_AUDIO_API_KEY is required for Fish Audio TTS');
 
-  const taggedText = convertToFishTags(text);
-
   const body = msgpackEncode({
-    text: taggedText,
+    text: text,
     reference_id: voiceId,
     format: 'mp3',
     mp3_bitrate: 128,
@@ -900,7 +953,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const clean = stripCharacterTags(req.prose)
       .replace(/\{sfx:[^}]+\}\s*/g, '')
       .trim();
-    const paced = addTTSPacing(clean);
+    const paced = addFishPacing(clean);
 
     // Fish Audio handles longer text than OpenAI but chunk at ~8000 chars for safety
     const MAX_CHUNK_CHARS = 8000;
