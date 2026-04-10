@@ -267,32 +267,44 @@ export async function getFishVoicesWithPreviews(): Promise<(FishAudioVoiceInfo &
 function addFishPacing(text: string): string {
   let result = text;
 
-  // 1. Paragraph breaks → long pause
+  // 1. Paragraph breaks → long pause on its own line
   result = result.replace(/\n\n+/g, '\n\n[long pause]\n\n');
 
-  // 2. Sentence-ending before next sentence → short pause
-  result = result.replace(/([.!?])\s+([A-Z])/g, '$1 [pause] $2');
+  // 2. Every sentence boundary — catch ALL patterns:
+  //    "word. Word"  "word!" "word?"  "word." "Word"  'word.' Word
+  //    Also handles closing quotes: word." Word  word?" Word
+  result = result.replace(/([.!?])([""\u201D']?)\s+/g, '$1$2\n[pause]\n');
 
-  // 3. Before dialogue after narration → pause
-  result = result.replace(/([.!?])\s*([""\u201C])/g, '$1 [long pause] $2');
+  // 3. Before opening dialogue quotes → long pause (narrator → character shift)
+  result = result.replace(/\[pause\]\n([""\u201C])/g, '[long pause]\n$1');
 
-  // 4. After dialogue closing before narration → pause
-  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1 [pause] $2');
+  // 4. After closing dialogue quotes → long pause (character → narrator shift)
+  result = result.replace(/([""\u201D'][.!?]?)\n\[pause\]\n([A-Z])/g, '$1\n[long pause]\n$2');
 
-  // 5. Em dashes → pause
-  result = result.replace(/\s*—\s*/g, ' [pause] ');
+  // 5. Em dashes → short pause
+  result = result.replace(/\s*—\s*/g, '\n[pause]\n');
 
-  // 6. Existing ellipsis → pause
+  // 6. Semicolons → breath pause
+  result = result.replace(/;\s*/g, ';\n[pause]\n');
+
+  // 7. Existing ellipsis → pause
   result = result.replace(/\.{3}/g, '[pause]');
   result = result.replace(/…/g, '[pause]');
 
-  // 7. Convert our existing direction tags — Fish supports them natively
-  // [dramatic pause] → [long pause], [pause] stays as-is
+  // 8. Long comma clauses (comma followed by 30+ chars before next punctuation)
+  //    "She walked to the door, her hand trembling as she reached for the knob."
+  //    Add a breath after the comma
+  result = result.replace(/,\s+(?=[a-z].{25,}?[.!?])/g, ',\n[short pause]\n');
+
+  // 9. Convert our existing direction tags
   result = result.replace(/\[dramatic pause\]/gi, '[long pause]');
 
   // Deduplicate adjacent pauses
-  result = result.replace(/(\[pause\]\s*){2,}/g, '[long pause] ');
-  result = result.replace(/(\[long pause\]\s*){2,}/g, '[long pause] ');
+  result = result.replace(/(\[(?:short )?pause\]\s*\n?\s*){2,}/g, '[long pause]\n');
+  result = result.replace(/(\[long pause\]\s*\n?\s*){2,}/g, '[long pause]\n');
+
+  // Clean up excessive whitespace but keep newlines around pauses
+  result = result.replace(/\n{3,}/g, '\n\n');
 
   return result;
 }
