@@ -442,6 +442,33 @@
     });
 
     // ── Featured Books + Audio Player ──
+    // STATIC CONFIG — update these URLs from production.
+    // Cover: open the project → right-click cover image → Copy image address
+    // Audio: open Studio → right-click play button → Copy audio address (or network tab)
+    var featuredBooks = [
+      {
+        title: 'Henry and Husky',
+        chapterTitle: 'Chapter 1 · Scene 1',
+        genre: 'Adventure',
+        coverUrl: '/uploads/covers/TODO-henry-husky.png',
+        audioUrl: '/uploads/audio/TODO-henry-husky-ch1s1.mp3',
+      },
+      {
+        title: 'On Ice and Lanes',
+        chapterTitle: 'Chapter 4',
+        genre: 'Fiction',
+        coverUrl: '/uploads/covers/TODO-on-ice.png',
+        audioUrl: '/uploads/audio/TODO-on-ice-ch4.mp3',
+      },
+      {
+        title: 'Blind Target',
+        chapterTitle: 'Chapter 2',
+        genre: 'Thriller',
+        coverUrl: '/uploads/covers/TODO-blind-target.png',
+        audioUrl: '/uploads/audio/TODO-blind-target-ch2.mp3',
+      },
+    ];
+
     var audio = document.getElementById('featuredAudio');
     var carousel = document.getElementById('bookCarousel');
     var player = document.getElementById('miniPlayer');
@@ -453,7 +480,6 @@
     var mpPlayBtn = document.getElementById('mpPlayBtn');
     var playIcon = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="6,4 20,12 6,20"/></svg>';
     var pauseIcon = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>';
-    var featuredBooks = [];
     var activeBook = null;
     var isPlaying = false;
 
@@ -550,16 +576,8 @@
       updatePlayerUI();
     });
 
-    // Fetch books
-    fetch('/api/featured-books')
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        if (Array.isArray(data) && data.length > 0) {
-          featuredBooks = data;
-          renderBooks(data);
-        }
-      })
-      .catch(function(){});
+    // Render immediately — no API call
+    renderBooks(featuredBooks);
   </script>
 </body>
 </html>
