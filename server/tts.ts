@@ -352,8 +352,8 @@ function buildChapterAnnouncement(
   switch (provider) {
     case 'fish':
       return t
-        ? `Chapter ${number}.\n[long pause]\n[long pause]\n${t}.\n[long pause]\n[long pause]\n[long pause]\n[long pause]\n\n`
-        : `Chapter ${number}.\n[long pause]\n[long pause]\n[long pause]\n[long pause]\n\n`;
+        ? `Chapter ${number}.\n... ... ...\n\n${t}.\n... ... ...\n... ... ...\n\n`
+        : `Chapter ${number}.\n... ... ...\n... ... ...\n\n`;
     case 'openai':
       return t
         ? `Chapter ${number}.\n\n\n${t}.\n\n\n\n`
@@ -1029,7 +1029,16 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'fish')
       : '';
     // Add announcement AFTER pacing so its pauses aren't deduplicated
-    const paced = announcement + addFishPacing(clean);
+    let paced = announcement + addFishPacing(clean);
+    // Fish Audio doesn't understand [pause]/[long pause] tags — they get read
+    // as literal text. Convert to natural cues Fish actually respects:
+    // long pause → triple ellipsis + double newline (strong breath break)
+    // pause → ellipsis + newline (sentence-level breath)
+    // short pause → comma + ellipsis (clause-level micro-pause)
+    paced = paced
+      .replace(/\[long pause\]/gi, '... ... ...\n\n')
+      .replace(/\[pause\]/gi, '...\n')
+      .replace(/\[short pause\]/gi, ', ...');
 
     // Smaller chunks + parallel generation for speed.
     // Fish Audio's concurrency limit is 5 (starter tier), so we target 3-5 chunks.
