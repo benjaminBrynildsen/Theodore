@@ -64,17 +64,21 @@ export function compositeWatermark(
         const textColor = isLight ? '#000000' : '#ffffff';
 
         // Auto-size: start large, shrink until it fits with wrapping
-        const maxWidth = size * 0.82;
-        const padding = size * 0.09;
-        let fontSize = 160;
+        // Big bold condensed — fills most of the canvas like a bestseller cover
+        const maxWidth = size * 0.88;
+        const padding = size * 0.06;
+        let fontSize = 280;
         let lines: string[] = [];
+        // Heavy condensed sans-serif stack: Impact is universally available,
+        // "Arial Black" and "Helvetica Neue" as fallbacks for different weight
+        const fontStack = '"Impact", "Arial Black", "Helvetica Neue", sans-serif';
 
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
 
-        // Word-wrap at the current font size
+        // Word-wrap: one word per line for short titles, multi-word for long
         function wrapText(fs: number): string[] {
-          ctx.font = `900 ${fs}px "Georgia", "Times New Roman", serif`;
+          ctx.font = `900 ${fs}px ${fontStack}`;
           const words = title.split(' ');
           const result: string[] = [];
           let line = '';
@@ -91,25 +95,25 @@ export function compositeWatermark(
           return result;
         }
 
-        // Shrink font until text block fits vertically
-        while (fontSize > 40) {
+        // Start huge, shrink until the text block fits ~80% of canvas height
+        while (fontSize > 50) {
           lines = wrapText(fontSize);
-          const blockHeight = lines.length * fontSize * 1.05;
-          if (blockHeight < size * 0.65) break;
-          fontSize -= 4;
+          const blockHeight = lines.length * fontSize * 0.92;
+          if (blockHeight < size * 0.80) break;
+          fontSize -= 6;
         }
 
-        // Draw text centered vertically
-        const lineHeight = fontSize * 1.05;
+        // Tight line height for that stacked, compressed bestseller look
+        const lineHeight = fontSize * 0.92;
         const blockHeight = lines.length * lineHeight;
         const startY = (size - blockHeight) / 2;
 
-        ctx.font = `900 ${fontSize}px "Georgia", "Times New Roman", serif`;
+        ctx.font = `900 ${fontSize}px ${fontStack}`;
         ctx.fillStyle = textColor;
-        // Subtle text shadow for depth
-        ctx.shadowColor = isLight ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 8;
-        ctx.shadowOffsetY = 3;
+        // Strong shadow for punch
+        ctx.shadowColor = isLight ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetY = 4;
 
         for (let i = 0; i < lines.length; i++) {
           ctx.fillText(lines[i], padding, startY + i * lineHeight);
