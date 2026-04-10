@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Theodore — Story Engine</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon-t.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Meta Pixel -->
+  <script>
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+    document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init','1302784575092189');
+    fbq('track','PageView');
+  </script>
+  <noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1302784575092189&ev=PageView&noscript=1"/></noscript>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+      background: #f6f6f4;
+      color: #000;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .serif { font-family: Georgia, 'Times New Roman', serif; }
+
+    /* Nav */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1.25rem 1.5rem; max-width: 72rem; margin: 0 auto; width: 100%;
+    }
+    .logo { display: flex; align-items: center; gap: 0.5rem; }
+    .logo span { font-size: 1rem; font-weight: 600; letter-spacing: -0.02em; }
+    .sign-in {
+      font-size: 0.875rem; font-weight: 500; color: rgba(0,0,0,0.5);
+      text-decoration: none; background: none; border: none; cursor: pointer;
+    }
+    .sign-in:hover { color: rgba(0,0,0,0.8); }
+
+    /* Hero */
+    .hero {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      padding: 2rem 1.5rem 3rem; text-align: center; max-width: 48rem; margin: 0 auto; width: 100%;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.2em;
+      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 1.25rem;
+    }
+    h1 {
+      font-size: clamp(2rem, 5.5vw, 3.5rem); line-height: 1.08;
+      letter-spacing: -0.025em; margin-bottom: 0.75rem;
+    }
+    h1 .word {
+      display: inline-block; font-weight: 500;
+      animation: fade-settle 0.4s ease-out forwards;
+    }
+    @keyframes fade-settle {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .tagline {
+      font-size: 1rem; color: rgba(0,0,0,0.5); line-height: 1.6;
+      max-width: 28rem; margin-bottom: 1.5rem;
+    }
+    @media (min-width: 640px) {
+      .hero { padding: 3.5rem 2.5rem 4rem; justify-content: center; }
+      .tagline { font-size: 1.125rem; }
+      header { padding: 1.25rem 2.5rem; }
+    }
+
+    /* Prompt cards — ABOVE the input */
+    .prompt-section-label {
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.12em; color: rgba(0,0,0,0.3); margin-bottom: 0.75rem;
+    }
+    .prompt-cards {
+      display: grid; grid-template-columns: 1fr; gap: 0.5rem;
+      width: 100%; max-width: 32rem; margin-bottom: 1.5rem;
+    }
+    @media (min-width: 480px) {
+      .prompt-cards { grid-template-columns: 1fr 1fr; }
+      .prompt-cards .prompt-card:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+      }
+    }
+    .prompt-card {
+      display: flex; flex-direction: column; gap: 0.25rem;
+      padding: 0.875rem 1rem; border-radius: 0.875rem;
+      border: 1px solid rgba(0,0,0,0.08); background: rgba(255,255,255,0.7);
+      cursor: pointer; transition: all 0.2s; text-align: left;
+      font-family: inherit;
+    }
+    .prompt-card:hover {
+      border-color: rgba(0,0,0,0.15); background: #fff;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06); transform: translateY(-1px);
+    }
+    .prompt-card:active { transform: translateY(0); }
+    .prompt-card .genre {
+      font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: rgba(0,0,0,0.3);
+    }
+    .prompt-card .text {
+      font-size: 0.8125rem; line-height: 1.45; color: rgba(0,0,0,0.7);
+    }
+
+    /* Input box */
+    .input-section { width: 100%; max-width: 32rem; }
+    .input-wrap {
+      width: 100%;
+      border-radius: 1rem; background: #1c1c1e;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.15); overflow: hidden;
+    }
+    .input-inner { display: flex; align-items: flex-end; gap: 0.5rem; padding: 1rem; }
+    .input-wrap textarea {
+      flex: 1; background: transparent; color: rgba(255,255,255,0.9);
+      font-size: 1rem; font-family: inherit; resize: none; outline: none;
+      border: none; padding: 0.5rem; min-height: 4.5rem; max-height: 5.5rem;
+    }
+    .input-wrap textarea::placeholder { color: rgba(255,255,255,0.3); }
+    .submit-btn {
+      width: 2rem; height: 2rem; border-radius: 0.5rem; border: none;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; cursor: pointer; transition: all 0.15s;
+      background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3);
+    }
+    .submit-btn.active { background: #fff; color: #000; }
+    .submit-btn.active:hover { background: rgba(255,255,255,0.9); }
+    @media (min-width: 640px) {
+      .input-wrap textarea { font-size: 0.875rem; }
+    }
+
+    /* What happens next */
+    .next-step {
+      margin-top: 0.875rem; font-size: 0.8125rem; color: rgba(0,0,0,0.4);
+      line-height: 1.5;
+    }
+    .next-step strong { color: rgba(0,0,0,0.6); font-weight: 600; }
+
+    /* Or divider */
+    .or-divider {
+      display: flex; align-items: center; gap: 0.75rem;
+      width: 100%; max-width: 32rem; margin: 0.25rem 0;
+      font-size: 0.6875rem; color: rgba(0,0,0,0.25); text-transform: uppercase;
+      letter-spacing: 0.1em; font-weight: 600;
+    }
+    .or-divider::before, .or-divider::after {
+      content: ''; flex: 1; height: 1px; background: rgba(0,0,0,0.08);
+    }
+
+    /* Featured books */
+    .featured {
+      width: 100%; max-width: 56rem; margin: 0 auto;
+      padding: 0 1.5rem 3rem; text-align: center;
+    }
+    .featured-label {
+      font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.2em;
+      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 0.25rem;
+    }
+    .featured-sub {
+      font-size: 0.875rem; color: rgba(0,0,0,0.4); margin-bottom: 1.5rem;
+    }
+    .book-carousel {
+      display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch; padding: 0.5rem 0 1rem;
+      scrollbar-width: none;
+    }
+    .book-carousel::-webkit-scrollbar { display: none; }
+    .book-card {
+      flex: 0 0 220px; scroll-snap-align: center;
+      border-radius: 1rem; overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.06); background: rgba(255,255,255,0.7);
+      cursor: pointer; transition: all 0.2s; text-align: left;
+    }
+    .book-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); transform: translateY(-2px); }
+    .book-card.active { border-color: rgba(0,0,0,0.15); box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    .book-cover {
+      position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: #e5e5e5;
+    }
+    .book-cover img { width: 100%; height: 100%; object-fit: cover; }
+    .play-badge {
+      position: absolute; bottom: 0.625rem; right: 0.625rem;
+      width: 2.25rem; height: 2.25rem; border-radius: 50%;
+      background: rgba(255,255,255,0.92); display: flex;
+      align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: transform 0.15s;
+    }
+    .book-card:hover .play-badge { transform: scale(1.08); }
+    .play-badge svg { width: 14px; height: 14px; margin-left: 2px; }
+    .play-badge.playing svg { margin-left: 0; }
+    .book-info { padding: 0.75rem 0.875rem; }
+    .book-info h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.125rem; }
+    .book-info p { font-size: 0.6875rem; color: rgba(0,0,0,0.4); }
+
+    /* Mini player bar */
+    .mini-player {
+      display: none; align-items: center; gap: 0.75rem;
+      max-width: 56rem; margin: 0 auto 2rem; padding: 0.75rem 1rem;
+      border-radius: 1rem; background: #1c1c1e; color: #fff;
+    }
+    .mini-player.visible { display: flex; }
+    .mini-player img { width: 40px; height: 40px; border-radius: 0.5rem; object-fit: cover; }
+    .mini-player .mp-info { flex: 1; min-width: 0; }
+    .mini-player .mp-title { font-size: 0.8125rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mini-player .mp-sub { font-size: 0.6875rem; color: rgba(255,255,255,0.5); }
+    .mini-player .mp-progress {
+      flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.15);
+      overflow: hidden; min-width: 60px;
+    }
+    .mini-player .mp-bar { height: 100%; background: #fff; border-radius: 2px; transition: width 0.25s; width: 0; }
+    .mini-player .mp-time { font-size: 0.625rem; color: rgba(255,255,255,0.4); white-space: nowrap; }
+    .mp-play-btn {
+      width: 2rem; height: 2rem; border-radius: 50%; border: none;
+      background: #fff; color: #000; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; flex-shrink: 0;
+    }
+
+    @media (min-width: 640px) {
+      .book-carousel { justify-content: center; overflow: visible; }
+      .book-card { flex: 0 0 240px; }
+    }
+
+    /* Features */
+    .features {
+      width: 100%; max-width: 56rem; margin: 0 auto;
+      padding: 0 1.5rem 5rem;
+      display: grid; grid-template-columns: 1fr; gap: 1rem;
+    }
+    @media (min-width: 640px) {
+      .features { grid-template-columns: repeat(3, 1fr); padding: 0 2.5rem 7rem; }
+    }
+    .feature {
+      border-radius: 1rem; border: 1px solid rgba(0,0,0,0.06);
+      background: rgba(255,255,255,0.6); backdrop-filter: blur(8px);
+      padding: 1.5rem; animation: fade-in 0.5s ease-out both;
+    }
+    .feature:nth-child(1) { animation-delay: 0.3s; }
+    .feature:nth-child(2) { animation-delay: 0.42s; }
+    .feature:nth-child(3) { animation-delay: 0.54s; }
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .feature-icon {
+      width: 2.5rem; height: 2.5rem; border-radius: 0.75rem;
+      background: rgba(0,0,0,0.04); display: flex; align-items: center;
+      justify-content: center; margin-bottom: 1rem;
+    }
+    .feature h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .feature p { font-size: 0.875rem; color: rgba(0,0,0,0.5); line-height: 1.6; }
+
+    /* Footer */
+    footer {
+      width: 100%; border-top: 1px solid rgba(0,0,0,0.06);
+      padding: 1.5rem; text-align: center; font-size: 0.75rem; color: rgba(0,0,0,0.3);
+    }
+
+    /* Icons */
+    .icon { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .icon-sm { width: 16px; height: 16px; }
+    .icon-xs { width: 12px; height: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+      <span class="serif">Theodore</span>
+    </div>
+    <a href="/" class="sign-in">Sign in</a>
+  </header>
+
+  <section class="hero">
+    <div class="badge">
+      <svg class="icon-xs" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+      Story Engine
+    </div>
+
+    <h1 class="serif">
+      All you need is an<br>
+      <span class="word">idea</span><span style="display:inline-block;height:0.85em;width:2px;transform:translateY(0.06em);border-radius:9999px;background:rgba(0,0,0,0.8);animation:blink 1s step-end infinite;margin-left:1px;vertical-align:baseline"></span>
+    </h1>
+    <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}</style>
+
+    <p class="tagline">Type one sentence. Get a full novel and audiobook. Free.</p>
+
+    <!-- Prompt cards — tappable, ABOVE the input -->
+    <p class="prompt-section-label">Tap one to try it</p>
+    <div class="prompt-cards">
+      <button class="prompt-card" data-prompt="A librarian finds a book that rewrites itself every night — and the new chapters are coming true.">
+        <span class="genre">Fantasy</span>
+        <span class="text">A librarian finds a book that rewrites itself every night — and the new chapters are coming true.</span>
+      </button>
+      <button class="prompt-card" data-prompt="A detective realizes every missing person case in her town leads back to the same house — her childhood home.">
+        <span class="genre">Thriller</span>
+        <span class="text">A detective realizes every missing person case leads back to one house — her childhood home.</span>
+      </button>
+      <button class="prompt-card" data-prompt="Two strangers keep getting seated next to each other on flights. By the fifth time, they stop pretending it's coincidence.">
+        <span class="genre">Romance</span>
+        <span class="text">Two strangers keep getting seated next to each other on flights. By the fifth time, they stop pretending it's coincidence.</span>
+      </button>
+      <button class="prompt-card" data-prompt="The last human alive discovers she's been dead for 200 years — and someone has been running her simulation the entire time.">
+        <span class="genre">Sci-Fi</span>
+        <span class="text">The last human alive discovers she's been dead for 200 years — and someone's been running her simulation the entire time.</span>
+      </button>
+      <button class="prompt-card" data-prompt="A therapist's newest patient describes dreams that perfectly match the therapist's own memories.">
+        <span class="genre">Horror</span>
+        <span class="text">A therapist's newest patient describes dreams that perfectly match the therapist's own memories.</span>
+      </button>
+    </div>
+
+    <div class="or-divider">or write your own</div>
+
+    <!-- Input box — pre-filled with a random prompt -->
+    <div class="input-section">
+      <form id="promptForm" class="input-wrap" onsubmit="return false;">
+        <div class="input-inner">
+          <textarea id="promptInput" placeholder="Describe your story idea..." rows="3"></textarea>
+          <button type="submit" id="submitBtn" class="submit-btn active">
+            <svg class="icon-sm" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+          </button>
+        </div>
+      </form>
+
+      <p class="next-step">
+        Hit enter <strong>→ full novel + audiobook in ~60 seconds.</strong> Free. No account needed.
+      </p>
+    </div>
+  </section>
+
+  <!-- Featured books + audio sample -->
+  <section class="featured">
+    <p class="featured-label">🎧 Hear What Theodore Creates</p>
+    <p class="featured-sub">Real books written and narrated by Theodore authors</p>
+
+    <div class="book-carousel" id="bookCarousel">
+      <!-- Books populated by /api/featured-books -->
+    </div>
+
+    <!-- Sticky mini player -->
+    <div class="mini-player" id="miniPlayer">
+      <img id="mpCover" src="" alt="">
+      <div class="mp-info">
+        <div class="mp-title" id="mpTitle"></div>
+        <div class="mp-sub" id="mpSub"></div>
+      </div>
+      <div class="mp-progress"><div class="mp-bar" id="mpBar"></div></div>
+      <span class="mp-time" id="mpTime"></span>
+      <button class="mp-play-btn" id="mpPlayBtn" aria-label="Play/Pause">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="6,4 20,12 6,20"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <audio id="featuredAudio" preload="none"></audio>
+
+  <section class="features">
+    <div class="feature">
+      <div class="feature-icon">
+        <svg class="icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
+      </div>
+      <h3>Idea to Audiobook</h3>
+      <p>Type a sentence. Get a full audiobook — narrated, chapter by chapter.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">
+        <svg class="icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+      </div>
+      <h3>AI That Knows Your Story</h3>
+      <p>Characters, locations, and lore stay consistent across every chapter.</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">
+        <svg class="icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      </div>
+      <h3>One Seamless Pipeline</h3>
+      <p>Write, edit, and listen — all in one place. No exports, no stitching.</p>
+    </div>
+  </section>
+
+  <footer>Theodore · Built for writers who think in systems</footer>
+
+  <script>
+    // Preserve UTM params from the ad click URL
+    var params = new URLSearchParams(window.location.search);
+    var utmKeys = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid'];
+    var preserved = new URLSearchParams();
+    utmKeys.forEach(function(k){ if(params.get(k)) preserved.set(k, params.get(k)); });
+
+    var input = document.getElementById('promptInput');
+    var btn = document.getElementById('submitBtn');
+    var form = document.getElementById('promptForm');
+
+    // Pre-fill with a random prompt so the box is never empty
+    var prompts = [
+      'A librarian finds a book that rewrites itself every night — and the new chapters are coming true.',
+      'A detective realizes every missing person case in her town leads back to the same house — her childhood home.',
+      'Two strangers keep getting seated next to each other on flights. By the fifth time, they stop pretending it\'s coincidence.',
+      'The last human alive discovers she\'s been dead for 200 years — and someone has been running her simulation the entire time.',
+      'A therapist\'s newest patient describes dreams that perfectly match the therapist\'s own memories.',
+    ];
+    input.value = prompts[Math.floor(Math.random() * prompts.length)];
+
+    // Toggle submit button style
+    input.addEventListener('input', function(){
+      btn.classList.toggle('active', input.value.trim().length > 0);
+    });
+
+    // Prompt cards — tap to fill AND auto-submit
+    document.querySelectorAll('.prompt-card').forEach(function(card){
+      card.addEventListener('click', function(){
+        var text = card.getAttribute('data-prompt');
+        input.value = text;
+        btn.classList.add('active');
+        // Brief flash so they see it filled, then go
+        setTimeout(go, 150);
+      });
+    });
+
+    // Submit — redirect to the full app with prompt
+    function go(){
+      var text = input.value.trim();
+      if(!text) return;
+      if(window.fbq) fbq('trackCustom','StartGuestChat');
+      preserved.set('prompt', text);
+      window.location.href = '/?' + preserved.toString();
+    }
+    form.addEventListener('submit', function(e){ e.preventDefault(); go(); });
+    btn.addEventListener('click', go);
+    input.addEventListener('keydown', function(e){
+      if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); go(); }
+    });
+
+    // ── Featured Books + Audio Player ──
+    var audio = document.getElementById('featuredAudio');
+    var carousel = document.getElementById('bookCarousel');
+    var player = document.getElementById('miniPlayer');
+    var mpCover = document.getElementById('mpCover');
+    var mpTitle = document.getElementById('mpTitle');
+    var mpSub = document.getElementById('mpSub');
+    var mpBar = document.getElementById('mpBar');
+    var mpTime = document.getElementById('mpTime');
+    var mpPlayBtn = document.getElementById('mpPlayBtn');
+    var playIcon = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="6,4 20,12 6,20"/></svg>';
+    var pauseIcon = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>';
+    var featuredBooks = [];
+    var activeBook = null;
+    var isPlaying = false;
+
+    function fmtTime(s) {
+      var m = Math.floor(s/60), sec = Math.floor(s%60);
+      return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    function renderBooks(books) {
+      carousel.innerHTML = '';
+      books.forEach(function(b, i) {
+        var card = document.createElement('div');
+        card.className = 'book-card';
+        card.setAttribute('data-idx', i);
+        card.innerHTML =
+          '<div class="book-cover">' +
+            (b.coverUrl ? '<img src="' + b.coverUrl + '" alt="' + b.title + '">' : '') +
+            '<div class="play-badge">' +
+              '<svg viewBox="0 0 24 24" fill="#000"><polygon points="8,5 19,12 8,19"/></svg>' +
+            '</div>' +
+          '</div>' +
+          '<div class="book-info">' +
+            '<h3 class="serif">' + b.title + '</h3>' +
+            '<p>' + b.chapterTitle + ' · ' + b.genre + '</p>' +
+          '</div>';
+        card.addEventListener('click', function() { playBook(i); });
+        carousel.appendChild(card);
+      });
+    }
+
+    function playBook(idx) {
+      var b = featuredBooks[idx];
+      if (!b || !b.audioUrl) return;
+
+      // If same book, toggle
+      if (activeBook === idx && isPlaying) {
+        audio.pause();
+        isPlaying = false;
+        updatePlayerUI();
+        return;
+      }
+
+      activeBook = idx;
+      audio.src = b.audioUrl;
+      audio.load();
+      audio.play().catch(function(){});
+      isPlaying = true;
+
+      // Show mini player
+      mpCover.src = b.coverUrl || '';
+      mpTitle.textContent = b.title;
+      mpSub.textContent = b.chapterTitle + ' · ' + b.genre;
+      player.classList.add('visible');
+      updatePlayerUI();
+
+      // Highlight active card
+      document.querySelectorAll('.book-card').forEach(function(c, i) {
+        c.classList.toggle('active', i === idx);
+        var badge = c.querySelector('.play-badge');
+        if (i === idx && isPlaying) {
+          badge.innerHTML = pauseIcon.replace('width="14" height="14"', 'width="12" height="12"');
+          badge.classList.add('playing');
+        } else {
+          badge.innerHTML = '<svg viewBox="0 0 24 24" fill="#000"><polygon points="8,5 19,12 8,19"/></svg>';
+          badge.classList.remove('playing');
+        }
+      });
+
+      if(window.fbq) fbq('trackCustom', 'PlayFeaturedSample', { book: b.title });
+    }
+
+    function updatePlayerUI() {
+      mpPlayBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
+    }
+
+    audio.addEventListener('timeupdate', function() {
+      if (audio.duration && isFinite(audio.duration)) {
+        mpBar.style.width = (audio.currentTime / audio.duration * 100) + '%';
+        mpTime.textContent = fmtTime(audio.currentTime) + ' / ' + fmtTime(audio.duration);
+      }
+    });
+    audio.addEventListener('ended', function() {
+      isPlaying = false;
+      updatePlayerUI();
+      // Auto-play next
+      if (activeBook !== null && activeBook < featuredBooks.length - 1) {
+        playBook(activeBook + 1);
+      }
+    });
+    mpPlayBtn.addEventListener('click', function() {
+      if (activeBook === null) { if (featuredBooks.length) playBook(0); return; }
+      if (isPlaying) { audio.pause(); isPlaying = false; }
+      else { audio.play().catch(function(){}); isPlaying = true; }
+      updatePlayerUI();
+    });
+
+    // Fetch books
+    fetch('/api/featured-books')
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (Array.isArray(data) && data.length > 0) {
+          featuredBooks = data;
+          renderBooks(data);
+        }
+      })
+      .catch(function(){});
+  </script>
+</body>
+</html>
