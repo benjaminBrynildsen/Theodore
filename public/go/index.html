@@ -508,6 +508,69 @@
 
     // Render immediately — no API call
     renderBooks(featuredBooks);
+
+    // ── Engagement tracking ──
+    // Fires timed pixel events so we can see how long people stay
+    // and what they interact with before leaving.
+    (function() {
+      var landed = Date.now();
+      var scrolledToBooks = false;
+      var maxScroll = 0;
+      var played = false;
+      var tapped = false;
+
+      // Timed engagement milestones
+      [5, 15, 30, 60].forEach(function(sec) {
+        setTimeout(function() {
+          if (window.fbq) fbq('trackCustom', 'Engaged' + sec + 's');
+        }, sec * 1000);
+      });
+
+      // Scroll depth — did they see the book carousel?
+      window.addEventListener('scroll', function() {
+        var pct = Math.round((window.scrollY + window.innerHeight) / document.body.scrollHeight * 100);
+        if (pct > maxScroll) maxScroll = pct;
+        if (!scrolledToBooks && pct > 60) {
+          scrolledToBooks = true;
+          if (window.fbq) fbq('trackCustom', 'ScrolledToBooks');
+        }
+      }, { passive: true });
+
+      // Track audio play
+      if (audio) audio.addEventListener('play', function() {
+        if (!played) { played = true; if (window.fbq) fbq('trackCustom', 'PlayedAudioSample'); }
+      });
+
+      // Track prompt pill taps
+      document.querySelectorAll('.pill').forEach(function(p) {
+        p.addEventListener('click', function() {
+          if (!tapped) { tapped = true; if (window.fbq) fbq('trackCustom', 'TappedPromptPill'); }
+        });
+      });
+
+      // Time-on-page sent when they leave
+      function sendExit() {
+        var sec = Math.round((Date.now() - landed) / 1000);
+        var data = JSON.stringify({
+          time_on_page: sec,
+          scrolled_pct: maxScroll,
+          played_audio: played,
+          tapped_pill: tapped
+        });
+        if (window.fbq) fbq('trackCustom', 'PageExit', {
+          time_on_page: sec, scrolled_pct: maxScroll,
+          played_audio: played, tapped_pill: tapped
+        });
+        // sendBeacon as backup (pixel might not fire on unload)
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/beacon', data);
+        }
+      }
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') sendExit();
+      });
+      window.addEventListener('pagehide', sendExit);
+    })();
   </script>
 </body>
 </html>
