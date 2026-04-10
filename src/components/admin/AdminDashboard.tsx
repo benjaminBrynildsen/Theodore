@@ -186,7 +186,32 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'user-detail';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail';
+
+interface JourneySession {
+  session_id: string;
+  started_at: string;
+  last_event_at: string;
+  event_count: number;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  ip_hash: string | null;
+  duration_seconds: number;
+  event_types: string[];
+}
+
+interface JourneyDetail {
+  sessionId: string;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  ipHash: string | null;
+  startedAt: string;
+  durationSeconds: number;
+  eventCount: number;
+  events: { event: string; data: any; page: string | null; timestamp: string }[];
+}
 
 export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<View>('overview');
@@ -208,6 +233,8 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [userDetail, setUserDetail] = useState<UserDetail | null>(null);
   const [dailyStats, setDailyStats] = useState<DailyStats | null>(null);
   const [traffic, setTraffic] = useState<TrafficStats | null>(null);
+  const [journeys, setJourneys] = useState<JourneySession[]>([]);
+  const [journeyDetail, setJourneyDetail] = useState<JourneyDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -295,6 +322,25 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     });
   };
 
+  const loadJourneys = async () => {
+    setLoading(true);
+    try {
+      const data = await fetchJson<{ sessions: JourneySession[] }>('/journeys?limit=50');
+      setJourneys(data.sessions || []);
+    } catch { setError('Failed to load journeys.'); }
+    setLoading(false);
+  };
+
+  const loadJourneyDetail = async (sessionId: string) => {
+    setLoading(true);
+    try {
+      const data = await fetchJson<JourneyDetail>(`/journeys/${sessionId}`);
+      setJourneyDetail(data);
+      setView('journey-detail');
+    } catch { setError('Failed to load journey detail.'); }
+    setLoading(false);
+  };
+
   const loadUserDetail = async (userId: string) => {
     setLoading(true);
     try {
@@ -311,6 +357,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     if (view === 'users' && !usersList) loadUsers();
     if (view === 'activity' && activityList.length === 0) loadActivity();
     if (view === 'traffic' && !traffic) loadTraffic();
+    if (view === 'journey' && journeys.length === 0) loadJourneys();
   }, [view]);
 
   if (error === 'Access denied — admin only.') {
@@ -331,6 +378,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'traffic', label: 'Traffic', icon: Globe },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'activity', label: 'Activity', icon: Activity },
+    { id: 'journey', label: 'Journey', icon: TrendingUp },
   ];
 
   return (
@@ -346,6 +394,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
             if (view === 'overview') loadOverview();
             else if (view === 'traffic') loadTraffic();
             else if (view === 'users') loadUsers();
+            else if (view === 'journey' || view === 'journey-detail') loadJourneys();
             else loadActivity();
           }}
           className="ml-auto p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
@@ -850,6 +899,133 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ========== Journey ========== */}
+        {view === 'journey' && (
+          <div className="max-w-5xl mx-auto">
+            <div className="text-xs text-text-tertiary mb-3">
+              Every visitor's full session — from landing to exit. Click a session to see the timeline.
+            </div>
+            <div className="space-y-1">
+              {journeys.map((s) => {
+                const isStLouis = s.region === 'Missouri' || s.city?.includes('St. Louis') || s.city?.includes('Saint Louis');
+                const dur = s.duration_seconds;
+                const durLabel = dur < 60 ? `${dur}s` : `${Math.floor(dur / 60)}m ${dur % 60}s`;
+                const hasEngagement = s.event_types.some(e =>
+                  ['prompt_submit', 'play_audio', 'focus_input', 'chat_auto_send', 'first_ai_response'].includes(e)
+                );
+                return (
+                  <button
+                    key={s.session_id}
+                    onClick={() => loadJourneyDetail(s.session_id)}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-4 py-3 rounded-xl glass-pill text-left transition-all hover:bg-black/[0.03]',
+                      isStLouis && 'border border-dashed border-blue-200 bg-blue-50/30',
+                      hasEngagement && !isStLouis && 'border border-green-200 bg-green-50/20'
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-text-primary flex items-center gap-1.5">
+                        {s.city || 'Unknown'}{s.region ? `, ${s.region}` : ''}{s.country ? ` · ${s.country}` : ''}
+                        {isStLouis && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">You</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-text-tertiary mt-0.5 flex flex-wrap gap-1">
+                        {s.event_types.filter(e => e !== 'engaged' && e !== 'exit').map(e => (
+                          <span key={e} className={cn(
+                            'px-1.5 py-0.5 rounded-full',
+                            ['prompt_submit', 'chat_auto_send', 'first_ai_response'].includes(e)
+                              ? 'bg-green-100 text-green-700'
+                              : e === 'play_audio' ? 'bg-purple-100 text-purple-700'
+                              : e === 'focus_input' ? 'bg-amber-100 text-amber-700'
+                              : 'bg-black/[0.04] text-text-tertiary'
+                          )}>{e.replace(/_/g, ' ')}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-xs font-medium text-text-primary">{durLabel}</div>
+                      <div className="text-[10px] text-text-tertiary">{s.event_count} events</div>
+                      <div className="text-[10px] text-text-tertiary">{timeAgo(s.started_at)}</div>
+                    </div>
+                    <ChevronRight size={14} className="text-text-tertiary flex-shrink-0" />
+                  </button>
+                );
+              })}
+              {journeys.length === 0 && !loading && (
+                <div className="text-center text-sm text-text-tertiary py-8">No journeys recorded yet. Give it a few minutes of traffic.</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========== Journey Detail ========== */}
+        {view === 'journey-detail' && journeyDetail && (
+          <div className="max-w-3xl mx-auto">
+            <button
+              onClick={() => setView('journey')}
+              className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-primary mb-4"
+            >
+              <ArrowLeft size={14} /> Back to journeys
+            </button>
+            <div className="glass-pill px-4 py-3 rounded-xl mb-4">
+              <div className="text-sm font-medium">
+                {journeyDetail.city || 'Unknown'}{journeyDetail.region ? `, ${journeyDetail.region}` : ''}{journeyDetail.country ? ` · ${journeyDetail.country}` : ''}
+              </div>
+              <div className="text-[11px] text-text-tertiary mt-1">
+                Duration: {journeyDetail.durationSeconds < 60 ? `${journeyDetail.durationSeconds}s` : `${Math.floor(journeyDetail.durationSeconds / 60)}m ${journeyDetail.durationSeconds % 60}s`}
+                {' · '}{journeyDetail.eventCount} events
+                {' · '}{new Date(journeyDetail.startedAt).toLocaleString()}
+              </div>
+            </div>
+            <div className="space-y-0.5">
+              {journeyDetail.events.map((e, i) => {
+                const ts = new Date(e.timestamp);
+                const prevTs = i > 0 ? new Date(journeyDetail.events[i - 1].timestamp) : ts;
+                const gap = Math.round((ts.getTime() - prevTs.getTime()) / 1000);
+                const isKey = ['prompt_submit', 'chat_auto_send', 'first_ai_response', 'prompt_redirect_arrived', 'play_audio'].includes(e.event);
+                return (
+                  <div key={i} className="flex gap-3 items-start">
+                    {/* Timeline line */}
+                    <div className="flex flex-col items-center flex-shrink-0 w-8">
+                      <div className={cn(
+                        'w-2.5 h-2.5 rounded-full mt-1.5',
+                        isKey ? 'bg-green-500' : e.event === 'exit' ? 'bg-red-400' : 'bg-black/20'
+                      )} />
+                      {i < journeyDetail.events.length - 1 && (
+                        <div className="w-px flex-1 bg-black/10 min-h-[1.5rem]" />
+                      )}
+                    </div>
+                    <div className="flex-1 pb-3">
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          'text-xs font-medium',
+                          isKey ? 'text-green-700' : e.event === 'exit' ? 'text-red-600' : 'text-text-primary'
+                        )}>
+                          {e.event.replace(/_/g, ' ')}
+                        </span>
+                        <span className="text-[10px] text-text-tertiary">
+                          {i > 0 ? `+${gap}s` : '0s'}
+                        </span>
+                        {e.page && <span className="text-[10px] text-text-tertiary">{e.page}</span>}
+                      </div>
+                      {e.data && Object.keys(e.data).length > 0 && (
+                        <div className="text-[11px] text-text-tertiary mt-0.5 flex flex-wrap gap-1">
+                          {Object.entries(e.data).map(([k, v]) => (
+                            <span key={k} className="px-1.5 py-0.5 rounded bg-black/[0.04]">
+                              {k}: {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
