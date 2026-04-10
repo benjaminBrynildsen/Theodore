@@ -50,16 +50,16 @@
     /* Hero */
     .hero {
       flex: 1; display: flex; flex-direction: column; align-items: center;
-      padding: 3rem 1.5rem 4rem; text-align: center; max-width: 48rem; margin: 0 auto; width: 100%;
+      padding: 2rem 1.5rem 3rem; text-align: center; max-width: 48rem; margin: 0 auto; width: 100%;
     }
     .badge {
       display: inline-flex; align-items: center; gap: 0.375rem;
       font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.2em;
-      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 1.5rem;
+      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 1.25rem;
     }
     h1 {
-      font-size: clamp(2.2rem, 6vw, 4rem); line-height: 1.06;
-      letter-spacing: -0.025em; margin-bottom: 1rem;
+      font-size: clamp(2rem, 5.5vw, 3.5rem); line-height: 1.08;
+      letter-spacing: -0.025em; margin-bottom: 0.75rem;
     }
     h1 .word {
       display: inline-block; font-weight: 500;
@@ -71,17 +71,53 @@
     }
     .tagline {
       font-size: 1rem; color: rgba(0,0,0,0.5); line-height: 1.6;
-      max-width: 28rem; margin-bottom: 2rem;
+      max-width: 28rem; margin-bottom: 1.5rem;
     }
     @media (min-width: 640px) {
-      .hero { padding: 5rem 2.5rem; justify-content: center; }
+      .hero { padding: 3.5rem 2.5rem 4rem; justify-content: center; }
       .tagline { font-size: 1.125rem; }
       header { padding: 1.25rem 2.5rem; }
     }
 
+    /* Prompt cards — ABOVE the input */
+    .prompt-section-label {
+      font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.12em; color: rgba(0,0,0,0.3); margin-bottom: 0.75rem;
+    }
+    .prompt-cards {
+      display: grid; grid-template-columns: 1fr; gap: 0.5rem;
+      width: 100%; max-width: 32rem; margin-bottom: 1.5rem;
+    }
+    @media (min-width: 480px) {
+      .prompt-cards { grid-template-columns: 1fr 1fr; }
+      .prompt-cards .prompt-card:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+      }
+    }
+    .prompt-card {
+      display: flex; flex-direction: column; gap: 0.25rem;
+      padding: 0.875rem 1rem; border-radius: 0.875rem;
+      border: 1px solid rgba(0,0,0,0.08); background: rgba(255,255,255,0.7);
+      cursor: pointer; transition: all 0.2s; text-align: left;
+      font-family: inherit;
+    }
+    .prompt-card:hover {
+      border-color: rgba(0,0,0,0.15); background: #fff;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06); transform: translateY(-1px);
+    }
+    .prompt-card:active { transform: translateY(0); }
+    .prompt-card .genre {
+      font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: rgba(0,0,0,0.3);
+    }
+    .prompt-card .text {
+      font-size: 0.8125rem; line-height: 1.45; color: rgba(0,0,0,0.7);
+    }
+
     /* Input box */
+    .input-section { width: 100%; max-width: 32rem; }
     .input-wrap {
-      width: 100%; max-width: 32rem;
+      width: 100%;
       border-radius: 1rem; background: #1c1c1e;
       box-shadow: 0 8px 40px rgba(0,0,0,0.15); overflow: hidden;
     }
@@ -104,24 +140,22 @@
       .input-wrap textarea { font-size: 0.875rem; }
     }
 
-    /* Hints */
-    .hint {
-      margin-top: 0.75rem; font-size: 0.75rem; color: rgba(0,0,0,0.35);
-      font-style: italic;
+    /* What happens next */
+    .next-step {
+      margin-top: 0.875rem; font-size: 0.8125rem; color: rgba(0,0,0,0.4);
+      line-height: 1.5;
     }
-    .prompts { display: flex; flex-direction: column; gap: 0.375rem; margin-top: 0.75rem; }
-    .prompt-pill {
-      font-size: 0.6875rem; padding: 0.375rem 0.75rem;
-      border-radius: 9999px; border: 1px solid rgba(0,0,0,0.08);
-      color: rgba(0,0,0,0.45); background: transparent; cursor: pointer;
-      text-align: left; transition: all 0.15s; font-family: inherit;
+    .next-step strong { color: rgba(0,0,0,0.6); font-weight: 600; }
+
+    /* Or divider */
+    .or-divider {
+      display: flex; align-items: center; gap: 0.75rem;
+      width: 100%; max-width: 32rem; margin: 0.25rem 0;
+      font-size: 0.6875rem; color: rgba(0,0,0,0.25); text-transform: uppercase;
+      letter-spacing: 0.1em; font-weight: 600;
     }
-    .prompt-pill:hover {
-      color: rgba(0,0,0,0.7); border-color: rgba(0,0,0,0.15);
-      background: rgba(255,255,255,0.6);
-    }
-    @media (min-width: 640px) {
-      .prompts { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+    .or-divider::before, .or-divider::after {
+      content: ''; flex: 1; height: 1px; background: rgba(0,0,0,0.08);
     }
 
     /* Features */
@@ -159,7 +193,7 @@
       padding: 1.5rem; text-align: center; font-size: 0.75rem; color: rgba(0,0,0,0.3);
     }
 
-    /* Icons — inline SVGs */
+    /* Icons */
     .icon { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
     .icon-sm { width: 16px; height: 16px; }
     .icon-xs { width: 12px; height: 12px; }
@@ -186,25 +220,49 @@
     </h1>
     <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}</style>
 
-    <p class="tagline">Type one sentence. Theodore turns it into a novel — then reads it to you.</p>
+    <p class="tagline">Type one sentence. Get a full novel and audiobook. Free.</p>
 
-    <div style="width:100%;max-width:32rem">
+    <!-- Prompt cards — tappable, ABOVE the input -->
+    <p class="prompt-section-label">Tap one to try it</p>
+    <div class="prompt-cards">
+      <button class="prompt-card" data-prompt="A librarian finds a book that rewrites itself every night — and the new chapters are coming true.">
+        <span class="genre">Fantasy</span>
+        <span class="text">A librarian finds a book that rewrites itself every night — and the new chapters are coming true.</span>
+      </button>
+      <button class="prompt-card" data-prompt="A detective realizes every missing person case in her town leads back to the same house — her childhood home.">
+        <span class="genre">Thriller</span>
+        <span class="text">A detective realizes every missing person case leads back to one house — her childhood home.</span>
+      </button>
+      <button class="prompt-card" data-prompt="Two strangers keep getting seated next to each other on flights. By the fifth time, they stop pretending it's coincidence.">
+        <span class="genre">Romance</span>
+        <span class="text">Two strangers keep getting seated next to each other on flights. By the fifth time, they stop pretending it's coincidence.</span>
+      </button>
+      <button class="prompt-card" data-prompt="The last human alive discovers she's been dead for 200 years — and someone has been running her simulation the entire time.">
+        <span class="genre">Sci-Fi</span>
+        <span class="text">The last human alive discovers she's been dead for 200 years — and someone's been running her simulation the entire time.</span>
+      </button>
+      <button class="prompt-card" data-prompt="A therapist's newest patient describes dreams that perfectly match the therapist's own memories.">
+        <span class="genre">Horror</span>
+        <span class="text">A therapist's newest patient describes dreams that perfectly match the therapist's own memories.</span>
+      </button>
+    </div>
+
+    <div class="or-divider">or write your own</div>
+
+    <!-- Input box — pre-filled with a random prompt -->
+    <div class="input-section">
       <form id="promptForm" class="input-wrap" onsubmit="return false;">
         <div class="input-inner">
           <textarea id="promptInput" placeholder="Describe your story idea..." rows="3"></textarea>
-          <button type="submit" id="submitBtn" class="submit-btn">
+          <button type="submit" id="submitBtn" class="submit-btn active">
             <svg class="icon-sm" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
           </button>
         </div>
       </form>
 
-      <p class="hint">Don't overthink it — even one sentence is enough.</p>
-
-      <div class="prompts">
-        <button class="prompt-pill" data-prompt="A grief-struck botanist finds a greenhouse that should not exist.">"A grief-struck botanist finds a greenhouse that should not exist."</button>
-        <button class="prompt-pill" data-prompt="Southern gothic. Humid. Suspicious.">"Southern gothic. Humid. Suspicious."</button>
-        <button class="prompt-pill" data-prompt="A prodigal son returns home and learns the town has been waiting.">"A prodigal son returns home and learns the town has been waiting."</button>
-      </div>
+      <p class="next-step">
+        Hit enter <strong>→ full novel + audiobook in ~60 seconds.</strong> Free. No account needed.
+      </p>
     </div>
   </section>
 
@@ -245,17 +303,29 @@
     var btn = document.getElementById('submitBtn');
     var form = document.getElementById('promptForm');
 
+    // Pre-fill with a random prompt so the box is never empty
+    var prompts = [
+      'A librarian finds a book that rewrites itself every night — and the new chapters are coming true.',
+      'A detective realizes every missing person case in her town leads back to the same house — her childhood home.',
+      'Two strangers keep getting seated next to each other on flights. By the fifth time, they stop pretending it\'s coincidence.',
+      'The last human alive discovers she\'s been dead for 200 years — and someone has been running her simulation the entire time.',
+      'A therapist\'s newest patient describes dreams that perfectly match the therapist\'s own memories.',
+    ];
+    input.value = prompts[Math.floor(Math.random() * prompts.length)];
+
     // Toggle submit button style
     input.addEventListener('input', function(){
       btn.classList.toggle('active', input.value.trim().length > 0);
     });
 
-    // Prompt pills
-    document.querySelectorAll('.prompt-pill').forEach(function(pill){
-      pill.addEventListener('click', function(){
-        input.value = pill.getAttribute('data-prompt');
-        input.focus();
+    // Prompt cards — tap to fill AND auto-submit
+    document.querySelectorAll('.prompt-card').forEach(function(card){
+      card.addEventListener('click', function(){
+        var text = card.getAttribute('data-prompt');
+        input.value = text;
         btn.classList.add('active');
+        // Brief flash so they see it filled, then go
+        setTimeout(go, 150);
       });
     });
 
@@ -263,7 +333,6 @@
     function go(){
       var text = input.value.trim();
       if(!text) return;
-      // Track the engagement event
       if(window.fbq) fbq('trackCustom','StartGuestChat');
       preserved.set('prompt', text);
       window.location.href = '/?' + preserved.toString();
