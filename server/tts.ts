@@ -269,72 +269,53 @@ export async function getFishVoicesWithPreviews(): Promise<(FishAudioVoiceInfo &
 function addFishPacing(text: string): string {
   let result = text;
 
-  // 0. Protect common abbreviations from being treated as sentence endings
+  // Fish Audio S2-pro docs confirm only [pause] as a tag.
+  // For longer pauses, use punctuation: "..." creates natural breaks.
+  // normalize must be false (set in callFishAudioTTS) for tags to work.
+
+  // 0. Protect common abbreviations
   const abbrevs = ['Mr', 'Mrs', 'Ms', 'Dr', 'St', 'Jr', 'Sr', 'Prof', 'Gen', 'Gov', 'Sgt', 'Cpl', 'Lt', 'Col', 'Capt', 'Rev', 'vs', 'etc', 'approx'];
   for (const a of abbrevs) {
-    result = result.replace(new RegExp(`\\b${a}\\.`, 'g'), `${a}\u00B7`); // temp marker
+    result = result.replace(new RegExp(`\\b${a}\\.`, 'g'), `${a}\u00B7`);
   }
 
-  // All possible closing quote characters:
   const closeQuotes = '[""\u201D\u201C\'\u2019\u2018\u00BB)\\]]';
 
-  // 1. Sentence boundaries — punctuation + optional closing quote(s) + space(s)
-  //    Use [ \t]+ (not \s+) so we DON'T eat newlines — paragraph breaks handled separately
-  const sentenceEnd = new RegExp(`([.!?])(${closeQuotes}?)[ \\t]+`, 'g');
-  result = result.replace(sentenceEnd, '$1$2\n[pause]\n');
+  // 1. Every sentence boundary → [pause] tag
+  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)[ \\t]+`, 'g'), '$1$2 [pause] ');
+  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\n|\\[)`, 'g'), '$1$2 [pause] ');
+  // Double closing quotes
+  result = result.replace(new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})[ \\t]+`, 'g'), '$1$2$3 [pause] ');
 
-  // 1b. Sentence ends at single newlines (not paragraph breaks)
-  const sentenceEndNl = new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\n|\\[)`, 'g');
-  result = result.replace(sentenceEndNl, '$1$2\n[pause]\n');
-
-  // 2c. Multiple closing quotes: ?"' or ."") — catch the second quote too
-  const doubleClose = new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})[ \\t]+`, 'g');
-  result = result.replace(doubleClose, '$1$2$3\n[pause]\n');
-
-  // 3. Before opening dialogue quotes → long pause (narrator → character shift)
-  //    Only upgrade if next char is an opening quote AND is followed by uppercase (new speaker)
+  // 2. Before/after dialogue → double [pause] for longer break
   const openQuotes = '[""\u201C\u2018\u00AB]';
-  result = result.replace(new RegExp(`\\[pause\\]\\n(${openQuotes}[A-Z])`, 'g'), '[long pause]\n$1');
+  result = result.replace(new RegExp(`\\[pause\\] (${openQuotes}[A-Z])`, 'g'), '[pause] [pause] $1');
+  result = result.replace(new RegExp(`(${closeQuotes}[.!?]) \\[pause\\] ([A-Z])`, 'g'), '$1 [pause] [pause] $2');
+  // Dialogue comma attribution
+  result = result.replace(/(["\u201D\u201C]),?\s+([a-z])/g, '$1, [pause] $2');
 
-  // 4. After closing dialogue + punctuation → long pause ONLY before uppercase (new sentence, not attribution)
-  //    "Run!" She turned. → long pause (new sentence)
-  //    "Run!" she screamed. → keep as [pause] (attribution)
-  result = result.replace(new RegExp(`(${closeQuotes}[.!?])\\n\\[pause\\]\\n([A-Z])`, 'g'), '$1\n[long pause]\n$2');
+  // 3. Em dashes
+  result = result.replace(/\s*—\s*/g, ' [pause] ');
 
-  // 4b. Dialogue with comma attribution: "Get out," he said. → pause after closing-quote + comma
-  //     Only match closing double quotes + comma (not single quotes which could be apostrophes)
-  result = result.replace(/(["\u201D\u201C]),?\s+([a-z])/g, '$1,\n[pause]\n$2');
+  // 4. Semicolons and colons
+  result = result.replace(/;\s*/g, '; [pause] ');
+  result = result.replace(/:\s+/g, ': [pause] ');
 
-  // 5. Em dashes → short pause
-  result = result.replace(/\s*—\s*/g, '\n[pause]\n');
+  // 5. Ellipsis → pause
+  result = result.replace(/\.{3}/g, ' [pause] ');
+  result = result.replace(/…/g, ' [pause] ');
 
-  // 6. Semicolons and colons → breath pause
-  result = result.replace(/;\s*/g, ';\n[pause]\n');
-  result = result.replace(/:\s+/g, ':\n[short pause]\n');
+  // 6. Paragraph breaks → triple [pause] for scene-change feel
+  result = result.replace(/\n\n+/g, ' [pause] [pause] [pause] ');
 
-  // 7. Existing ellipsis → pause
-  result = result.replace(/\.{3}/g, '[pause]');
-  result = result.replace(/…/g, '[pause]');
+  // 7. Direction tags
+  result = result.replace(/\[dramatic pause\]/gi, '[pause] [pause]');
 
-  // 8. Long comma clauses (comma followed by 30+ chars before next punctuation)
-  //    "She walked to the door, her hand trembling as she reached for the knob."
-  //    Add a breath after the comma
-  result = result.replace(/,\s+(?=[a-z].{25,}?[.!?])/g, ',\n[short pause]\n');
+  // Deduplicate: max 3 consecutive [pause] tags
+  result = result.replace(/(\[pause\]\s*){4,}/g, '[pause] [pause] [pause] ');
 
-  // 9. Convert our existing direction tags
-  result = result.replace(/\[dramatic pause\]/gi, '[long pause]');
-
-  // 10. Paragraph breaks — run LAST so \n\n boundaries aren't eaten by earlier rules
-  //     Any remaining \n\n (original paragraph breaks) get long pauses
-  result = result.replace(/\n\n+/g, '\n[long pause]\n[long pause]\n');
-
-  // Deduplicate adjacent short pauses → upgrade to long pause
-  result = result.replace(/(\[(?:short )?pause\]\s*\n?\s*){2,}/g, '[long pause]\n');
-  // Allow max 2 long pauses (paragraph breaks), collapse 3+
-  result = result.replace(/(\[long pause\]\s*\n?\s*){3,}/g, '[long pause]\n[long pause]\n');
-
-  // Clean up excessive whitespace but keep newlines around pauses
-  result = result.replace(/\n{3,}/g, '\n\n');
+  // Clean up extra spaces
+  result = result.replace(/  +/g, ' ');
 
   // Restore abbreviation periods
   result = result.replace(/\u00B7/g, '.');
@@ -352,8 +333,8 @@ function buildChapterAnnouncement(
   switch (provider) {
     case 'fish':
       return t
-        ? `Chapter ${number}.\n... ... ...\n\n${t}.\n... ... ...\n... ... ...\n\n`
-        : `Chapter ${number}.\n... ... ...\n... ... ...\n\n`;
+        ? `Chapter ${number}. [pause] [pause] [pause] ${t}. [pause] [pause] [pause] [pause] `
+        : `Chapter ${number}. [pause] [pause] [pause] [pause] `;
     case 'openai':
       return t
         ? `Chapter ${number}.\n\n\n${t}.\n\n\n\n`
@@ -396,7 +377,7 @@ async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> 
     reference_id: voiceId,
     format: 'mp3',
     mp3_bitrate: 192,
-    normalize: true,
+    normalize: false,
     latency: 'normal',
   });
 
@@ -1077,14 +1058,15 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const validChunks = chunks.filter(c => c.replace(/[.\s,;:!?\-—]/g, '').length > 0);
     ttsLog(`Fish Audio TTS: ${validChunks.length} valid chunks (${chunks.length - validChunks.length} empty removed)`);
 
-    // Generate all chunks in parallel — Fish allows 5 concurrent requests
-    const audioBuffers = await Promise.all(
-      validChunks.map(async (chunk, ci) => {
-        const buf = await callFishAudioTTS(chunk, fishVoiceId);
-        req.onProgress?.(Math.round(((ci + 1) / validChunks.length) * 100));
-        return buf;
-      })
-    );
+    // Generate chunks sequentially — concurrency is handled at the scene level
+    // (multiple scenes run in parallel, so each scene's chunks must be sequential
+    // to avoid exceeding Fish Audio's 5 concurrent request limit)
+    const audioBuffers: Buffer[] = [];
+    for (let ci = 0; ci < validChunks.length; ci++) {
+      const buf = await callFishAudioTTS(validChunks[ci], fishVoiceId);
+      audioBuffers.push(buf);
+      req.onProgress?.(Math.round(((ci + 1) / validChunks.length) * 100));
+    }
 
     // Insert 0.8s of silence between chunks for natural paragraph pauses.
     // MP3 silence: a valid silent MPEG frame repeated. We use ffmpeg-generated

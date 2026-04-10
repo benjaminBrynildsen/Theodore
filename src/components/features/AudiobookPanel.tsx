@@ -1036,29 +1036,38 @@ export function AudiobookPanel() {
         // Auto-play scene 1
         window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId } }));
 
-        // ── Remaining scenes: generate in parallel ──
+        // ── Remaining scenes: generate in batches of 3 (Fish Audio limit is 5 concurrent) ──
         useGenerationStore.getState().setSubtitle(`Scenes 2-${scenes.length} generating…`);
 
-        const remainingResults = await Promise.all(
-          scenes.slice(1).map(async (scene: any, idx: number) => {
-            const sceneSFX = (scene.sfx || []).map((sfx: any) => ({
-              prompt: sfx.prompt, audioUrl: sfx.audioUrl, position: sfx.position, enabled: sfx.enabled,
-            }));
-            return api.ttsGenerate({
-              chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
-              prose: scene.prose,
-              narratorVoice,
-              characterVoices: effectiveCharacterVoices,
-              characterDescriptions: effectiveCharacterDescriptions,
-              model: ttsModel,
-              provider,
-              speed: (provider === 'openai' || provider === 'fish') ? 1.0 : speed,
-              multiVoice: effectiveMultiVoice,
-              sceneSFX,
-              isGuest,
-            });
-          })
-        );
+        const remaining = scenes.slice(1);
+        const BATCH_SIZE = 3;
+        const remainingResults: Awaited<ReturnType<typeof api.ttsGenerate>>[] = [];
+
+        for (let b = 0; b < remaining.length; b += BATCH_SIZE) {
+          const batch = remaining.slice(b, b + BATCH_SIZE);
+          const batchResults = await Promise.all(
+            batch.map(async (scene: any) => {
+              const sceneSFX = (scene.sfx || []).map((sfx: any) => ({
+                prompt: sfx.prompt, audioUrl: sfx.audioUrl, position: sfx.position, enabled: sfx.enabled,
+              }));
+              return api.ttsGenerate({
+                chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
+                prose: scene.prose,
+                narratorVoice,
+                characterVoices: effectiveCharacterVoices,
+                characterDescriptions: effectiveCharacterDescriptions,
+                model: ttsModel,
+                provider,
+                speed: (provider === 'openai' || provider === 'fish') ? 1.0 : speed,
+                multiVoice: effectiveMultiVoice,
+                sceneSFX,
+                isGuest,
+              });
+            })
+          );
+          remainingResults.push(...batchResults);
+          useGenerationStore.getState().setSubtitle(`${b + batch.length + 1} of ${scenes.length} scenes done…`);
+        }
 
         // Append remaining scene URLs in order
         for (let i = 0; i < remainingResults.length; i++) {
