@@ -397,50 +397,6 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-// TEMP: Test Fish Audio pause approaches — compare file sizes to find what works
-app.get('/api/debug/fish-pause-test', async (req, res) => {
-  if (req.query.key !== 'theodore-debug-2026') return res.status(403).json({ error: 'forbidden' });
-  const apiKey = process.env.FISH_AUDIO_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'No FISH_AUDIO_API_KEY' });
-
-  const { encode: msgpack } = await import('@msgpack/msgpack');
-  const voiceId = 'bf322df2096a46f18c579d0baa36f41d'; // Adrian
-
-  const tests: [string, string, boolean][] = [
-    ['no-pause', 'The door opened. She walked inside.', true],
-    ['break-norm-false', 'The door opened. (break) (break) (break) She walked inside.', false],
-    ['long-break-norm-false', 'The door opened. (long-break) (long-break) She walked inside.', false],
-    ['ellipsis-norm-true', 'The door opened. ... ... ... She walked inside.', true],
-    ['newlines-norm-true', 'The door opened.\n\n\n\nShe walked inside.', true],
-    ['period-chain', 'The door opened. . . . . . She walked inside.', true],
-    ['um-pause', 'The door opened. um... um... She walked inside.', true],
-    ['break-norm-true', 'The door opened. (break) (break) (break) She walked inside.', true],
-  ];
-
-  const results: any[] = [];
-  for (const [label, text, normalize] of tests) {
-    try {
-      const body = msgpack({
-        text, reference_id: voiceId, format: 'mp3', mp3_bitrate: 128, normalize, latency: 'normal',
-      });
-      const start = Date.now();
-      const r = await fetch('https://api.fish.audio/v1/tts', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/msgpack', 'model': 's2-pro' },
-        body,
-      });
-      if (!r.ok) { results.push({ label, error: r.status }); continue; }
-      const buf = Buffer.from(await r.arrayBuffer());
-      const ms = Date.now() - start;
-      // Rough duration estimate: MP3 at 128kbps = 16KB/sec
-      const estSeconds = (buf.length / 16000).toFixed(1);
-      results.push({ label, bytes: buf.length, ms, estSeconds, normalize, text });
-    } catch (e: any) {
-      results.push({ label, error: e.message });
-    }
-  }
-  res.json({ results, note: 'Longer estSeconds = more pause = working' });
-});
 
 // Debug TTS test endpoint (remove after debugging)
 app.get('/api/debug/tts-test', async (req, res) => {

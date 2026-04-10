@@ -269,12 +269,14 @@ export async function getFishVoicesWithPreviews(): Promise<(FishAudioVoiceInfo &
 function addFishPacing(text: string): string {
   let result = text;
 
-  // Fish Audio S2-pro: Tags like (break) and [pause] are unreliable.
-  // Instead, use PUNCTUATION for pacing — Fish naturally pauses at:
-  //   periods, commas, ellipsis, and line breaks.
-  // Multiple periods/ellipsis create longer pauses.
+  // A/B test CONFIRMED: (break) creates real pauses in Fish Audio S2-pro.
+  // (long-break) does NOT work. Stack multiple (break) for longer pauses.
+  // Works with both normalize=true and normalize=false.
 
-  // 0. Protect common abbreviations
+  // 0. Strip asterisks (narrator reads them aloud)
+  result = result.replace(/\*/g, '');
+
+  // 1. Protect common abbreviations
   const abbrevs = ['Mr', 'Mrs', 'Ms', 'Dr', 'St', 'Jr', 'Sr', 'Prof', 'Gen', 'Gov', 'Sgt', 'Cpl', 'Lt', 'Col', 'Capt', 'Rev', 'vs', 'etc', 'approx'];
   for (const a of abbrevs) {
     result = result.replace(new RegExp(`\\b${a}\\.`, 'g'), `${a}\u00B7`);
@@ -282,42 +284,40 @@ function addFishPacing(text: string): string {
 
   const closeQuotes = '[""\u201D\u201C\'\u2019\u2018\u00BB)\\]]';
 
-  // 1. Every sentence boundary → period + ellipsis for natural pause
-  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)[ \\t]+`, 'g'), '$1$2 ... ');
-  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\n)`, 'g'), '$1$2 ... ');
-  // Double closing quotes
-  result = result.replace(new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})[ \\t]+`, 'g'), '$1$2$3 ... ');
+  // 2. Every sentence boundary → (break)
+  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)[ \\t]+`, 'g'), '$1$2 (break) ');
+  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\n)`, 'g'), '$1$2 (break) ');
+  result = result.replace(new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})[ \\t]+`, 'g'), '$1$2$3 (break) ');
 
-  // 2. Before/after dialogue → longer pause (double ellipsis)
+  // 3. Before/after dialogue → double (break)
   const openQuotes = '[""\u201C\u2018\u00AB]';
-  result = result.replace(new RegExp(`\\.\\.\\. (${openQuotes})`, 'g'), '... ... $1');
-  result = result.replace(new RegExp(`(${closeQuotes}[.!?]) \\.\\.\\. ([A-Z])`, 'g'), '$1 ... ... $2');
-  // Dialogue comma attribution
-  result = result.replace(/(["\u201D\u201C]),?\s+([a-z])/g, '$1, ... $2');
+  result = result.replace(new RegExp(`\\(break\\) (${openQuotes})`, 'g'), '(break) (break) $1');
+  result = result.replace(new RegExp(`(${closeQuotes}[.!?]) \\(break\\) ([A-Z])`, 'g'), '$1 (break) (break) $2');
+  result = result.replace(/(["\u201D\u201C]),?\s+([a-z])/g, '$1, (break) $2');
 
-  // 3. Em dashes → ellipsis
-  result = result.replace(/\s*—\s*/g, ' ... ');
+  // 4. Em dashes
+  result = result.replace(/\s*—\s*/g, ' (break) ');
 
-  // 4. Semicolons and colons
-  result = result.replace(/;\s+/g, '; ... ');
-  result = result.replace(/:\s+/g, ': ... ');
+  // 5. Semicolons and colons
+  result = result.replace(/;\s+/g, '; (break) ');
+  result = result.replace(/:\s+/g, ': (break) ');
 
-  // 5. Existing ellipsis → keep (already a pause)
+  // 6. Ellipsis → (break)
+  result = result.replace(/\.{3}/g, '(break)');
+  result = result.replace(/…/g, '(break)');
 
-  // 6. Paragraph breaks → strong pause (triple ellipsis on own line)
-  result = result.replace(/\n\n+/g, '\n... ... ...\n');
+  // 7. Paragraph breaks → triple (break) for scene-change feel
+  result = result.replace(/\n\n+/g, ' (break) (break) (break) ');
 
-  // 7. Strip any remaining bracket/paren tags that Fish won't understand
-  result = result.replace(/\[(pause|long pause|short pause|dramatic pause)\]/gi, '...');
-  result = result.replace(/\((break|long-break)\)/gi, '...');
+  // 8. Convert any remaining bracket tags
+  result = result.replace(/\[(pause|short pause)\]/gi, '(break)');
+  result = result.replace(/\[(long pause|dramatic pause)\]/gi, '(break) (break)');
 
-  // Collapse excessive ellipsis (max 3 in a row)
-  result = result.replace(/(\.\.\.[\s]*){4,}/g, '... ... ... ');
+  // Deduplicate: max 4 consecutive (break)
+  result = result.replace(/(\(break\)\s*){5,}/g, '(break) (break) (break) (break) ');
 
-  // Clean up extra spaces
+  // Clean up
   result = result.replace(/  +/g, ' ');
-
-  // Restore abbreviation periods
   result = result.replace(/\u00B7/g, '.');
 
   return result;
@@ -333,8 +333,8 @@ function buildChapterAnnouncement(
   switch (provider) {
     case 'fish':
       return t
-        ? `Chapter ${number}. ... ... ... ${t}. ... ... ... ... `
-        : `Chapter ${number}. ... ... ... ... `;
+        ? `Chapter ${number}. (break) (break) (break) ${t}. (break) (break) (break) (break) `
+        : `Chapter ${number}. (break) (break) (break) (break) `;
     case 'openai':
       return t
         ? `Chapter ${number}.\n\n\n${t}.\n\n\n\n`
@@ -377,7 +377,7 @@ async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> 
     reference_id: voiceId,
     format: 'mp3',
     mp3_bitrate: 192,
-    normalize: true,
+    normalize: false,
     latency: 'normal',
   });
 
@@ -948,6 +948,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   if ((req.provider || '').toLowerCase() === 'openai') {
     const clean = stripCharacterTags(req.prose)
       .replace(/\{sfx:[^}]+\}\s*/g, '')
+      .replace(/\*/g, '')
       .trim();
     const announcement = req.chapterNumber
       ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'openai')
