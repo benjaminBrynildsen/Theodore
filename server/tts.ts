@@ -352,8 +352,8 @@ function buildChapterAnnouncement(
   switch (provider) {
     case 'fish':
       return t
-        ? `Chapter ${number}. [long pause] [long pause] [long pause] ${t}. [long pause] [long pause] [long pause]\n\n`
-        : `Chapter ${number}. [long pause] [long pause] [long pause]\n\n`;
+        ? `Chapter ${number}.\n[long pause]\n[long pause]\n${t}.\n[long pause]\n[long pause]\n[long pause]\n[long pause]\n\n`
+        : `Chapter ${number}.\n[long pause]\n[long pause]\n[long pause]\n[long pause]\n\n`;
     case 'openai':
       return t
         ? `Chapter ${number}.\n\n\n${t}.\n\n\n\n`
@@ -949,7 +949,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const announcement = req.chapterNumber
       ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'openai')
       : '';
-    const paced = addTTSPacing(announcement + clean);
+    const paced = announcement + addTTSPacing(clean);
     const openaiSpeed = Math.max(0.5, Math.min(2.0, (req.speed ?? 1.0)));
 
     // OpenAI TTS has a ~4096 token input limit. Chunk long text by paragraphs
@@ -1028,7 +1028,8 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const announcement = req.chapterNumber
       ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'fish')
       : '';
-    const paced = addFishPacing(announcement + clean);
+    // Add announcement AFTER pacing so its pauses aren't deduplicated
+    const paced = announcement + addFishPacing(clean);
 
     // Smaller chunks + parallel generation for speed.
     // Fish Audio's concurrency limit is 5 (starter tier), so we target 3-5 chunks.
