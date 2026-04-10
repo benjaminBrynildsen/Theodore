@@ -223,7 +223,7 @@ function FeaturedBooksCarousel() {
       .catch(() => {});
   }, []);
 
-  const book = books[activeIdx];
+  const book = books[activeIdx] || null;
 
   const stopAudio = useCallback(() => {
     if (audioRef.current) {
@@ -255,8 +255,8 @@ function FeaturedBooksCarousel() {
       setPlaying(false);
       if (progressInterval.current) clearInterval(progressInterval.current);
     } else {
-      if (!audio.src || audio.src !== new URL(book.audioUrl, window.location.origin).href) {
-        audio.src = book.audioUrl;
+      if (!audio.src || audio.src !== new URL(book?.audioUrl || '', window.location.origin).href) {
+        audio.src = book?.audioUrl || '';
         audio.load();
       }
       audio.play().catch(() => {});
@@ -268,7 +268,7 @@ function FeaturedBooksCarousel() {
         }
       }, 250);
     }
-  }, [playing, book.audioUrl]);
+  }, [playing, book?.audioUrl]);
 
   const navigate = useCallback((dir: -1 | 1) => {
     stopAudio();
