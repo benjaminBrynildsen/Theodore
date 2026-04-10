@@ -1065,42 +1065,40 @@ ${childrensRule}`,
           console.warn('[Creation] Canon seeding failed (non-fatal):', e);
         }
 
-        // Cover generation (Gemini image) — works for both guests and signed-in
-        try {
-          useGenerationStore.getState().setSubtitle('Generating cover art…');
-          const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
-          const coverChapters = useStore.getState().chapters
-            .filter(c => c.projectId === projectId)
-            .slice(0, 3);
-          const coverHints = coverChapters
-            .map(c => c.premise?.purpose).filter(Boolean).join('; ').slice(0, 300)
-            || `${latestProject.title} novel`;
-          const { generateCover: genCover } = await import('../../lib/cover-gen-ai');
-          const coverUrl = await genCover(latestProject, coverHints);
-          useStore.getState().updateProject(projectId, { coverUrl });
-        } catch (e) {
-          console.warn('[Creation] Auto-cover failed (non-fatal):', e);
-        }
+        // Run cover generation + Chapter 1 generation IN PARALLEL
+        const coverPromise = (async () => {
+          try {
+            const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
+            const coverChapters = useStore.getState().chapters
+              .filter(c => c.projectId === projectId)
+              .slice(0, 3);
+            const coverHints = coverChapters
+              .map(c => c.premise?.purpose).filter(Boolean).join('; ').slice(0, 300)
+              || `${latestProject.title} novel`;
+            const { generateCover: genCover } = await import('../../lib/cover-gen-ai');
+            const coverUrl = await genCover(latestProject, coverHints);
+            useStore.getState().updateProject(projectId, { coverUrl });
+          } catch (e) {
+            console.warn('[Creation] Auto-cover failed (non-fatal):', e);
+          }
+        })();
 
-        // Auto-generate Chapter 1 prose — only for signed-in users (requires auth)
-        if (!isGuest) {
+        const ch1Promise = !isGuest ? (async () => {
           try {
             const ch1 = useStore.getState().chapters
               .filter(c => c.projectId === projectId)
               .sort((a, b) => a.number - b.number)[0];
             if (ch1 && !ch1.prose?.trim()) {
-              useGenerationStore.getState().setSubtitle('Writing Chapter 1…');
               const latestProject2 = useStore.getState().projects.find(p => p.id === projectId) || project;
               const allCh = useStore.getState().chapters.filter(c => c.projectId === projectId).sort((a, b) => a.number - b.number);
               const outlineContext = allCh.map(c => `Ch ${c.number}: ${c.title} — ${c.premise?.purpose || ''}`).join('\n');
 
               const TARGET_WORDS = 1500;
               let ch1Prose = '';
-              // Switch progress bar to determinate mode for word count tracking
               useGenerationStore.getState().start({
                 kind: 'generate-chapter',
                 label: `Ch. 1: ${ch1.title || 'Chapter 1'}`,
-                subtitle: `0 / ${TARGET_WORDS} words`,
+                subtitle: 'Generating cover + writing Chapter 1…',
                 indeterminate: false,
               });
 
@@ -1119,7 +1117,6 @@ ${childrensRule}`,
                   const pct = Math.min(99, Math.round((words / TARGET_WORDS) * 100));
                   useGenerationStore.getState().setProgress(pct);
                   useGenerationStore.getState().setSubtitle(`${words} / ${TARGET_WORDS} words`);
-                  // Live-update the chapter prose so the user can see it building
                   useStore.getState().updateChapter(ch1.id, { prose: ch1Prose });
                 },
               );
@@ -1134,7 +1131,10 @@ ${childrensRule}`,
           } catch (e) {
             console.warn('[Creation] Auto-generate Ch1 failed (non-fatal):', e);
           }
-        }
+        })() : Promise.resolve();
+
+        // Wait for both to finish
+        await Promise.all([coverPromise, ch1Promise]);
 
         useGenerationStore.getState().setPhase('done');
       })().catch((e) => {
