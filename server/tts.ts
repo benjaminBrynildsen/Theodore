@@ -267,24 +267,36 @@ export async function getFishVoicesWithPreviews(): Promise<(FishAudioVoiceInfo &
 function addFishPacing(text: string): string {
   let result = text;
 
-  // 1. Paragraph breaks → long pause on its own line
-  result = result.replace(/\n\n+/g, '\n\n[long pause]\n\n');
+  // 1. Paragraph breaks → double long pause for a real scene-change feel
+  result = result.replace(/\n\n+/g, '\n\n[long pause]\n[long pause]\n\n');
 
-  // 2. Every sentence boundary — catch ALL patterns:
-  //    period/excl/question + optional closing quote (double, single, curly) + whitespace
-  result = result.replace(/([.!?])([""\u201D'\u2019)\]]?)\s+/g, '$1$2\n[pause]\n');
+  // All possible closing quote characters:
+  // " (straight double), \u201D (curly double right), \u201C (curly double left — sometimes misused as close)
+  // ' (straight single), \u2019 (curly single right/apostrophe), \u2018 (curly single left)
+  // \u00BB (guillemet »), ) (paren), ] (bracket)
+  const closeQuotes = '[""\u201D\u201C\'\u2019\u2018\u00BB)\\]]';
 
-  // 2b. Catch sentence ends at newlines too (prose often uses \n between sentences)
-  result = result.replace(/([.!?])([""\u201D'\u2019)\]]?)\n(?!\[)/g, '$1$2\n[pause]\n');
+  // 2. Every sentence boundary — punctuation + optional closing quote(s) + whitespace
+  const sentenceEnd = new RegExp(`([.!?])(${closeQuotes}?)\\s+`, 'g');
+  result = result.replace(sentenceEnd, '$1$2\n[pause]\n');
+
+  // 2b. Same but at newlines (prose sometimes uses \n between sentences)
+  const sentenceEndNl = new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\[)`, 'g');
+  result = result.replace(sentenceEndNl, '$1$2\n[pause]\n');
+
+  // 2c. Multiple closing quotes: ?"' or ."") — catch the second quote too
+  const doubleClose = new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})\\s+`, 'g');
+  result = result.replace(doubleClose, '$1$2$3\n[pause]\n');
 
   // 3. Before opening dialogue quotes → long pause (narrator → character shift)
-  result = result.replace(/\[pause\]\n([""\u201C\u2018])/g, '[long pause]\n$1');
+  const openQuotes = '[""\u201C\u2018\u00AB]';
+  result = result.replace(new RegExp(`\\[pause\\]\\n(${openQuotes})`, 'g'), '[long pause]\n$1');
 
   // 4. After closing dialogue quotes → long pause (character → narrator shift)
-  result = result.replace(/([""\u201D\u2019'][.!?]?)\n\[pause\]\n([A-Z])/g, '$1\n[long pause]\n$2');
+  result = result.replace(new RegExp(`(${closeQuotes}[.!?,]?)\\n\\[pause\\]\\n([A-Z])`, 'g'), '$1\n[long pause]\n$2');
 
   // 4b. Dialogue with comma attribution: "Get out," he said. → pause after comma-quote
-  result = result.replace(/([""\u201D\u2019'],?)\s+([a-z])/g, '$1\n[pause]\n$2');
+  result = result.replace(new RegExp(`(${closeQuotes},?)\\s+([a-z])`, 'g'), '$1\n[pause]\n$2');
 
   // 5. Em dashes → short pause
   result = result.replace(/\s*—\s*/g, '\n[pause]\n');
@@ -305,9 +317,10 @@ function addFishPacing(text: string): string {
   // 9. Convert our existing direction tags
   result = result.replace(/\[dramatic pause\]/gi, '[long pause]');
 
-  // Deduplicate adjacent pauses
+  // Deduplicate adjacent short pauses → upgrade to long pause
   result = result.replace(/(\[(?:short )?pause\]\s*\n?\s*){2,}/g, '[long pause]\n');
-  result = result.replace(/(\[long pause\]\s*\n?\s*){2,}/g, '[long pause]\n');
+  // Allow max 2 long pauses (paragraph breaks), collapse 3+
+  result = result.replace(/(\[long pause\]\s*\n?\s*){3,}/g, '[long pause]\n[long pause]\n');
 
   // Clean up excessive whitespace but keep newlines around pauses
   result = result.replace(/\n{3,}/g, '\n\n');
