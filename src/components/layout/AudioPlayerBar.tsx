@@ -392,6 +392,9 @@ export function AudioPlayerBar() {
 
     try {
       const versionSuffix = `-v${Date.now()}`;
+      const { ttsProvider, ttsModel } = useAudioStore.getState();
+      const effectiveProvider = ttsProvider || 'fish';
+      const effectiveModel = ttsModel || 'fish-s2-pro';
 
       if (scenes.length > 1) {
         const firstScene = scenes[0];
@@ -402,9 +405,12 @@ export function AudioPlayerBar() {
           chapterId: `${chapterId}-scene-${firstScene.id}${versionSuffix}`,
           prose: firstScene.prose,
           narratorVoice,
-          model: 'eleven_v3',
-          speed,
+          model: effectiveModel,
+          provider: effectiveProvider,
+          speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
           sceneSFX: firstSceneSFX,
+          chapterNumber: chapter.number,
+          chapterTitle: chapter.title || undefined,
         });
 
         const audio = audioRef.current;
@@ -442,8 +448,9 @@ export function AudioPlayerBar() {
               chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
               prose: scene.prose,
               narratorVoice,
-              model: 'eleven_v3',
-              speed,
+              model: effectiveModel,
+              provider: effectiveProvider,
+              speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
               sceneSFX: sceneSFXData,
             });
             allUrls.push(sceneResult.audioUrl);
@@ -472,9 +479,12 @@ export function AudioPlayerBar() {
           chapterId: `${chapterId}${versionSuffix}`,
           prose: chapter.prose,
           narratorVoice,
-          model: 'eleven_v3',
-          speed,
+          model: effectiveModel,
+          provider: effectiveProvider,
+          speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
           sceneSFX: allSceneSFX,
+          chapterNumber: chapter.number,
+          chapterTitle: chapter.title || undefined,
         });
 
         addChapterAudio(chapterId, {

@@ -116,11 +116,11 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   miniPlayerVisible: false,
   sidebarPlayerVisible: false,
   chapterAudio: {},
-  narratorVoice: DEFAULT_NARRATOR_VOICE,
+  narratorVoice: 'fish:bf322df2096a46f18c579d0baa36f41d', // Adrian (Fish Audio) — deep & dramatic
   characterVoices: {},
   multiVoice: false,
-  ttsProvider: 'elevenlabs',
-  ttsModel: 'eleven_v3',
+  ttsProvider: 'fish',
+  ttsModel: 'fish-s2-pro',
   speed: 1.0,
   generating: null,
   error: null,
@@ -291,7 +291,6 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
     speed: state.speed,
     volume: state.volume,
   }),
-  // Migrate persisted state from OpenAI voices/models to ElevenLabs
   migrate: (persistedState: any, version: number) => {
     if (persistedState) {
       // Migrate narrator voice
@@ -310,10 +309,21 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
       if (persistedState.ttsModel) {
         persistedState.ttsModel = migrateModelId(persistedState.ttsModel);
       }
-      // Force multiVoice off (character voices not ready yet)
       persistedState.multiVoice = false;
+
+      // v4: Default to Fish Audio if still on ElevenLabs
+      if (version < 4) {
+        if (!persistedState.ttsProvider || persistedState.ttsProvider === 'elevenlabs') {
+          persistedState.ttsProvider = 'fish';
+          persistedState.ttsModel = 'fish-s2-pro';
+        }
+        // Migrate non-fish narrator voice to Fish Adrian
+        if (persistedState.narratorVoice && !persistedState.narratorVoice.startsWith('fish:') && !persistedState.narratorVoice.startsWith('openai:')) {
+          persistedState.narratorVoice = 'fish:bf322df2096a46f18c579d0baa36f41d'; // Adrian
+        }
+      }
     }
     return persistedState;
   },
-  version: 3,
+  version: 4,
 }));
