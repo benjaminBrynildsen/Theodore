@@ -1316,12 +1316,14 @@ app.post('/api/generate', async (req, res) => {
     if (user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
-    if (hasFreshLock(activeGenerationUsers, user.id)) {
+    // Skip lock for lightweight chat actions (plan-project = Imagine chat)
+    const skipLock = ['plan-project'].includes(action);
+    if (!skipLock && hasFreshLock(activeGenerationUsers, user.id)) {
       return res.status(429).json({ error: 'Generation already in progress for this account.' });
     }
 
-    activeGenerationUsers.set(user.id, Date.now());
-    res.on('close', () => { activeGenerationUsers.delete(user.id); });
+    if (!skipLock) activeGenerationUsers.set(user.id, Date.now());
+    if (!skipLock) res.on('close', () => { activeGenerationUsers.delete(user.id); });
     try {
       const result = await generate({
         prompt, systemPrompt, model, maxTokens, temperature,
@@ -1358,7 +1360,7 @@ app.post('/api/generate', async (req, res) => {
         },
       });
     } finally {
-      activeGenerationUsers.delete(user.id);
+      if (!skipLock) activeGenerationUsers.delete(user.id);
     }
   } catch (e: any) {
     console.error('Generate error:', e.message);
@@ -1441,13 +1443,13 @@ app.post('/api/generate/stream', async (req, res) => {
     if (user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
-    if (hasFreshLock(activeGenerationUsers, user.id)) {
+    const skipLockStream = ['plan-project'].includes(action);
+    if (!skipLockStream && hasFreshLock(activeGenerationUsers, user.id)) {
       return res.status(429).json({ error: 'Generation already in progress for this account.' });
     }
 
-    activeGenerationUsers.set(user.id, Date.now());
-    // Clean up lock if client disconnects mid-stream
-    res.on('close', () => { activeGenerationUsers.delete(user.id); });
+    if (!skipLockStream) activeGenerationUsers.set(user.id, Date.now());
+    if (!skipLockStream) res.on('close', () => { activeGenerationUsers.delete(user.id); });
     try {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -1491,7 +1493,7 @@ app.post('/api/generate/stream', async (req, res) => {
 
       res.end();
     } finally {
-      activeGenerationUsers.delete(user.id);
+      if (!skipLockStream) activeGenerationUsers.delete(user.id);
     }
   } catch (e: any) {
     console.error('Stream error:', e.message);
