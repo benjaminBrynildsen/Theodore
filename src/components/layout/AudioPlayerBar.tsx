@@ -373,14 +373,31 @@ export function AudioPlayerBar() {
   const generateAndPlay = useCallback(async (chapterId: string) => {
     // Read latest chapter state from store (not stale closure)
     const freshChapters = useStore.getState().chapters;
-    const chapter = freshChapters.find(c => c.id === chapterId);
+    let chapter = freshChapters.find(c => c.id === chapterId);
     if (!chapter?.prose) return;
-
-    const scenes = (chapter.scenes || []).filter(s => s.prose?.trim()).sort((a, b) => a.order - b.order);
 
     setGenerating(chapterId);
     setError(null);
     setCurrentChapter(chapterId);
+
+    // Auto-decompose into scenes if none exist (needed for streaming playback)
+    let scenes = (chapter.scenes || []).filter(s => s.prose?.trim()).sort((a, b) => a.order - b.order);
+    if (scenes.length < 2 && chapter.prose.length > 500) {
+      useGenerationStore.getState().start({
+        kind: 'generate-audio',
+        label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
+        subtitle: 'Breaking into scenes…',
+        indeterminate: true,
+      });
+      try {
+        const { runSceneDecomposition } = await import('../../lib/post-generation-pipeline');
+        await (runSceneDecomposition as any)(chapterId);
+        chapter = useStore.getState().chapters.find(c => c.id === chapterId) || chapter;
+        scenes = (chapter.scenes || []).filter(s => s.prose?.trim()).sort((a, b) => a.order - b.order);
+      } catch (e) {
+        console.warn('[AudioPlayer] Scene decomposition failed, generating as single chunk:', e);
+      }
+    }
 
     useGenerationStore.getState().start({
       kind: 'generate-audio',

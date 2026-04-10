@@ -1126,6 +1126,12 @@ ${childrensRule}`,
                   prose: ch1Prose.trim(),
                   status: 'draft-generated',
                 });
+                // Auto-decompose into scenes so it's ready for audio streaming
+                useGenerationStore.getState().setSubtitle('Preparing scenes…');
+                try {
+                  const { runSceneDecomposition } = await import('../../lib/post-generation-pipeline');
+                  await (runSceneDecomposition as any)(ch1.id);
+                } catch { /* non-fatal */ }
               }
             }
           } catch (e) {
