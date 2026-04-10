@@ -263,18 +263,24 @@ export function AudioPlayerBar() {
     };
   }, []);
 
-  // Media Session API — lock screen controls & metadata
+  // Media Session API — lock screen controls & metadata.
+  // The artwork URL MUST be absolute — relative paths don't work for the OS
+  // lock screen / car display since they fetch outside the browser context.
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     if (!currentChapter || !project) return;
 
-    const coverUrl = (project.coverUrl && !project.coverUrl.startsWith('data:') ? project.coverUrl : null) || '/icons/icon-512.png';
+    const relativeCover = (project.coverUrl && !project.coverUrl.startsWith('data:') ? project.coverUrl : null) || '/icons/icon-512.png';
+    const absoluteCover = new URL(relativeCover, window.location.origin).href;
+
     navigator.mediaSession.metadata = new MediaMetadata({
       title: currentChapter.title || `Chapter ${currentChapter.number}`,
       artist: project.title,
       album: project.title,
       artwork: [
-        { src: coverUrl, sizes: '512x512', type: 'image/png' },
+        { src: absoluteCover, sizes: '512x512', type: 'image/png' },
+        { src: absoluteCover, sizes: '256x256', type: 'image/png' },
+        { src: absoluteCover, sizes: '128x128', type: 'image/png' },
       ],
     });
 
@@ -284,7 +290,7 @@ export function AudioPlayerBar() {
     navigator.mediaSession.setActionHandler('seekbackward', () => { if (audio) audio.currentTime = Math.max(0, audio.currentTime - 10); });
     navigator.mediaSession.setActionHandler('seekforward', () => { if (audio) audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 10); });
     navigator.mediaSession.setActionHandler('seekto', (details) => { if (audio && details.seekTime != null) audio.currentTime = details.seekTime; });
-  }, [currentChapterId, project?.id, project?.title, currentChapter?.title]);
+  }, [currentChapterId, project?.id, project?.title, project?.coverUrl, currentChapter?.title]);
 
   // Sync volume
   useEffect(() => {
