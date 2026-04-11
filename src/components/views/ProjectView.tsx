@@ -206,16 +206,59 @@ export function ProjectView() {
           </div>
         </div>
       ) : chapters.length > 0 && (
-        /* Skeleton placeholder while cover is generating in the background */
+        /* Liquid fill animation while cover generates (~10s) */
         <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-8">
-          <div className="rounded-2xl aspect-square max-w-[320px] sm:max-w-[400px] mx-auto bg-black/[0.04] overflow-hidden relative">
-            {/* Shimmer animation */}
-            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-indeterminate-slide" />
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-text-tertiary">
-              <div className="w-12 h-12 rounded-xl bg-black/[0.06] flex items-center justify-center">
-                <ImageIcon size={20} className="text-text-tertiary/50" />
-              </div>
-              <span className="text-xs font-medium">Generating cover…</span>
+          <div className="rounded-2xl aspect-square max-w-[320px] sm:max-w-[400px] mx-auto bg-[#0f0f18] overflow-hidden relative">
+            {/* Liquid fill rising from bottom — 10s to fill */}
+            <div
+              className="absolute bottom-0 left-0 right-0"
+              style={{
+                animation: 'liquidFill 10s ease-in-out forwards',
+                background: 'linear-gradient(0deg, rgba(99,102,241,0.35) 0%, rgba(168,85,247,0.25) 40%, rgba(236,72,153,0.15) 70%, transparent 100%)',
+              }}
+            />
+            {/* Blob 1 — rises with the fill */}
+            <div
+              className="absolute w-[70%] h-[40%] rounded-full opacity-40"
+              style={{
+                background: 'radial-gradient(circle, #6366f1, transparent 70%)',
+                left: '15%',
+                filter: 'blur(40px)',
+                animation: 'blobRise1 10s ease-in-out forwards, blobFloat1 4s ease-in-out infinite',
+              }}
+            />
+            {/* Blob 2 */}
+            <div
+              className="absolute w-[50%] h-[35%] rounded-full opacity-35"
+              style={{
+                background: 'radial-gradient(circle, #a855f7, transparent 70%)',
+                right: '10%',
+                filter: 'blur(35px)',
+                animation: 'blobRise2 10s ease-in-out forwards, blobFloat2 5s ease-in-out infinite',
+              }}
+            />
+            {/* Blob 3 */}
+            <div
+              className="absolute w-[40%] h-[30%] rounded-full opacity-30"
+              style={{
+                background: 'radial-gradient(circle, #ec4899, transparent 70%)',
+                left: '30%',
+                filter: 'blur(30px)',
+                animation: 'blobRise3 10s ease-in-out forwards, blobFloat3 3.5s ease-in-out infinite',
+              }}
+            />
+            {/* Surface shimmer at the top of the liquid */}
+            <div
+              className="absolute left-0 right-0 h-[3px] opacity-50"
+              style={{
+                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
+                animation: 'liquidSurface 10s ease-in-out forwards, glassStreak 2s ease-in-out infinite',
+              }}
+            />
+            {/* Center label */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10">
+              <Loader2 size={22} className="text-white/40 animate-spin" />
+              <span className="text-xs font-medium text-white/50">Generating cover…</span>
             </div>
           </div>
         </div>

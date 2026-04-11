@@ -351,3 +351,29 @@ body {
   0%, 100% { transform: translate(0, 0) scale(1); }
   50% { transform: translate(-25%, 20%) scale(1.2); }
 }
+
+/* Cover generation: liquid fill rising from bottom over ~10s */
+@keyframes liquidFill {
+  0% { height: 0%; }
+  100% { height: 100%; }
+}
+
+@keyframes blobRise1 {
+  0% { bottom: -20%; }
+  100% { bottom: 30%; }
+}
+
+@keyframes blobRise2 {
+  0% { bottom: -30%; }
+  100% { bottom: 45%; }
+}
+
+@keyframes blobRise3 {
+  0% { bottom: -25%; }
+  100% { bottom: 60%; }
+}
+
+@keyframes liquidSurface {
+  0% { bottom: 0%; }
+  100% { bottom: 100%; }
+}
