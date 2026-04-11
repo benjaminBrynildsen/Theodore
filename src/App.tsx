@@ -146,6 +146,18 @@ export default function App() {
   const [guestModalDismissed, setGuestModalDismissed] = useState(false);
   const guestModalTriggered = useRef(false);
 
+  // Show guest signup modal 3 seconds after the workspace renders for guests.
+  // Must be a top-level useEffect (not inside conditional render) to avoid
+  // mounting/unmounting issues that cause the modal to glitch or disappear.
+  const isGuestWorkspace = !user && hasActiveProject && (currentView === 'project' || currentView === 'chapter');
+  useEffect(() => {
+    if (!isGuestWorkspace) return;
+    if (guestModalTriggered.current || guestModalDismissed) return;
+    guestModalTriggered.current = true;
+    const timer = setTimeout(() => setShowGuestSignupModal(true), 3000);
+    return () => clearTimeout(timer);
+  }, [isGuestWorkspace, guestModalDismissed]);
+
   // Detect /admin and /animationtest URLs on mount
   useEffect(() => {
     if (window.location.pathname === '/admin') setShowAdmin(true);
@@ -352,12 +364,6 @@ export default function App() {
     }
     // Guest just created a project — let them experience the workspace first
     if (hasActiveProject && (currentView === 'project' || currentView === 'chapter')) {
-      // Trigger signup modal 3 seconds after the workspace renders.
-      // Uses a ref to ensure it only fires once.
-      if (!showGuestSignupModal && !guestModalDismissed && !guestModalTriggered.current) {
-        guestModalTriggered.current = true;
-        setTimeout(() => setShowGuestSignupModal(true), 3000);
-      }
       return (
         <div className="h-screen flex flex-col bg-bg">
           <TopBar />
