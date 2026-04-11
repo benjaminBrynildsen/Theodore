@@ -137,11 +137,12 @@ export default function App() {
   const [showPostAuthChat, setShowPostAuthChat] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
 
-  // Detect /admin URL on mount
+  const [showAnimationTest, setShowAnimationTest] = useState(false);
+
+  // Detect /admin and /animationtest URLs on mount
   useEffect(() => {
-    if (window.location.pathname === '/admin') {
-      setShowAdmin(true);
-    }
+    if (window.location.pathname === '/admin') setShowAdmin(true);
+    if (window.location.pathname === '/animationtest') setShowAnimationTest(true);
   }, []);
 
   // Handle ?prompt= from the static /go landing page
@@ -400,6 +401,16 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoader label="Loading Theodore..." />}>
         <LandingPage onGetStarted={(msg) => { pixel.trackCustom('StartGuestChat'); setGuestInitialMessage(msg); setShowGuestChat(true); }} onSignIn={() => setShowAuth(true)} />
+      </Suspense>
+    );
+  }
+
+  // Animation test page
+  if (showAnimationTest) {
+    const AnimationTest = lazy(() => import('./components/views/AnimationTest').then(m => ({ default: m.AnimationTest })));
+    return (
+      <Suspense fallback={<ViewLoader label="Loading animations..." />}>
+        <AnimationTest />
       </Suspense>
     );
   }
