@@ -208,57 +208,37 @@ export function ProjectView() {
       ) : chapters.length > 0 && (
         /* Liquid fill animation while cover generates (~10s) */
         <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-8">
-          <div className="rounded-2xl aspect-square max-w-[320px] sm:max-w-[400px] mx-auto bg-[#0f0f18] overflow-hidden relative">
-            {/* Liquid fill rising from bottom — 10s to fill */}
+          <div className="rounded-2xl aspect-square max-w-[320px] sm:max-w-[400px] mx-auto bg-white/40 border border-black/[0.08] overflow-hidden relative">
+            {/* Wavy liquid fill rising from bottom */}
             <div
               className="absolute bottom-0 left-0 right-0"
-              style={{
-                animation: 'liquidFill 10s ease-in-out forwards',
-                background: 'linear-gradient(0deg, rgba(99,102,241,0.35) 0%, rgba(168,85,247,0.25) 40%, rgba(236,72,153,0.15) 70%, transparent 100%)',
-              }}
-            />
-            {/* Blob 1 — rises with the fill */}
-            <div
-              className="absolute w-[70%] h-[40%] rounded-full opacity-40"
-              style={{
-                background: 'radial-gradient(circle, #6366f1, transparent 70%)',
-                left: '15%',
-                filter: 'blur(40px)',
-                animation: 'blobRise1 10s ease-in-out forwards, blobFloat1 4s ease-in-out infinite',
-              }}
-            />
-            {/* Blob 2 */}
-            <div
-              className="absolute w-[50%] h-[35%] rounded-full opacity-35"
-              style={{
-                background: 'radial-gradient(circle, #a855f7, transparent 70%)',
-                right: '10%',
-                filter: 'blur(35px)',
-                animation: 'blobRise2 10s ease-in-out forwards, blobFloat2 5s ease-in-out infinite',
-              }}
-            />
-            {/* Blob 3 */}
-            <div
-              className="absolute w-[40%] h-[30%] rounded-full opacity-30"
-              style={{
-                background: 'radial-gradient(circle, #ec4899, transparent 70%)',
-                left: '30%',
-                filter: 'blur(30px)',
-                animation: 'blobRise3 10s ease-in-out forwards, blobFloat3 3.5s ease-in-out infinite',
-              }}
-            />
-            {/* Surface shimmer at the top of the liquid */}
-            <div
-              className="absolute left-0 right-0 h-[3px] opacity-50"
-              style={{
-                background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)',
-                animation: 'liquidSurface 10s ease-in-out forwards, glassStreak 2s ease-in-out infinite',
-              }}
-            />
+              style={{ animation: 'liquidFill 10s ease-in-out forwards' }}
+            >
+              {/* Wavy top edge */}
+              <svg className="absolute top-0 left-0 w-full" viewBox="0 0 400 20" preserveAspectRatio="none" style={{ transform: 'translateY(-95%)' }}>
+                <path
+                  d="M0,10 C50,0 100,20 150,10 C200,0 250,20 300,10 C350,0 400,20 400,10 L400,20 L0,20 Z"
+                  fill="rgba(99,102,241,0.15)"
+                  style={{ animation: 'waveShift 3s ease-in-out infinite' }}
+                />
+                <path
+                  d="M0,12 C60,4 120,18 180,10 C240,2 300,18 360,10 C380,6 400,14 400,12 L400,20 L0,20 Z"
+                  fill="rgba(168,85,247,0.1)"
+                  style={{ animation: 'waveShift 3s ease-in-out infinite reverse' }}
+                />
+              </svg>
+              {/* Fill body */}
+              <div
+                className="w-full h-full"
+                style={{
+                  background: 'linear-gradient(0deg, rgba(99,102,241,0.18) 0%, rgba(168,85,247,0.12) 50%, rgba(99,102,241,0.08) 100%)',
+                }}
+              />
+            </div>
             {/* Center label */}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10">
-              <Loader2 size={22} className="text-white/40 animate-spin" />
-              <span className="text-xs font-medium text-white/50">Generating cover…</span>
+              <Loader2 size={20} className="text-text-tertiary/60 animate-spin" />
+              <span className="text-xs font-medium text-text-tertiary">Generating cover…</span>
             </div>
           </div>
         </div>
