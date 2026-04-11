@@ -19,7 +19,7 @@ export function autoSelectCoverStyle(nc: Project['narrativeControls']): string {
   if (dark && !grim) return 'silhouette';
   if (serious && !dark) return 'iconic';
   if (whimsical) return 'illustrated';
-  return 'photorealistic';
+  return 'illustrated';
 }
 
 // Canvas: add Theodore watermark onto background image.
