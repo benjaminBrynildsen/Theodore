@@ -52,12 +52,13 @@ export function ProjectView() {
   const chapters = project ? getProjectChapters(project.id) : [];
 
   // Auto-expand Chapter 1 when it has prose
+  const ch1ForExpand = chapters.find(c => c.number === 1);
+  const ch1HasProse = !!ch1ForExpand?.prose?.trim();
   useEffect(() => {
-    const ch1 = chapters.find(c => c.number === 1 && c.prose?.trim());
-    if (ch1 && !expandedChapters.has(ch1.id)) {
-      setExpandedChapters(prev => new Set(prev).add(ch1.id));
+    if (ch1ForExpand && ch1HasProse && !expandedChapters.has(ch1ForExpand.id)) {
+      setExpandedChapters(prev => new Set(prev).add(ch1ForExpand.id));
     }
-  }, [chapters.length]);
+  }, [ch1HasProse]);
 
   if (!project) return null;
   const activeChapter = chapters.find(c => c.id === activeChapterId);
@@ -742,27 +743,29 @@ export function ProjectView() {
 
                   {/* Expandable prose preview */}
                   {chapter.prose?.trim() && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setExpandedChapters(prev => {
-                          const next = new Set(prev);
-                          if (next.has(chapter.id)) next.delete(chapter.id);
-                          else next.add(chapter.id);
-                          return next;
-                        });
-                      }}
-                      className="w-full text-left"
-                    >
-                      <div className={cn(
-                        'mx-5 mb-3 -mt-2 rounded-xl bg-black/[0.02] border border-black/[0.04] overflow-hidden transition-all duration-300',
-                        expandedChapters.has(chapter.id) ? 'max-h-[300px] py-4 px-5' : 'max-h-0 py-0 px-5'
-                      )}>
-                        <p className="text-[13px] text-text-secondary leading-relaxed font-serif">
-                          {chapter.prose.slice(0, 500).trim()}{chapter.prose.length > 500 ? '…' : ''}
-                        </p>
-                      </div>
-                    </button>
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedChapters(prev => {
+                            const next = new Set(prev);
+                            if (next.has(chapter.id)) next.delete(chapter.id);
+                            else next.add(chapter.id);
+                            return next;
+                          });
+                        }}
+                        className="w-full text-center py-1 text-[11px] text-text-tertiary hover:text-text-secondary transition-colors"
+                      >
+                        {expandedChapters.has(chapter.id) ? 'Hide preview' : 'Show preview'}
+                      </button>
+                      {expandedChapters.has(chapter.id) && (
+                        <div className="mx-5 mb-3 rounded-xl bg-black/[0.02] border border-black/[0.04] py-4 px-5 animate-fade-in">
+                          <p className="text-[13px] text-text-secondary leading-relaxed font-serif">
+                            {chapter.prose.slice(0, 500).trim()}{chapter.prose.length > 500 ? '…' : ''}
+                          </p>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 </div>
