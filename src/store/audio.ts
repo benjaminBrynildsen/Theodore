@@ -116,11 +116,11 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   miniPlayerVisible: false,
   sidebarPlayerVisible: false,
   chapterAudio: {},
-  narratorVoice: 'fish:bf322df2096a46f18c579d0baa36f41d', // Adrian (Fish Audio) — deep & dramatic
+  narratorVoice: 'openai:fable',
   characterVoices: {},
   multiVoice: false,
-  ttsProvider: 'fish',
-  ttsModel: 'fish-s2-pro',
+  ttsProvider: 'openai',
+  ttsModel: 'openai-gpt-4o-mini-tts',
   speed: 1.0,
   generating: null,
   error: null,
@@ -311,19 +311,14 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
       }
       persistedState.multiVoice = false;
 
-      // v4: Default to Fish Audio if still on ElevenLabs
-      if (version < 4) {
-        if (!persistedState.ttsProvider || persistedState.ttsProvider === 'elevenlabs') {
-          persistedState.ttsProvider = 'fish';
-          persistedState.ttsModel = 'fish-s2-pro';
-        }
-        // Migrate non-fish narrator voice to Fish Adrian
-        if (persistedState.narratorVoice && !persistedState.narratorVoice.startsWith('fish:') && !persistedState.narratorVoice.startsWith('openai:')) {
-          persistedState.narratorVoice = 'fish:bf322df2096a46f18c579d0baa36f41d'; // Adrian
-        }
+      // v5: Default to OpenAI Fable
+      if (version < 5) {
+        persistedState.ttsProvider = 'openai';
+        persistedState.ttsModel = 'openai-gpt-4o-mini-tts';
+        persistedState.narratorVoice = 'openai:fable';
       }
     }
     return persistedState;
   },
-  version: 4,
+  version: 5,
 }));
