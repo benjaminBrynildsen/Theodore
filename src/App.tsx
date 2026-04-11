@@ -60,6 +60,10 @@ const AdminDashboard = lazy(async () => {
   const mod = await import('./components/admin/AdminDashboard');
   return { default: mod.AdminDashboard };
 });
+const GuestSignupModal = lazy(async () => {
+  const mod = await import('./components/credits/GuestSignupModal');
+  return { default: mod.GuestSignupModal };
+});
 
 function ViewLoader({ label = 'Loading workspace...' }: { label?: string }) {
   return (
@@ -138,6 +142,8 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
 
   const [showAnimationTest, setShowAnimationTest] = useState(false);
+  const [showGuestSignupModal, setShowGuestSignupModal] = useState(false);
+  const [guestModalDismissed, setGuestModalDismissed] = useState(false);
 
   // Detect /admin and /animationtest URLs on mount
   useEffect(() => {
@@ -327,7 +333,15 @@ export default function App() {
       return (
         <>
           <ChatCreation
-            onClose={() => { setShowGuestChat(false); setGuestInitialMessage(undefined); }}
+            onClose={() => {
+              setShowGuestChat(false);
+              setGuestInitialMessage(undefined);
+              // If the guest just created a project, show the signup modal
+              const store = useStore.getState();
+              if (store.activeProjectId && store.projects.some(p => p.id === store.activeProjectId)) {
+                setShowGuestSignupModal(true);
+              }
+            }}
             guestMode
             initialMessage={guestInitialMessage}
             onRequireAuth={() => {
@@ -345,16 +359,16 @@ export default function App() {
       return (
         <div className="h-screen flex flex-col bg-bg">
           <TopBar />
-          {/* Guest sign-up banner */}
+          {/* Persistent guest sign-up banner */}
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200/60 px-4 py-2.5 flex items-center justify-between">
             <p className="text-sm text-amber-900">
-              ✨ Your project is ready! <span className="text-amber-700">Create a free account to save your work.</span>
+              Your story will be lost when you leave. <span className="text-amber-700">Sign up free to keep it.</span>
             </p>
             <button
               onClick={() => setShowAuth(true)}
               className="px-4 py-1.5 rounded-lg bg-text-primary text-white text-xs font-semibold hover:opacity-90 transition-opacity flex-shrink-0 ml-3"
             >
-              Sign Up Free
+              Sign Up
             </button>
           </div>
           <div className="flex-1 flex overflow-hidden pb-bottom-nav">
@@ -393,6 +407,20 @@ export default function App() {
           {showReadingMode && (
             <Suspense fallback={<ViewLoader label="Loading reading mode..." />}>
               <ReadingMode onClose={() => setShowReadingMode(false)} />
+            </Suspense>
+          )}
+          {showGuestSignupModal && !guestModalDismissed && (
+            <Suspense fallback={null}>
+              <GuestSignupModal
+                onSignUp={() => {
+                  setShowGuestSignupModal(false);
+                  setShowAuth(true);
+                }}
+                onDismiss={() => {
+                  setShowGuestSignupModal(false);
+                  setGuestModalDismissed(true);
+                }}
+              />
             </Suspense>
           )}
         </div>
