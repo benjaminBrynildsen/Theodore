@@ -48,18 +48,18 @@ export function ProjectView() {
     if (user && showSignUpPrompt) setShowSignUpPrompt(false);
   }, [user, showSignUpPrompt]);
 
+  const project = getActiveProject();
+  const chapters = project ? getProjectChapters(project.id) : [];
+
   // Auto-expand Chapter 1 when it has prose
   useEffect(() => {
     const ch1 = chapters.find(c => c.number === 1 && c.prose?.trim());
     if (ch1 && !expandedChapters.has(ch1.id)) {
       setExpandedChapters(prev => new Set(prev).add(ch1.id));
     }
-  }, [chapters]);
-  const project = getActiveProject();
+  }, [chapters.length]);
 
   if (!project) return null;
-
-  const chapters = getProjectChapters(project.id);
   const activeChapter = chapters.find(c => c.id === activeChapterId);
   const isChildrensBook = project.subtype === 'childrens-book';
   const cbs = project.childrensBookSettings;
