@@ -220,31 +220,56 @@ export function ProjectView() {
         if (!ch1) return null;
         const hasAudio = !!chapterAudio[ch1.id]?.audioUrl;
         const isGenerating = audioGenerating === ch1.id;
+        const handleClick = () => {
+          if (isGuest) { setShowSignUpPrompt(true); return; }
+          if (hasAudio) {
+            window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch1.id } }));
+          } else {
+            window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
+          }
+        };
         return (
           <div className="flex justify-center pt-5">
-            <button
-              onClick={() => {
-                if (isGuest) {
-                  setShowSignUpPrompt(true);
-                  return;
-                }
-                if (hasAudio) {
-                  window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch1.id } }));
-                } else {
-                  window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
-                }
-              }}
-              disabled={isGenerating}
-              className="flex items-center gap-2.5 px-6 py-3 rounded-full font-medium text-sm transition-all shadow-sm bg-text-primary text-text-inverse hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {isGenerating ? (
-                <><Loader2 size={18} className="animate-spin" /> Generating…</>
-              ) : hasAudio ? (
-                <><Play size={18} fill="currentColor" /> Listen</>
-              ) : (
-                <><Headphones size={18} /> Listen to Chapter {ch1.number}</>
-              )}
-            </button>
+            {/* Apple Glass button */}
+            <div className="relative p-[1.5px] rounded-full">
+              {/* Rotating conic glow border */}
+              <div
+                className="absolute inset-0 rounded-full"
+                style={{
+                  background: isGenerating
+                    ? 'conic-gradient(from var(--angle, 0deg), transparent 30%, rgba(120,119,198,0.5) 45%, rgba(255,255,255,0.25) 50%, rgba(120,119,198,0.5) 55%, transparent 70%)'
+                    : 'conic-gradient(from var(--angle, 0deg), transparent 35%, rgba(99,102,241,0.3) 48%, rgba(255,255,255,0.12) 50%, rgba(99,102,241,0.3) 52%, transparent 65%)',
+                  animation: 'rotateBorder 4s linear infinite',
+                }}
+              />
+              <button
+                onClick={handleClick}
+                disabled={isGenerating}
+                className="relative px-7 py-3 rounded-full text-sm font-semibold text-white overflow-hidden disabled:cursor-not-allowed transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: 'rgba(20, 20, 28, 0.8)',
+                  backdropFilter: 'blur(30px) saturate(1.6)',
+                  WebkitBackdropFilter: 'blur(30px) saturate(1.6)',
+                }}
+              >
+                {/* Liquid blobs */}
+                <div className="absolute inset-0 overflow-hidden rounded-full">
+                  <div className="absolute w-20 h-20 rounded-full opacity-35" style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)', top: '-40%', left: '10%', animation: 'blobFloat1 5s ease-in-out infinite', filter: 'blur(18px)' }} />
+                  <div className="absolute w-16 h-16 rounded-full opacity-30" style={{ background: 'radial-gradient(circle, #a855f7, transparent 70%)', bottom: '-30%', right: '15%', animation: 'blobFloat2 6s ease-in-out infinite', filter: 'blur(15px)' }} />
+                </div>
+                {/* Glass sheen */}
+                <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%)' }} />
+                <span className="relative flex items-center gap-2.5 z-10">
+                  {isGenerating ? (
+                    <><Loader2 size={17} className="animate-spin" /> Generating…</>
+                  ) : hasAudio ? (
+                    <><Play size={17} fill="currentColor" /> Listen</>
+                  ) : (
+                    <><Headphones size={17} /> Listen to Chapter {ch1.number}</>
+                  )}
+                </span>
+              </button>
+            </div>
           </div>
         );
       })()}
