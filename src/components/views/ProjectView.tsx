@@ -11,6 +11,7 @@ import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../
 import { generateStream } from '../../lib/generate';
 import { cn, generateId } from '../../lib/utils';
 import { useAudioStore } from '../../store/audio';
+import { useAuthStore } from '../../store/auth';
 import type { ChapterStatus, CharacterVisual } from '../../types';
 
 const statusIcons: Record<ChapterStatus, React.ElementType> = {
@@ -36,6 +37,9 @@ export function ProjectView() {
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
   const { chapterAudio, generating: audioGenerating, playing } = useAudioStore();
+  const user = useAuthStore((s) => s.user);
+  const isGuest = !user;
+  const [showSignUpPrompt, setShowSignUpPrompt] = useState(false);
   const project = getActiveProject();
 
   if (!project) return null;
@@ -213,6 +217,10 @@ export function ProjectView() {
           <div className="flex justify-center pt-5">
             <button
               onClick={() => {
+                if (isGuest) {
+                  setShowSignUpPrompt(true);
+                  return;
+                }
                 if (hasAudio) {
                   window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch1.id } }));
                 } else {
@@ -233,6 +241,40 @@ export function ProjectView() {
           </div>
         );
       })()}
+
+      {/* Sign-up prompt modal for guests */}
+      {showSignUpPrompt && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-6" onClick={() => setShowSignUpPrompt(false)}>
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-scale-in" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center mb-4">
+              <div className="w-14 h-14 rounded-2xl bg-black/[0.04] flex items-center justify-center mx-auto mb-3">
+                <Headphones size={24} className="text-text-primary" />
+              </div>
+              <h3 className="text-lg font-semibold mb-1">Listen to your audiobook</h3>
+              <p className="text-sm text-text-secondary">Create a free account to generate and listen to narrated chapters. Your story will be saved.</p>
+            </div>
+            <button
+              onClick={() => {
+                setShowSignUpPrompt(false);
+                // Navigate to auth — the app preserves guest state on sign-in
+                window.dispatchEvent(new CustomEvent('theodore:showAuth'));
+              }}
+              className="w-full py-3 rounded-xl bg-text-primary text-text-inverse font-medium text-sm hover:opacity-90 transition-all mb-2"
+            >
+              Sign Up Free
+            </button>
+            <button
+              onClick={() => {
+                setShowSignUpPrompt(false);
+                window.dispatchEvent(new CustomEvent('theodore:showAuth'));
+              }}
+              className="w-full py-2.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
+            >
+              Already have an account? Sign in
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Project Header */}
       <div className="max-w-3xl mx-auto px-4 sm:px-8 pt-8 pb-8">

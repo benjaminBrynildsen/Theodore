@@ -1083,7 +1083,9 @@ ${childrensRule}`,
           }
         })();
 
-        const ch1Promise = !isGuest ? (async () => {
+        // Chapter 1 auto-gen works for both guests and signed-in users
+        // (generateStream auto-detects guest mode and uses the guest endpoint)
+        const ch1Promise = (async () => {
           try {
             const ch1 = useStore.getState().chapters
               .filter(c => c.projectId === projectId)
@@ -1137,7 +1139,7 @@ ${childrensRule}`,
           } catch (e) {
             console.warn('[Creation] Auto-generate Ch1 failed (non-fatal):', e);
           }
-        })() : Promise.resolve();
+        })();
 
         // Wait for both to finish
         await Promise.all([coverPromise, ch1Promise]);

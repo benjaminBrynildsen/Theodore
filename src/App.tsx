@@ -103,6 +103,13 @@ export default function App() {
     return () => window.removeEventListener('theodore:expandPlayer', handler);
   }, []);
 
+  // Listen for auth prompt from guest features
+  useEffect(() => {
+    const handler = () => { setReturnToChatAfterAuth(false); setShowAuth(true); };
+    window.addEventListener('theodore:showAuth', handler);
+    return () => window.removeEventListener('theodore:showAuth', handler);
+  }, []);
+
   // ── Meta Pixel: track view changes ──
   const prevView = useRef(currentView);
   useEffect(() => {
