@@ -8,7 +8,6 @@ import { cn } from '../../lib/utils';
 const COVER_STYLES = [
   { id: 'illustrated', label: 'Illustrated' },
   { id: 'dark', label: 'Dark & Moody' },
-  { id: 'photorealistic', label: 'Photorealistic' },
   { id: 'iconic', label: 'Iconic Symbol' },
   { id: 'silhouette', label: 'Silhouette' },
   { id: 'abstract', label: 'Abstract' },
