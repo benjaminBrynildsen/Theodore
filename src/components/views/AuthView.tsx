@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Lock, Mail, Sparkles, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
+
+const GOOGLE_CLIENT_ID = '296594825511-3m0g5t2l0ombm3j8cdc5ncqe673obg4d.apps.googleusercontent.com';
 
 type Mode = 'login' | 'register' | 'forgot';
 
@@ -13,7 +15,46 @@ interface AuthViewProps {
 }
 
 export function AuthView({ onBack, compact, heading }: AuthViewProps) {
-  const { login, register, loading, error: authError } = useAuthStore();
+  const { login, register, googleLogin, loading, error: authError } = useAuthStore();
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const [googleReady, setGoogleReady] = useState(false);
+
+  // Load Google Identity Services script
+  useEffect(() => {
+    if ((window as any).google?.accounts?.id) { setGoogleReady(true); return; }
+    if (document.getElementById('google-gsi-script')) return;
+    const script = document.createElement('script');
+    script.id = 'google-gsi-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => setGoogleReady(true);
+    document.head.appendChild(script);
+  }, []);
+
+  const handleGoogleCallback = useCallback(async (response: any) => {
+    try { await googleLogin(response.credential); }
+    catch { /* error shown via authError */ }
+  }, [googleLogin]);
+
+  // Render Google button when script is ready and ref is mounted
+  useEffect(() => {
+    if (!googleReady || !googleBtnRef.current) return;
+    const google = (window as any).google;
+    if (!google?.accounts?.id) return;
+    // Clear previous render
+    googleBtnRef.current.innerHTML = '';
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleCallback,
+    });
+    google.accounts.id.renderButton(googleBtnRef.current, {
+      theme: 'outline',
+      size: 'large',
+      width: googleBtnRef.current.offsetWidth || 320,
+      text: 'continue_with',
+      shape: 'pill',
+    });
+  }, [googleReady, handleGoogleCallback, compact]);
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -164,6 +205,18 @@ export function AuthView({ onBack, compact, heading }: AuthViewProps) {
 
   function renderForm() {
     return (<>
+          {/* Google Sign-In — above everything */}
+          {mode !== 'forgot' && (
+            <>
+              <div ref={googleBtnRef} className="w-full flex justify-center mb-4" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex-1 h-px bg-black/[0.08]" />
+                <span className="text-xs text-black/30">or</span>
+                <div className="flex-1 h-px bg-black/[0.08]" />
+              </div>
+            </>
+          )}
+
           <div className="flex items-center gap-1 rounded-xl bg-black/[0.04] p-1 mb-5">
             {([
               { id: 'login' as const, label: 'Sign In' },
