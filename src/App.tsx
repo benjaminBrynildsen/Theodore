@@ -333,6 +333,26 @@ export default function App() {
     );
   }
 
+  // Google auth test page (accessible without auth)
+  if (showGoogleTest) {
+    const GoogleAuthTest = lazy(() => import('./components/views/GoogleAuthTest').then(m => ({ default: m.GoogleAuthTest })));
+    return (
+      <Suspense fallback={<ViewLoader label="Loading..." />}>
+        <GoogleAuthTest />
+      </Suspense>
+    );
+  }
+
+  // Animation test page (accessible without auth)
+  if (showAnimationTest) {
+    const AnimationTest = lazy(() => import('./components/views/AnimationTest').then(m => ({ default: m.AnimationTest })));
+    return (
+      <Suspense fallback={<ViewLoader label="Loading animations..." />}>
+        <AnimationTest />
+      </Suspense>
+    );
+  }
+
   if (!user) {
     if (showAuth) {
       return (
@@ -448,25 +468,6 @@ export default function App() {
     );
   }
 
-  // Google auth test page
-  if (showGoogleTest) {
-    const GoogleAuthTest = lazy(() => import('./components/views/GoogleAuthTest').then(m => ({ default: m.GoogleAuthTest })));
-    return (
-      <Suspense fallback={<ViewLoader label="Loading..." />}>
-        <GoogleAuthTest />
-      </Suspense>
-    );
-  }
-
-  // Animation test page
-  if (showAnimationTest) {
-    const AnimationTest = lazy(() => import('./components/views/AnimationTest').then(m => ({ default: m.AnimationTest })));
-    return (
-      <Suspense fallback={<ViewLoader label="Loading animations..." />}>
-        <AnimationTest />
-      </Suspense>
-    );
-  }
 
   // Admin dashboard
   if (showAdmin) {
