@@ -8,9 +8,10 @@ type Mode = 'login' | 'register' | 'forgot';
 
 interface AuthViewProps {
   onBack?: () => void;
+  compact?: boolean; // Just the form card, no hero/back button — for modal overlays
 }
 
-export function AuthView({ onBack }: AuthViewProps) {
+export function AuthView({ onBack, compact }: AuthViewProps) {
   const { login, register, loading, error: authError } = useAuthStore();
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
@@ -102,6 +103,19 @@ export function AuthView({ onBack }: AuthViewProps) {
     }
   };
 
+  // Compact mode: just the form card for modal overlays
+  if (compact) {
+    return (
+      <div className="rounded-2xl border border-black/10 shadow-2xl bg-white overflow-hidden">
+        <div className="p-6 sm:p-8">
+          <h2 className="text-xl font-serif text-text-primary">{modeCopy[mode].title}</h2>
+          <p className="text-sm text-text-secondary mt-1 mb-5">{modeCopy[mode].subtitle}</p>
+          {renderForm()}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-full bg-[#f6f6f4] flex flex-col items-center justify-center px-4">
       {onBack && (
@@ -140,7 +154,14 @@ export function AuthView({ onBack }: AuthViewProps) {
         <div className="p-8 lg:p-10 bg-[#fbfbfb]">
           <h2 className="text-2xl font-serif text-text-primary">{modeCopy[mode].title}</h2>
           <p className="text-sm text-text-secondary mt-1 mb-5">{modeCopy[mode].subtitle}</p>
+          {renderForm()}
+        </div>
+      </div>
+    </div>
+  );
 
+  function renderForm() {
+    return (<>
           <div className="flex items-center gap-1 rounded-xl bg-black/[0.04] p-1 mb-5">
             {([
               { id: 'login' as const, label: 'Sign In' },
@@ -256,8 +277,6 @@ export function AuthView({ onBack }: AuthViewProps) {
             <Sparkles size={12} />
             <span>Secure sign-in with persistent sessions.</span>
           </div>
-        </div>
-      </div>
-    </div>
-  );
+    </>);
+  }
 }

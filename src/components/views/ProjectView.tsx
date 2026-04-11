@@ -252,7 +252,7 @@ export function ProjectView() {
       {showSignUpPrompt && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4 overflow-y-auto" onClick={() => setShowSignUpPrompt(false)}>
           <div className="w-full max-w-md my-8 animate-scale-in" onClick={(e) => e.stopPropagation()}>
-            <AuthView onBack={() => setShowSignUpPrompt(false)} />
+            <AuthView compact onBack={() => setShowSignUpPrompt(false)} />
           </div>
         </div>
       )}
