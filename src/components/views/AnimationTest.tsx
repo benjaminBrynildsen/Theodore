@@ -19,6 +19,7 @@ export function AnimationTest() {
           <Demo7_SkeletonShimmer />
           <Demo11_BlobBar />
           <Demo12_LiquidBlob />
+          <Demo13_AppleGlass />
           <Demo8_SpringButton />
           <Demo9_GlowBorderButton />
           <Demo10_MorphingText />
@@ -409,6 +410,131 @@ function Demo12_LiquidBlob() {
           </div>
           <span className="relative z-10 flex items-center gap-2"><Play size={14} fill="currentColor" /> Play</span>
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ── 13. Apple Glass — Liquid Blobs + Rotating Glow Border + Frosted Glass ──
+function Demo13_AppleGlass() {
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(45);
+
+  return (
+    <div>
+      <SectionLabel num={13} title="Apple Glass" desc="Liquid blobs + rotating glow border + frosted glass — the full combo" />
+      <div className="space-y-8">
+
+        {/* ── Buttons ── */}
+        <div className="flex flex-wrap gap-5">
+          {/* Large Listen button */}
+          <div className="relative p-[1.5px] rounded-2xl">
+            <div className="absolute inset-0 rounded-2xl" style={{
+              background: 'conic-gradient(from var(--angle, 0deg), transparent 30%, rgba(120,119,198,0.5) 45%, rgba(255,255,255,0.3) 50%, rgba(120,119,198,0.5) 55%, transparent 70%)',
+              animation: 'rotateBorder 4s linear infinite',
+            }} />
+            <button
+              onClick={() => { setLoading(true); setTimeout(() => setLoading(false), 4000); }}
+              className="relative px-8 py-4 rounded-[14.5px] text-sm font-semibold text-white overflow-hidden"
+              style={{ background: 'rgba(28, 28, 35, 0.75)', backdropFilter: 'blur(40px) saturate(1.8)', WebkitBackdropFilter: 'blur(40px) saturate(1.8)' }}
+            >
+              <div className="absolute inset-0 overflow-hidden rounded-[14.5px]">
+                <div className="absolute w-28 h-28 rounded-full opacity-40" style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)', top: '-40%', left: '5%', animation: 'blobFloat1 5s ease-in-out infinite', filter: 'blur(25px)' }} />
+                <div className="absolute w-24 h-24 rounded-full opacity-35" style={{ background: 'radial-gradient(circle, #ec4899, transparent 70%)', bottom: '-30%', right: '10%', animation: 'blobFloat2 6s ease-in-out infinite', filter: 'blur(22px)' }} />
+                <div className="absolute w-20 h-20 rounded-full opacity-30" style={{ background: 'radial-gradient(circle, #a855f7, transparent 70%)', top: '20%', right: '25%', animation: 'blobFloat3 4s ease-in-out infinite', filter: 'blur(18px)' }} />
+              </div>
+              <div className="absolute inset-0 rounded-[14.5px]" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%, rgba(255,255,255,0.03) 100%)' }} />
+              <span className="relative flex items-center gap-2.5 z-10">
+                {loading ? <><Loader2 size={17} className="animate-spin" /> Generating...</> : <><Headphones size={17} /> Listen to Chapter 1</>}
+              </span>
+            </button>
+          </div>
+
+          {/* Compact Play */}
+          <div className="relative p-[1px] rounded-xl">
+            <div className="absolute inset-0 rounded-xl" style={{
+              background: 'conic-gradient(from var(--angle, 0deg), transparent 35%, rgba(99,102,241,0.4) 48%, rgba(255,255,255,0.2) 50%, rgba(99,102,241,0.4) 52%, transparent 65%)',
+              animation: 'rotateBorder 3s linear infinite',
+            }} />
+            <button className="relative px-5 py-2.5 rounded-[11px] text-sm font-semibold text-white overflow-hidden" style={{ background: 'rgba(20, 20, 30, 0.8)', backdropFilter: 'blur(30px)', WebkitBackdropFilter: 'blur(30px)' }}>
+              <div className="absolute inset-0 overflow-hidden rounded-[11px]">
+                <div className="absolute w-14 h-14 rounded-full opacity-50" style={{ background: 'radial-gradient(circle, #3b82f6, transparent 70%)', top: '-40%', left: '15%', animation: 'blobFloat1 3.5s ease-in-out infinite', filter: 'blur(12px)' }} />
+                <div className="absolute w-12 h-12 rounded-full opacity-40" style={{ background: 'radial-gradient(circle, #8b5cf6, transparent 70%)', bottom: '-30%', right: '15%', animation: 'blobFloat2 4.5s ease-in-out infinite', filter: 'blur(10px)' }} />
+              </div>
+              <div className="absolute inset-0 rounded-[11px]" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 60%)' }} />
+              <span className="relative z-10 flex items-center gap-2"><Play size={14} fill="currentColor" /> Play</span>
+            </button>
+          </div>
+
+          {/* Generate */}
+          <div className="relative p-[1.5px] rounded-xl">
+            <div className="absolute inset-0 rounded-xl" style={{
+              background: 'conic-gradient(from var(--angle, 0deg), transparent 25%, rgba(168,85,247,0.5) 40%, rgba(236,72,153,0.4) 50%, rgba(168,85,247,0.5) 60%, transparent 75%)',
+              animation: 'rotateBorder 3.5s linear infinite',
+            }} />
+            <button className="relative px-6 py-3 rounded-[10.5px] text-sm font-semibold text-white overflow-hidden" style={{ background: 'rgba(22, 15, 35, 0.8)', backdropFilter: 'blur(30px)', WebkitBackdropFilter: 'blur(30px)' }}>
+              <div className="absolute inset-0 overflow-hidden rounded-[10.5px]">
+                <div className="absolute w-20 h-20 rounded-full opacity-45" style={{ background: 'radial-gradient(circle, #a855f7, transparent 70%)', top: '-35%', right: '10%', animation: 'blobFloat3 4s ease-in-out infinite', filter: 'blur(16px)' }} />
+                <div className="absolute w-16 h-16 rounded-full opacity-35" style={{ background: 'radial-gradient(circle, #ec4899, transparent 70%)', bottom: '-25%', left: '20%', animation: 'blobFloat1 5s ease-in-out infinite', filter: 'blur(14px)' }} />
+              </div>
+              <div className="absolute inset-0 rounded-[10.5px]" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.07) 0%, transparent 50%)' }} />
+              <span className="relative z-10 flex items-center gap-2"><Sparkles size={15} /> Generate</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Progress Bar: determinate ── */}
+        <div>
+          <p className="text-xs text-white/30 mb-3">Determinate progress</p>
+          <div className="relative p-[1px] rounded-full">
+            <div className="absolute inset-0 rounded-full" style={{
+              background: 'conic-gradient(from var(--angle, 0deg), transparent 40%, rgba(120,119,198,0.3) 48%, rgba(255,255,255,0.15) 50%, rgba(120,119,198,0.3) 52%, transparent 60%)',
+              animation: 'rotateBorder 5s linear infinite',
+            }} />
+            <div className="relative h-10 rounded-full overflow-hidden" style={{ background: 'rgba(20, 20, 30, 0.7)', backdropFilter: 'blur(30px)', WebkitBackdropFilter: 'blur(30px)' }}>
+              <div className="absolute inset-0 overflow-hidden rounded-full">
+                <div className="absolute w-20 h-20 rounded-full opacity-30" style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)', top: '-60%', left: '10%', animation: 'blobFloat1 4s ease-in-out infinite', filter: 'blur(15px)' }} />
+                <div className="absolute w-16 h-16 rounded-full opacity-25" style={{ background: 'radial-gradient(circle, #ec4899, transparent 70%)', bottom: '-50%', right: '30%', animation: 'blobFloat2 5s ease-in-out infinite', filter: 'blur(12px)' }} />
+              </div>
+              <div className="absolute top-0 left-0 h-full rounded-full transition-all duration-700" style={{
+                width: `${progress}%`,
+                background: 'linear-gradient(90deg, rgba(99,102,241,0.4), rgba(168,85,247,0.5), rgba(236,72,153,0.4))',
+                backgroundSize: '200% 100%', animation: 'glassShimmer 3s ease-in-out infinite',
+              }}>
+                <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent)', animation: 'glassStreak 3s ease-in-out infinite' }} />
+              </div>
+              <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, transparent 50%)' }} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-semibold text-white/70">{progress}% — Writing Chapter 1</span>
+              </div>
+            </div>
+          </div>
+          <input type="range" min={0} max={100} value={progress} onChange={e => setProgress(+e.target.value)} className="w-full mt-4 accent-purple-500" />
+        </div>
+
+        {/* ── Indeterminate ── */}
+        <div>
+          <p className="text-xs text-white/30 mb-3">Indeterminate</p>
+          <div className="relative p-[1px] rounded-full">
+            <div className="absolute inset-0 rounded-full" style={{
+              background: 'conic-gradient(from var(--angle, 0deg), transparent 35%, rgba(99,102,241,0.35) 45%, rgba(255,255,255,0.15) 50%, rgba(99,102,241,0.35) 55%, transparent 65%)',
+              animation: 'rotateBorder 4s linear infinite',
+            }} />
+            <div className="relative h-8 rounded-full overflow-hidden" style={{ background: 'rgba(20, 20, 30, 0.7)', backdropFilter: 'blur(30px)', WebkitBackdropFilter: 'blur(30px)' }}>
+              <div className="absolute inset-0 overflow-hidden rounded-full">
+                <div className="absolute w-16 h-16 rounded-full opacity-25" style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)', top: '-50%', animation: 'blobFloat1 3s ease-in-out infinite', filter: 'blur(12px)' }} />
+              </div>
+              <div className="absolute top-0 h-full w-[35%] rounded-full" style={{
+                background: 'linear-gradient(90deg, transparent, rgba(99,102,241,0.3) 30%, rgba(168,85,247,0.4) 50%, rgba(99,102,241,0.3) 70%, transparent)',
+                animation: 'appleSlide 2s cubic-bezier(0.45,0,0.55,1) infinite',
+              }} />
+              <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 50%)' }} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-[11px] font-medium text-white/50">Generating audio...</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
