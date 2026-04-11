@@ -215,24 +215,11 @@ export function ProjectView() {
               className="absolute bottom-0 left-0 right-0"
               style={{ animation: 'liquidFill 12s linear forwards' }}
             >
-              {/* Wavy top edge — tall waves */}
-              <svg className="absolute top-0 left-0 w-full h-[30px]" viewBox="0 0 400 50" preserveAspectRatio="none" style={{ transform: 'translateY(-85%)' }}>
-                <path
-                  d="M0,25 C40,5 80,45 120,25 C160,5 200,45 240,25 C280,5 320,45 360,25 C380,15 400,35 400,25 L400,50 L0,50 Z"
-                  fill="rgba(99,102,241,0.15)"
-                  style={{ animation: 'waveShift1 2.5s ease-in-out infinite' }}
-                />
-                <path
-                  d="M0,28 C50,10 100,42 150,25 C200,8 250,42 300,28 C350,12 400,38 400,28 L400,50 L0,50 Z"
-                  fill="rgba(168,85,247,0.12)"
-                  style={{ animation: 'waveShift2 3.2s ease-in-out infinite' }}
-                />
-              </svg>
-              {/* Fill body */}
+              {/* Fill body — long gradient fade so top edge dissolves into white */}
               <div
                 className="w-full h-full"
                 style={{
-                  background: 'linear-gradient(0deg, rgba(99,102,241,0.2) 0%, rgba(168,85,247,0.14) 40%, rgba(99,102,241,0.08) 100%)',
+                  background: 'linear-gradient(0deg, rgba(99,102,241,0.18) 0%, rgba(168,85,247,0.12) 30%, rgba(139,92,246,0.06) 60%, transparent 100%)',
                 }}
               />
             </div>
