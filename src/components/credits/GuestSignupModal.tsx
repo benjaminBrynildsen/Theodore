@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { BookOpen, ArrowRight, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import * as pixel from '../../lib/pixel';
@@ -6,13 +6,56 @@ import { track as jTrack } from '../../lib/journey';
 import { useAuthStore } from '../../store/auth';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 
+const GOOGLE_CLIENT_ID = '296594825511-3m0g5t2l0ombm3j8cdc5ncqe673obg4d.apps.googleusercontent.com';
+
 interface GuestSignupModalProps {
   onSignUp: () => void;
   onDismiss: () => void;
 }
 
 export function GuestSignupModal({ onSignUp, onDismiss }: GuestSignupModalProps) {
-  const { login, register, loading } = useAuthStore();
+  const { login, register, googleLogin, loading } = useAuthStore();
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const [googleReady, setGoogleReady] = useState(false);
+
+  // Load Google script
+  useEffect(() => {
+    if ((window as any).google?.accounts?.id) { setGoogleReady(true); return; }
+    if (document.getElementById('google-gsi-script')) {
+      const check = setInterval(() => {
+        if ((window as any).google?.accounts?.id) { setGoogleReady(true); clearInterval(check); }
+      }, 100);
+      setTimeout(() => clearInterval(check), 5000);
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = 'google-gsi-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => setGoogleReady(true);
+    document.head.appendChild(script);
+  }, []);
+
+  const handleGoogle = useCallback(async (response: any) => {
+    try {
+      await googleLogin(response.credential);
+      pixel.trackCustom('GuestSignupModalSignUp');
+      jTrack('guest_signup_modal_google');
+      onSignUp();
+    } catch { /* error shown via state */ }
+  }, [googleLogin, onSignUp]);
+
+  useEffect(() => {
+    if (!googleReady || !googleBtnRef.current) return;
+    const google = (window as any).google;
+    if (!google?.accounts?.id) return;
+    googleBtnRef.current.innerHTML = '';
+    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogle });
+    google.accounts.id.renderButton(googleBtnRef.current, {
+      theme: 'outline', size: 'large', width: googleBtnRef.current.offsetWidth || 300,
+      text: 'continue_with', shape: 'pill',
+    });
+  }, [googleReady, handleGoogle]);
   const [mode, setMode] = useState<'register' | 'login'>('register');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -84,6 +127,14 @@ export function GuestSignupModal({ onSignUp, onDismiss }: GuestSignupModalProps)
                 ? 'Create a free account to keep your novel — plus 100 credits for audiobooks and more.'
                 : 'Sign in to save your novel to your account.'}
             </p>
+          </div>
+
+          {/* Google Sign-In */}
+          <div ref={googleBtnRef} className="w-full flex justify-center mb-4" />
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex-1 h-px bg-black/[0.08]" />
+            <span className="text-xs text-black/30">or</span>
+            <div className="flex-1 h-px bg-black/[0.08]" />
           </div>
 
           {/* Inline auth form */}
