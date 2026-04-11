@@ -373,7 +373,7 @@ export default function App() {
               Your story will be lost when you leave. <span className="text-amber-700">Sign up free to keep it.</span>
             </p>
             <button
-              onClick={() => setShowAuth(true)}
+              onClick={() => { setGuestModalDismissed(false); setShowGuestSignupModal(true); }}
               className="px-4 py-1.5 rounded-lg bg-text-primary text-white text-xs font-semibold hover:opacity-90 transition-opacity flex-shrink-0 ml-3"
             >
               Sign Up
@@ -421,8 +421,11 @@ export default function App() {
             <Suspense fallback={null}>
               <GuestSignupModal
                 onSignUp={() => {
+                  // Auth already completed inside the modal — just close it.
+                  // The user state change will re-render App and show the
+                  // authenticated workspace (guest data auto-migrates).
                   setShowGuestSignupModal(false);
-                  setShowAuth(true);
+                  setGuestModalDismissed(true);
                 }}
                 onDismiss={() => {
                   setShowGuestSignupModal(false);

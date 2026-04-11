@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BookOpen, ArrowRight } from 'lucide-react';
+import { BookOpen, ArrowRight, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import * as pixel from '../../lib/pixel';
 import { track as jTrack } from '../../lib/journey';
@@ -59,9 +59,17 @@ export function GuestSignupModal({ onSignUp, onDismiss }: GuestSignupModalProps)
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
-      <div className="absolute inset-0 bg-white/70 backdrop-blur-2xl" onClick={handleDismiss} />
+      {/* Backdrop — don't dismiss on tap (too easy to accidentally close on mobile) */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
       <div className="relative bg-white rounded-3xl shadow-2xl border border-black/5 w-full max-w-md mx-4 animate-scale-in overflow-hidden">
+        {/* Close button */}
+        <button
+          onClick={handleDismiss}
+          className="absolute top-4 right-4 p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-all z-10"
+        >
+          <X size={18} />
+        </button>
         <div className="p-6 sm:p-8">
           {/* Header */}
           <div className="flex flex-col items-center text-center mb-6">
