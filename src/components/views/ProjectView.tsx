@@ -696,7 +696,9 @@ export function ProjectView() {
                         <span className="font-medium">{chapter.title}</span>
                         <Badge status={chapter.status} />
                       </div>
-                      {chapter.premise?.purpose ? (
+                      {chapter.prose ? (
+                        <p className="text-sm text-text-secondary line-clamp-4 leading-relaxed">{chapter.prose.slice(0, 300)}{chapter.prose.length > 300 ? '…' : ''}</p>
+                      ) : chapter.premise?.purpose ? (
                         <p className="text-sm text-text-secondary line-clamp-2">{chapter.premise.purpose}</p>
                       ) : (
                         <p className="text-sm text-text-tertiary italic">No premise yet — click to define</p>
