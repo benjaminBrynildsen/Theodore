@@ -37,6 +37,7 @@ export function ProjectView() {
   const [showArcLabels, setShowArcLabels] = useState(false);
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
+  const [expandedChapters, setExpandedChapters] = useState<Set<string>>(() => new Set());
   const { chapterAudio, generating: audioGenerating, playing } = useAudioStore();
   const user = useAuthStore((s) => s.user);
   const isGuest = !user;
@@ -46,6 +47,14 @@ export function ProjectView() {
   useEffect(() => {
     if (user && showSignUpPrompt) setShowSignUpPrompt(false);
   }, [user, showSignUpPrompt]);
+
+  // Auto-expand Chapter 1 when it has prose
+  useEffect(() => {
+    const ch1 = chapters.find(c => c.number === 1 && c.prose?.trim());
+    if (ch1 && !expandedChapters.has(ch1.id)) {
+      setExpandedChapters(prev => new Set(prev).add(ch1.id));
+    }
+  }, [chapters]);
   const project = getActiveProject();
 
   if (!project) return null;
@@ -696,11 +705,10 @@ export function ProjectView() {
                         <span className="font-medium">{chapter.title}</span>
                         <Badge status={chapter.status} />
                       </div>
-                      {chapter.prose ? (
-                        <p className="text-sm text-text-secondary line-clamp-4 leading-relaxed">{chapter.prose.slice(0, 300)}{chapter.prose.length > 300 ? '…' : ''}</p>
-                      ) : chapter.premise?.purpose ? (
+                      {chapter.premise?.purpose && (
                         <p className="text-sm text-text-secondary line-clamp-2">{chapter.premise.purpose}</p>
-                      ) : (
+                      )}
+                      {!chapter.premise?.purpose && !chapter.prose && (
                         <p className="text-sm text-text-tertiary italic">No premise yet — click to define</p>
                       )}
                     </div>
@@ -708,6 +716,31 @@ export function ProjectView() {
                     <StatusIcon size={16} className="text-text-tertiary mt-1 flex-shrink-0 relative z-10" />
                   </div>
                   </button>
+
+                  {/* Expandable prose preview */}
+                  {chapter.prose?.trim() && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedChapters(prev => {
+                          const next = new Set(prev);
+                          if (next.has(chapter.id)) next.delete(chapter.id);
+                          else next.add(chapter.id);
+                          return next;
+                        });
+                      }}
+                      className="w-full text-left"
+                    >
+                      <div className={cn(
+                        'mx-5 mb-3 -mt-2 rounded-xl bg-black/[0.02] border border-black/[0.04] overflow-hidden transition-all duration-300',
+                        expandedChapters.has(chapter.id) ? 'max-h-[300px] py-4 px-5' : 'max-h-0 py-0 px-5'
+                      )}>
+                        <p className="text-[13px] text-text-secondary leading-relaxed font-serif">
+                          {chapter.prose.slice(0, 500).trim()}{chapter.prose.length > 500 ? '…' : ''}
+                        </p>
+                      </div>
+                    </button>
+                  )}
                 </div>
                 </div>
               );
