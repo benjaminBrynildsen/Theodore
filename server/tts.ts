@@ -48,29 +48,37 @@ function expandPacingTags(text: string): string {
 function addTTSPacing(text: string): string {
   let result = text;
 
-  // Use newline-based pauses — OpenAI TTS respects these more than ellipsis runs.
-  // A single \n acts as a breath pause; \n\n acts as a longer scene pause.
+  // OpenAI TTS pauses are driven by punctuation + newlines + em dashes.
+  // More newlines = longer pause. Em dash (—) adds ~200-300ms each.
+  // Stack them for bigger gaps.
 
-  // 1. Paragraph breaks → strong cinematic pause
-  result = result.replace(/\n\n+/g, '\n\n—\n\n');
+  // 0. Strip asterisks (narrator reads them aloud)
+  result = result.replace(/\*/g, '');
 
-  // 2. Sentence-ending period/excl/question before next sentence → add breath pause
-  //    "She ran. He followed." → "She ran.\n He followed."
-  result = result.replace(/([.!?])\s+([A-Z])/g, '$1\n$2');
+  // 1. Paragraph breaks → strong cinematic pause (triple newline + em dash)
+  result = result.replace(/\n\n+/g, '\n\n\n—\n\n\n');
 
-  // 3. Before dialogue after narration → longer pause
-  //    "He turned to her. "Hello"" → newline break before quote
-  result = result.replace(/([.!?])\n([""\u201C])/g, '$1\n\n$2');
+  // 2. Every sentence boundary → double newline for a real breath
+  result = result.replace(/([.!?])\s+([A-Z])/g, '$1\n\n$2');
+
+  // 3. Before dialogue after narration → even longer pause
+  result = result.replace(/([.!?])\n\n([""\u201C])/g, '$1\n\n\n$2');
 
   // 4. After dialogue closing before narration → longer pause
-  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1\n\n$2');
+  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1\n\n\n$2');
 
-  // 5. Em dash pauses — widen them
-  result = result.replace(/\s*—\s*/g, ' —\n');
+  // 5. Dialogue comma attribution → breath pause
+  result = result.replace(/([""\u201D]),?\s+([a-z])/g, '$1,\n\n$2');
 
-  // 6. Ellipsis emphasis — make existing ellipses breathe more
-  result = result.replace(/\.{3}/g, '. . .');
-  result = result.replace(/…/g, '. . .');
+  // 6. Em dash pauses — widen with newlines on both sides
+  result = result.replace(/\s*—\s*/g, '\n—\n');
+
+  // 7. Semicolons → breath
+  result = result.replace(/;\s+/g, ';\n\n');
+
+  // 8. Ellipsis → wider spacing for natural pause
+  result = result.replace(/\.{3}/g, '. . . .');
+  result = result.replace(/…/g, '. . . .');
 
   return result;
 }
@@ -337,8 +345,8 @@ function buildChapterAnnouncement(
         : `Chapter ${number}. (break) (break) (break) (break) `;
     case 'openai':
       return t
-        ? `Chapter ${number}.\n\n\n${t}.\n\n\n\n`
-        : `Chapter ${number}.\n\n\n\n`;
+        ? `Chapter ${number}.\n\n\n—\n\n\n${t}.\n\n\n—\n\n\n\n`
+        : `Chapter ${number}.\n\n\n—\n\n\n\n`;
     default: // elevenlabs
       return t
         ? `Chapter ${number}... ... ... ${t}... ... ... ... \n\n`
