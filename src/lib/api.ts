@@ -30,6 +30,8 @@ export const api = {
     request<{ user: any }>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   authLogout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   authMe: () => request<{ user: any }>('/auth/me'),
+  authGoogle: (data: { credential: string }) =>
+    request<{ user: any; token: string }>('/auth/google', { method: 'POST', body: JSON.stringify(data) }),
   authForgotPassword: (data: { email: string }) =>
     request<{ ok: boolean; message: string; resetToken?: string }>('/auth/forgot-password', {
       method: 'POST',

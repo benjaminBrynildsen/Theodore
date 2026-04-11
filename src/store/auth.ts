@@ -30,6 +30,7 @@ interface AuthState {
   bootstrap: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, name?: string) => Promise<void>;
+  googleLogin: (credential: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -104,6 +105,20 @@ export const useAuthStore = create<AuthState>((set) => ({
       window.dispatchEvent(new Event('theodore:registered'));
     } catch (e: any) {
       set({ loading: false, error: e?.message || 'Registration failed.' });
+      throw e;
+    }
+  },
+
+  googleLogin: async (credential) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await api.authGoogle({ credential });
+      const user = coerceAuthUser(result);
+      if (!user) throw new Error('Google sign-in failed.');
+      set({ user, loading: false, initialized: true });
+      window.dispatchEvent(new Event('theodore:registered'));
+    } catch (e: any) {
+      set({ loading: false, error: e?.message || 'Google sign-in failed.' });
       throw e;
     }
   },

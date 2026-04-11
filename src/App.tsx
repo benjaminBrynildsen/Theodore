@@ -159,10 +159,13 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [isGuestWorkspace, guestModalDismissed, activeProjectId]);
 
-  // Detect /admin and /animationtest URLs on mount
+  const [showGoogleTest, setShowGoogleTest] = useState(false);
+
+  // Detect special URLs on mount
   useEffect(() => {
     if (window.location.pathname === '/admin') setShowAdmin(true);
     if (window.location.pathname === '/animationtest') setShowAnimationTest(true);
+    if (window.location.pathname === '/googletest') setShowGoogleTest(true);
   }, []);
 
   // Handle ?prompt= from the static /go landing page
@@ -441,6 +444,16 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoader label="Loading Theodore..." />}>
         <LandingPage onGetStarted={(msg) => { pixel.trackCustom('StartGuestChat'); setGuestInitialMessage(msg); setShowGuestChat(true); }} onSignIn={() => setShowAuth(true)} />
+      </Suspense>
+    );
+  }
+
+  // Google auth test page
+  if (showGoogleTest) {
+    const GoogleAuthTest = lazy(() => import('./components/views/GoogleAuthTest').then(m => ({ default: m.GoogleAuthTest })));
+    return (
+      <Suspense fallback={<ViewLoader label="Loading..." />}>
+        <GoogleAuthTest />
       </Suspense>
     );
   }

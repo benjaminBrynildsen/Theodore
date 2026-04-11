@@ -848,6 +848,64 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// Google Sign-In — verify ID token, find/create user, create session
+app.post('/api/auth/google', async (req, res) => {
+  try {
+    const { credential } = req.body; // Google ID token from client
+    if (!credential) return res.status(400).json({ error: 'Missing Google credential.' });
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) return res.status(500).json({ error: 'Google auth not configured.' });
+
+    // Verify the ID token with Google
+    const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+    if (!verifyRes.ok) return res.status(401).json({ error: 'Invalid Google token.' });
+    const payload = await verifyRes.json() as any;
+
+    // Verify audience matches our client ID
+    if (payload.aud !== clientId) return res.status(401).json({ error: 'Token audience mismatch.' });
+
+    const email = normalizeEmail(payload.email || '');
+    if (!email) return res.status(400).json({ error: 'No email in Google token.' });
+
+    const name = payload.name || payload.given_name || null;
+    const avatarUrl = payload.picture || null;
+    const now = new Date();
+
+    // Find or create user
+    let user = await getUserByEmail(email);
+    if (!user) {
+      // New user — create account
+      const [inserted] = await db.insert(users).values({
+        id: `user-${randomUUID()}`,
+        email,
+        passwordHash: null, // No password for Google users
+        emailVerifiedAt: now, // Google verifies email
+        name,
+        avatarUrl,
+        plan: 'free',
+        creditsRemaining: FREE_TIER_CREDITS,
+        creditsTotal: FREE_TIER_CREDITS,
+      }).returning();
+      user = inserted;
+      trackRegistration(req as any);
+    } else {
+      // Existing user — update name/avatar if not set
+      const updates: any = { updatedAt: now };
+      if (!user.name && name) updates.name = name;
+      if (!user.avatarUrl && avatarUrl) updates.avatarUrl = avatarUrl;
+      if (!user.emailVerifiedAt) updates.emailVerifiedAt = now;
+      const [updated] = await db.update(users).set(updates).where(eq(users.id, user.id)).returning();
+      user = updated;
+    }
+
+    const token = await createSession(user.id, req, res);
+    res.json({ user: toSafeUser(user), token });
+  } catch (e: any) {
+    respondInternalError(res, 'auth.google', e);
+  }
+});
+
 app.post('/api/auth/login', async (req, res) => {
   try {
     const ip = requestClientIp(req);
