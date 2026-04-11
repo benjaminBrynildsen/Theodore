@@ -9,9 +9,10 @@ type Mode = 'login' | 'register' | 'forgot';
 interface AuthViewProps {
   onBack?: () => void;
   compact?: boolean; // Just the form card, no hero/back button — for modal overlays
+  heading?: { title: string; subtitle: string }; // Override the default heading in compact mode
 }
 
-export function AuthView({ onBack, compact }: AuthViewProps) {
+export function AuthView({ onBack, compact, heading }: AuthViewProps) {
   const { login, register, loading, error: authError } = useAuthStore();
   const [mode, setMode] = useState<Mode>('login');
   const [name, setName] = useState('');
@@ -105,11 +106,12 @@ export function AuthView({ onBack, compact }: AuthViewProps) {
 
   // Compact mode: just the form card for modal overlays
   if (compact) {
+    const h = heading || modeCopy[mode];
     return (
       <div className="rounded-2xl border border-black/10 shadow-2xl bg-white overflow-hidden">
         <div className="p-6 sm:p-8">
-          <h2 className="text-xl font-serif text-text-primary">{modeCopy[mode].title}</h2>
-          <p className="text-sm text-text-secondary mt-1 mb-5">{modeCopy[mode].subtitle}</p>
+          <h2 className="text-xl font-serif text-text-primary">{h.title}</h2>
+          <p className="text-sm text-text-secondary mt-1 mb-5">{h.subtitle}</p>
           {renderForm()}
         </div>
       </div>
