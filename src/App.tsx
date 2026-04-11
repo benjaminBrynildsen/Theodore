@@ -144,6 +144,7 @@ export default function App() {
   const [showAnimationTest, setShowAnimationTest] = useState(false);
   const [showGuestSignupModal, setShowGuestSignupModal] = useState(false);
   const [guestModalDismissed, setGuestModalDismissed] = useState(false);
+  const guestModalTriggered = useRef(false);
 
   // Detect /admin and /animationtest URLs on mount
   useEffect(() => {
@@ -336,14 +337,6 @@ export default function App() {
             onClose={() => {
               setShowGuestChat(false);
               setGuestInitialMessage(undefined);
-              // If the guest just created a project, let them see the workspace
-              // for 3 seconds (cover art, chapters, their novel) THEN show
-              // the signup modal on top. Seeing their creation behind the blur
-              // makes "don't lose this" much more compelling.
-              const store = useStore.getState();
-              if (store.activeProjectId && store.projects.some(p => p.id === store.activeProjectId)) {
-                setTimeout(() => setShowGuestSignupModal(true), 3000);
-              }
             }}
             guestMode
             initialMessage={guestInitialMessage}
@@ -359,6 +352,12 @@ export default function App() {
     }
     // Guest just created a project — let them experience the workspace first
     if (hasActiveProject && (currentView === 'project' || currentView === 'chapter')) {
+      // Trigger signup modal 3 seconds after the workspace renders.
+      // Uses a ref to ensure it only fires once.
+      if (!showGuestSignupModal && !guestModalDismissed && !guestModalTriggered.current) {
+        guestModalTriggered.current = true;
+        setTimeout(() => setShowGuestSignupModal(true), 3000);
+      }
       return (
         <div className="h-screen flex flex-col bg-bg">
           <TopBar />
