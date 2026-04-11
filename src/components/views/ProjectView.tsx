@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play } from 'lucide-react';
 import { computeArcBreakpoints, getStructureById } from '../../lib/story-structures';
 import { useStore } from '../../store';
@@ -6,6 +6,7 @@ import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { Badge } from '../ui/Badge';
 import { ChapterView } from './ChapterView';
+import { AuthView } from './AuthView';
 import { IllustrateButton } from '../features/IllustrateButton';
 import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../../lib/scaffold';
 import { generateStream } from '../../lib/generate';
@@ -40,6 +41,11 @@ export function ProjectView() {
   const user = useAuthStore((s) => s.user);
   const isGuest = !user;
   const [showSignUpPrompt, setShowSignUpPrompt] = useState(false);
+
+  // Auto-close auth modal when user signs in
+  useEffect(() => {
+    if (user && showSignUpPrompt) setShowSignUpPrompt(false);
+  }, [user, showSignUpPrompt]);
   const project = getActiveProject();
 
   if (!project) return null;
@@ -242,36 +248,11 @@ export function ProjectView() {
         );
       })()}
 
-      {/* Sign-up prompt modal for guests */}
+      {/* Inline auth modal for guests — no navigation, stays on this page */}
       {showSignUpPrompt && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-6" onClick={() => setShowSignUpPrompt(false)}>
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-scale-in" onClick={(e) => e.stopPropagation()}>
-            <div className="text-center mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-black/[0.04] flex items-center justify-center mx-auto mb-3">
-                <Headphones size={24} className="text-text-primary" />
-              </div>
-              <h3 className="text-lg font-semibold mb-1">Listen to your audiobook</h3>
-              <p className="text-sm text-text-secondary">Create a free account to generate and listen to narrated chapters. Your story will be saved.</p>
-            </div>
-            <button
-              onClick={() => {
-                setShowSignUpPrompt(false);
-                // Navigate to auth — the app preserves guest state on sign-in
-                window.dispatchEvent(new CustomEvent('theodore:showAuth'));
-              }}
-              className="w-full py-3 rounded-xl bg-text-primary text-text-inverse font-medium text-sm hover:opacity-90 transition-all mb-2"
-            >
-              Sign Up Free
-            </button>
-            <button
-              onClick={() => {
-                setShowSignUpPrompt(false);
-                window.dispatchEvent(new CustomEvent('theodore:showAuth'));
-              }}
-              className="w-full py-2.5 text-sm text-text-secondary hover:text-text-primary transition-colors"
-            >
-              Already have an account? Sign in
-            </button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4 overflow-y-auto" onClick={() => setShowSignUpPrompt(false)}>
+          <div className="w-full max-w-md my-8 animate-scale-in" onClick={(e) => e.stopPropagation()}>
+            <AuthView onBack={() => setShowSignUpPrompt(false)} />
           </div>
         </div>
       )}
