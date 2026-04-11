@@ -152,11 +152,12 @@ export default function App() {
   const isGuestWorkspace = !user && hasActiveProject && (currentView === 'project' || currentView === 'chapter');
   useEffect(() => {
     if (!isGuestWorkspace) return;
-    if (guestModalTriggered.current || guestModalDismissed) return;
-    guestModalTriggered.current = true;
+    if (guestModalDismissed) return;
+    // Reset trigger when activeProjectId changes (new project created)
+    if (showGuestSignupModal) return; // already showing
     const timer = setTimeout(() => setShowGuestSignupModal(true), 3000);
     return () => clearTimeout(timer);
-  }, [isGuestWorkspace, guestModalDismissed]);
+  }, [isGuestWorkspace, guestModalDismissed, activeProjectId]);
 
   // Detect /admin and /animationtest URLs on mount
   useEffect(() => {
