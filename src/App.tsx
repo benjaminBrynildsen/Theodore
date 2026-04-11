@@ -336,10 +336,13 @@ export default function App() {
             onClose={() => {
               setShowGuestChat(false);
               setGuestInitialMessage(undefined);
-              // If the guest just created a project, show the signup modal
+              // If the guest just created a project, let them see the workspace
+              // for 3 seconds (cover art, chapters, their novel) THEN show
+              // the signup modal on top. Seeing their creation behind the blur
+              // makes "don't lose this" much more compelling.
               const store = useStore.getState();
               if (store.activeProjectId && store.projects.some(p => p.id === store.activeProjectId)) {
-                setShowGuestSignupModal(true);
+                setTimeout(() => setShowGuestSignupModal(true), 3000);
               }
             }}
             guestMode
