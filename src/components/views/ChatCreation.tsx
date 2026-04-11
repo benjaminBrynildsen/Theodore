@@ -508,7 +508,7 @@ export function ChatCreation({ onClose, guestMode, initialMessage, onRequireAuth
     if (messages.length === 0) return; // wait for intro message to load
     initialMessageSent.current = true;
     pixel.trackCustom('ChatAutoSendFired');
-    jTrack('chat_auto_send', { prompt: initialMessage?.slice(0, 100) });
+    jTrack('chat_auto_send', { prompt: initialMessage?.slice(0, 200) });
     setInput(initialMessage);
     requestAnimationFrame(() => {
       const sendBtn = document.querySelector('[data-send-btn]') as HTMLButtonElement | null;
@@ -1281,8 +1281,69 @@ ${childrensRule}`,
   const createNowCredits = createCostRows.slice(0, 3).reduce((sum, row) => sum + row.credits, 0);
   const hasUserMessage = messages.some((message) => message.role === 'user');
 
+  // Guest signup modal — shows after 5th user message
+  const [showChatSignupModal, setShowChatSignupModal] = useState(false);
+  const [chatModalDismissed, setChatModalDismissed] = useState(false);
+  const userMessageCount = messages.filter(m => m.role === 'user').length;
+  useEffect(() => {
+    if (!guestMode || chatModalDismissed || showChatSignupModal) return;
+    if (userMessageCount >= 5) {
+      setShowChatSignupModal(true);
+      pixel.trackCustom('GuestChatSignupModalShown');
+      jTrack('guest_chat_signup_modal_shown');
+    }
+  }, [guestMode, userMessageCount, chatModalDismissed, showChatSignupModal]);
+
   return (
     <div className="fixed inset-0 flex flex-col bg-bg animate-fade-in overflow-hidden z-50">
+        {/* Guest banner — save your progress */}
+        {guestMode && (
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200/60 px-4 py-2 flex items-center justify-between flex-shrink-0">
+            <p className="text-xs sm:text-sm text-amber-900">
+              Save your progress. <span className="text-amber-700">Sign up free.</span>
+            </p>
+            <button
+              onClick={onRequireAuth}
+              className="px-3 py-1 rounded-lg bg-text-primary text-white text-xs font-semibold hover:opacity-90 transition-opacity flex-shrink-0 ml-2"
+            >
+              Sign Up
+            </button>
+          </div>
+        )}
+
+        {/* Chat signup modal — after 5th message */}
+        {showChatSignupModal && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <div className="relative bg-white rounded-3xl shadow-2xl border border-black/5 w-full max-w-sm mx-4 animate-scale-in overflow-hidden p-6 text-center">
+              <h2 className="text-lg font-serif font-semibold mb-2">Save your progress</h2>
+              <p className="text-sm text-text-tertiary mb-5">Create a free account so you don't lose this conversation. Takes 5 seconds.</p>
+              <button
+                onClick={() => {
+                  pixel.trackCustom('GuestChatSignupModalSignUp');
+                  jTrack('guest_chat_signup_modal_signup');
+                  setShowChatSignupModal(false);
+                  onRequireAuth?.();
+                }}
+                className="w-full py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold shadow-md hover:shadow-lg active:scale-[0.98] transition-all"
+              >
+                Sign Up Free
+              </button>
+              <button
+                onClick={() => {
+                  pixel.trackCustom('GuestChatSignupModalDismissed');
+                  jTrack('guest_chat_signup_modal_dismissed');
+                  setShowChatSignupModal(false);
+                  setChatModalDismissed(true);
+                }}
+                className="mt-3 text-sm text-text-tertiary hover:text-text-primary transition-colors"
+              >
+                Keep writing →
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Header - minimal */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-2 border-b border-black/5 flex-shrink-0">
           <button onClick={onClose} className="flex items-center gap-1 text-text-tertiary hover:text-text-primary text-sm transition-colors">

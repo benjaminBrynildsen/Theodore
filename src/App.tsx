@@ -174,7 +174,7 @@ export default function App() {
     const prompt = params.get('prompt');
     if (prompt) {
       pixel.trackCustom('PromptRedirectArrived');
-      jTrack('prompt_redirect_arrived', { prompt: prompt.slice(0, 100) });
+      jTrack('prompt_redirect_arrived', { prompt: prompt.slice(0, 200) });
       setGuestInitialMessage(prompt);
       setShowGuestChat(true);
       const url = new URL(window.location.href);
