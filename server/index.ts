@@ -288,6 +288,7 @@ function buildProjectInsert(bodyRaw: unknown, userId: string) {
     ageRange: 'ageRange' in body ? asOptionalString(body.ageRange) : null,
     childrensBookSettings: 'childrensBookSettings' in body && body.childrensBookSettings ? asObject(body.childrensBookSettings) : null,
     narrativeControls: asObject(body.narrativeControls, DEFAULT_NARRATIVE_CONTROLS),
+    coverUrl: asOptionalString(body.coverUrl) || null,
     status: asString(body.status, 'active'),
   };
 }

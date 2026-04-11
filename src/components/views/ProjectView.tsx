@@ -215,7 +215,8 @@ export function ProjectView() {
       {/* Listen button — below cover */}
       {(() => {
         const sortedCh = [...chapters].sort((a, b) => a.number - b.number);
-        const ch1 = sortedCh.find(c => c.prose?.trim());
+        // Only show Listen when chapter has substantial prose (not mid-stream partial)
+        const ch1 = sortedCh.find(c => c.prose?.trim() && c.status !== 'premise-only' && c.prose.trim().split(/\s+/).length > 200);
         if (!ch1) return null;
         const hasAudio = !!chapterAudio[ch1.id]?.audioUrl;
         const isGenerating = audioGenerating === ch1.id;
