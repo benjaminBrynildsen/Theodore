@@ -1603,8 +1603,8 @@ ${childrensRule}`,
                   {creatingProject
                     ? selectedSettings ? 'Creating…' : 'Building your novel…'
                     : selectedSettings?.title
-                    ? `Go to ${selectedSettings.title} →`
-                    : 'Build My Novel →'}
+                    ? `Read ${selectedSettings.title} →`
+                    : "See My Novel (It's Ready) →"}
                 </button>
               )}
             </div>
@@ -1660,8 +1660,8 @@ ${childrensRule}`,
                 {creatingProject
                   ? selectedSettings ? 'Creating…' : 'Building your novel…'
                   : selectedSettings?.title
-                  ? `Go to ${selectedSettings.title} →`
-                  : 'Build My Novel →'}
+                  ? `Read ${selectedSettings.title} →`
+                  : "See My Novel (It's Ready) →"}
               </button>
 
               <div className="mt-3 rounded-2xl border border-black/10 bg-white/55 px-4 py-3">
