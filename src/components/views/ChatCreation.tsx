@@ -1284,6 +1284,9 @@ ${childrensRule}`,
   // Guest signup modal — shows after 5th user message
   const [showChatSignupModal, setShowChatSignupModal] = useState(false);
   const [chatModalDismissed, setChatModalDismissed] = useState(false);
+  const chatGoogleBtnRef = useRef<HTMLDivElement>(null);
+  const [chatGoogleReady, setChatGoogleReady] = useState(false);
+  const { googleLogin } = useAuthStore();
   const userMessageCount = messages.filter(m => m.role === 'user').length;
   useEffect(() => {
     if (!guestMode || chatModalDismissed || showChatSignupModal) return;
@@ -1293,6 +1296,47 @@ ${childrensRule}`,
       jTrack('guest_chat_signup_modal_shown');
     }
   }, [guestMode, userMessageCount, chatModalDismissed, showChatSignupModal]);
+
+  // Load Google Identity Services for the chat signup modal
+  const GOOGLE_CLIENT_ID = '296594825511-3m0g5t2l0ombm3j8cdc5ncqe673obg4d.apps.googleusercontent.com';
+  useEffect(() => {
+    if (!guestMode) return;
+    if ((window as any).google?.accounts?.id) { setChatGoogleReady(true); return; }
+    if (document.getElementById('google-gsi-script')) {
+      const check = setInterval(() => {
+        if ((window as any).google?.accounts?.id) { setChatGoogleReady(true); clearInterval(check); }
+      }, 200);
+      return () => clearInterval(check);
+    }
+    const script = document.createElement('script');
+    script.id = 'google-gsi-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => setChatGoogleReady(true);
+    document.head.appendChild(script);
+  }, [guestMode]);
+
+  const handleChatGoogleCallback = useCallback(async (response: any) => {
+    try {
+      await googleLogin(response.credential);
+      pixel.trackCustom('GuestChatSignupModalSignUp');
+      jTrack('guest_chat_signup_modal_signup');
+      setShowChatSignupModal(false);
+    } catch { /* error shown via auth store */ }
+  }, [googleLogin]);
+
+  // Render Google button when modal is visible
+  useEffect(() => {
+    if (!showChatSignupModal || !chatGoogleReady || !chatGoogleBtnRef.current) return;
+    const google = (window as any).google;
+    if (!google?.accounts?.id) return;
+    chatGoogleBtnRef.current.innerHTML = '';
+    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleChatGoogleCallback });
+    google.accounts.id.renderButton(chatGoogleBtnRef.current, {
+      theme: 'outline', size: 'large', width: chatGoogleBtnRef.current.offsetWidth || 280,
+      text: 'continue_with', shape: 'pill',
+    });
+  }, [showChatSignupModal, chatGoogleReady, handleChatGoogleCallback]);
 
   return (
     <div className="fixed inset-0 flex flex-col bg-bg animate-fade-in overflow-hidden z-50">
@@ -1317,7 +1361,14 @@ ${childrensRule}`,
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
             <div className="relative bg-white rounded-3xl shadow-2xl border border-black/5 w-full max-w-sm mx-4 animate-scale-in overflow-hidden p-6 text-center">
               <h2 className="text-lg font-serif font-semibold mb-2">Save your progress</h2>
-              <p className="text-sm text-text-tertiary mb-5">Create a free account so you don't lose this conversation. Takes 5 seconds.</p>
+              <p className="text-sm text-text-tertiary mb-4">Create a free account so you don't lose this conversation. Takes 5 seconds.</p>
+              {/* Google Sign-In */}
+              <div ref={chatGoogleBtnRef} className="w-full flex justify-center mb-3" />
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-px flex-1 bg-black/10" />
+                <span className="text-[10px] text-text-tertiary uppercase tracking-wider">or</span>
+                <div className="h-px flex-1 bg-black/10" />
+              </div>
               <button
                 onClick={() => {
                   pixel.trackCustom('GuestChatSignupModalSignUp');
@@ -1327,7 +1378,7 @@ ${childrensRule}`,
                 }}
                 className="w-full py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold shadow-md hover:shadow-lg active:scale-[0.98] transition-all"
               >
-                Sign Up Free
+                Sign Up with Email
               </button>
               <button
                 onClick={() => {
