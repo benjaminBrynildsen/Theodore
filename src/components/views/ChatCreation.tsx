@@ -1604,7 +1604,7 @@ ${childrensRule}`,
                     ? selectedSettings ? 'Creating…' : 'Building your novel…'
                     : selectedSettings?.title
                     ? `Read ${selectedSettings.title} →`
-                    : "See My Novel (It's Ready) →"}
+                    : "Read My Book (It's Ready) →"}
                 </button>
               )}
             </div>
@@ -1661,7 +1661,7 @@ ${childrensRule}`,
                   ? selectedSettings ? 'Creating…' : 'Building your novel…'
                   : selectedSettings?.title
                   ? `Read ${selectedSettings.title} →`
-                  : "See My Novel (It's Ready) →"}
+                  : "Read My Book (It's Ready) →"}
               </button>
 
               <div className="mt-3 rounded-2xl border border-black/10 bg-white/55 px-4 py-3">
