@@ -1446,60 +1446,9 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             </div>
           )}
           {!editMode && !chapter.prose && (
-            <div className="py-16 animate-fade-in">
-              {/* Header */}
-              <div className="text-center mb-8">
-                <div className="glass-pill w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5">
-                  <Type size={28} className="text-text-tertiary" />
-                </div>
-                <p className="text-text-secondary mb-2 font-medium">Start writing</p>
-                <p className="text-sm text-text-tertiary max-w-xs mx-auto mb-4">
-                  {scenes.length > 0
-                    ? 'Generate the whole chapter at once, or write scene by scene.'
-                    : 'Type below to start writing, or generate.'}
-                </p>
-              </div>
-
-              {/* Word target selector */}
-              <div className="mb-4">
-                <p className="text-xs text-text-tertiary mb-2 text-center">Chapter length: <span className="font-semibold text-text-primary">{wordTarget.toLocaleString()} words</span></p>
-                <div className="mx-auto w-fit rounded-xl glass-pill p-1 flex flex-wrap gap-1 justify-center">
-                  {wordTargetOptions.map((wt) => (
-                    <button
-                      key={wt}
-                      onClick={() => setWordTarget(wt)}
-                      className={cn(
-                        'px-2.5 py-1.5 rounded-lg text-xs transition-all',
-                        wordTarget === wt ? 'bg-text-primary text-text-inverse shadow-sm' : 'text-text-secondary hover:bg-white/60',
-                      )}
-                    >
-                      {wt >= 1000 ? `${wt / 1000}k` : wt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Chapter framing notes */}
-              <div className="max-w-xl mx-auto mb-4 px-2">
-                <label className="block text-left text-[11px] font-semibold uppercase tracking-wide text-text-tertiary mb-2">
-                  Chapter framing notes (optional)
-                </label>
-                <textarea
-                  value={chapterFraming}
-                  onChange={(e) => setChapterFraming(e.target.value)}
-                  onBlur={() => {
-                    const currentMeta = ((chapter.aiIntentMetadata || {}) as Record<string, any>);
-                    const nextMeta = { ...currentMeta, chapterFraming: chapterFraming.trim() } as any;
-                    updateChapter(chapter.id, { aiIntentMetadata: nextMeta });
-                    api.updateChapter(chapter.id, { aiIntentMetadata: nextMeta }).catch(() => {});
-                  }}
-                  placeholder="Set the vibe, constraints, must-hit beats, POV emphasis, dialogue style, emotional temperature, etc."
-                  className="w-full min-h-[92px] rounded-xl border border-black/10 bg-white/60 px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary/80 focus:outline-none focus:ring-2 focus:ring-black/10"
-                />
-                <p className="mt-1 text-[11px] text-text-tertiary text-left">
-                  These notes are injected into the generation prompt for this chapter.
-                </p>
-              </div>
+            <div className="py-8 animate-fade-in">
+              {/* Generate button — primary CTA right below premise */}
+              <div className="text-center mb-6">
 
               {/* Interrupted generation — show "Finish" button */}
               {(() => {
@@ -1581,6 +1530,44 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                     {showBudget ? 'Hide credit budget' : 'View credit budget'}
                   </button>
                 )}
+              </div>
+
+              {/* Chapter framing notes */}
+              <div className="max-w-xl mx-auto mb-5 px-2">
+                <label className="block text-left text-[11px] font-semibold uppercase tracking-wide text-text-tertiary mb-2">
+                  Chapter framing notes (optional)
+                </label>
+                <textarea
+                  value={chapterFraming}
+                  onChange={(e) => setChapterFraming(e.target.value)}
+                  onBlur={() => {
+                    const currentMeta = ((chapter.aiIntentMetadata || {}) as Record<string, any>);
+                    const nextMeta = { ...currentMeta, chapterFraming: chapterFraming.trim() } as any;
+                    updateChapter(chapter.id, { aiIntentMetadata: nextMeta });
+                    api.updateChapter(chapter.id, { aiIntentMetadata: nextMeta }).catch(() => {});
+                  }}
+                  placeholder="Set the vibe, constraints, must-hit beats, POV emphasis, dialogue style, emotional temperature, etc."
+                  className="w-full min-h-[80px] rounded-xl border border-black/10 bg-white/60 px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary/80 focus:outline-none focus:ring-2 focus:ring-black/10"
+                />
+              </div>
+
+              {/* Word target selector */}
+              <div className="mb-5">
+                <p className="text-xs text-text-tertiary mb-2 text-center">Chapter length: <span className="font-semibold text-text-primary">{wordTarget.toLocaleString()} words</span></p>
+                <div className="mx-auto w-fit rounded-xl glass-pill p-1 flex flex-wrap gap-1 justify-center">
+                  {wordTargetOptions.map((wt) => (
+                    <button
+                      key={wt}
+                      onClick={() => setWordTarget(wt)}
+                      className={cn(
+                        'px-2.5 py-1.5 rounded-lg text-xs transition-all',
+                        wordTarget === wt ? 'bg-text-primary text-text-inverse shadow-sm' : 'text-text-secondary hover:bg-white/60',
+                      )}
+                    >
+                      {wt >= 1000 ? `${wt / 1000}k` : wt}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {generationError && (
