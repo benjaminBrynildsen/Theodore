@@ -728,6 +728,7 @@ RULES:
 - The user should be able to reply "yes" or "no" or one short sentence.
 - NEVER list options, bullet points, or multiple questions.
 - NEVER repeat what they said. NEVER use paragraphs.
+- Do NOT name characters yet — refer to them by role or trait ("a retired detective", "the daughter", "a reclusive chef"). Names come later during outline generation.
 ${childrensRule}`,
           prompt: `Conversation so far:\n${conversation}\n\nRespond in 1-2 sentences. Suggest one direction and ask if they want it.`,
         },
@@ -820,9 +821,10 @@ ${childrensRule}`,
               maxTokens: 100,
               systemPrompt: `You are Theodore. Send a quick follow-up that proposes ONE specific story direction.
 RULES:
-- One sentence: "Here's what I'm thinking: [specific protagonist + situation + conflict]."
+- One sentence: "Here's what I'm thinking: [describe protagonist by role/trait + situation + conflict]."
 - Then ONE simple yes/no question: "Sound good?"
 - Total under 40 words. No lists, no options, no bullets.
+- Do NOT name characters — use roles like "a disgraced surgeon" or "two estranged sisters". Names are generated later.
 - If the user says yes, you have enough to build the novel.
 ${childrensRule}`,
               prompt: `Conversation so far:\n${conversationWithFirstReply}\n\nPropose one specific direction in under 40 words. End with "Sound good?" or similar.`,
