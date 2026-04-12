@@ -1447,9 +1447,6 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
           )}
           {!editMode && !chapter.prose && (
             <div className="py-8 animate-fade-in">
-              {/* Generate button — primary CTA right below premise */}
-              <div className="text-center mb-6">
-
               {/* Interrupted generation — show "Finish" button */}
               {(() => {
                 const proseWords = chapter.prose?.trim().split(/\s+/).length || 0;
