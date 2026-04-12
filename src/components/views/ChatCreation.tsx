@@ -1601,8 +1601,10 @@ ${childrensRule}`,
                   className="mt-3 w-full lg:hidden py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold shadow-md hover:shadow-lg active:scale-[0.98] transition-all disabled:opacity-60"
                 >
                   {creatingProject
-                    ? selectedSettings ? 'Creating…' : 'Building plan…'
-                    : bookType === 'childrens-book' ? "Create Children's Book" : 'Create Novel'}
+                    ? selectedSettings ? 'Creating…' : 'Building your novel…'
+                    : selectedSettings?.title
+                    ? `Go to ${selectedSettings.title} →`
+                    : 'Build My Novel →'}
                 </button>
               )}
             </div>
@@ -1614,8 +1616,10 @@ ${childrensRule}`,
                 {selectedSettings ? 'Ready' : 'Start Here'}
               </div>
               <h3 className="font-serif text-2xl font-semibold mb-2">
-                {selectedSettings
-                  ? bookType === 'childrens-book' ? "Create Children's Book" : 'Create Novel'
+                {selectedSettings?.title
+                  ? selectedSettings.title
+                  : selectedSettings
+                  ? bookType === 'childrens-book' ? "Your Book" : 'Your Novel'
                   : 'Build The Shape'}
               </h3>
               <p className="text-xs text-text-tertiary mb-4">
@@ -1654,10 +1658,10 @@ ${childrensRule}`,
                 className="w-full py-5 rounded-2xl bg-text-primary text-text-inverse text-lg font-semibold shadow-lg hover:shadow-2xl active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {creatingProject
-                  ? selectedSettings ? 'Creating…' : 'Building plan…'
-                  : bookType === 'childrens-book'
-                  ? "Create Children's Book"
-                  : 'Create Novel'}
+                  ? selectedSettings ? 'Creating…' : 'Building your novel…'
+                  : selectedSettings?.title
+                  ? `Go to ${selectedSettings.title} →`
+                  : 'Build My Novel →'}
               </button>
 
               <div className="mt-3 rounded-2xl border border-black/10 bg-white/55 px-4 py-3">
