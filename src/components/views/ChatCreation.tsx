@@ -584,7 +584,7 @@ THEODORE_CANON_JSON:{"characters":[{"name":"...","role":"protagonist","descripti
 Rules:
 - Output only those two marker lines. No extra text.
 - Assume even the first user message is enough to draft concrete story seeds.
-- Use fresh, unexpected character names that fit the genre and setting. NEVER use Marcus, Priya, Sebastian, Elena, Kai, Aria, Ezra, Luna, Jasper, or Rowan.
+- Use distinctive, original character names that feel specific to this story's genre, era, and cultural setting. Avoid generic or overused names.
 - chapterCount MUST match chapters.length. Generate ALL chapters — every single one must have a unique, specific title and premise. No generic fillers.
 - Each chapter premise must be a brief STORY SUMMARY of what happens — use character names and specific events, NOT meta-language like "stakes are raised" or "introduce the conflict". Write like a synopsis.
 - Infer at least 1 named protagonist and 1 named place immediately; include those names in chapter titles/premises.
@@ -1186,7 +1186,7 @@ ${childrensRule}`,
           model: 'claude-haiku-4-5',
           temperature: 0.7,
           maxTokens: 1500,
-          prompt: `Based on this conversation, generate a complete novel outline.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown fences:\n{"title":"Book Title","chapters":[{"number":1,"title":"Chapter Title","premise":"One sentence synopsis of what happens"},...]}\n\nRules:\n- Generate exactly 12 chapters\n- Each premise must be a specific story synopsis using character names\n- No meta-language like "stakes are raised" — write like a synopsis\n- IMPORTANT: Use fresh, unexpected character names. NEVER use Marcus, Priya, Sebastian, Elena, Kai, Aria, Ezra, Luna, Jasper, or Rowan. Pick names that feel specific to the genre, setting, and cultural context of this particular story.`,
+          prompt: `Based on this conversation, generate a complete novel outline.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown fences:\n{"title":"Book Title","chapters":[{"number":1,"title":"Chapter Title","premise":"One sentence synopsis of what happens"},...]}\n\nRules:\n- Generate exactly 12 chapters\n- Each premise must be a specific story synopsis using character names\n- No meta-language like "stakes are raised" — write like a synopsis\n- Use distinctive, original character names that feel specific to this story's genre, era, and cultural setting. Avoid generic or overused names.`,
         });
         try {
           const parsed = JSON.parse((quickResult.text || '').trim().match(/\{[\s\S]*\}/)?.[0] || '{}');
