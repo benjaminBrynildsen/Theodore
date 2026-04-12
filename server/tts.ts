@@ -55,30 +55,31 @@ function addTTSPacing(text: string): string {
   // 0. Strip asterisks (narrator reads them aloud)
   result = result.replace(/\*/g, '');
 
+  // v1.9 — pushing pauses further (+1 \n each vs v1.8)
   // 1. Paragraph breaks → strong cinematic pause
-  result = result.replace(/\n\n+/g, '\n\n\n\n—\n\n\n\n');
+  result = result.replace(/\n\n+/g, '\n\n\n\n\n—\n\n\n\n\n');
 
-  // 2. Every sentence boundary → triple newline
-  result = result.replace(/([.!?])\s+([A-Z])/g, '$1\n\n\n$2');
+  // 2. Every sentence boundary → quad newline
+  result = result.replace(/([.!?])\s+([A-Z])/g, '$1\n\n\n\n$2');
 
-  // 3. Before dialogue after narration → quad newline
-  result = result.replace(/([.!?])\n\n\n([""\u201C])/g, '$1\n\n\n\n$2');
+  // 3. Before dialogue after narration → 5x newline
+  result = result.replace(/([.!?])\n\n\n\n([""\u201C])/g, '$1\n\n\n\n\n$2');
 
-  // 4. After dialogue closing before narration → quad newline
-  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1\n\n\n\n$2');
+  // 4. After dialogue closing before narration → 5x newline
+  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1\n\n\n\n\n$2');
 
-  // 5. Dialogue comma attribution → triple newline
-  result = result.replace(/([""\u201D]),?\s+([a-z])/g, '$1,\n\n\n$2');
+  // 5. Dialogue comma attribution → quad newline
+  result = result.replace(/([""\u201D]),?\s+([a-z])/g, '$1,\n\n\n\n$2');
 
   // 6. Em dash pauses — wider
-  result = result.replace(/\s*—\s*/g, '\n\n—\n\n');
+  result = result.replace(/\s*—\s*/g, '\n\n\n—\n\n\n');
 
-  // 7. Semicolons → triple newline
-  result = result.replace(/;\s+/g, ';\n\n\n');
+  // 7. Semicolons → quad newline
+  result = result.replace(/;\s+/g, ';\n\n\n\n');
 
   // 8. Ellipsis → wider spacing for natural pause
-  result = result.replace(/\.{3}/g, '. . . . .');
-  result = result.replace(/…/g, '. . . . .');
+  result = result.replace(/\.{3}/g, '. . . . . .');
+  result = result.replace(/…/g, '. . . . . .');
 
   return result;
 }
@@ -345,8 +346,8 @@ function buildChapterAnnouncement(
         : `Chapter ${number}. (break) (break) (break) (break) `;
     case 'openai':
       return t
-        ? `Chapter ${number}.\n\n\n\n—\n\n\n\n${t}.\n\n\n\n—\n\n\n\n\n`
-        : `Chapter ${number}.\n\n\n\n—\n\n\n\n\n`;
+        ? `Chapter ${number}.\n\n\n\n\n—\n\n\n\n\n${t}.\n\n\n\n\n—\n\n\n\n\n\n`
+        : `Chapter ${number}.\n\n\n\n\n—\n\n\n\n\n\n`;
     default: // elevenlabs
       return t
         ? `Chapter ${number}... ... ... ${t}... ... ... ... \n\n`
