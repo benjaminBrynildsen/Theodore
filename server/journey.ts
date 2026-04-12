@@ -91,7 +91,8 @@ export async function getJourneys(req: Request, res: Response) {
         MAX(country) AS country,
         MAX(ip_hash) AS ip_hash,
         ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))))::int AS duration_seconds,
-        ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types
+        ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
+        BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin
       FROM journey_events
       WHERE created_at > NOW() - INTERVAL '7 days'
         ${pageFilter ? sql`AND session_id IN (SELECT DISTINCT session_id FROM journey_events WHERE page LIKE ${'%' + pageFilter + '%'})` : sql``}

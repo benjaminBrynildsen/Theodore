@@ -934,17 +934,17 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
             </div>
             <div className="space-y-1">
               {journeys.filter((s) => {
-                const isStLouis = s.region === 'Missouri' || s.city?.includes('St. Louis') || s.city?.includes('Saint Louis');
+                const isAdmin = !!(s as any).is_admin || s.region === 'Missouri' || s.city?.includes('St. Louis') || s.city?.includes('Saint Louis') || s.city?.includes('Roxana');
                 const hasGoPage = s.event_types.some(e => e === 'page_load') && (s as any).pages?.includes('/go/');
                 const hasEngagement = s.event_types.some(e =>
                   ['prompt_submit', 'play_audio', 'focus_input', 'chat_auto_send', 'first_ai_response'].includes(e)
                 );
                 if (journeyFilter === '/go/') return true; // server filter handles this
                 if (journeyFilter === 'engaged') return hasEngagement;
-                if (journeyFilter === 'not-me') return !isStLouis;
+                if (journeyFilter === 'not-me') return !isAdmin;
                 return true;
               }).map((s) => {
-                const isStLouis = s.region === 'Missouri' || s.city?.includes('St. Louis') || s.city?.includes('Saint Louis');
+                const isAdmin = !!(s as any).is_admin || s.region === 'Missouri' || s.city?.includes('St. Louis') || s.city?.includes('Saint Louis') || s.city?.includes('Roxana');
                 const dur = s.duration_seconds;
                 const durLabel = dur < 60 ? `${dur}s` : `${Math.floor(dur / 60)}m ${dur % 60}s`;
                 const hasEngagement = s.event_types.some(e =>
@@ -956,14 +956,14 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                     onClick={() => loadJourneyDetail(s.session_id)}
                     className={cn(
                       'w-full flex items-center gap-3 px-4 py-3 rounded-xl glass-pill text-left transition-all hover:bg-black/[0.03]',
-                      isStLouis && 'border border-dashed border-blue-200 bg-blue-50/30',
-                      hasEngagement && !isStLouis && 'border border-green-200 bg-green-50/20'
+                      isAdmin && 'border border-dashed border-blue-200 bg-blue-50/30',
+                      hasEngagement && !isAdmin && 'border border-green-200 bg-green-50/20'
                     )}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium text-text-primary flex items-center gap-1.5">
                         {s.city || 'Unknown'}{s.region ? `, ${s.region}` : ''}{s.country ? ` · ${s.country}` : ''}
-                        {isStLouis && (
+                        {isAdmin && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">You</span>
                         )}
                       </div>

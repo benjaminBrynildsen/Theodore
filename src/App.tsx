@@ -18,7 +18,7 @@ import { AudiobookPanel } from './components/features/AudiobookPanel';
 import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/MobilePlayer';
 import { MobileStudioPanel } from './components/layout/MobileStudioPanel';
 import * as pixel from './lib/pixel';
-import { track as jTrack } from './lib/journey';
+import { track as jTrack, setAdmin as setJourneyAdmin } from './lib/journey';
 
 const ProjectView = lazy(async () => {
   const mod = await import('./components/views/ProjectView');
@@ -134,6 +134,12 @@ export default function App() {
     window.addEventListener('theodore:registered', handler);
     return () => window.removeEventListener('theodore:registered', handler);
   }, []);
+
+  // Tag journey sessions as admin so they're filtered out automatically
+  const ADMIN_EMAILS = ['benbrynildsen5757@gmail.com', 'ben@germaniabrewhaus.com'];
+  useEffect(() => {
+    setJourneyAdmin(!!user && ADMIN_EMAILS.includes(user.email));
+  }, [user]);
 
   const [showGuestChat, setShowGuestChat] = useState(false);
   const [guestInitialMessage, setGuestInitialMessage] = useState<string | undefined>();
