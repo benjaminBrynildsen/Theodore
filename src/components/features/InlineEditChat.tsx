@@ -332,11 +332,15 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
       // Undo the pushed state on error
       setUndoStack(prev => prev.slice(0, -1));
 
+      if (error?.message === 'INSUFFICIENT_CREDITS') {
+        const { useCreditsStore } = await import('../../store/credits');
+        useCreditsStore.getState().setShowUpgradeModal(true);
+      }
       const errorMsg: EditChatMessage = {
         id: generateId(),
         role: 'assistant',
         content: error?.message === 'INSUFFICIENT_CREDITS'
-          ? 'Not enough credits for this edit.'
+          ? 'Not enough credits — upgrade to continue editing.'
           : `Error: ${error?.message || 'Edit failed'}`,
         timestamp: new Date().toISOString(),
       };

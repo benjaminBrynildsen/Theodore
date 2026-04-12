@@ -8,6 +8,7 @@ import { track as jTrack } from '../../lib/journey';
 import { generateId, cn } from '../../lib/utils';
 import { generateText, generateTextGuest, generateStream } from '../../lib/generate';
 import { useGenerationStore } from '../../store/generation';
+import { useCreditsStore } from '../../store/credits';
 import { api } from '../../lib/api';
 import { Slider } from '../ui/Slider';
 import { autoFillCharacter, autoFillLocation, extractCanonFromConversation } from '../../lib/ai-autofill';
@@ -750,8 +751,11 @@ ${childrensRule}`,
         undefined,
         (error) => {
           streamErrored = true;
+          if (error === 'INSUFFICIENT_CREDITS') {
+            useCreditsStore.getState().setShowUpgradeModal(true);
+          }
           const msg = error === 'INSUFFICIENT_CREDITS'
-            ? "Out of credits. Check Settings > Usage & Credits."
+            ? "Out of credits — upgrade your plan to continue."
             : `I couldn't reach the model right now.\n\nError: ${error}`;
           if (placeholderId === null) {
             setMessages((prev) => [

@@ -30,6 +30,8 @@ export async function generateImageApi(options: ImageGenOptions): Promise<ImageG
   if (!response.ok) {
     const err = await response.json().catch(() => ({ error: 'Unknown error' }));
     if (err.error === 'INSUFFICIENT_CREDITS') {
+      const { useCreditsStore } = await import('../store/credits');
+      useCreditsStore.getState().setShowUpgradeModal(true);
       throw new Error('Not enough credits for image generation.');
     }
     throw new Error(err.error || `Image generation failed (${response.status})`);

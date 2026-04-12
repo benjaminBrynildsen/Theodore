@@ -529,6 +529,9 @@ export function AudioPlayerBar() {
       }
       useGenerationStore.getState().setPhase('done');
     } catch (e: any) {
+      if (e.message?.includes('credits') || e.message?.includes('402')) {
+        import('../../store/credits').then(m => m.useCreditsStore.getState().setShowUpgradeModal(true));
+      }
       setError(e.message || 'Audio generation failed');
       useGenerationStore.getState().end();
     } finally {

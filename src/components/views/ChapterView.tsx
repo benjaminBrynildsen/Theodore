@@ -326,7 +326,7 @@ export function ChapterView({ chapter }: Props) {
         setGenerating(false);
         useGenerationStore.getState().end();
         if (error === 'INSUFFICIENT_CREDITS') {
-          setGenerationError('Not enough credits. Upgrade your plan to continue generating.');
+          useCreditsStore.getState().setShowUpgradeModal(true);
           return;
         }
         setGenerationError(`Generation failed: ${error}`);
@@ -539,7 +539,7 @@ export function ChapterView({ chapter }: Props) {
         setExtending(false);
         useGenerationStore.getState().end();
         if (error === 'INSUFFICIENT_CREDITS') {
-          setGenerationError('Not enough credits. Upgrade your plan to continue extending.');
+          useCreditsStore.getState().setShowUpgradeModal(true);
           return;
         }
         setGenerationError(`Generation failed: ${error}`);
@@ -621,7 +621,7 @@ export function ChapterView({ chapter }: Props) {
         setGeneratingSceneId(null);
         setSceneGeneratedText('');
         if (error === 'INSUFFICIENT_CREDITS') {
-          setGenerationError('Not enough credits.');
+          useCreditsStore.getState().setShowUpgradeModal(true);
           return;
         }
         setGenerationError(`Generation failed: ${error}`);
