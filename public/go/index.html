@@ -259,7 +259,7 @@
       All you need is an<br>
       <span class="word">idea</span><span style="display:inline-block;height:0.85em;width:2px;transform:translateY(0.06em);border-radius:9999px;background:rgba(0,0,0,0.8);animation:blink 1s step-end infinite;margin-left:1px;vertical-align:baseline"></span>
     </h1>
-    <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}</style>
+    <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}} @keyframes spin{to{transform:rotate(360deg)}}</style>
 
     <p class="tagline">Type one sentence. Get a full novel and audiobook. Free.</p>
 
@@ -358,16 +358,22 @@
 
 
     // Submit — redirect to the full app with prompt
+    var submitting = false;
     function go(){
       var text = input.value.trim();
-      if(!text) return;
+      if(!text || submitting) return;
+      submitting = true;
+      // Show loading state immediately so user knows it's working
+      btn.innerHTML = '<div style="width:16px;height:16px;border:2px solid rgba(0,0,0,0.2);border-top-color:rgba(0,0,0,0.7);border-radius:50%;animation:spin 0.6s linear infinite"></div>';
+      btn.style.background = '#fff';
+      input.disabled = true;
+      input.style.opacity = '0.5';
       if(window.fbq) fbq('trackCustom','StartGuestChat');
-      if(window.__jTrack) window.__jTrack('prompt_submit', {prompt: text.slice(0,100)});
+      if(window.__jTrack) window.__jTrack('prompt_submit', {prompt: text.slice(0,200)});
       preserved.set('prompt', text);
       window.location.href = '/?' + preserved.toString();
     }
     form.addEventListener('submit', function(e){ e.preventDefault(); go(); });
-    btn.addEventListener('click', go);
     input.addEventListener('keydown', function(e){
       if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); go(); }
     });
