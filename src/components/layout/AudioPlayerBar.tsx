@@ -2,9 +2,13 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Loader2, X, Volume2, VolumeX, Headphones } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
+import { useAuthStore } from '../../store/auth';
 import { useGenerationStore } from '../../store/generation';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
+import * as pixel from '../../lib/pixel';
+import { track as jTrack } from '../../lib/journey';
+import { GuestSignupModal } from '../credits/GuestSignupModal';
 
 /** Draggable progress bar — works with mouse and touch */
 function ProgressScrubber({ progressPct, onSeek }: { progressPct: number; onSeek: (fraction: number) => void }) {
@@ -266,6 +270,31 @@ export function AudioPlayerBar() {
       audio.removeEventListener('timeupdate', onTimeUpdate);
     };
   }, []);
+
+  // Guest audio gate — after 10 seconds of playback, show signup modal.
+  // Audio keeps playing underneath. Only triggers once per session.
+  const [showAudioSignupModal, setShowAudioSignupModal] = useState(false);
+  const audioGateTriggered = useRef(false);
+  const audioPlaybackTime = useRef(0);
+  const user = useAuthStore((s) => s.user);
+
+  useEffect(() => {
+    if (user || audioGateTriggered.current) return; // signed in or already triggered
+    if (!playing) return;
+
+    const interval = setInterval(() => {
+      audioPlaybackTime.current += 1;
+      if (audioPlaybackTime.current >= 10 && !audioGateTriggered.current) {
+        audioGateTriggered.current = true;
+        clearInterval(interval);
+        pixel.trackCustom('GuestAudioSignupModalShown');
+        jTrack('guest_audio_signup_modal_shown');
+        setShowAudioSignupModal(true);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [playing, user]);
 
   // Media Session API — lock screen controls & metadata.
   // The artwork URL MUST be absolute — relative paths don't work for the OS
@@ -801,6 +830,13 @@ export function AudioPlayerBar() {
           </button>
         </div>
       </div>
+      {showAudioSignupModal && (
+        <GuestSignupModal
+          variant="audio"
+          onSignUp={() => setShowAudioSignupModal(false)}
+          onDismiss={() => setShowAudioSignupModal(false)}
+        />
+      )}
     </div>
   );
 }
