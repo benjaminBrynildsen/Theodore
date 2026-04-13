@@ -1693,7 +1693,7 @@ export function AudiobookPanel() {
               {/* Provider + pricing */}
               <div>
                 <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">TTS Provider</label>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-2 gap-1.5">
                   <button
                     onClick={() => audioStore.setTtsProvider('openai')}
                     className={cn(
@@ -1702,17 +1702,7 @@ export function AudiobookPanel() {
                     )}
                   >
                     <div className="font-medium">OpenAI</div>
-                    <div className={cn('text-[10px]', ttsProvider === 'openai' ? 'text-white/60' : 'text-text-tertiary')}>Good</div>
-                  </button>
-                  <button
-                    onClick={() => audioStore.setTtsProvider('fish')}
-                    className={cn(
-                      'text-left p-2.5 rounded-xl transition-all text-xs',
-                      ttsProvider === 'fish' ? 'bg-text-primary text-text-inverse' : 'glass-pill hover:bg-white/60'
-                    )}
-                  >
-                    <div className="font-medium">Fish Audio</div>
-                    <div className={cn('text-[10px]', ttsProvider === 'fish' ? 'text-white/60' : 'text-emerald-600')}>Great</div>
+                    <div className={cn('text-[10px]', ttsProvider === 'openai' ? 'text-white/60' : 'text-text-tertiary')}>Recommended</div>
                   </button>
                   <button
                     onClick={() => audioStore.setTtsProvider('elevenlabs')}
