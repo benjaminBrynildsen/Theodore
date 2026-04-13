@@ -1626,7 +1626,7 @@ ${childrensRule}`,
                         ? selectedSettings ? 'Creating…' : 'Building your novel…'
                         : selectedSettings?.title
                         ? <>Read <em className="italic">{selectedSettings.title}</em> →</>
-                        : 'Create Novel'}
+                        : "Read My Book (It's Ready) →"}
                     </span>
                   </button>
                 </div>
