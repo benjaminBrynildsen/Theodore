@@ -1597,17 +1597,39 @@ ${childrensRule}`,
                 </button>
               </div>
               {messages.some((m) => m.role === 'user') && (
-                <button
-                  onClick={createProject}
-                  disabled={creatingProject}
-                  className="mt-3 w-full lg:hidden py-3 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold shadow-md hover:shadow-lg active:scale-[0.98] transition-all disabled:opacity-60"
-                >
-                  {creatingProject
-                    ? selectedSettings ? 'Creating…' : 'Building your novel…'
-                    : selectedSettings?.title
-                    ? `Read ${selectedSettings.title} →`
-                    : "Read My Book (It's Ready) →"}
-                </button>
+                <div className="mt-3 lg:hidden relative p-[1.5px] rounded-xl overflow-hidden">
+                  {selectedSettings?.title && !creatingProject && (
+                    <div className="absolute inset-0 rounded-xl" style={{
+                      background: 'conic-gradient(from var(--angle, 0deg), transparent 30%, rgba(120,119,198,0.5) 45%, rgba(255,255,255,0.25) 50%, rgba(120,119,198,0.5) 55%, transparent 70%)',
+                      animation: 'rotateBorder 4s linear infinite',
+                    }} />
+                  )}
+                  <button
+                    onClick={createProject}
+                    disabled={creatingProject}
+                    className="relative w-full py-3 rounded-[10.5px] text-sm font-semibold text-white overflow-hidden active:scale-[0.98] transition-all disabled:opacity-60"
+                    style={{
+                      background: selectedSettings?.title ? 'rgba(20, 20, 28, 0.85)' : '#1c1c1e',
+                      backdropFilter: selectedSettings?.title ? 'blur(30px) saturate(1.6)' : undefined,
+                      WebkitBackdropFilter: selectedSettings?.title ? 'blur(30px) saturate(1.6)' : undefined,
+                    }}
+                  >
+                    {selectedSettings?.title && !creatingProject && (
+                      <div className="absolute inset-0 overflow-hidden rounded-[10.5px]">
+                        <div className="absolute w-20 h-20 rounded-full opacity-30" style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)', top: '-40%', left: '10%', animation: 'blobFloat1 5s ease-in-out infinite', filter: 'blur(16px)' }} />
+                        <div className="absolute w-16 h-16 rounded-full opacity-25" style={{ background: 'radial-gradient(circle, #a855f7, transparent 70%)', bottom: '-30%', right: '15%', animation: 'blobFloat2 6s ease-in-out infinite', filter: 'blur(14px)' }} />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 rounded-[10.5px]" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 50%)' }} />
+                    <span className="relative z-10">
+                      {creatingProject
+                        ? selectedSettings ? 'Creating…' : 'Building your novel…'
+                        : selectedSettings?.title
+                        ? <>Read <em className="italic">{selectedSettings.title}</em> →</>
+                        : 'Create Novel'}
+                    </span>
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -1654,17 +1676,40 @@ ${childrensRule}`,
                 </div>
               )}
 
-              <button
-                onClick={createProject}
-                disabled={creatingProject || !messages.some((m) => m.role === 'user')}
-                className="w-full py-5 rounded-2xl bg-text-primary text-text-inverse text-lg font-semibold shadow-lg hover:shadow-2xl active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {creatingProject
-                  ? selectedSettings ? 'Creating…' : 'Building your novel…'
-                  : selectedSettings?.title
-                  ? `Read ${selectedSettings.title} →`
-                  : "Read My Book (It's Ready) →"}
-              </button>
+              <div className="relative p-[1.5px] rounded-2xl overflow-hidden">
+                {selectedSettings?.title && !creatingProject && (
+                  <div className="absolute inset-0 rounded-2xl" style={{
+                    background: 'conic-gradient(from var(--angle, 0deg), transparent 30%, rgba(120,119,198,0.5) 45%, rgba(255,255,255,0.25) 50%, rgba(120,119,198,0.5) 55%, transparent 70%)',
+                    animation: 'rotateBorder 4s linear infinite',
+                  }} />
+                )}
+                <button
+                  onClick={createProject}
+                  disabled={creatingProject || !messages.some((m) => m.role === 'user')}
+                  className="relative w-full py-5 rounded-[14.5px] text-lg font-semibold text-white overflow-hidden active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  style={{
+                    background: selectedSettings?.title ? 'rgba(20, 20, 28, 0.85)' : '#1c1c1e',
+                    backdropFilter: selectedSettings?.title ? 'blur(30px) saturate(1.6)' : undefined,
+                    WebkitBackdropFilter: selectedSettings?.title ? 'blur(30px) saturate(1.6)' : undefined,
+                  }}
+                >
+                  {selectedSettings?.title && !creatingProject && (
+                    <div className="absolute inset-0 overflow-hidden rounded-[14.5px]">
+                      <div className="absolute w-28 h-28 rounded-full opacity-25" style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)', top: '-30%', left: '5%', animation: 'blobFloat1 5s ease-in-out infinite', filter: 'blur(22px)' }} />
+                      <div className="absolute w-24 h-24 rounded-full opacity-20" style={{ background: 'radial-gradient(circle, #a855f7, transparent 70%)', bottom: '-25%', right: '10%', animation: 'blobFloat2 6s ease-in-out infinite', filter: 'blur(18px)' }} />
+                      <div className="absolute w-18 h-18 rounded-full opacity-15" style={{ background: 'radial-gradient(circle, #ec4899, transparent 70%)', top: '20%', right: '30%', animation: 'blobFloat3 4s ease-in-out infinite', filter: 'blur(14px)' }} />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 rounded-[14.5px]" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 50%)' }} />
+                  <span className="relative z-10">
+                    {creatingProject
+                      ? selectedSettings ? 'Creating…' : 'Building your novel…'
+                      : selectedSettings?.title
+                      ? <>Read <em className="italic">{selectedSettings.title}</em> →</>
+                      : 'Create Novel'}
+                  </span>
+                </button>
+              </div>
 
               <div className="mt-3 rounded-2xl border border-black/10 bg-white/55 px-4 py-3">
                 <button
