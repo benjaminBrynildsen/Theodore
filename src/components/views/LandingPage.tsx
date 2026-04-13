@@ -33,9 +33,9 @@ const FEATURED_BOOKS = [
 ];
 
 const SHORT_PROMPTS = [
-  'Southern gothic. Humid. Suspicious.',
+  'A detective who solves crimes using dreams.',
   'A spy who can\'t remember his mission.',
-  'Haunted lighthouse. Two sisters. One secret.',
+  'A blind assassin hired to kill the president.',
   'Robots raising a human child.',
   'A heist on a moving train.',
 ];
