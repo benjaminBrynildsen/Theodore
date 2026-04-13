@@ -162,17 +162,15 @@ export default function App() {
   useEffect(() => {
     if (!isGuestWorkspace || guestModalDismissed || showGuestSignupModal) return;
 
-    // Poll the store for Chapter 1 prose (it streams in during generation)
+    // Poll the store for cover art — the last thing to generate.
+    // The user sees: chapter titles → Chapter 1 prose streaming → cover art appears.
+    // Modal shows 3 seconds AFTER cover art is ready so they can take it in.
     const check = setInterval(() => {
       const store = useStore.getState();
-      const ch1 = store.chapters
-        .filter(c => c.projectId === store.activeProjectId)
-        .sort((a, b) => a.number - b.number)[0];
-      // Wait until Chapter 1 has at least 200 chars of prose (substantial content)
-      if (ch1?.prose && ch1.prose.length >= 200) {
+      const project = store.projects.find(p => p.id === store.activeProjectId);
+      if (project?.coverUrl && !project.coverUrl.startsWith('data:')) {
         clearInterval(check);
-        // Small extra delay so the prose renders visually before the modal appears
-        setTimeout(() => setShowGuestSignupModal(true), 1500);
+        setTimeout(() => setShowGuestSignupModal(true), 3000);
       }
     }, 1000);
 
