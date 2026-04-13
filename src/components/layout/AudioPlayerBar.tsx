@@ -405,6 +405,9 @@ export function AudioPlayerBar() {
     let chapter = freshChapters.find(c => c.id === chapterId);
     if (!chapter?.prose) return;
 
+    // Detect guest mode for TTS endpoint routing
+    const isGuest = !useAuthStore?.getState?.()?.user;
+
     setGenerating(chapterId);
     setError(null);
     setCurrentChapter(chapterId);
@@ -452,11 +455,12 @@ export function AudioPlayerBar() {
           prose: firstScene.prose,
           narratorVoice,
           model: effectiveModel,
-          provider: effectiveProvider,
+          provider: isGuest ? 'openai' : effectiveProvider,
           speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
           sceneSFX: firstSceneSFX,
           chapterNumber: chapter.number,
           chapterTitle: chapter.title || undefined,
+          isGuest,
         });
 
         const audio = audioRef.current;
@@ -495,9 +499,10 @@ export function AudioPlayerBar() {
               prose: scene.prose,
               narratorVoice,
               model: effectiveModel,
-              provider: effectiveProvider,
+              provider: isGuest ? 'openai' : effectiveProvider,
               speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
               sceneSFX: sceneSFXData,
+              isGuest,
             });
             allUrls.push(sceneResult.audioUrl);
             allSceneIds.push(scene.id);
@@ -526,11 +531,12 @@ export function AudioPlayerBar() {
           prose: chapter.prose,
           narratorVoice,
           model: effectiveModel,
-          provider: effectiveProvider,
+          provider: isGuest ? 'openai' : effectiveProvider,
           speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
           sceneSFX: allSceneSFX,
           chapterNumber: chapter.number,
           chapterTitle: chapter.title || undefined,
+          isGuest,
         });
 
         addChapterAudio(chapterId, {

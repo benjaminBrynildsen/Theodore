@@ -243,10 +243,6 @@ export function ProjectView() {
         const isWriting = ch1.status === 'premise-only' || (!ch1.prose?.trim());
         const proseReady = ch1.prose?.trim() && ch1.prose.trim().split(/\s+/).length > 200;
         const handleClick = () => {
-          if (isGuest) {
-            setShowSignUpPrompt(true);
-            return;
-          }
           if (hasAudio) {
             window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch1.id } }));
           } else if (proseReady) {
