@@ -243,14 +243,16 @@ export function ProjectView() {
         const isWriting = ch1.status === 'premise-only' || (!ch1.prose?.trim());
         const proseReady = ch1.prose?.trim() && ch1.prose.trim().split(/\s+/).length > 200;
         const handleClick = () => {
+          if (isGuest) {
+            setShowSignUpPrompt(true);
+            return;
+          }
           if (hasAudio) {
             window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch1.id } }));
           } else if (proseReady) {
-            // Prose is done — generate audio now
             window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
           } else {
-            // Prose still generating — queue audio to start after prose finishes.
-            // Poll until prose is ready, then dispatch the generate event.
+            // Prose still generating — queue audio to start after prose finishes
             const poll = setInterval(() => {
               const latest = useStore.getState().chapters.find(c => c.id === ch1.id);
               if (latest?.prose?.trim() && latest.prose.trim().split(/\s+/).length > 200) {
@@ -258,7 +260,6 @@ export function ProjectView() {
                 window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
               }
             }, 2000);
-            // Safety: stop polling after 3 minutes
             setTimeout(() => clearInterval(poll), 180000);
           }
         };
