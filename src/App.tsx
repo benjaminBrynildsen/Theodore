@@ -155,15 +155,37 @@ export default function App() {
   // Show guest signup modal 3 seconds after the workspace renders for guests.
   // Must be a top-level useEffect (not inside conditional render) to avoid
   // mounting/unmounting issues that cause the modal to glitch or disappear.
+  // Show guest signup modal AFTER Chapter 1 finishes generating.
+  // This ensures the user sees their novel (cover, chapters, prose) before
+  // the modal slides in — much harder to dismiss when their book is visible.
   const isGuestWorkspace = !user && hasActiveProject && (currentView === 'project' || currentView === 'chapter');
   useEffect(() => {
-    if (!isGuestWorkspace) return;
-    if (guestModalDismissed) return;
-    // Reset trigger when activeProjectId changes (new project created)
-    if (showGuestSignupModal) return; // already showing
-    const timer = setTimeout(() => setShowGuestSignupModal(true), 3000);
-    return () => clearTimeout(timer);
-  }, [isGuestWorkspace, guestModalDismissed, activeProjectId]);
+    if (!isGuestWorkspace || guestModalDismissed || showGuestSignupModal) return;
+
+    // Poll the store for Chapter 1 prose (it streams in during generation)
+    const check = setInterval(() => {
+      const store = useStore.getState();
+      const ch1 = store.chapters
+        .filter(c => c.projectId === store.activeProjectId)
+        .sort((a, b) => a.number - b.number)[0];
+      // Wait until Chapter 1 has at least 200 chars of prose (substantial content)
+      if (ch1?.prose && ch1.prose.length >= 200) {
+        clearInterval(check);
+        // Small extra delay so the prose renders visually before the modal appears
+        setTimeout(() => setShowGuestSignupModal(true), 1500);
+      }
+    }, 1000);
+
+    // Safety: if Chapter 1 never generates (error, timeout), show modal after 60s anyway
+    const fallback = setTimeout(() => {
+      clearInterval(check);
+      if (!showGuestSignupModal && !guestModalDismissed) {
+        setShowGuestSignupModal(true);
+      }
+    }, 60000);
+
+    return () => { clearInterval(check); clearTimeout(fallback); };
+  }, [isGuestWorkspace, guestModalDismissed, showGuestSignupModal, activeProjectId]);
 
   const [showGoogleTest, setShowGoogleTest] = useState(false);
 
