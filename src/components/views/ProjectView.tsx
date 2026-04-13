@@ -232,20 +232,34 @@ export function ProjectView() {
         </div>
       )}
 
-      {/* Listen button — below cover */}
+      {/* Listen button — below cover. Shows as soon as Chapter 1 exists
+          (even while prose is still generating). Tapping queues audio gen. */}
       {(() => {
         const sortedCh = [...chapters].sort((a, b) => a.number - b.number);
-        // Only show Listen when chapter has substantial prose (not mid-stream partial)
-        const ch1 = sortedCh.find(c => c.prose?.trim() && c.status !== 'premise-only' && c.prose.trim().split(/\s+/).length > 200);
+        const ch1 = sortedCh[0];
         if (!ch1) return null;
         const hasAudio = !!chapterAudio[ch1.id]?.audioUrl;
         const isGenerating = audioGenerating === ch1.id;
+        const isWriting = ch1.status === 'premise-only' || (!ch1.prose?.trim());
+        const proseReady = ch1.prose?.trim() && ch1.prose.trim().split(/\s+/).length > 200;
         const handleClick = () => {
-          if (isGuest) { setShowSignUpPrompt(true); return; }
           if (hasAudio) {
             window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch1.id } }));
-          } else {
+          } else if (proseReady) {
+            // Prose is done — generate audio now
             window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
+          } else {
+            // Prose still generating — queue audio to start after prose finishes.
+            // Poll until prose is ready, then dispatch the generate event.
+            const poll = setInterval(() => {
+              const latest = useStore.getState().chapters.find(c => c.id === ch1.id);
+              if (latest?.prose?.trim() && latest.prose.trim().split(/\s+/).length > 200) {
+                clearInterval(poll);
+                window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
+              }
+            }, 2000);
+            // Safety: stop polling after 3 minutes
+            setTimeout(() => clearInterval(poll), 180000);
           }
         };
         return (
@@ -281,9 +295,11 @@ export function ProjectView() {
                 <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%)' }} />
                 <span className="relative flex items-center gap-2.5 z-10">
                   {isGenerating ? (
-                    <><Loader2 size={17} className="animate-spin" /> Generating…</>
+                    <><Loader2 size={17} className="animate-spin" /> Generating audio…</>
                   ) : hasAudio ? (
                     <><Play size={17} fill="currentColor" /> Listen</>
+                  ) : isWriting ? (
+                    <><Headphones size={17} /> Listen to Chapter {ch1.number}</>
                   ) : (
                     <><Headphones size={17} /> Listen to Chapter {ch1.number}</>
                   )}
