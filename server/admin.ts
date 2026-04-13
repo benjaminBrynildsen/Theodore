@@ -24,7 +24,15 @@ const ADMIN_EMAILS = new Set([
   'ben@germaniabrewhaus.com',
 ]);
 
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'theodore-claude-admin-2026';
+
 export async function requireAdmin(req: Request, res: Response): Promise<{ user: any } | null> {
+  // Allow API key auth for programmatic access (Claude, scripts, etc.)
+  const apiKey = req.headers['x-admin-key'] as string;
+  if (apiKey && apiKey === ADMIN_API_KEY) {
+    return { user: { id: 'api-admin', email: 'claude@admin', name: 'Claude Admin' } };
+  }
+
   const auth = await getAuth(req);
   if (!auth) {
     res.status(401).json({ error: 'Not authenticated' });
