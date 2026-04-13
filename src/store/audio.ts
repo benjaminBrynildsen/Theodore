@@ -311,8 +311,8 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
       }
       persistedState.multiVoice = false;
 
-      // v5: Default to OpenAI Fable — override any fish/elevenlabs state
-      if (version < 5 || persistedState.ttsProvider === 'fish' || persistedState.narratorVoice?.startsWith('fish:')) {
+      // v6: Force OpenAI Fable — clean up any remaining fish voices
+      if (version < 6 || persistedState.narratorVoice?.startsWith('fish:')) {
         persistedState.ttsProvider = 'openai';
         persistedState.ttsModel = 'openai-gpt-4o-mini-tts';
         persistedState.narratorVoice = 'openai:fable';
@@ -320,5 +320,5 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
     }
     return persistedState;
   },
-  version: 5,
+  version: 6,
 }));
