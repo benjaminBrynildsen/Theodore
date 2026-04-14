@@ -89,7 +89,155 @@ export async function runPostGenerationPipeline(chapterId: string): Promise<void
     );
   }
 
+  // Cascade premise updates to future chapters if this chapter diverged from its premise
+  await cascadePremiseUpdates(chapterId).catch((e) =>
+    console.warn('[PostGen] Premise cascade failed (non-fatal):', e),
+  );
+
   console.info('[PostGen Pipeline] Complete for chapter', chapter.number);
+}
+
+/**
+ * After a chapter is generated, check if the actual content diverges from
+ * the original premise. If so, use Sonnet to regenerate premises for all
+ * subsequent outline-only chapters to maintain story consistency.
+ */
+async function cascadePremiseUpdates(chapterId: string): Promise<void> {
+  const store = useStore.getState();
+  const chapter = store.chapters.find((c) => c.id === chapterId);
+  if (!chapter?.prose?.trim()) return;
+
+  const project = store.projects.find((p) => p.id === chapter.projectId);
+  if (!project) return;
+
+  const allChapters = store.getProjectChapters(project.id)
+    .sort((a, b) => (a.number || 0) - (b.number || 0));
+
+  // Only cascade to future chapters that are still premise-only (no prose)
+  const futureOutlineChapters = allChapters.filter(
+    (c) => (c.number || 0) > (chapter.number || 0) && (!c.prose?.trim() || c.status === 'premise-only')
+  );
+
+  if (futureOutlineChapters.length === 0) {
+    console.info('[PostGen Cascade] No future premise-only chapters to update');
+    return;
+  }
+
+  // Get the actual summary from post-gen metadata, or use first 500 chars of prose
+  const meta = chapter.aiIntentMetadata as any;
+  const actualSummary = meta?.summary || chapter.prose.slice(0, 500);
+  const originalPremise = chapter.premise?.purpose || '';
+
+  // Build context of ALL chapters (including already-generated ones) for full story awareness
+  const chapterContext = allChapters.map((c) => {
+    const cMeta = c.aiIntentMetadata as any;
+    const hasProse = !!c.prose?.trim() && c.status !== 'premise-only';
+    const summary = hasProse ? (cMeta?.summary || c.prose?.slice(0, 200)) : null;
+    return `Ch ${c.number}: "${c.title}" — ${hasProse ? `[WRITTEN] ${summary}` : `[OUTLINE] ${c.premise?.purpose || 'No premise'}`}`;
+  }).join('\n');
+
+  const futureContext = futureOutlineChapters.map((c) =>
+    `{"number":${c.number},"title":"${c.title}","purpose":"${(c.premise?.purpose || '').replace(/"/g, '\\"')}"}`
+  ).join(',\n');
+
+  const prompt = `You are a story editor ensuring plot consistency across a novel outline.
+
+Chapter ${chapter.number} ("${chapter.title}") was just written. Compare what was planned vs what was actually written:
+
+ORIGINAL PREMISE: ${originalPremise}
+WHAT WAS ACTUALLY WRITTEN: ${actualSummary}
+
+Full chapter status:
+${chapterContext}
+
+The following chapters have NOT been written yet and still have their original outline premises:
+[${futureContext}]
+
+Your job: If Chapter ${chapter.number}'s actual content meaningfully diverges from its premise in ways that affect the downstream plot, update the future chapters' premises to maintain story consistency. Consider:
+- Character relationships that changed
+- Plot points that shifted
+- Secrets revealed or concealed differently
+- Alliances, betrayals, or deaths that differ from the plan
+- Settings or timeline changes
+
+Keep the same general story arc and ending direction, but adjust the specific beats so the story flows naturally from what was ACTUALLY written.
+
+Return ONLY valid JSON, no markdown:
+{"updates":[{"number":3,"title":"Updated Title If Needed","purpose":"Updated premise reflecting the new story direction","changes":"What changed and why"}],"reason":"Brief explanation of what diverged"}
+
+If no updates are needed (the story is still consistent), return:
+{"updates":[],"reason":"No significant divergence detected"}`;
+
+  console.info(`[PostGen Cascade] Checking ${futureOutlineChapters.length} future chapters for consistency...`);
+
+  try {
+    const result = await generateText({
+      prompt,
+      model: 'claude-sonnet-4-6',
+      maxTokens: 2000,
+      temperature: 0.3, // Low temp for consistent, analytical output
+      action: 'plan-project', // Exempt from generation lock
+    });
+
+    const text = (result.text || '').trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn('[PostGen Cascade] No JSON in response');
+      return;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const updates = parsed.updates || [];
+
+    if (updates.length === 0) {
+      console.info('[PostGen Cascade] No updates needed:', parsed.reason);
+      return;
+    }
+
+    console.info(`[PostGen Cascade] Updating ${updates.length} chapters:`, parsed.reason);
+
+    // Apply updates
+    const { api } = await import('./api');
+    for (const update of updates) {
+      const targetChapter = futureOutlineChapters.find((c) => c.number === update.number);
+      if (!targetChapter) continue;
+
+      const newPremise = {
+        ...targetChapter.premise,
+        purpose: update.purpose || targetChapter.premise?.purpose,
+        changes: update.changes || targetChapter.premise?.changes || '',
+      };
+
+      const titleUpdate = update.title && update.title !== targetChapter.title
+        ? { title: update.title } : {};
+
+      store.updateChapter(targetChapter.id, {
+        ...titleUpdate,
+        premise: newPremise,
+      });
+
+      // Persist to server
+      api.updateChapter(targetChapter.id, {
+        ...titleUpdate,
+        premise: newPremise,
+      }).catch(() => {});
+
+      console.info(`[PostGen Cascade] Updated Ch ${update.number}: ${update.purpose?.slice(0, 80)}...`);
+    }
+
+    // Notify user that outlines were updated
+    const { useGenerationStore } = await import('../store/generation');
+    useGenerationStore.getState().start({
+      kind: 'create-project',
+      label: `${updates.length} chapter outlines`,
+      subtitle: `Updated to match Ch. ${chapter.number}'s new direction`,
+      indeterminate: true,
+    });
+    setTimeout(() => useGenerationStore.getState().setPhase('done'), 3000);
+
+  } catch (e) {
+    console.warn('[PostGen Cascade] Failed:', e);
+  }
 }
 
 /** Continuity extraction: rolling summary + open narrative threads + resolved threads */
