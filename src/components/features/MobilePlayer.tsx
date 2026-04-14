@@ -369,13 +369,25 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
         <button onClick={() => setVolume(isMuted ? 1 : 0)} className="text-white/40">
           {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
         </button>
-        <input
-          type="range"
-          min="0" max="1" step="0.05"
-          value={volume}
-          onChange={(e) => setVolume(parseFloat(e.target.value))}
-          className="flex-1 h-1 appearance-none bg-white/20 rounded-full cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-sm"
-        />
+        <div className="flex-1 relative h-1">
+          {/* Track background */}
+          <div className="absolute inset-0 rounded-full bg-white/20" />
+          {/* Filled portion */}
+          <div className="absolute top-0 left-0 h-full rounded-full bg-white" style={{ width: `${volume * 100}%` }} />
+          <input
+            type="range"
+            min="0" max="1" step="0.05"
+            value={volume}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              setVolume(v);
+              // Directly sync to audio element
+              const audio = document.getElementById('theodore-audio') as HTMLAudioElement | null;
+              if (audio) audio.volume = v;
+            }}
+            className="absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-runnable-track]:bg-transparent"
+          />
+        </div>
       </div>
 
       {/* Chapter list overlay */}
