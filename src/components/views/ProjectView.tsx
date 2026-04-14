@@ -774,10 +774,23 @@ export function ProjectView() {
                         {expandedChapters.has(chapter.id) ? 'Hide preview' : 'Show preview'}
                       </button>
                       {expandedChapters.has(chapter.id) && (
-                        <div className="mx-5 mb-3 rounded-xl bg-black/[0.02] border border-black/[0.04] py-4 px-5 animate-fade-in">
-                          <p className="text-[13px] text-text-secondary leading-relaxed font-serif">
-                            {chapter.prose.slice(0, 500).trim()}{chapter.prose.length > 500 ? '…' : ''}
-                          </p>
+                        <div className="mx-3 mb-3 rounded-xl bg-white border border-black/[0.06] shadow-sm overflow-hidden animate-fade-in">
+                          {/* Reading-view style header */}
+                          <div className="pt-5 pb-3 text-center border-b border-black/[0.04]">
+                            <div className="text-[9px] uppercase tracking-[0.2em] text-text-tertiary mb-1">Chapter {chapter.number}</div>
+                            <div className="text-sm font-serif font-semibold text-text-primary">{chapter.title}</div>
+                          </div>
+                          {/* Book-page prose */}
+                          <div className="px-5 py-4">
+                            {chapter.prose.slice(0, 600).trim().split(/\n\n+/).map((para, i) => (
+                              <p key={i} className="text-[13px] text-text-primary leading-[1.8] font-serif text-justify" style={{ textIndent: i > 0 ? '1.5em' : 0 }}>
+                                {para.trim()}
+                              </p>
+                            ))}
+                            {chapter.prose.length > 600 && (
+                              <p className="text-[11px] text-text-tertiary mt-3 text-center italic">Continue reading in the chapter view…</p>
+                            )}
+                          </div>
                         </div>
                       )}
                     </>
