@@ -625,6 +625,9 @@ export function ProjectView() {
                     <div className="flex items-center gap-1.5 mb-1">
                       <span className="text-xs font-medium truncate">{chapter.title}</span>
                       <Badge status={chapter.status} />
+                      {(chapter.aiIntentMetadata as any)?.premiseUpdatedAt && chapter.status === 'premise-only' && (
+                        <span className="text-[8px] font-semibold px-1 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">Updated</span>
+                      )}
                     </div>
                     {chapter.premise?.purpose ? (
                       <p className="text-[10px] text-text-secondary line-clamp-2 leading-relaxed">{chapter.premise.purpose}</p>
@@ -735,6 +738,11 @@ export function ProjectView() {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-medium">{chapter.title}</span>
                         <Badge status={chapter.status} />
+                        {(chapter.aiIntentMetadata as any)?.premiseUpdatedAt && chapter.status === 'premise-only' && (
+                          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200/60 whitespace-nowrap">
+                            Plot updated
+                          </span>
+                        )}
                       </div>
                       {chapter.premise?.purpose && (
                         <p className="text-sm text-text-secondary line-clamp-2">{chapter.premise.purpose}</p>

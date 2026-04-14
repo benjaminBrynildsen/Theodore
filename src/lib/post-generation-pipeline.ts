@@ -211,15 +211,24 @@ If no updates are needed (the story is still consistent), return:
       const titleUpdate = update.title && update.title !== targetChapter.title
         ? { title: update.title } : {};
 
+      const cascadeMeta = {
+        ...((targetChapter.aiIntentMetadata || {}) as Record<string, any>),
+        premiseUpdatedAt: new Date().toISOString(),
+        premiseUpdatedReason: parsed.reason || 'Plot adjusted for consistency',
+        premiseUpdatedFrom: `Ch. ${chapter.number}`,
+      };
+
       store.updateChapter(targetChapter.id, {
         ...titleUpdate,
         premise: newPremise,
+        aiIntentMetadata: cascadeMeta as any,
       });
 
       // Persist to server
       api.updateChapter(targetChapter.id, {
         ...titleUpdate,
         premise: newPremise,
+        aiIntentMetadata: cascadeMeta as any,
       }).catch(() => {});
 
       console.info(`[PostGen Cascade] Updated Ch ${update.number}: ${update.purpose?.slice(0, 80)}...`);
