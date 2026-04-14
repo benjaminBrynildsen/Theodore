@@ -662,6 +662,19 @@ Rules:
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setInput('');
+
+    // After 20 user messages, auto-create the novel instead of continuing chat.
+    // They've given Theodore plenty to work with — just build the book.
+    const userMsgCount = newMessages.filter(m => m.role === 'user').length;
+    if (userMsgCount >= 20) {
+      setMessages(prev => [
+        ...prev,
+        { id: generateId(), role: 'assistant', content: "You've got a great story brewing — let me build your novel now!", timestamp: new Date() },
+      ]);
+      // Brief pause so they see the message
+      setTimeout(() => createProject(), 1500);
+      return;
+    }
     setIsTyping(true);
 
     // The chat reply uses Haiku 4.5 — much faster than Sonnet for short
