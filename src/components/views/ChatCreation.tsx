@@ -752,8 +752,9 @@ ${childrensRule}`,
             const id = generateId();
             placeholderId = id;
             setIsTyping(false);
-            pixel.trackCustom('FirstAIResponse');
-            jTrack('first_ai_response');
+            const isFirst = newMessages.filter(m => m.role === 'user').length <= 1;
+            pixel.trackCustom(isFirst ? 'FirstAIResponse' : 'AIReply');
+            jTrack(isFirst ? 'first_ai_response' : 'ai_reply');
             setMessages((prev) => [
               ...prev,
               { id, role: 'assistant', content: accumulated, timestamp: new Date(), model: chatModel },
