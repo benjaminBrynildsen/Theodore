@@ -47,7 +47,7 @@ function expandPacingTags(text: string): string {
  */
 // Voice-specific pacing: some voices (alloy) are naturally faster and need more pauses.
 // Fable = v1.11 baseline. Alloy = v1.12 (doubled pauses).
-const RUSHED_VOICES = new Set(['alloy', 'echo', 'shimmer']); // voices that tend to rush
+const RUSHED_VOICES = new Set(['alloy', 'echo', 'shimmer', 'marin', 'cedar']); // voices that tend to rush
 
 function addTTSPacing(text: string, voice?: string): string {
   let result = text;
