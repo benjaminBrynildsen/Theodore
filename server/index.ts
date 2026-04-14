@@ -1373,7 +1373,10 @@ app.post('/api/generate', async (req, res) => {
     }
 
     const user = auth.user;
-    if (user.creditsRemaining <= 0) {
+    // Chat (plan-project) is free — don't check or deduct credits.
+    // It costs us ~$0.03 for 20 messages and drives engagement.
+    const isFreeChat = action === 'plan-project';
+    if (!isFreeChat && user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
     // Skip lock for lightweight chat actions (plan-project = Imagine chat)
@@ -1390,10 +1393,12 @@ app.post('/api/generate', async (req, res) => {
         userId: user.id, projectId, chapterId, action,
       });
 
+      const effectiveCredits = isFreeChat ? 0 : result.creditsUsed;
+
       await db.insert(creditTransactions).values({
         userId: user.id,
         action: action || 'generate',
-        creditsUsed: result.creditsUsed,
+        creditsUsed: effectiveCredits,
         model: result.model,
         chapterId,
         metadata: {
@@ -1403,12 +1408,14 @@ app.post('/api/generate', async (req, res) => {
         },
       });
 
-      await db.update(users).set({
-        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
-        updatedAt: new Date(),
-      }).where(eq(users.id, user.id));
+      if (effectiveCredits > 0) {
+        await db.update(users).set({
+          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${effectiveCredits})`,
+          updatedAt: new Date(),
+        }).where(eq(users.id, user.id));
+      }
 
-      const updatedCredits = Math.max(0, (user.creditsRemaining ?? 0) - result.creditsUsed);
+      const updatedCredits = isFreeChat ? user.creditsRemaining : Math.max(0, (user.creditsRemaining ?? 0) - effectiveCredits);
       res.json({
         text: result.text,
         model: result.model,
