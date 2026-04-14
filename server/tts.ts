@@ -148,15 +148,16 @@ const OPENAI_API = 'https://api.openai.com/v1/audio/speech';
 
 const OPENAI_TTS_INSTRUCTIONS = `You are a professional audiobook narrator delivering a compelling, emotionally rich performance.
 
-PACING:
-- Read at a measured, unhurried pace — one notch slower and more cinematic than a standard audiobook narrator, never like a news anchor.
-- Add a clear, audible pause between every sentence. Never rush from one sentence into the next.
-- Treat every period, exclamation mark, and question mark as a full stop — hold the silence for a beat before continuing.
-- Paragraph breaks and line breaks mean LONG pauses. Hold for a full breath before continuing.
-- Scene transitions and dialogue transitions deserve the longest pauses — let the moment land before moving on.
-- Use short sentence fragments as natural breath points.
-- When the text shifts emotional tone, take a beat before continuing.
-- Ellipses and em dashes indicate deliberate pauses — honor them.
+PACING — THIS IS THE MOST CRITICAL INSTRUCTION:
+- Read SLOWLY. Much slower than you think. Like a premium Audible narrator, not a podcast host.
+- PAUSE between EVERY sentence. Every single one. Hold real silence — at least a full beat — before starting the next sentence.
+- Treat every period, exclamation mark, and question mark as a FULL STOP. Do not rush into the next sentence.
+- Paragraph breaks and line breaks mean LONG pauses — hold for TWO full beats of silence.
+- Before and after dialogue: pause noticeably. The listener needs to register the speaker change.
+- Scene transitions deserve the LONGEST pauses — three full beats of silence.
+- Em dashes and ellipses mean DELIBERATE pauses — hold them.
+- When you encounter multiple line breaks in a row, that means an even LONGER pause. Honor every single one.
+- If in doubt, pause LONGER rather than shorter. Rushing is the #1 worst thing a narrator can do.
 
 VOCAL DELIVERY:
 - DO NOT be monotone. This is the most important rule. Your voice must rise and fall with the story.
