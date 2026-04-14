@@ -1507,7 +1507,8 @@ app.post('/api/generate/stream', async (req, res) => {
     }
 
     const user = auth.user;
-    if (user.creditsRemaining <= 0) {
+    const isFreeChatStream = action === 'plan-project';
+    if (!isFreeChatStream && user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
     const skipLockStream = ['plan-project'].includes(action);
@@ -1529,10 +1530,12 @@ app.post('/api/generate/stream', async (req, res) => {
         res,
       );
 
+      const effectiveCreditsStream = isFreeChatStream ? 0 : result.creditsUsed;
+
       await db.insert(creditTransactions).values({
         userId: user.id,
         action: action || 'generate-stream',
-        creditsUsed: result.creditsUsed,
+        creditsUsed: effectiveCreditsStream,
         model: result.model,
         chapterId,
         metadata: {
@@ -1542,12 +1545,14 @@ app.post('/api/generate/stream', async (req, res) => {
         },
       });
 
-      await db.update(users).set({
-        creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
-        updatedAt: new Date(),
-      }).where(eq(users.id, user.id));
+      if (effectiveCreditsStream > 0) {
+        await db.update(users).set({
+          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${effectiveCreditsStream})`,
+          updatedAt: new Date(),
+        }).where(eq(users.id, user.id));
+      }
 
-      const updatedCreditsStream = Math.max(0, (user.creditsRemaining ?? 0) - result.creditsUsed);
+      const updatedCreditsStream = isFreeChatStream ? user.creditsRemaining : Math.max(0, (user.creditsRemaining ?? 0) - effectiveCreditsStream);
       res.write(`data: ${JSON.stringify({
         type: 'done',
         usage: {
