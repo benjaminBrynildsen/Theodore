@@ -45,41 +45,48 @@ function expandPacingTags(text: string): string {
  * Pre-process prose for more natural TTS delivery.
  * Adds micro-pauses at natural breath points without changing meaning.
  */
-function addTTSPacing(text: string): string {
-  let result = text;
+// Voice-specific pacing: some voices (alloy) are naturally faster and need more pauses.
+// Fable = v1.11 baseline. Alloy = v1.12 (doubled pauses).
+const RUSHED_VOICES = new Set(['alloy', 'echo', 'shimmer']); // voices that tend to rush
 
-  // OpenAI TTS pauses are driven by punctuation + newlines + em dashes.
-  // More newlines = longer pause. Em dash (—) adds ~200-300ms each.
-  // Stack them for bigger gaps.
+function addTTSPacing(text: string, voice?: string): string {
+  let result = text;
+  const cleanVoice = (voice || '').replace(/^openai:/, '').toLowerCase();
+  const isRushed = RUSHED_VOICES.has(cleanVoice);
+
+  // Helper: repeat \n — rushed voices get double
+  const nl = (count: number) => '\n'.repeat(isRushed ? count * 2 : count);
 
   // 0. Strip asterisks (narrator reads them aloud)
   result = result.replace(/\*/g, '');
 
-  // v1.11 — +1 \n each vs v1.10
+  // v1.11 baseline (fable) / v1.12 for rushed voices (alloy etc.)
   // 1. Paragraph breaks
-  result = result.replace(/\n\n+/g, '\n\n\n\n\n\n\n—\n\n\n\n\n\n\n');
+  result = result.replace(/\n\n+/g, `${nl(7)}—${nl(7)}`);
 
-  // 2. Every sentence boundary → 6x newline
-  result = result.replace(/([.!?])\s+([A-Z])/g, '$1\n\n\n\n\n\n$2');
+  // 2. Every sentence boundary
+  result = result.replace(/([.!?])\s+([A-Z])/g, `$1${nl(6)}$2`);
 
-  // 3. Before dialogue after narration → 7x newline
-  result = result.replace(/([.!?])\n\n\n\n\n\n([""\u201C])/g, '$1\n\n\n\n\n\n\n$2');
+  // 3. Before dialogue after narration
+  const dlgMatch = isRushed ? 12 : 6; // match the sentence boundary count for regex
+  result = result.replace(new RegExp(`([.!?])${'\n'.repeat(dlgMatch)}([""\\u201C])`, 'g'), `$1${nl(7)}$2`);
 
-  // 4. After dialogue closing before narration → 7x newline
-  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, '$1\n\n\n\n\n\n\n$2');
+  // 4. After dialogue closing before narration
+  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, `$1${nl(7)}$2`);
 
-  // 5. Dialogue comma attribution → 6x newline
-  result = result.replace(/([""\u201D]),?\s+([a-z])/g, '$1,\n\n\n\n\n\n$2');
+  // 5. Dialogue comma attribution
+  result = result.replace(/([""\u201D]),?\s+([a-z])/g, `$1,${nl(6)}$2`);
 
   // 6. Em dash pauses
-  result = result.replace(/\s*—\s*/g, '\n\n\n\n\n—\n\n\n\n\n');
+  result = result.replace(/\s*—\s*/g, `${nl(5)}—${nl(5)}`);
 
-  // 7. Semicolons → 6x newline
-  result = result.replace(/;\s+/g, ';\n\n\n\n\n\n');
+  // 7. Semicolons
+  result = result.replace(/;\s+/g, `;${nl(6)}`);
 
-  // 8. Ellipsis
-  result = result.replace(/\.{3}/g, '. . . . . . . .');
-  result = result.replace(/…/g, '. . . . . . . .');
+  // 8. Ellipsis — more dots for rushed voices
+  const dots = isRushed ? '. . . . . . . . . . . . . . . .' : '. . . . . . . .';
+  result = result.replace(/\.{3}/g, dots);
+  result = result.replace(/…/g, dots);
 
   return result;
 }
@@ -967,7 +974,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     if (req.chapterNumber) {
       proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
     }
-    const paced = announcement + addTTSPacing(proseBody);
+    const paced = announcement + addTTSPacing(proseBody, voiceMap.narrator);
     const openaiSpeed = Math.max(0.5, Math.min(2.0, (req.speed ?? 1.0)));
 
     // OpenAI TTS has a ~4096 token input limit. Chunk long text by paragraphs
