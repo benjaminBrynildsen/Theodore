@@ -774,7 +774,10 @@ export function ProjectView() {
                         {expandedChapters.has(chapter.id) ? 'Hide preview' : 'Show preview'}
                       </button>
                       {expandedChapters.has(chapter.id) && (
-                        <div className="mx-3 mb-3 rounded-xl bg-white border border-black/[0.06] shadow-sm overflow-hidden animate-fade-in">
+                        <div
+                          onClick={() => setActiveChapter(chapter.id)}
+                          className="mx-3 mb-3 rounded-xl bg-white border border-black/[0.06] shadow-sm overflow-hidden animate-fade-in cursor-pointer hover:shadow-md transition-shadow"
+                        >
                           {/* Reading-view style header */}
                           <div className="pt-5 pb-3 text-center border-b border-black/[0.04]">
                             <div className="text-[9px] uppercase tracking-[0.2em] text-text-tertiary mb-1">Chapter {chapter.number}</div>
