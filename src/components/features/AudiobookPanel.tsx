@@ -1189,7 +1189,9 @@ export function AudiobookPanel() {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  const audioCount = Object.keys(chapterAudio).length;
+  // Count only actual chapters with audio (not scene-level entries like 'scene-{id}')
+  const chapterIds = new Set(chapters.map(c => c.id));
+  const audioCount = Object.keys(chapterAudio).filter(id => chapterIds.has(id)).length;
 
   if (!project) return null;
 
