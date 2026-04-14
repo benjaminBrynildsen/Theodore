@@ -54,21 +54,23 @@ function addTTSPacing(text: string, voice?: string): string {
   const cleanVoice = (voice || '').replace(/^openai:/, '').toLowerCase();
   const isRushed = RUSHED_VOICES.has(cleanVoice);
 
-  // Helper: repeat \n — rushed voices get double
-  const nl = (count: number) => '\n'.repeat(isRushed ? count * 2 : count);
+  // Helper: repeat \n — rushed voices get double + 2 extra on each
+  const nl = (count: number) => '\n'.repeat(isRushed ? count * 2 + 2 : count);
+  // Sentences get an extra +3 for rushed voices on top of that
+  const snl = (count: number) => '\n'.repeat(isRushed ? count * 2 + 5 : count);
 
   // 0. Strip asterisks (narrator reads them aloud)
   result = result.replace(/\*/g, '');
 
-  // v1.11 baseline (fable) / v1.12 for rushed voices (alloy etc.)
+  // v1.11 baseline (fable) / v1.12+ for rushed voices (alloy etc.)
   // 1. Paragraph breaks
   result = result.replace(/\n\n+/g, `${nl(7)}—${nl(7)}`);
 
-  // 2. Every sentence boundary
-  result = result.replace(/([.!?])\s+([A-Z])/g, `$1${nl(6)}$2`);
+  // 2. Every sentence boundary — extra pauses for rushed voices
+  result = result.replace(/([.!?])\s+([A-Z])/g, `$1${snl(6)}$2`);
 
   // 3. Before dialogue after narration
-  const dlgMatch = isRushed ? 12 : 6; // match the sentence boundary count for regex
+  const dlgMatch = isRushed ? 17 : 6; // match the sentence boundary count for regex
   result = result.replace(new RegExp(`([.!?])${'\n'.repeat(dlgMatch)}([""\\u201C])`, 'g'), `$1${nl(7)}$2`);
 
   // 4. After dialogue closing before narration
