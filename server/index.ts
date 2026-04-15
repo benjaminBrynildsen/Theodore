@@ -854,16 +854,20 @@ app.post('/api/auth/google', async (req, res) => {
     const { credential } = req.body; // Google ID token from client
     if (!credential) return res.status(400).json({ error: 'Missing Google credential.' });
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    if (!clientId) return res.status(500).json({ error: 'Google auth not configured.' });
+    const allowedAudiences = [
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_IOS_CLIENT_ID,
+      process.env.GOOGLE_ANDROID_CLIENT_ID,
+    ].filter((v): v is string => !!v);
+    if (allowedAudiences.length === 0) return res.status(500).json({ error: 'Google auth not configured.' });
 
     // Verify the ID token with Google
     const verifyRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
     if (!verifyRes.ok) return res.status(401).json({ error: 'Invalid Google token.' });
     const payload = await verifyRes.json() as any;
 
-    // Verify audience matches our client ID
-    if (payload.aud !== clientId) return res.status(401).json({ error: 'Token audience mismatch.' });
+    // Verify audience matches one of our configured client IDs (web/iOS/Android)
+    if (!allowedAudiences.includes(payload.aud)) return res.status(401).json({ error: 'Token audience mismatch.' });
 
     const email = normalizeEmail(payload.email || '');
     if (!email) return res.status(400).json({ error: 'No email in Google token.' });
@@ -904,6 +908,30 @@ app.post('/api/auth/google', async (req, res) => {
   } catch (e: any) {
     respondInternalError(res, 'auth.google', e);
   }
+});
+
+// Mobile bridge — Google redirects here with id_token in URL fragment (implicit flow).
+// Page JS extracts the token and deep-links into the native app via the theodore:// scheme.
+app.get('/api/auth/google/mobile/bridge', (_req, res) => {
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Signing you in…</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:-apple-system,system-ui,sans-serif;background:#0f0f0f;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:24px}</style>
+</head><body><div><p>Returning to Theodore…</p><p id="fallback" style="opacity:.6;font-size:13px;display:none">If nothing happens, <a id="deep" style="color:#9cf">tap here</a>.</p></div>
+<script>
+(function(){
+  var hash = window.location.hash || '';
+  var params = new URLSearchParams(hash.replace(/^#/, ''));
+  var idToken = params.get('id_token');
+  var state = params.get('state') || '';
+  var error = params.get('error');
+  var target = 'theodore://auth/google?' + (error ? ('error=' + encodeURIComponent(error)) : ('id_token=' + encodeURIComponent(idToken || ''))) + (state ? ('&state=' + encodeURIComponent(state)) : '');
+  document.getElementById('deep').href = target;
+  document.getElementById('fallback').style.display = 'block';
+  window.location.replace(target);
+})();
+</script></body></html>`);
 });
 
 app.post('/api/auth/login', async (req, res) => {
