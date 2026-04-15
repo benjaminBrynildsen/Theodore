@@ -23,12 +23,9 @@ interface ShareStatus {
 }
 
 function libraryUrl(slug: string): string {
-  const host = window.location.hostname;
-  if (host === 'localhost' || host === '127.0.0.1') {
-    return `${window.location.origin}/library/b/${slug}`;
-  }
-  const root = host.replace(/^www\./, '');
-  return `${window.location.protocol}//library.${root}/b/${slug}`;
+  // Use path-based URL on the main domain. The library.* subdomain isn't
+  // wired up in DNS yet; the path fallback always works.
+  return `${window.location.origin}/library/b/${slug}`;
 }
 
 export function ShareBookDialog({ projectId, projectTitle, chapters, onClose }: Props) {
