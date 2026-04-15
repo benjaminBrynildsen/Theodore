@@ -2714,6 +2714,37 @@ app.get('/{*splat}', (_req, res) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Theodore API running on port ${PORT}`);
+// Self-healing startup migration for additive schema changes. This runs on
+// every boot; ADD COLUMN IF NOT EXISTS is a no-op when the column is already
+// present. Added because prod skipped db:push historically, and a missed
+// migration silently breaks SELECTs that drizzle generates from schema.ts.
+async function ensureAdditiveSchema() {
+  const statements = [
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS is_public boolean NOT NULL DEFAULT false`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS slug text`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS published_at timestamp`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS share_config jsonb DEFAULT '{}'::jsonb`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS listens integer NOT NULL DEFAULT 0`,
+    `DO $$ BEGIN
+       IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'projects_slug_unique') THEN
+         BEGIN
+           ALTER TABLE projects ADD CONSTRAINT projects_slug_unique UNIQUE (slug);
+         EXCEPTION WHEN duplicate_object THEN NULL;
+         END;
+       END IF;
+     END $$`,
+  ];
+  for (const sql of statements) {
+    try {
+      await pool.query(sql);
+    } catch (e: any) {
+      console.error('[startup-migration] failed:', sql.slice(0, 80), e?.message || e);
+    }
+  }
+}
+
+ensureAdditiveSchema().finally(() => {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Theodore API running on port ${PORT}`);
+  });
 });
