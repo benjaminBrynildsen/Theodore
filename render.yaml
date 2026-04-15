@@ -46,9 +46,11 @@ services:
     region: ohio
     plan: starter
     buildCommand: npm ci --include=dev && npm run build
-    # db:push removed from auto-deploy — it can hang on a slow DB connection
-    # and the schema rarely changes. Run manually via Render Shell when you
-    # change server/schema.ts: `npm run db:push`
+    # db:push runs with a hard 90-second timeout and `|| true`, so a slow
+    # DB connection can't strand the deploy — worst case, the push is
+    # skipped and the existing schema is used. This mirrors staging so
+    # additive schema changes (new columns) apply automatically.
+    preDeployCommand: timeout 90 npm run db:push || true
     startCommand: npm run server
     healthCheckPath: /api/health
     disk:
