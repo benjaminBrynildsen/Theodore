@@ -53,6 +53,18 @@ export const projects = pgTable('projects', {
   narrativeControls: jsonb('narrative_controls').$type<Record<string, any>>().notNull(),
   coverUrl: text('cover_url'),
   status: text('status').notNull().default('active'),
+  isPublic: boolean('is_public').notNull().default(false),
+  slug: text('slug').unique(),
+  publishedAt: timestamp('published_at'),
+  shareConfig: jsonb('share_config').$type<{
+    allowFullBook?: boolean;
+    allowedChapterIds?: string[] | null; // null = all, [] = none
+    allowText?: boolean;
+    allowAudio?: boolean;
+    authorDisplayName?: string;
+    description?: string;
+  }>().default({}),
+  listens: integer('listens').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

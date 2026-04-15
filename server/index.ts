@@ -2460,6 +2460,218 @@ app.get('/api/share/audio/:chapterId', async (req, res) => {
   }
 });
 
+// ========== Public Library (phase 1) ==========
+// Endpoints for library.theodore.tools and /library/* paths. No auth.
+// Strict: only serves projects with isPublic=true.
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'book';
+}
+
+async function generateUniqueSlug(title: string): Promise<string> {
+  const base = slugify(title);
+  for (let i = 0; i < 8; i++) {
+    const suffix = crypto.randomBytes(3).toString('hex');
+    const candidate = `${base}-${suffix}`;
+    const [existing] = await db.select({ id: projects.id }).from(projects).where(eq(projects.slug, candidate)).limit(1);
+    if (!existing) return candidate;
+  }
+  return `${base}-${randomUUID().slice(0, 8)}`;
+}
+
+function publicProjectPayload(p: typeof projects.$inferSelect) {
+  const cfg = (p.shareConfig || {}) as any;
+  return {
+    slug: p.slug,
+    title: p.title,
+    coverUrl: p.coverUrl,
+    type: p.type,
+    subtype: p.subtype,
+    description: cfg.description || '',
+    authorDisplayName: cfg.authorDisplayName || 'A Theodore author',
+    allowText: cfg.allowText !== false,
+    allowAudio: cfg.allowAudio !== false,
+    publishedAt: p.publishedAt,
+  };
+}
+
+function chapterIsAllowed(cfg: any, chapterId: string): boolean {
+  if (!cfg) return true;
+  if (cfg.allowedChapterIds == null) return true;
+  if (!Array.isArray(cfg.allowedChapterIds)) return true;
+  return cfg.allowedChapterIds.includes(chapterId);
+}
+
+// Public: book metadata + chapter list
+app.get('/api/public/book/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const [project] = await db.select().from(projects).where(and(eq(projects.slug, slug), eq(projects.isPublic, true))).limit(1);
+    if (!project) return res.status(404).json({ error: 'Book not found' });
+
+    const cfg = (project.shareConfig || {}) as any;
+    const chapterRows = await db.select().from(chapters).where(eq(chapters.projectId, project.id));
+    const sortedChapters = chapterRows
+      .filter(c => chapterIsAllowed(cfg, c.id))
+      .sort((a, b) => a.timelinePosition - b.timelinePosition);
+
+    const audioRows = await db.select().from(audioGenerations)
+      .where(and(eq(audioGenerations.projectId, project.id), eq(audioGenerations.isActive, true)));
+    const audioByChapter = new Map<string, typeof audioRows[number]>();
+    for (const a of audioRows) {
+      const existing = audioByChapter.get(a.chapterId);
+      if (!existing || (a.createdAt > existing.createdAt)) audioByChapter.set(a.chapterId, a);
+    }
+
+    res.json({
+      book: publicProjectPayload(project),
+      chapters: sortedChapters.map(c => ({
+        id: c.id,
+        number: c.number,
+        title: c.title,
+        hasAudio: audioByChapter.has(c.id),
+        durationSeconds: audioByChapter.get(c.id)?.durationSeconds ?? null,
+      })),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: 'Failed to load book' });
+  }
+});
+
+// Public: single chapter content
+app.get('/api/public/book/:slug/chapter/:chapterId', async (req, res) => {
+  try {
+    const { slug, chapterId } = req.params;
+    const [project] = await db.select().from(projects).where(and(eq(projects.slug, slug), eq(projects.isPublic, true))).limit(1);
+    if (!project) return res.status(404).json({ error: 'Book not found' });
+
+    const cfg = (project.shareConfig || {}) as any;
+    if (!chapterIsAllowed(cfg, chapterId)) return res.status(404).json({ error: 'Chapter not available' });
+
+    const [chapter] = await db.select().from(chapters).where(and(eq(chapters.id, chapterId), eq(chapters.projectId, project.id))).limit(1);
+    if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
+
+    const [audioRecord] = await db.select().from(audioGenerations)
+      .where(and(eq(audioGenerations.chapterId, chapterId), eq(audioGenerations.isActive, true)))
+      .orderBy(desc(audioGenerations.createdAt))
+      .limit(1);
+
+    res.json({
+      book: publicProjectPayload(project),
+      chapter: {
+        id: chapter.id,
+        number: chapter.number,
+        title: chapter.title,
+        prose: cfg.allowText !== false ? chapter.prose : null,
+        imageUrl: chapter.imageUrl,
+      },
+      audio: (cfg.allowAudio !== false && audioRecord) ? {
+        audioUrl: audioRecord.audioUrl,
+        durationSeconds: audioRecord.durationSeconds,
+      } : null,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: 'Failed to load chapter' });
+  }
+});
+
+// Public: track a listen (fire-and-forget)
+app.post('/api/public/track-listen/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    await db.update(projects)
+      .set({ listens: sql`${projects.listens} + 1` })
+      .where(and(eq(projects.slug, slug), eq(projects.isPublic, true)));
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: false });
+  }
+});
+
+// Author: publish a project
+app.post('/api/projects/:id/publish', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const { id } = req.params;
+    const project = await getOwnedProject(id, auth.user.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const body = (req.body || {}) as {
+      allowText?: boolean;
+      allowAudio?: boolean;
+      allowedChapterIds?: string[] | null;
+      description?: string;
+      authorDisplayName?: string;
+    };
+
+    let slug = project.slug;
+    if (!slug) slug = await generateUniqueSlug(project.title);
+
+    const shareConfig = {
+      allowText: body.allowText !== false,
+      allowAudio: body.allowAudio !== false,
+      allowedChapterIds: body.allowedChapterIds === undefined ? null : body.allowedChapterIds,
+      description: body.description ?? (project.shareConfig as any)?.description ?? '',
+      authorDisplayName: body.authorDisplayName ?? (project.shareConfig as any)?.authorDisplayName ?? (auth.user.name || 'A Theodore author'),
+    };
+
+    await db.update(projects).set({
+      isPublic: true,
+      slug,
+      publishedAt: project.publishedAt || new Date(),
+      shareConfig,
+      updatedAt: new Date(),
+    }).where(eq(projects.id, id));
+
+    res.json({ ok: true, slug, shareConfig });
+  } catch (e: any) {
+    respondInternalError(res, 'publish', e);
+  }
+});
+
+// Author: unpublish
+app.post('/api/projects/:id/unpublish', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const { id } = req.params;
+    const project = await getOwnedProject(id, auth.user.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    await db.update(projects).set({ isPublic: false, updatedAt: new Date() }).where(eq(projects.id, id));
+    res.json({ ok: true });
+  } catch (e: any) {
+    respondInternalError(res, 'unpublish', e);
+  }
+});
+
+// Author: share status / stats
+app.get('/api/projects/:id/share-status', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const { id } = req.params;
+    const project = await getOwnedProject(id, auth.user.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    res.json({
+      isPublic: project.isPublic,
+      slug: project.slug,
+      publishedAt: project.publishedAt,
+      shareConfig: project.shareConfig || {},
+      listens: project.listens || 0,
+    });
+  } catch (e: any) {
+    respondInternalError(res, 'share-status', e);
+  }
+});
+
 const distPath = path.resolve(process.cwd(), 'dist');
 // Log pageviews BEFORE the static handler so we capture HTML navigations
 // (bundled assets are skipped inside the middleware via /assets/ prefix).

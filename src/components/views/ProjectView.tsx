@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2 } from 'lucide-react';
+import { ShareBookDialog } from '../share/ShareBookDialog';
 import { computeArcBreakpoints, getStructureById } from '../../lib/story-structures';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
@@ -42,6 +43,7 @@ export function ProjectView() {
   const user = useAuthStore((s) => s.user);
   const isGuest = !user;
   const [showSignUpPrompt, setShowSignUpPrompt] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
 
   // Auto-close auth modal when user signs in
   useEffect(() => {
@@ -334,7 +336,25 @@ export function ProjectView() {
               : ` · ${project.targetLength} length`}
           </p>
         </div>
+        {!isGuest && (
+          <div className="flex items-center justify-center mt-3">
+            <button
+              onClick={() => setShowShareDialog(true)}
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full glass hover:bg-white/70 text-text-secondary"
+            >
+              <Share2 size={12} /> Share book
+            </button>
+          </div>
+        )}
       </div>
+      {showShareDialog && (
+        <ShareBookDialog
+          projectId={project.id}
+          projectTitle={project.title}
+          chapters={chapters.map(c => ({ id: c.id, number: c.number, title: c.title }))}
+          onClose={() => setShowShareDialog(false)}
+        />
+      )}
 
       {/* Style Guide Panel (Children's Books) */}
       {isChildrensBook && (
