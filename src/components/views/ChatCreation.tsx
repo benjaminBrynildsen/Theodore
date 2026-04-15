@@ -1343,8 +1343,12 @@ ${childrensRule}`,
       pixel.trackCustom('GuestChatSignupModalSignUp');
       jTrack('guest_chat_signup_modal_signup');
       setShowChatSignupModal(false);
+      // Trigger App.tsx's returnToChatAfterAuth so the persisted chat draft
+      // remounts into showPostAuthChat. Without this the user lands on an
+      // empty Home view and loses the conversation.
+      onRequireAuth?.();
     } catch { /* error shown via auth store */ }
-  }, [googleLogin]);
+  }, [googleLogin, onRequireAuth]);
 
   // Render Google button when modal is visible
   useEffect(() => {
