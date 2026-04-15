@@ -35,6 +35,8 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, onClose }: 
   const [status, setStatus] = useState<ShareStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [justPublished, setJustPublished] = useState(false);
   const [allowText, setAllowText] = useState(true);
   const [allowAudio, setAllowAudio] = useState(true);
   const [description, setDescription] = useState('');
@@ -65,6 +67,7 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, onClose }: 
 
   const publish = async () => {
     setLoading(true);
+    setError(null);
     const body = {
       allowText,
       allowAudio,
@@ -72,17 +75,36 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, onClose }: 
       authorDisplayName: authorDisplayName || undefined,
       allowedChapterIds: allowAllChapters ? null : Array.from(allowedIds),
     };
-    const r = await fetch(`/api/projects/${projectId}/publish`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (r.ok) {
+    try {
+      const r = await fetch(`/api/projects/${projectId}/publish`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        let msg = `Publish failed (${r.status}).`;
+        try { const j = await r.json(); if (j?.error) msg = j.error; } catch {}
+        if (r.status === 401) msg = 'You are signed out. Please sign in and try again.';
+        setError(msg);
+        return;
+      }
       const data = await r.json();
-      setStatus((prev) => ({ ...(prev || { listens: 0, publishedAt: null }), isPublic: true, slug: data.slug, shareConfig: data.shareConfig, publishedAt: prev?.publishedAt || new Date().toISOString(), listens: prev?.listens || 0 }));
+      setStatus((prev) => ({
+        isPublic: true,
+        slug: data.slug,
+        shareConfig: data.shareConfig,
+        publishedAt: prev?.publishedAt || new Date().toISOString(),
+        listens: prev?.listens || 0,
+      }));
+      setJustPublished(true);
+      // Auto-copy the link the moment it's available
+      try { await navigator.clipboard.writeText(libraryUrl(data.slug)); setCopied(true); } catch {}
+    } catch (e: any) {
+      setError(e?.message || 'Network error. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const unpublish = async () => {
@@ -120,10 +142,15 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, onClose }: 
         </div>
 
         <div className="px-6 py-5 space-y-5">
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
           {status?.isPublic && status.slug && (
-            <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+            <div className={`rounded-xl border p-4 ${justPublished ? 'border-green-300 bg-green-100 ring-2 ring-green-200' : 'border-green-200 bg-green-50'}`}>
               <div className="flex items-center gap-2 text-green-800 text-sm font-medium mb-2">
-                <Globe size={14} /> Published
+                <Globe size={14} /> {justPublished ? 'Published! Link copied to clipboard.' : 'Published'}
               </div>
               <div className="flex items-center gap-2">
                 <input

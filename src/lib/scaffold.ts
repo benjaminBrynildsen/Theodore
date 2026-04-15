@@ -40,6 +40,7 @@ export function buildScaffoldPrompt(
 ): string {
   const sections: string[] = [];
 
+  sections.push(`Naming-variety seed: ${Math.random().toString(36).slice(2, 10)}`);
   sections.push(`You are Theodore, an expert story architect. Generate a complete ${chapterCount}-chapter outline for the following project.`);
 
   sections.push(`\n=== PROJECT ===`);

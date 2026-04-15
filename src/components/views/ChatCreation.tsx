@@ -575,7 +575,7 @@ export function ChatCreation({ onClose, guestMode, initialMessage, onRequireAuth
         userId,
         action: 'plan-project',
         model: 'claude-haiku-4-5',
-        temperature: 0.55,
+        temperature: 0.9,
         maxTokens: 4000,
         systemPrompt: `You maintain Theodore's live planning card while a conversation is still in progress.
 Return EXACTLY two lines:
@@ -584,7 +584,7 @@ THEODORE_CANON_JSON:{"characters":[{"name":"...","role":"protagonist","descripti
 Rules:
 - Output only those two marker lines. No extra text.
 - Assume even the first user message is enough to draft concrete story seeds.
-- CHARACTER NAMES: Do NOT default to common AI names. Pick names a real author in this genre would choose — names that sound like they belong in THIS specific world, culture, time period, and social class.
+- Name characters with real specificity. Pull from the world you've been told about: culture, era, region, family. Surprise yourself with the surname.
 - chapterCount MUST match chapters.length. Generate ALL chapters — every single one must have a unique, specific title and premise. No generic fillers.
 - Each chapter premise must be a brief STORY SUMMARY of what happens — use character names and specific events, NOT meta-language like "stakes are raised" or "introduce the conflict". Write like a synopsis.
 - Infer at least 1 named protagonist and 1 named place immediately; include those names in chapter titles/premises.
@@ -593,7 +593,7 @@ Rules:
 - ALWAYS include gender (male/female/non-binary), age (specific like "Early 30s" or "45"), and pronouns (he/him, she/her, they/them) for every character. Infer from name and context.
 - Use best-guess defaults for missing fields.
 - Keep chapter premises concise (1 sentence) but specific to the story.`,
-        prompt: `Conversation so far:\n${conversation}\n\nUpdate the live project settings.${requestedChapterCount ? ` The user wants exactly ${requestedChapterCount} chapters — generate all ${requestedChapterCount} with unique titles and premises.` : ''}`,
+        prompt: `Naming-variety seed: ${Math.random().toString(36).slice(2, 10)}\n\nConversation so far:\n${conversation}\n\nUpdate the live project settings.${requestedChapterCount ? ` The user wants exactly ${requestedChapterCount} chapters — generate all ${requestedChapterCount} with unique titles and premises.` : ''}`,
       });
       const parsed = parseAssistantOutput(result.text || '');
       if (!parsed.settings && !parsed.canon) return null;
@@ -632,7 +632,7 @@ Rules:
         userId,
         action: 'scaffold-chapters',
         model: 'claude-haiku-4-5',
-        temperature: 0.7,
+        temperature: 0.95,
         maxTokens: 4096,
         projectId: project.id,
         prompt: buildScaffoldPrompt(project, targetCount, [], seedChapters),
@@ -1202,7 +1202,7 @@ ${childrensRule}`,
           model: 'claude-haiku-4-5',
           temperature: 0.95,
           maxTokens: 1500,
-          prompt: `Based on this conversation, generate a complete novel outline.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown fences:\n{"title":"Book Title","chapters":[{"number":1,"title":"Chapter Title","premise":"One sentence synopsis of what happens"},...]}\n\nRules:\n- Generate exactly 12 chapters\n- Each premise must be a specific story synopsis using character names\n- No meta-language like "stakes are raised" — write like a synopsis\n- CHARACTER NAMES: Do NOT default to common AI names. Pick names that a real author in this genre would choose — names that sound like they belong in THIS specific world. Think about the setting's culture, time period, and social class when naming characters.`,
+          prompt: `Naming-variety seed: ${Math.random().toString(36).slice(2, 10)}\n\nBased on this conversation, generate a complete novel outline.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown fences:\n{"title":"Book Title","chapters":[{"number":1,"title":"Chapter Title","premise":"One sentence synopsis of what happens"},...]}\n\nRules:\n- Generate exactly 12 chapters\n- Each premise must be a specific story synopsis using character names\n- No meta-language like "stakes are raised" — write like a synopsis\n- Name characters with real specificity drawn from the story's culture, era, and region. Vary across genres and across your own past outputs — surprise yourself with the surname.`,
         });
         try {
           const parsed = JSON.parse((quickResult.text || '').trim().match(/\{[\s\S]*\}/)?.[0] || '{}');
