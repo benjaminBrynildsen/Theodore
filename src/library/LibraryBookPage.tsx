@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Play, Clock, FileText, Headphones } from 'lucide-react';
-import { fetchBook, libraryChapterUrl, type PublicBook, type PublicChapterSummary } from './api';
+import { fetchBook, type PublicBook, type PublicChapterSummary } from './api';
 import { CreateCTA } from './CreateCTA';
 
 function formatDuration(s: number | null): string {
@@ -9,7 +9,12 @@ function formatDuration(s: number | null): string {
   return `${m} min`;
 }
 
-export function LibraryBookPage({ slug }: { slug: string }) {
+interface Props {
+  slug: string;
+  onPlay?: (chapterId: string, book: PublicBook, chapters: PublicChapterSummary[]) => void;
+}
+
+export function LibraryBookPage({ slug, onPlay }: Props) {
   const [book, setBook] = useState<PublicBook | null>(null);
   const [chapters, setChapters] = useState<PublicChapterSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +45,10 @@ export function LibraryBookPage({ slug }: { slug: string }) {
     );
   }
 
+  const handlePlay = (chapterId: string) => {
+    if (onPlay) onPlay(chapterId, book, chapters);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-neutral-900 via-neutral-950 to-black text-white pb-28">
       {/* Header */}
@@ -62,12 +71,12 @@ export function LibraryBookPage({ slug }: { slug: string }) {
         <h1 className="text-3xl sm:text-4xl font-serif font-semibold tracking-tight">{book.title}</h1>
         <p className="text-white/50 text-sm mt-2">by {book.authorDisplayName}</p>
         {firstChapter && (
-          <a
-            href={libraryChapterUrl(slug, firstChapter.id)}
+          <button
+            onClick={() => handlePlay(firstChapter.id)}
             className="mt-5 inline-flex items-center gap-2.5 px-6 py-3 rounded-full bg-white text-black font-semibold text-sm hover:scale-105 active:scale-95 transition-transform shadow-lg"
           >
             <Play size={18} className="ml-0.5" /> Listen now
-          </a>
+          </button>
         )}
         {book.description && (
           <p className="text-white/70 text-base mt-5 max-w-xl leading-relaxed">{book.description}</p>
@@ -85,12 +94,12 @@ export function LibraryBookPage({ slug }: { slug: string }) {
         <ul className="space-y-2">
           {chapters.map((c) => (
             <li key={c.id}>
-              <a
-                href={libraryChapterUrl(slug, c.id)}
-                className="flex items-center gap-4 p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+              <button
+                onClick={() => handlePlay(c.id)}
+                className="w-full flex items-center gap-4 p-4 rounded-xl bg-white/5 hover:bg-white/10 transition-colors text-left"
               >
                 <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center shrink-0">
-                  {c.hasAudio && book.allowAudio ? <Play size={16} className="ml-0.5" /> : <FileText size={16} />}
+                  <Play size={16} className="ml-0.5" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-white/50">Chapter {c.number}</div>
@@ -101,7 +110,7 @@ export function LibraryBookPage({ slug }: { slug: string }) {
                     <Clock size={12} /> {formatDuration(c.durationSeconds)}
                   </div>
                 )}
-              </a>
+              </button>
             </li>
           ))}
         </ul>
