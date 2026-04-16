@@ -72,20 +72,38 @@ export function LibraryPlayerFullscreen({ state, onChapterSelect, onClose }: Pro
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [showChapters, setShowChapters] = useState(false);
   const [showText, setShowText] = useState(false);
+  const [segmentIdx, setSegmentIdx] = useState(0);
   const listenTracked = useRef(false);
   const isMuted = volume === 0;
 
+  const segments = audio?.segments && audio.segments.length ? audio.segments : (audio ? [{ audioUrl: audio.audioUrl, durationSeconds: audio.durationSeconds }] : []);
+  const segmentOffsets = segments.reduce<number[]>((acc, _s, i) => {
+    acc.push(i === 0 ? 0 : acc[i - 1] + (segments[i - 1].durationSeconds || 0));
+    return acc;
+  }, []);
+  const totalDuration = audio?.durationSeconds || segments.reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
+
   const chapterIdx = chapters.findIndex(c => c.id === state.currentChapterId);
   const coverSrc = book.coverUrl;
-  const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const progressPct = totalDuration > 0 ? ((segmentOffsets[segmentIdx] || 0) + currentTime) / totalDuration * 100 : 0;
 
+  // Reset when audio source changes (chapter change)
   useEffect(() => {
-    if (!audio) return;
-    const a = new Audio(audio.audioUrl);
+    setSegmentIdx(0);
+    setCurrentTime(0);
+  }, [audio?.audioUrl]);
+
+  // Load + play current segment
+  useEffect(() => {
+    if (!segments.length) return;
+    const seg = segments[segmentIdx];
+    if (!seg) return;
+
+    const a = new Audio(seg.audioUrl);
     a.preload = 'auto';
     a.volume = volume;
     audioRef.current = a;
@@ -94,8 +112,12 @@ export function LibraryPlayerFullscreen({ state, onChapterSelect, onClose }: Pro
     a.addEventListener('durationchange', () => { if (a.duration && isFinite(a.duration)) setDuration(a.duration); });
     a.addEventListener('timeupdate', () => setCurrentTime(a.currentTime));
     a.addEventListener('ended', () => {
-      setPlaying(false);
-      if (chapterIdx < chapters.length - 1) onChapterSelect(chapters[chapterIdx + 1].id);
+      if (segmentIdx < segments.length - 1) {
+        setSegmentIdx(i => i + 1);
+      } else {
+        setPlaying(false);
+        if (chapterIdx < chapters.length - 1) onChapterSelect(chapters[chapterIdx + 1].id);
+      }
     });
 
     if (book && 'mediaSession' in navigator) {
@@ -111,14 +133,10 @@ export function LibraryPlayerFullscreen({ state, onChapterSelect, onClose }: Pro
     }
 
     a.play().then(() => setPlaying(true)).catch(() => {});
-
     if (!listenTracked.current) { listenTracked.current = true; trackListen(slug); }
 
-    setDuration(audio.durationSeconds || 0);
-    setCurrentTime(0);
-
     return () => { a.pause(); a.src = ''; };
-  }, [audio?.audioUrl]);
+  }, [segments[segmentIdx]?.audioUrl]);
 
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
@@ -142,14 +160,34 @@ export function LibraryPlayerFullscreen({ state, onChapterSelect, onClose }: Pro
     else { a.play(); setPlaying(true); }
   };
 
+  const seekToGlobal = useCallback((globalSeconds: number) => {
+    // Find which segment this falls into
+    let acc = 0;
+    for (let i = 0; i < segments.length; i++) {
+      const segDur = segments[i].durationSeconds || 0;
+      if (globalSeconds <= acc + segDur || i === segments.length - 1) {
+        const local = Math.max(0, globalSeconds - acc);
+        if (i === segmentIdx) {
+          const a = audioRef.current;
+          if (a) a.currentTime = Math.min(a.duration || local, local);
+        } else {
+          setSegmentIdx(i);
+          // Once new segment loads, jump to local position
+          setTimeout(() => { const a = audioRef.current; if (a) a.currentTime = local; }, 100);
+        }
+        return;
+      }
+      acc += segDur;
+    }
+  }, [segments, segmentIdx]);
+
   const seekTo = useCallback((fraction: number) => {
-    const a = audioRef.current; if (!a) return;
-    a.currentTime = fraction * (a.duration || 0);
-  }, []);
+    seekToGlobal(fraction * totalDuration);
+  }, [seekToGlobal, totalDuration]);
 
   const seekBy = (seconds: number) => {
-    const a = audioRef.current; if (!a) return;
-    a.currentTime = Math.max(0, Math.min(a.duration || 0, a.currentTime + seconds));
+    const currentGlobal = (segmentOffsets[segmentIdx] || 0) + currentTime;
+    seekToGlobal(Math.max(0, Math.min(totalDuration, currentGlobal + seconds)));
   };
 
   const noAudio = !audio;
@@ -211,8 +249,8 @@ export function LibraryPlayerFullscreen({ state, onChapterSelect, onClose }: Pro
           <div className="px-8 pt-4">
             <Scrubber progressPct={progressPct} onSeek={seekTo} />
             <div className="flex justify-between mt-1.5">
-              <span className="text-[10px] text-white/40">{formatTime(currentTime)}</span>
-              <span className="text-[10px] text-white/40">{formatTime(duration)}</span>
+              <span className="text-[10px] text-white/40">{formatTime((segmentOffsets[segmentIdx] || 0) + currentTime)}</span>
+              <span className="text-[10px] text-white/40">{formatTime(totalDuration)}</span>
             </div>
           </div>
 

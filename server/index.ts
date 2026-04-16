@@ -2537,6 +2537,57 @@ function chapterIsAllowed(cfg: any, chapterId: string): boolean {
   return cfg.allowedChapterIds.includes(chapterId);
 }
 
+// Audio is stored in two shapes:
+//   1) Full-chapter: audioGenerations.chapterId === chapter.id
+//   2) Scene-level: audioGenerations.chapterId starts with `${chapter.id}-scene-`
+// For a chapter we want the active full-chapter audio if present; otherwise
+// stitch together the active scene audios in the chapter's scene order.
+function collectAudioForChapter(
+  chapter: typeof chapters.$inferSelect,
+  allAudio: Array<typeof audioGenerations.$inferSelect>,
+): { segments: Array<{ audioUrl: string; durationSeconds: number | null }>; totalDuration: number | null } {
+  // Full-chapter audio (active) wins
+  const fullChapter = allAudio
+    .filter(a => a.chapterId === chapter.id && a.isActive)
+    .sort((a, b) => (b.createdAt as any) - (a.createdAt as any))[0];
+  if (fullChapter) {
+    return {
+      segments: [{ audioUrl: fullChapter.audioUrl, durationSeconds: fullChapter.durationSeconds ?? null }],
+      totalDuration: fullChapter.durationSeconds ?? null,
+    };
+  }
+
+  // Scene-level: group by sceneId, pick most recent active per scene
+  const bySceneMatching = allAudio.filter(a => a.chapterId.startsWith(`${chapter.id}-scene-`) && a.isActive);
+  const latestByScene = new Map<string, typeof allAudio[number]>();
+  for (const a of bySceneMatching) {
+    const sid = a.sceneId || a.chapterId;
+    const prev = latestByScene.get(sid);
+    if (!prev || (a.createdAt as any) > (prev.createdAt as any)) latestByScene.set(sid, a);
+  }
+
+  // Order by chapter's scene ordering
+  const sceneOrder: string[] = Array.isArray(chapter.scenes)
+    ? (chapter.scenes as any[])
+        .slice()
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map(s => s.id)
+    : [];
+
+  const ordered = sceneOrder
+    .map(sid => latestByScene.get(sid))
+    .filter(Boolean) as typeof allAudio;
+
+  // If nothing from scene order matched (orphaned), fall back to any
+  const segments = (ordered.length ? ordered : Array.from(latestByScene.values()))
+    .map(a => ({ audioUrl: a.audioUrl, durationSeconds: a.durationSeconds ?? null }));
+  const totalDuration = segments.length
+    ? segments.reduce((sum, s) => sum + (s.durationSeconds || 0), 0) || null
+    : null;
+
+  return { segments, totalDuration };
+}
+
 // Public: book metadata + chapter list
 app.get('/api/public/book/:slug', async (req, res) => {
   try {
@@ -2552,21 +2603,19 @@ app.get('/api/public/book/:slug', async (req, res) => {
 
     const audioRows = await db.select().from(audioGenerations)
       .where(and(eq(audioGenerations.projectId, project.id), eq(audioGenerations.isActive, true)));
-    const audioByChapter = new Map<string, typeof audioRows[number]>();
-    for (const a of audioRows) {
-      const existing = audioByChapter.get(a.chapterId);
-      if (!existing || (a.createdAt > existing.createdAt)) audioByChapter.set(a.chapterId, a);
-    }
 
     res.json({
       book: publicProjectPayload(project),
-      chapters: sortedChapters.map(c => ({
-        id: c.id,
-        number: c.number,
-        title: c.title,
-        hasAudio: audioByChapter.has(c.id),
-        durationSeconds: audioByChapter.get(c.id)?.durationSeconds ?? null,
-      })),
+      chapters: sortedChapters.map(c => {
+        const { segments, totalDuration } = collectAudioForChapter(c, audioRows);
+        return {
+          id: c.id,
+          number: c.number,
+          title: c.title,
+          hasAudio: segments.length > 0,
+          durationSeconds: totalDuration,
+        };
+      }),
     });
   } catch (e: any) {
     res.status(500).json({ error: 'Failed to load book' });
@@ -2586,10 +2635,15 @@ app.get('/api/public/book/:slug/chapter/:chapterId', async (req, res) => {
     const [chapter] = await db.select().from(chapters).where(and(eq(chapters.id, chapterId), eq(chapters.projectId, project.id))).limit(1);
     if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
 
-    const [audioRecord] = await db.select().from(audioGenerations)
-      .where(and(eq(audioGenerations.chapterId, chapterId), eq(audioGenerations.isActive, true)))
-      .orderBy(desc(audioGenerations.createdAt))
-      .limit(1);
+    const audioRows = await db.select().from(audioGenerations)
+      .where(and(eq(audioGenerations.projectId, project.id), eq(audioGenerations.isActive, true)));
+    const { segments, totalDuration } = collectAudioForChapter(chapter, audioRows);
+
+    const audio = (cfg.allowAudio !== false && segments.length > 0) ? {
+      audioUrl: segments[0].audioUrl,
+      durationSeconds: totalDuration,
+      segments,
+    } : null;
 
     res.json({
       book: publicProjectPayload(project),
@@ -2600,10 +2654,7 @@ app.get('/api/public/book/:slug/chapter/:chapterId', async (req, res) => {
         prose: cfg.allowText !== false ? chapter.prose : null,
         imageUrl: chapter.imageUrl,
       },
-      audio: (cfg.allowAudio !== false && audioRecord) ? {
-        audioUrl: audioRecord.audioUrl,
-        durationSeconds: audioRecord.durationSeconds,
-      } : null,
+      audio,
     });
   } catch (e: any) {
     res.status(500).json({ error: 'Failed to load chapter' });

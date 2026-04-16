@@ -27,9 +27,15 @@ export interface PublicChapter {
   imageUrl: string | null;
 }
 
+export interface PublicAudioSegment {
+  audioUrl: string;
+  durationSeconds: number | null;
+}
+
 export interface PublicAudio {
   audioUrl: string;
   durationSeconds: number | null;
+  segments?: PublicAudioSegment[];
 }
 
 export async function fetchBook(slug: string): Promise<{ book: PublicBook; chapters: PublicChapterSummary[] }> {
