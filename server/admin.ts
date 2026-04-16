@@ -382,7 +382,16 @@ export async function getUserDetail(req: Request, res: Response) {
 
     // User's projects
     const userProjects = await db
-      .select({ id: projects.id, title: projects.title, type: projects.type, status: projects.status, createdAt: projects.createdAt })
+      .select({
+        id: projects.id,
+        title: projects.title,
+        type: projects.type,
+        status: projects.status,
+        createdAt: projects.createdAt,
+        isPublic: projects.isPublic,
+        slug: projects.slug,
+        listens: projects.listens,
+      })
       .from(projects)
       .where(eq(projects.userId, userId))
       .orderBy(desc(projects.createdAt));
