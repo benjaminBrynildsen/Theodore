@@ -30,6 +30,8 @@ export function LibraryBookPage({ slug }: { slug: string }) {
       </div>
     );
   }
+  const firstAudioChapter = chapters.find(c => c.hasAudio);
+
   if (!book) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-neutral-900 to-black flex items-center justify-center">
@@ -59,10 +61,18 @@ export function LibraryBookPage({ slug }: { slug: string }) {
         </div>
         <h1 className="text-3xl sm:text-4xl font-serif font-semibold tracking-tight">{book.title}</h1>
         <p className="text-white/50 text-sm mt-2">by {book.authorDisplayName}</p>
+        {firstAudioChapter && book.allowAudio && (
+          <a
+            href={libraryChapterUrl(slug, firstAudioChapter.id)}
+            className="mt-5 inline-flex items-center gap-2.5 px-6 py-3 rounded-full bg-white text-black font-semibold text-sm hover:scale-105 active:scale-95 transition-transform shadow-lg"
+          >
+            <Play size={18} className="ml-0.5" /> Listen now
+          </a>
+        )}
         {book.description && (
           <p className="text-white/70 text-base mt-5 max-w-xl leading-relaxed">{book.description}</p>
         )}
-        <div className="flex items-center gap-4 mt-5 text-xs text-white/40">
+        <div className="flex items-center gap-4 mt-4 text-xs text-white/40">
           {book.allowAudio && <span className="inline-flex items-center gap-1"><Headphones size={12} /> Audio</span>}
           {book.allowText && <span className="inline-flex items-center gap-1"><FileText size={12} /> Text</span>}
           <span>{chapters.length} chapter{chapters.length === 1 ? '' : 's'}</span>
