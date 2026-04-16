@@ -267,126 +267,131 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
   return (
     <div
       className="fixed inset-0 z-[70] flex flex-col animate-slide-up safe-area-top transition-colors duration-700"
-      style={{ backgroundColor: bgColor }}
+      style={{ background: `linear-gradient(180deg, ${bgColor} 0%, #0a0a0a 70%)` }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-5 pt-4 pb-2">
+      <div className="flex items-center justify-between px-5 pt-4 pb-2 flex-shrink-0">
         <button onClick={onCollapse} className="p-1">
           <ChevronDown size={24} className="text-white/70" />
         </button>
-        <span className="text-[11px] font-semibold text-white/50 uppercase tracking-wider">{project.title}</span>
+        <span className="text-[11px] font-semibold text-white/50 uppercase tracking-wider truncate max-w-[60%]">{project.title}</span>
         <button onClick={() => setShowChapterList(true)} className="p-1" aria-label="Chapter list">
           <List size={22} className="text-white/70" />
         </button>
       </div>
 
-      {/* Cover art */}
-      <div className="flex-1 flex items-center justify-center px-8 py-4 min-h-0">
-        <div className="aspect-square w-full max-w-[85vw] rounded-xl overflow-hidden shadow-2xl">
+      {/* Main stage — cover + info, centered */}
+      <div className="flex-1 flex flex-col items-center justify-center min-h-0 px-8 py-6 gap-8">
+        {/* Cover art — constrained square, Spotify-style */}
+        <div
+          className="aspect-square rounded-xl overflow-hidden shadow-[0_24px_60px_rgba(0,0,0,0.5)]"
+          style={{ width: 'min(85vw, 55vh, 420px)' }}
+        >
           <CoverArt project={project} chapterImage={chapterImage} />
         </div>
-      </div>
 
-      {/* Track info */}
-      <div className="px-8 pt-2">
-        <h2 className="text-lg font-bold text-white truncate">{trackTitle}</h2>
-        <p className="text-sm text-white/50 truncate">{project.title}</p>
-      </div>
-
-      {/* Chapter selector button — like Audible */}
-      <button
-        onClick={() => setShowChapterList(true)}
-        className="flex items-center justify-center gap-2 mx-auto mt-3 px-4 py-1.5 rounded-full bg-white/10 active:bg-white/20 transition-colors"
-      >
-        <List size={14} className="text-white/50" />
-        <span className="text-[13px] text-white/70 font-medium">
-          {currentChapter ? `Chapter ${currentChapter.number}` : 'Chapters'}
-        </span>
-      </button>
-
-      {/* Progress bar — draggable */}
-      <div className="px-8 pt-4">
-        <MobileScrubber progressPct={progressPct} onSeek={seekTo} />
-        <div className="flex justify-between mt-1.5">
-          <span className="text-[10px] text-white/40">{formatTime(currentTime)}</span>
-          <span className="text-[10px] text-white/40">{formatTime(duration || currentAudio?.durationEstimate || 0)}</span>
+        {/* Track info */}
+        <div className="w-full max-w-md text-center">
+          <h2 className="text-xl font-bold text-white truncate">{trackTitle}</h2>
+          <p className="text-sm text-white/60 truncate mt-1">{project.title}</p>
         </div>
       </div>
 
-      {/* Playback controls */}
-      <div className="flex items-center justify-center gap-7 py-4">
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent('theodore:seekBy', { detail: { seconds: -15 } }))}
-          disabled={!currentChapterId || !!generating}
-          className="text-white/70 disabled:opacity-25 transition-colors relative"
-          aria-label="Rewind 15 seconds"
-        >
-          <RotateCcw size={26} />
-          <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold pointer-events-none">15</span>
-        </button>
-        <button
-          onClick={skipPrev}
-          disabled={chapterIdx <= 0 || !!generating}
-          className="text-white/80 disabled:opacity-25 transition-colors"
-          aria-label="Previous chapter"
-        >
-          <SkipBack size={28} fill="currentColor" />
-        </button>
-        <button
-          onClick={() => { if (currentChapterId) window.dispatchEvent(new CustomEvent('theodore:togglePlayback')); }}
-          disabled={!currentChapterId || !!generating}
-          className="w-16 h-16 rounded-full bg-white text-black flex items-center justify-center disabled:opacity-40 transition-all shadow-lg active:scale-95"
-        >
-          {generating ? (
-            <Loader2 size={28} className="animate-spin" />
-          ) : playing ? (
-            <Pause size={28} />
-          ) : (
-            <Play size={28} className="ml-1" fill="currentColor" />
-          )}
-        </button>
-        <button
-          onClick={skipNext}
-          disabled={chapterIdx >= playableChapters.length - 1 || !!generating}
-          className="text-white/80 disabled:opacity-25 transition-colors"
-          aria-label="Next chapter"
-        >
-          <SkipForward size={28} fill="currentColor" />
-        </button>
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent('theodore:seekBy', { detail: { seconds: 15 } }))}
-          disabled={!currentChapterId || !!generating}
-          className="text-white/70 disabled:opacity-25 transition-colors relative"
-          aria-label="Forward 15 seconds"
-        >
-          <RotateCw size={26} />
-          <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold pointer-events-none">15</span>
-        </button>
-      </div>
+      {/* Bottom transport — constrained column */}
+      <div className="w-full max-w-md mx-auto px-6 pb-8 flex-shrink-0">
+        {/* Progress bar — draggable */}
+        <div className="mb-4">
+          <MobileScrubber progressPct={progressPct} onSeek={seekTo} />
+          <div className="flex justify-between mt-1.5">
+            <span className="text-[10px] text-white/40">{formatTime(currentTime)}</span>
+            <span className="text-[10px] text-white/40">{formatTime(duration || currentAudio?.durationEstimate || 0)}</span>
+          </div>
+        </div>
 
-      {/* Volume */}
-      <div className="flex items-center gap-3 px-8 pb-8">
-        <button onClick={() => setVolume(isMuted ? 1 : 0)} className="text-white/40">
-          {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
-        </button>
-        <div className="flex-1 relative h-1">
-          {/* Track background */}
-          <div className="absolute inset-0 rounded-full bg-white/20" />
-          {/* Filled portion */}
-          <div className="absolute top-0 left-0 h-full rounded-full bg-white" style={{ width: `${volume * 100}%` }} />
-          <input
-            type="range"
-            min="0" max="1" step="0.05"
-            value={volume}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              setVolume(v);
-              // Directly sync to audio element
-              const audio = document.getElementById('theodore-audio') as HTMLAudioElement | null;
-              if (audio) audio.volume = v;
-            }}
-            className="absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-runnable-track]:bg-transparent"
-          />
+        {/* Playback controls */}
+        <div className="flex items-center justify-center gap-7 mb-5">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('theodore:seekBy', { detail: { seconds: -15 } }))}
+            disabled={!currentChapterId || !!generating}
+            className="text-white/70 hover:text-white disabled:opacity-25 transition-colors relative"
+            aria-label="Rewind 15 seconds"
+          >
+            <RotateCcw size={26} />
+            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold pointer-events-none">15</span>
+          </button>
+          <button
+            onClick={skipPrev}
+            disabled={chapterIdx <= 0 || !!generating}
+            className="text-white/80 hover:text-white disabled:opacity-25 transition-colors"
+            aria-label="Previous chapter"
+          >
+            <SkipBack size={28} fill="currentColor" />
+          </button>
+          <button
+            onClick={() => { if (currentChapterId) window.dispatchEvent(new CustomEvent('theodore:togglePlayback')); }}
+            disabled={!currentChapterId || !!generating}
+            className="w-16 h-16 rounded-full bg-white text-black flex items-center justify-center disabled:opacity-40 transition-all shadow-lg hover:scale-105 active:scale-95"
+          >
+            {generating ? (
+              <Loader2 size={28} className="animate-spin" />
+            ) : playing ? (
+              <Pause size={28} fill="currentColor" />
+            ) : (
+              <Play size={28} className="ml-1" fill="currentColor" />
+            )}
+          </button>
+          <button
+            onClick={skipNext}
+            disabled={chapterIdx >= playableChapters.length - 1 || !!generating}
+            className="text-white/80 hover:text-white disabled:opacity-25 transition-colors"
+            aria-label="Next chapter"
+          >
+            <SkipForward size={28} fill="currentColor" />
+          </button>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('theodore:seekBy', { detail: { seconds: 15 } }))}
+            disabled={!currentChapterId || !!generating}
+            className="text-white/70 hover:text-white disabled:opacity-25 transition-colors relative"
+            aria-label="Forward 15 seconds"
+          >
+            <RotateCw size={26} />
+            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold pointer-events-none">15</span>
+          </button>
+        </div>
+
+        {/* Meta row: chapter chip + volume */}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowChapterList(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors flex-shrink-0"
+          >
+            <List size={14} className="text-white/60" />
+            <span className="text-[12px] text-white/70 font-medium">
+              {currentChapter ? `Chapter ${currentChapter.number}` : 'Chapters'}
+            </span>
+          </button>
+
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <button onClick={() => setVolume(isMuted ? 1 : 0)} className="text-white/50 hover:text-white/80 transition-colors flex-shrink-0">
+              {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            </button>
+            <div className="flex-1 relative h-1 group">
+              <div className="absolute inset-0 rounded-full bg-white/20" />
+              <div className="absolute top-0 left-0 h-full rounded-full bg-white" style={{ width: `${volume * 100}%` }} />
+              <input
+                type="range"
+                min="0" max="1" step="0.05"
+                value={volume}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value);
+                  setVolume(v);
+                  const audio = document.getElementById('theodore-audio') as HTMLAudioElement | null;
+                  if (audio) audio.volume = v;
+                }}
+                className="absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:opacity-0 group-hover:[&::-webkit-slider-thumb]:opacity-100 [&::-webkit-slider-runnable-track]:bg-transparent"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
