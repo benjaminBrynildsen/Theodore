@@ -2546,10 +2546,11 @@ function collectAudioForChapter(
   chapter: typeof chapters.$inferSelect,
   allAudio: Array<typeof audioGenerations.$inferSelect>,
 ): { segments: Array<{ audioUrl: string; durationSeconds: number | null }>; totalDuration: number | null } {
-  // Full-chapter audio (active) wins
-  const fullChapter = allAudio
-    .filter(a => a.chapterId === chapter.id && a.isActive)
-    .sort((a, b) => (b.createdAt as any) - (a.createdAt as any))[0];
+  // Full-chapter audio wins. Prefer isActive but accept any if none active.
+  const fullCandidates = allAudio
+    .filter(a => a.chapterId === chapter.id)
+    .sort((a, b) => (b.createdAt as any) - (a.createdAt as any));
+  const fullChapter = fullCandidates.find(a => a.isActive) || fullCandidates[0];
   if (fullChapter) {
     return {
       segments: [{ audioUrl: fullChapter.audioUrl, durationSeconds: fullChapter.durationSeconds ?? null }],
@@ -2557,13 +2558,16 @@ function collectAudioForChapter(
     };
   }
 
-  // Scene-level: group by sceneId, pick most recent active per scene
-  const bySceneMatching = allAudio.filter(a => a.chapterId.startsWith(`${chapter.id}-scene-`) && a.isActive);
+  // Scene-level: group by sceneId, pick most recent per scene (prefer active)
+  const bySceneMatching = allAudio.filter(a => a.chapterId.startsWith(`${chapter.id}-scene-`));
   const latestByScene = new Map<string, typeof allAudio[number]>();
   for (const a of bySceneMatching) {
     const sid = a.sceneId || a.chapterId;
     const prev = latestByScene.get(sid);
-    if (!prev || (a.createdAt as any) > (prev.createdAt as any)) latestByScene.set(sid, a);
+    if (!prev) { latestByScene.set(sid, a); continue; }
+    // Prefer active rows; if tie, newer wins
+    if (a.isActive && !prev.isActive) latestByScene.set(sid, a);
+    else if (a.isActive === prev.isActive && (a.createdAt as any) > (prev.createdAt as any)) latestByScene.set(sid, a);
   }
 
   // Order by chapter's scene ordering
@@ -2601,13 +2605,29 @@ app.get('/api/public/book/:slug', async (req, res) => {
       .filter(c => chapterIsAllowed(cfg, c.id))
       .sort((a, b) => a.timelinePosition - b.timelinePosition);
 
-    const audioRows = await db.select().from(audioGenerations)
-      .where(and(eq(audioGenerations.projectId, project.id), eq(audioGenerations.isActive, true)));
+    // Match by chapterId prefix — older audios may have missing/stale
+    // projectId values, and isActive may not be consistent across scenes.
+    // We rely on chapterId ownership (prefix match) for safety.
+    const chapterIdSet = new Set(sortedChapters.map(c => c.id));
+    const audioRows = sortedChapters.length
+      ? await db.select().from(audioGenerations)
+          .where(or(
+            ...sortedChapters.flatMap(c => [
+              eq(audioGenerations.chapterId, c.id),
+              sql`${audioGenerations.chapterId} LIKE ${c.id + '-scene-%'}`,
+            ])
+          ))
+      : [];
+    // Safety filter in case the OR expands to something unexpected
+    const filteredAudio = audioRows.filter(a => {
+      const prefix = (a.chapterId || '').split('-scene-')[0];
+      return chapterIdSet.has(prefix) || chapterIdSet.has(a.chapterId);
+    });
 
     res.json({
       book: publicProjectPayload(project),
       chapters: sortedChapters.map(c => {
-        const { segments, totalDuration } = collectAudioForChapter(c, audioRows);
+        const { segments, totalDuration } = collectAudioForChapter(c, filteredAudio);
         return {
           id: c.id,
           number: c.number,
@@ -2636,7 +2656,10 @@ app.get('/api/public/book/:slug/chapter/:chapterId', async (req, res) => {
     if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
 
     const audioRows = await db.select().from(audioGenerations)
-      .where(and(eq(audioGenerations.projectId, project.id), eq(audioGenerations.isActive, true)));
+      .where(or(
+        eq(audioGenerations.chapterId, chapter.id),
+        sql`${audioGenerations.chapterId} LIKE ${chapter.id + '-scene-%'}`,
+      ));
     const { segments, totalDuration } = collectAudioForChapter(chapter, audioRows);
 
     const audio = (cfg.allowAudio !== false && segments.length > 0) ? {
