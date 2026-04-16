@@ -45,9 +45,9 @@ function expandPacingTags(text: string): string {
  * Pre-process prose for more natural TTS delivery.
  * Adds micro-pauses at natural breath points without changing meaning.
  */
-// Voice-specific pacing: some voices (alloy) are naturally faster and need more pauses.
-// Fable = v1.11 baseline. Alloy = v1.12 (doubled pauses).
-const RUSHED_VOICES = new Set(['alloy', 'echo', 'shimmer', 'marin', 'cedar']); // voices that tend to rush
+// Voice-specific pacing: some voices are naturally faster and need more pauses.
+// Fable = v1.11 baseline. Rushed voices get v1.12+ expanded pauses.
+const RUSHED_VOICES = new Set(['alloy', 'echo', 'shimmer', 'marin', 'cedar', 'onyx', 'nova', 'ash', 'sage', 'verse', 'ballad', 'coral']);
 
 function addTTSPacing(text: string, voice?: string): string {
   let result = text;
