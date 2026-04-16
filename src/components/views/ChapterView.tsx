@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity, Tags, Volume2, Wand2 } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity, Tags, Volume2, Wand2, Headphones, Play } from 'lucide-react';
 import { useStore } from '../../store';
+import { useAudioStore } from '../../store/audio';
+import { triggerListen, playExistingAudio } from '../../lib/chapter-listen';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { useGenerationStore } from '../../store/generation';
@@ -122,6 +124,8 @@ export function ChapterView({ chapter }: Props) {
   const { getProjectEntries, activeEntryId, getEntry, setActiveEntry } = useCanonStore();
   const { settings } = useSettingsStore();
   const generationProgress = useGenerationStore();
+  const chapterAudio = useAudioStore((s) => s.chapterAudio);
+  const audioGenerating = useAudioStore((s) => s.generating);
 
   // Highlighted artifact name (from clicking an entry in the Artifacts tab)
   const highlightedEntry = activeEntryId ? getEntry(activeEntryId) : null;
@@ -316,6 +320,20 @@ export function ChapterView({ chapter }: Props) {
         setGeneratedText('');
         accumulatedRef.current = '';
         useGenerationStore.getState().setPhase('done');
+
+        // Auto-trigger audiobook generation so the user hits the audio "wow"
+        // moment without a second click. Gated by:
+        //   - children's books skip (no audio pipeline for picture-book pages)
+        //   - user setting `autoAudioOnGenerate` (default true)
+        //   - prose length check (>200 words) handled inside triggerListen
+        const autoAudio = settings.ai?.autoAudioOnGenerate !== false;
+        if (autoAudio && !isChildrensBook && finalProse.trim().split(/\s+/).length >= 200) {
+          try {
+            window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: chapter.id } }));
+          } catch (e) {
+            console.warn('[Generation] auto-audio dispatch failed (non-fatal):', e);
+          }
+        }
 
         // Auto-run post-generation pipeline (entity scan + scene decomposition for sidebar/studio)
         import('../../lib/post-generation-pipeline').then(({ runPostGenerationPipeline }) =>
@@ -1319,6 +1337,42 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
           </span>
 
+          {/* Listen button — surfaces audiobook playback/generation on every chapter.
+              Shown once prose has any content OR while actively generating. Hidden for
+              children's books (no audio pipeline for picture-book pages). */}
+          {project?.subtype !== 'childrens-book' && (chapter.prose?.trim() || generating) && (() => {
+            const hasAudio = !!chapterAudio[chapter.id]?.audioUrl;
+            const isAudioGen = audioGenerating === chapter.id;
+            const handleListenClick = () => {
+              if (isAudioGen) return;
+              if (hasAudio) playExistingAudio(chapter.id);
+              else triggerListen(chapter.id);
+            };
+            return (
+              <button
+                onClick={handleListenClick}
+                disabled={isAudioGen}
+                title={hasAudio ? 'Play audiobook' : 'Generate and play audiobook'}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0',
+                  isAudioGen
+                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                    : hasAudio
+                      ? 'bg-text-primary text-text-inverse hover:shadow-md'
+                      : 'bg-white/60 border border-black/10 text-text-secondary hover:bg-white/80',
+                )}
+              >
+                {isAudioGen ? (
+                  <><Loader2 size={13} className="animate-spin" /><span className="hidden sm:inline">Generating audio…</span></>
+                ) : hasAudio ? (
+                  <><Play size={13} fill="currentColor" /><span className="hidden sm:inline">Listen</span></>
+                ) : (
+                  <><Headphones size={13} /><span className="hidden sm:inline">Listen</span></>
+                )}
+              </button>
+            );
+          })()}
+
           {/* Word target + Extend — hidden on mobile, hidden for children's books */}
           {project?.subtype !== 'childrens-book' && (
             <div className="hidden sm:flex items-center gap-1">
@@ -1507,7 +1561,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                         : 'bg-text-primary text-text-inverse hover:shadow-lg',
                     )}
                   >
-                    <Sparkles size={15} /> {project?.subtype === 'childrens-book' ? 'Generate Page Text' : 'Generate Full Chapter'}
+                    <Sparkles size={15} /> {project?.subtype === 'childrens-book' ? 'Generate Page Text' : 'Generate Chapter + Audio'}
                   </button>
                 ) : (
                   <div className="max-w-sm mx-auto mb-6">
