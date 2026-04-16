@@ -1358,42 +1358,6 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             {wordCount.toLocaleString()} {wordCount === 1 ? 'word' : 'words'}
           </span>
 
-          {/* Listen button — surfaces audiobook playback/generation on every chapter.
-              Shown once prose has any content OR while actively generating. Hidden for
-              children's books (no audio pipeline for picture-book pages). */}
-          {project?.subtype !== 'childrens-book' && (chapter.prose?.trim() || generating) && (() => {
-            const hasAudio = !!chapterAudio[chapter.id]?.audioUrl;
-            const isAudioGen = audioGenerating === chapter.id;
-            const handleListenClick = () => {
-              if (isAudioGen) return;
-              if (hasAudio) playExistingAudio(chapter.id, 'chapter-toolbar');
-              else triggerListen(chapter.id, 'chapter-toolbar');
-            };
-            return (
-              <button
-                onClick={handleListenClick}
-                disabled={isAudioGen}
-                title={hasAudio ? 'Play audiobook' : 'Generate and play audiobook'}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex-shrink-0',
-                  isAudioGen
-                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
-                    : hasAudio
-                      ? 'bg-text-primary text-text-inverse hover:shadow-md'
-                      : 'bg-white/60 border border-black/10 text-text-secondary hover:bg-white/80',
-                )}
-              >
-                {isAudioGen ? (
-                  <><Loader2 size={13} className="animate-spin" /><span className="hidden sm:inline">Generating audio…</span></>
-                ) : hasAudio ? (
-                  <><Play size={13} fill="currentColor" /><span className="hidden sm:inline">Listen</span></>
-                ) : (
-                  <><Headphones size={13} /><span className="hidden sm:inline">Listen</span></>
-                )}
-              </button>
-            );
-          })()}
-
           {/* Word target + Extend — hidden on mobile, hidden for children's books */}
           {project?.subtype !== 'childrens-book' && (
             <div className="hidden sm:flex items-center gap-1">
@@ -1454,6 +1418,42 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
           'mx-auto px-4 sm:px-16 pb-32 transition-all duration-500',
           isFocusMode ? 'max-w-2xl pt-16' : 'max-w-3xl pt-4'
         )}>
+          {/* Full-width Listen bar — above title. Hidden for children's books
+              (no audio pipeline). Shown whenever the chapter has any prose or
+              is actively generating, so users can listen as soon as there's
+              anything to hear. */}
+          {project?.subtype !== 'childrens-book' && (chapter.prose?.trim() || generating) && (() => {
+            const hasAudio = !!chapterAudio[chapter.id]?.audioUrl;
+            const isAudioGen = audioGenerating === chapter.id;
+            const handleListenClick = () => {
+              if (isAudioGen) return;
+              if (hasAudio) playExistingAudio(chapter.id, 'chapter-bar');
+              else triggerListen(chapter.id, 'chapter-bar');
+            };
+            return (
+              <button
+                onClick={handleListenClick}
+                disabled={isAudioGen}
+                className={cn(
+                  'w-full mb-5 flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl text-sm font-semibold transition-all',
+                  isAudioGen
+                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                    : hasAudio
+                      ? 'bg-text-primary text-text-inverse hover:shadow-md active:scale-[0.99]'
+                      : 'bg-text-primary text-text-inverse hover:shadow-md active:scale-[0.99]',
+                )}
+              >
+                {isAudioGen ? (
+                  <><Loader2 size={16} className="animate-spin" /> Generating audio…</>
+                ) : hasAudio ? (
+                  <><Play size={16} fill="currentColor" /> Play audiobook</>
+                ) : (
+                  <><Headphones size={16} /> Listen to Chapter {chapter.number}</>
+                )}
+              </button>
+            );
+          })()}
+
           {/* Chapter / Scene Title */}
           <input
             type="text"

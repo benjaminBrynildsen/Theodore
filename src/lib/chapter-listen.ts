@@ -1,4 +1,5 @@
 import { useStore } from '../store';
+import { useAudioStore } from '../store/audio';
 import { track as jTrack } from './journey';
 
 const READY_MIN_WORDS = 200;
@@ -47,5 +48,26 @@ export function triggerListen(chapterId: string, source: string = 'unknown'): vo
 
 export function playExistingAudio(chapterId: string, source: string = 'unknown'): void {
   jTrack('listen_click', { source, chapter_id: chapterId, state: 'play_existing' });
+
+  // Synchronous play() so iOS Safari credits the click as a user gesture.
+  // Going through a CustomEvent handler works on desktop but loses the
+  // gesture context on iOS, which silently blocks playback.
+  try {
+    const audio = document.getElementById('theodore-audio') as HTMLAudioElement | null;
+    const cached = useAudioStore.getState().chapterAudio[chapterId];
+    if (audio && cached) {
+      const url = cached.sceneAudioUrls?.[0] || cached.audioUrl;
+      if (url) {
+        if (audio.src !== url) {
+          audio.src = url;
+          audio.load();
+        }
+        // Fire-and-forget; the event handler below will still run to
+        // update store state (currentChapter, playing).
+        audio.play().catch(() => { /* handler will retry with pending queue */ });
+      }
+    }
+  } catch { /* non-fatal */ }
+
   window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId } }));
 }
