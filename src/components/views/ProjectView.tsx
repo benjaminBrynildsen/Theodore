@@ -352,6 +352,8 @@ export function ProjectView() {
           projectId={project.id}
           projectTitle={project.title}
           chapters={chapters.map(c => ({ id: c.id, number: c.number, title: c.title }))}
+          defaultDescription={chapters.slice(0, 3).map(c => c.premise?.purpose).filter(Boolean).join(' ')}
+          defaultAuthorName={user?.name || ''}
           onClose={() => setShowShareDialog(false)}
         />
       )}

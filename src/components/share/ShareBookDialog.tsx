@@ -5,6 +5,8 @@ interface Props {
   projectId: string;
   projectTitle: string;
   chapters: Array<{ id: string; number: number; title: string }>;
+  defaultDescription?: string;
+  defaultAuthorName?: string;
   onClose: () => void;
 }
 
@@ -28,7 +30,7 @@ function libraryUrl(slug: string): string {
   return `${window.location.origin}/library/b/${slug}`;
 }
 
-export function ShareBookDialog({ projectId, projectTitle, chapters, onClose }: Props) {
+export function ShareBookDialog({ projectId, projectTitle, chapters, defaultDescription, defaultAuthorName, onClose }: Props) {
   const [status, setStatus] = useState<ShareStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -50,8 +52,8 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, onClose }: 
         const cfg = s.shareConfig || {};
         setAllowText(cfg.allowText !== false);
         setAllowAudio(cfg.allowAudio !== false);
-        setDescription(cfg.description || '');
-        setAuthorDisplayName(cfg.authorDisplayName || '');
+        setDescription(cfg.description || defaultDescription || '');
+        setAuthorDisplayName(cfg.authorDisplayName || defaultAuthorName || '');
         if (cfg.allowedChapterIds == null) {
           setAllowAllChapters(true);
           setAllowedIds(new Set(chapters.map(c => c.id)));
