@@ -24,6 +24,9 @@ export function triggerListen(chapterId: string, source: string = 'unknown'): vo
   const words = wordsIn(chapter.prose);
   if (words >= READY_MIN_WORDS) {
     jTrack('listen_click', { source, chapter_id: chapterId, state: 'prose_ready', words });
+    // Surface the mini player bar immediately so the user sees their tap
+    // was received. AudioPlayerBar will then render the generating state.
+    useAudioStore.getState().setMiniPlayerVisible(true);
     window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId } }));
     return;
   }
@@ -49,12 +52,18 @@ export function triggerListen(chapterId: string, source: string = 'unknown'): vo
 export function playExistingAudio(chapterId: string, source: string = 'unknown'): void {
   jTrack('listen_click', { source, chapter_id: chapterId, state: 'play_existing' });
 
+  // Force the mini player bar to appear immediately so the user sees a
+  // response to their tap even before audio starts streaming.
+  const store = useAudioStore.getState();
+  store.setMiniPlayerVisible(true);
+  store.setCurrentChapter(chapterId);
+
   // Synchronous play() so iOS Safari credits the click as a user gesture.
   // Going through a CustomEvent handler works on desktop but loses the
   // gesture context on iOS, which silently blocks playback.
   try {
     const audio = document.getElementById('theodore-audio') as HTMLAudioElement | null;
-    const cached = useAudioStore.getState().chapterAudio[chapterId];
+    const cached = store.chapterAudio[chapterId];
     if (audio && cached) {
       const url = cached.sceneAudioUrls?.[0] || cached.audioUrl;
       if (url) {
@@ -62,9 +71,12 @@ export function playExistingAudio(chapterId: string, source: string = 'unknown')
           audio.src = url;
           audio.load();
         }
-        // Fire-and-forget; the event handler below will still run to
-        // update store state (currentChapter, playing).
-        audio.play().catch(() => { /* handler will retry with pending queue */ });
+        const playPromise = audio.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+          playPromise
+            .then(() => store.setPlaying(true))
+            .catch(() => { /* AudioPlayerBar handler will queue and retry */ });
+        }
       }
     }
   } catch { /* non-fatal */ }
