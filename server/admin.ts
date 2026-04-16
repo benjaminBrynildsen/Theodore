@@ -413,6 +413,69 @@ export async function getUserDetail(req: Request, res: Response) {
   }
 }
 
+// ========== Delete User (cascade) ==========
+// DELETE /api/admin/users/:userId?confirm=true
+//
+// Destructive. Deletes the user row; FKs cascade to sessions, projects,
+// chapters, canon entries, credit_transactions, audio_generations, and
+// support_requests. sfx_library.userId is set null (shared assets preserved).
+// Guest event rows are anonymous and left intact.
+//
+// Safety rails:
+//   - requires ?confirm=true query param (guards accidental DELETEs)
+//   - refuses to delete ADMIN_EMAILS accounts
+//   - returns per-table counts so the caller can audit
+export async function deleteUser(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    if (req.query.confirm !== 'true') {
+      return res.status(400).json({ error: 'Missing confirm=true query param' });
+    }
+
+    const userId = req.params.userId;
+    const [user] = await db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(eq(users.id, userId));
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (ADMIN_EMAILS.has(user.email)) {
+      return res.status(403).json({ error: 'Refusing to delete admin account', email: user.email });
+    }
+
+    // Snapshot cascade counts before delete (for audit response)
+    const [[{ value: projectCount }], [{ value: chapterCount }], [{ value: txCount }], [{ value: audioCount }]] = await Promise.all([
+      db.select({ value: count() }).from(projects).where(eq(projects.userId, userId)),
+      db.select({ value: count() }).from(chapters)
+        .where(sql`${chapters.projectId} IN (SELECT id FROM projects WHERE user_id = ${userId})`),
+      db.select({ value: count() }).from(creditTransactions).where(eq(creditTransactions.userId, userId)),
+      db.select({ value: count() }).from(audioGenerations).where(eq(audioGenerations.userId, userId)),
+    ]);
+
+    await db.delete(users).where(eq(users.id, userId));
+
+    const deleted = {
+      user: { id: user.id, email: user.email },
+      cascaded: {
+        projects: Number(projectCount) || 0,
+        chapters: Number(chapterCount) || 0,
+        creditTransactions: Number(txCount) || 0,
+        audioGenerations: Number(audioCount) || 0,
+      },
+      deletedBy: admin.user.email,
+      at: new Date().toISOString(),
+    };
+    console.log('[Admin] user deleted:', JSON.stringify(deleted));
+    res.json({ ok: true, ...deleted });
+  } catch (e: any) {
+    console.error('[Admin] delete user error:', e);
+    res.status(500).json({ error: 'Internal server error', message: e?.message });
+  }
+}
+
 // ========== Recent Activity Feed ==========
 export async function getActivity(req: Request, res: Response) {
   try {
