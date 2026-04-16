@@ -1418,10 +1418,10 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
           'mx-auto px-4 sm:px-16 pb-32 transition-all duration-500',
           isFocusMode ? 'max-w-2xl pt-16' : 'max-w-3xl pt-4'
         )}>
-          {/* Full-width Listen bar — above title. Hidden for children's books
-              (no audio pipeline). Shown whenever the chapter has any prose or
-              is actively generating, so users can listen as soon as there's
-              anything to hear. */}
+          {/* Full-width Listen bar — above title. Apple Glass effect matching
+              the project cover CTA. Hidden for children's books (no audio
+              pipeline). Shown whenever the chapter has prose OR is actively
+              generating, so users can listen as soon as there's anything to hear. */}
           {project?.subtype !== 'childrens-book' && (chapter.prose?.trim() || generating) && (() => {
             const hasAudio = !!chapterAudio[chapter.id]?.audioUrl;
             const isAudioGen = audioGenerating === chapter.id;
@@ -1431,26 +1431,45 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
               else triggerListen(chapter.id, 'chapter-bar');
             };
             return (
-              <button
-                onClick={handleListenClick}
-                disabled={isAudioGen}
-                className={cn(
-                  'w-full mb-5 flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl text-sm font-semibold transition-all',
-                  isAudioGen
-                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
-                    : hasAudio
-                      ? 'bg-text-primary text-text-inverse hover:shadow-md active:scale-[0.99]'
-                      : 'bg-text-primary text-text-inverse hover:shadow-md active:scale-[0.99]',
-                )}
-              >
-                {isAudioGen ? (
-                  <><Loader2 size={16} className="animate-spin" /> Generating audio…</>
-                ) : hasAudio ? (
-                  <><Play size={16} fill="currentColor" /> Play audiobook</>
-                ) : (
-                  <><Headphones size={16} /> Listen to Chapter {chapter.number}</>
-                )}
-              </button>
+              <div className="relative p-[1.5px] rounded-2xl mb-5">
+                {/* Rotating conic glow border */}
+                <div
+                  className="absolute inset-0 rounded-2xl"
+                  style={{
+                    background: isAudioGen
+                      ? 'conic-gradient(from var(--angle, 0deg), transparent 30%, rgba(120,119,198,0.5) 45%, rgba(255,255,255,0.25) 50%, rgba(120,119,198,0.5) 55%, transparent 70%)'
+                      : 'conic-gradient(from var(--angle, 0deg), transparent 35%, rgba(99,102,241,0.3) 48%, rgba(255,255,255,0.12) 50%, rgba(99,102,241,0.3) 52%, transparent 65%)',
+                    animation: 'rotateBorder 4s linear infinite',
+                  }}
+                />
+                <button
+                  onClick={handleListenClick}
+                  disabled={isAudioGen}
+                  className="relative w-full px-5 py-3.5 rounded-2xl text-sm font-semibold text-white overflow-hidden disabled:cursor-not-allowed transition-transform hover:scale-[1.01] active:scale-[0.99]"
+                  style={{
+                    background: 'rgba(20, 20, 28, 0.8)',
+                    backdropFilter: 'blur(30px) saturate(1.6)',
+                    WebkitBackdropFilter: 'blur(30px) saturate(1.6)',
+                  }}
+                >
+                  {/* Liquid blobs */}
+                  <div className="absolute inset-0 overflow-hidden rounded-2xl">
+                    <div className="absolute w-24 h-24 rounded-full opacity-35" style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)', top: '-40%', left: '10%', animation: 'blobFloat1 5s ease-in-out infinite', filter: 'blur(18px)' }} />
+                    <div className="absolute w-20 h-20 rounded-full opacity-30" style={{ background: 'radial-gradient(circle, #a855f7, transparent 70%)', bottom: '-30%', right: '15%', animation: 'blobFloat2 6s ease-in-out infinite', filter: 'blur(15px)' }} />
+                  </div>
+                  {/* Glass sheen */}
+                  <div className="absolute inset-0 rounded-2xl" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%)' }} />
+                  <span className="relative flex items-center justify-center gap-2.5 z-10">
+                    {isAudioGen ? (
+                      <><Loader2 size={17} className="animate-spin" /> Generating audio…</>
+                    ) : hasAudio ? (
+                      <><Play size={17} fill="currentColor" /> Play audiobook</>
+                    ) : (
+                      <><Headphones size={17} /> Listen to Chapter {chapter.number}</>
+                    )}
+                  </span>
+                </button>
+              </div>
             );
           })()}
 
