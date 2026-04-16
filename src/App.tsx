@@ -56,6 +56,10 @@ const LandingPage = lazy(async () => {
   const mod = await import('./components/views/LandingPage');
   return { default: mod.LandingPage };
 });
+const CreatorsPage = lazy(async () => {
+  const mod = await import('./components/views/CreatorsPage');
+  return { default: mod.CreatorsPage };
+});
 const AdminDashboard = lazy(async () => {
   const mod = await import('./components/admin/AdminDashboard');
   return { default: mod.AdminDashboard };
@@ -186,12 +190,14 @@ export default function App() {
   }, [isGuestWorkspace, guestModalDismissed, showGuestSignupModal, activeProjectId]);
 
   const [showGoogleTest, setShowGoogleTest] = useState(false);
+  const [showCreators, setShowCreators] = useState(false);
 
   // Detect special URLs on mount
   useEffect(() => {
     if (window.location.pathname === '/admin') setShowAdmin(true);
     if (window.location.pathname === '/animationtest') setShowAnimationTest(true);
     if (window.location.pathname === '/googletest') setShowGoogleTest(true);
+    if (window.location.pathname === '/creators') setShowCreators(true);
   }, []);
 
   // Handle ?prompt= from the static /go landing page
@@ -356,6 +362,15 @@ export default function App() {
           {hasPrompt ? 'Building your story...' : 'Loading Theodore...'}
         </p>
       </div>
+    );
+  }
+
+  // Creator program landing page (public, no auth needed)
+  if (showCreators) {
+    return (
+      <Suspense fallback={<ViewLoader label="Loading..." />}>
+        <CreatorsPage />
+      </Suspense>
     );
   }
 
