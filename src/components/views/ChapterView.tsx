@@ -1434,7 +1434,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
               <div className="relative p-[1.5px] rounded-2xl mb-5">
                 {/* Rotating conic glow border */}
                 <div
-                  className="absolute inset-0 rounded-2xl"
+                  className="absolute inset-0 rounded-2xl pointer-events-none"
                   style={{
                     background: isAudioGen
                       ? 'conic-gradient(from var(--angle, 0deg), transparent 30%, rgba(120,119,198,0.5) 45%, rgba(255,255,255,0.25) 50%, rgba(120,119,198,0.5) 55%, transparent 70%)'
@@ -1453,12 +1453,12 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                   }}
                 >
                   {/* Liquid blobs */}
-                  <div className="absolute inset-0 overflow-hidden rounded-2xl">
+                  <div className="absolute inset-0 overflow-hidden rounded-2xl pointer-events-none">
                     <div className="absolute w-24 h-24 rounded-full opacity-35" style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)', top: '-40%', left: '10%', animation: 'blobFloat1 5s ease-in-out infinite', filter: 'blur(18px)' }} />
                     <div className="absolute w-20 h-20 rounded-full opacity-30" style={{ background: 'radial-gradient(circle, #a855f7, transparent 70%)', bottom: '-30%', right: '15%', animation: 'blobFloat2 6s ease-in-out infinite', filter: 'blur(15px)' }} />
                   </div>
                   {/* Glass sheen */}
-                  <div className="absolute inset-0 rounded-2xl" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%)' }} />
+                  <div className="absolute inset-0 rounded-2xl pointer-events-none" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%)' }} />
                   <span className="relative flex items-center justify-center gap-2.5 z-10">
                     {isAudioGen ? (
                       <><Loader2 size={17} className="animate-spin" /> Generating audio…</>
