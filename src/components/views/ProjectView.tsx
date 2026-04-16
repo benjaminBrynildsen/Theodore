@@ -12,6 +12,7 @@ import { IllustrateButton } from '../features/IllustrateButton';
 import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../../lib/scaffold';
 import { generateStream } from '../../lib/generate';
 import { cn, generateId } from '../../lib/utils';
+import { triggerListen, playExistingAudio } from '../../lib/chapter-listen';
 import { useAudioStore } from '../../store/audio';
 import { useAuthStore } from '../../store/auth';
 import type { ChapterStatus, CharacterVisual } from '../../types';
@@ -243,22 +244,11 @@ export function ProjectView() {
         const hasAudio = !!chapterAudio[ch1.id]?.audioUrl;
         const isGenerating = audioGenerating === ch1.id;
         const isWriting = ch1.status === 'premise-only' || (!ch1.prose?.trim());
-        const proseReady = ch1.prose?.trim() && ch1.prose.trim().split(/\s+/).length > 200;
         const handleClick = () => {
           if (hasAudio) {
-            window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId: ch1.id } }));
-          } else if (proseReady) {
-            window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
+            playExistingAudio(ch1.id);
           } else {
-            // Prose still generating — queue audio to start after prose finishes
-            const poll = setInterval(() => {
-              const latest = useStore.getState().chapters.find(c => c.id === ch1.id);
-              if (latest?.prose?.trim() && latest.prose.trim().split(/\s+/).length > 200) {
-                clearInterval(poll);
-                window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
-              }
-            }, 2000);
-            setTimeout(() => clearInterval(poll), 180000);
+            triggerListen(ch1.id);
           }
         };
         return (
