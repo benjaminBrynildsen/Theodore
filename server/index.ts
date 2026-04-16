@@ -26,7 +26,7 @@ import {
 import { generate, generateStream } from './ai.js';
 import { generateImage, generateImageOpenAI, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser } from './admin.js';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
@@ -2418,6 +2418,7 @@ app.get('/api/admin/recover-scenes', async (req, res) => {
 app.get('/api/admin/overview', getOverview);
 app.get('/api/admin/users', getUsers);
 app.get('/api/admin/users/:userId', getUserDetail);
+app.delete('/api/admin/users/:userId', deleteUser);
 app.get('/api/admin/activity', getActivity);
 app.get('/api/admin/stats/daily', getDailyStats);
 app.get('/api/admin/traffic', getTrafficStats);
