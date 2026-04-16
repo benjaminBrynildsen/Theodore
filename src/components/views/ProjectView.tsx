@@ -246,9 +246,9 @@ export function ProjectView() {
         const isWriting = ch1.status === 'premise-only' || (!ch1.prose?.trim());
         const handleClick = () => {
           if (hasAudio) {
-            playExistingAudio(ch1.id);
+            playExistingAudio(ch1.id, 'cover');
           } else {
-            triggerListen(ch1.id);
+            triggerListen(ch1.id, 'cover');
           }
         };
         return (

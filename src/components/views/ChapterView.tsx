@@ -3,6 +3,7 @@ import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked,
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
 import { triggerListen, playExistingAudio } from '../../lib/chapter-listen';
+import { track as jTrack } from '../../lib/journey';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { useGenerationStore } from '../../store/generation';
@@ -184,6 +185,13 @@ export function ChapterView({ chapter }: Props) {
       setGenerationError('No active project selected. Open a project and try again.');
       return;
     }
+    jTrack('generate_chapter_click', {
+      chapter_id: chapter.id,
+      chapter_number: chapter.number,
+      word_target: wordTarget,
+      subtype: project.subtype || 'novel',
+      bundled_audio: project.subtype !== 'childrens-book' && settings.ai?.autoAudioOnGenerate !== false,
+    });
     setGenerationError(null);
     setGenerating(true);
     setGeneratedText('');
@@ -327,12 +335,25 @@ export function ChapterView({ chapter }: Props) {
         //   - user setting `autoAudioOnGenerate` (default true)
         //   - prose length check (>200 words) handled inside triggerListen
         const autoAudio = settings.ai?.autoAudioOnGenerate !== false;
-        if (autoAudio && !isChildrensBook && finalProse.trim().split(/\s+/).length >= 200) {
+        const finalWords = finalProse.trim().split(/\s+/).length;
+        if (autoAudio && !isChildrensBook && finalWords >= 200) {
           try {
+            jTrack('audio_auto_dispatched', {
+              chapter_id: chapter.id,
+              chapter_number: chapter.number,
+              source: 'bundled_generate',
+              words: finalWords,
+            });
             window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: chapter.id } }));
           } catch (e) {
             console.warn('[Generation] auto-audio dispatch failed (non-fatal):', e);
           }
+        } else {
+          jTrack('audio_auto_skipped', {
+            chapter_id: chapter.id,
+            reason: !autoAudio ? 'setting_off' : isChildrensBook ? 'childrens_book' : 'prose_too_short',
+            words: finalWords,
+          });
         }
 
         // Auto-run post-generation pipeline (entity scan + scene decomposition for sidebar/studio)
@@ -1345,8 +1366,8 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             const isAudioGen = audioGenerating === chapter.id;
             const handleListenClick = () => {
               if (isAudioGen) return;
-              if (hasAudio) playExistingAudio(chapter.id);
-              else triggerListen(chapter.id);
+              if (hasAudio) playExistingAudio(chapter.id, 'chapter-toolbar');
+              else triggerListen(chapter.id, 'chapter-toolbar');
             };
             return (
               <button
