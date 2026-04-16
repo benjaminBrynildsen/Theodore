@@ -30,7 +30,7 @@ export function LibraryBookPage({ slug }: { slug: string }) {
       </div>
     );
   }
-  const firstAudioChapter = chapters.find(c => c.hasAudio);
+  const firstChapter = chapters[0];
 
   if (!book) {
     return (
@@ -61,9 +61,9 @@ export function LibraryBookPage({ slug }: { slug: string }) {
         </div>
         <h1 className="text-3xl sm:text-4xl font-serif font-semibold tracking-tight">{book.title}</h1>
         <p className="text-white/50 text-sm mt-2">by {book.authorDisplayName}</p>
-        {firstAudioChapter && book.allowAudio && (
+        {firstChapter && (
           <a
-            href={libraryChapterUrl(slug, firstAudioChapter.id)}
+            href={libraryChapterUrl(slug, firstChapter.id)}
             className="mt-5 inline-flex items-center gap-2.5 px-6 py-3 rounded-full bg-white text-black font-semibold text-sm hover:scale-105 active:scale-95 transition-transform shadow-lg"
           >
             <Play size={18} className="ml-0.5" /> Listen now
