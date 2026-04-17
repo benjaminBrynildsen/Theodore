@@ -115,7 +115,7 @@ export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
       {/* Personalized collab masthead */}
       {creator && (
         <section className="w-full max-w-4xl mx-auto px-6 sm:px-10 pt-4 sm:pt-8 pb-10 sm:pb-14 text-center">
-          <div className="inline-grid grid-cols-[auto_auto_auto] items-center justify-center gap-x-5 sm:gap-x-8 gap-y-3 mb-8 animate-fade-in">
+          <div className="grid w-fit mx-auto grid-cols-[auto_auto_auto] items-center gap-x-5 sm:gap-x-8 gap-y-3 mb-8 animate-fade-in">
             <TheodoreLogo size={96} className="w-20 h-20 sm:w-24 sm:h-24 shadow-[0_10px_40px_rgba(0,0,0,0.12)] rounded-[22px] justify-self-center" />
             <X size={28} className="text-black/25 justify-self-center" strokeWidth={1.5} />
             <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-black/[0.04] shadow-[0_10px_40px_rgba(0,0,0,0.12)] justify-self-center">
@@ -128,7 +128,7 @@ export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
             </div>
             <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40 text-center">Theodore</div>
             <div />
-            <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40 text-center truncate max-w-[96px] sm:max-w-[120px]">
+            <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40 text-center">
               {creator.channelName}
             </div>
           </div>
