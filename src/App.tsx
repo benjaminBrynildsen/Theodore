@@ -19,6 +19,7 @@ import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/M
 import { MobileStudioPanel } from './components/layout/MobileStudioPanel';
 import * as pixel from './lib/pixel';
 import { track as jTrack, setAdmin as setJourneyAdmin } from './lib/journey';
+import { findCreator } from './data/creators';
 
 const ProjectView = lazy(async () => {
   const mod = await import('./components/views/ProjectView');
@@ -191,13 +192,19 @@ export default function App() {
 
   const [showGoogleTest, setShowGoogleTest] = useState(false);
   const [showCreators, setShowCreators] = useState(false);
+  const [creatorSlug, setCreatorSlug] = useState<string | null>(null);
 
   // Detect special URLs on mount
   useEffect(() => {
-    if (window.location.pathname === '/admin') setShowAdmin(true);
-    if (window.location.pathname === '/animationtest') setShowAnimationTest(true);
-    if (window.location.pathname === '/googletest') setShowGoogleTest(true);
-    if (window.location.pathname === '/creators') setShowCreators(true);
+    const pathname = window.location.pathname;
+    if (pathname === '/admin') setShowAdmin(true);
+    if (pathname === '/animationtest') setShowAnimationTest(true);
+    if (pathname === '/googletest') setShowGoogleTest(true);
+    if (pathname === '/creators' || pathname.startsWith('/creators/')) {
+      setShowCreators(true);
+      const m = pathname.match(/^\/creators\/([^/]+)\/?$/);
+      if (m) setCreatorSlug(decodeURIComponent(m[1]));
+    }
   }, []);
 
   // Handle ?prompt= from the static /go landing page
@@ -367,9 +374,10 @@ export default function App() {
 
   // Creator program landing page (public, no auth needed)
   if (showCreators) {
+    const matched = creatorSlug ? findCreator(creatorSlug) : null;
     return (
       <Suspense fallback={<ViewLoader label="Loading..." />}>
-        <CreatorsPage />
+        <CreatorsPage creator={matched} />
       </Suspense>
     );
   }

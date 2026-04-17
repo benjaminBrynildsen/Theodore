@@ -1,6 +1,8 @@
-import { useState } from 'react';
-import { BookOpen, Sparkles, DollarSign, Gift, Wallet, ArrowRight, Mic, PenLine, Share2, ChevronDown } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { BookOpen, Sparkles, DollarSign, Gift, Wallet, ArrowRight, Mic, PenLine, Share2, ChevronDown, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { track as jTrack } from '../../lib/journey';
+import type { Creator } from '../../data/creators';
 
 const APPLY_EMAIL = 'ben@theodore.tools';
 const APPLY_SUBJECT = 'Theodore Creator Program';
@@ -67,8 +69,20 @@ const FAQ = [
   },
 ];
 
-export function CreatorsPage() {
+interface CreatorsPageProps {
+  creator?: Creator | null;
+}
+
+export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+
+  useEffect(() => {
+    jTrack('creator_page_view', {
+      slug: creator?.slug ?? null,
+      creator: creator?.channelName ?? null,
+      personalized: !!creator,
+    });
+  }, [creator]);
 
   return (
     <div className="min-h-screen w-full bg-[#f6f6f4] flex flex-col overflow-y-auto">
@@ -78,44 +92,86 @@ export function CreatorsPage() {
           <BookOpen size={20} strokeWidth={1.8} />
           <span className="text-base font-serif font-semibold tracking-tight">Theodore</span>
         </a>
-        <a
-          href={applyHref}
-          className="text-sm font-medium text-black/70 hover:text-black transition-colors"
-        >
-          Apply →
-        </a>
       </header>
 
-      {/* Hero */}
-      <section className="flex flex-col items-center px-6 sm:px-10 pt-12 pb-16 sm:pt-20 sm:pb-24 text-center max-w-3xl mx-auto">
-        <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-6 animate-fade-in">
-          <Mic size={12} />
-          Creator Program
-        </div>
+      {/* Personalized collab masthead */}
+      {creator && (
+        <section className="w-full max-w-4xl mx-auto px-6 sm:px-10 pt-4 sm:pt-8 pb-10 sm:pb-14 text-center">
+          <div className="flex items-center justify-center gap-5 sm:gap-8 mb-8 animate-fade-in">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-[#1c1c1e] text-white flex items-center justify-center shadow-[0_10px_40px_rgba(0,0,0,0.12)]">
+                <BookOpen size={32} strokeWidth={1.8} />
+              </div>
+              <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40">Theodore</div>
+            </div>
+            <X size={28} className="text-black/25" strokeWidth={1.5} />
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden bg-black/[0.04] shadow-[0_10px_40px_rgba(0,0,0,0.12)]">
+                <img
+                  src={creator.photo}
+                  alt={creator.channelName}
+                  className="w-full h-full object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                />
+              </div>
+              <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40 max-w-[140px] truncate">
+                {creator.channelName}
+              </div>
+            </div>
+          </div>
+          <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-4 animate-fade-in" style={{ animationDelay: '120ms' }}>
+            <Mic size={12} />
+            A note for you
+          </div>
+          <h1 className="font-serif text-[clamp(2.6rem,8vw,5rem)] leading-[1.02] tracking-[-0.03em] text-black animate-fade-in" style={{ animationDelay: '200ms' }}>
+            Hey <span className="italic">{creator.firstName}</span>.
+          </h1>
+          <p className="mt-6 text-base sm:text-lg text-black/60 leading-relaxed max-w-xl mx-auto animate-fade-in" style={{ animationDelay: '280ms' }}>
+            I built this page for you specifically. If you're open to partnering on Theodore, here's exactly how it'd work — and what your audience would get.
+          </p>
+          <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center animate-fade-in" style={{ animationDelay: '360ms' }}>
+            <a
+              href="/"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1c1c1e] px-6 py-3 text-[15px] font-medium text-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-transform"
+            >
+              See Theodore in action <ArrowRight size={16} />
+            </a>
+            <a
+              href={applyHref}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-black/10 bg-white/60 backdrop-blur-sm px-6 py-3 text-[15px] font-medium text-black/75 hover:bg-white transition-colors"
+            >
+              Reply to Ben
+            </a>
+          </div>
+        </section>
+      )}
 
-        <h1 className="mb-5 font-serif text-[clamp(2.2rem,6vw,4rem)] leading-[1.06] tracking-[-0.025em] text-black animate-fade-in" style={{ animationDelay: '80ms' }}>
-          Turn your audience into <span className="italic">authors.</span>
-        </h1>
+      {/* Hero (only for the generic /creators page) */}
+      {!creator && (
+        <section className="flex flex-col items-center px-6 sm:px-10 pt-12 pb-16 sm:pt-20 sm:pb-24 text-center max-w-3xl mx-auto">
+          <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-6 animate-fade-in">
+            <Mic size={12} />
+            Creator Program
+          </div>
 
-        <p className="text-base sm:text-lg text-black/55 leading-relaxed max-w-xl mb-10 animate-fade-in" style={{ animationDelay: '160ms' }}>
-          Partner with Theodore and give your audience a full month of our writing + audiobook studio — free. Earn on every signup. Earn again when they stick around.
-        </p>
+          <h1 className="mb-5 font-serif text-[clamp(2.2rem,6vw,4rem)] leading-[1.06] tracking-[-0.025em] text-black animate-fade-in" style={{ animationDelay: '80ms' }}>
+            Turn your audience into <span className="italic">authors.</span>
+          </h1>
 
-        <div className="flex flex-col sm:flex-row gap-3 animate-fade-in" style={{ animationDelay: '240ms' }}>
-          <a
-            href={applyHref}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1c1c1e] px-6 py-3 text-[15px] font-medium text-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-transform"
-          >
-            Apply to join <ArrowRight size={16} />
-          </a>
-          <a
-            href="/"
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-black/10 bg-white/60 backdrop-blur-sm px-6 py-3 text-[15px] font-medium text-black/75 hover:bg-white transition-colors"
-          >
-            See Theodore in action
-          </a>
-        </div>
-      </section>
+          <p className="text-base sm:text-lg text-black/55 leading-relaxed max-w-xl mb-10 animate-fade-in" style={{ animationDelay: '160ms' }}>
+            Partner with Theodore and give your audience a full month of our writing + audiobook studio — free. Earn on every signup. Earn again when they stick around.
+          </p>
+
+          <div className="animate-fade-in" style={{ animationDelay: '240ms' }}>
+            <a
+              href="/"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1c1c1e] px-6 py-3 text-[15px] font-medium text-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-transform"
+            >
+              See Theodore in action <ArrowRight size={16} />
+            </a>
+          </div>
+        </section>
+      )}
 
       {/* The offer */}
       <section className="w-full max-w-4xl mx-auto px-6 sm:px-10 pb-16">
