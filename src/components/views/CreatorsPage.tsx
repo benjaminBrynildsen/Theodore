@@ -1,5 +1,23 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Sparkles, DollarSign, Gift, Wallet, ArrowRight, Mic, PenLine, Share2, ChevronDown, X } from 'lucide-react';
+import { Sparkles, DollarSign, Gift, Wallet, ArrowRight, Mic, PenLine, Share2, ChevronDown, X } from 'lucide-react';
+
+function TheodoreLogo({ size = 64, className = '' }: { size?: number; className?: string }) {
+  const radius = (14 / 64) * size;
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      role="img"
+      aria-label="Theodore"
+      className={className}
+    >
+      <rect x="0" y="0" width="64" height="64" rx={(radius / size) * 64} fill="#111827" />
+      <path d="M12 15h40v11H38v24h-12V26H12z" fill="#f9fafb" />
+    </svg>
+  );
+}
 import { cn } from '../../lib/utils';
 import { track as jTrack } from '../../lib/journey';
 import type { Creator } from '../../data/creators';
@@ -89,7 +107,7 @@ export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
       {/* Nav */}
       <header className="w-full flex items-center justify-between px-6 sm:px-10 py-5 max-w-6xl mx-auto w-full">
         <a href="/" className="flex items-center gap-2">
-          <BookOpen size={20} strokeWidth={1.8} />
+          <TheodoreLogo size={22} className="rounded-md" />
           <span className="text-base font-serif font-semibold tracking-tight">Theodore</span>
         </a>
       </header>
@@ -99,9 +117,7 @@ export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
         <section className="w-full max-w-4xl mx-auto px-6 sm:px-10 pt-4 sm:pt-8 pb-10 sm:pb-14 text-center">
           <div className="flex items-center justify-center gap-5 sm:gap-8 mb-8 animate-fade-in">
             <div className="flex flex-col items-center gap-2">
-              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-[#1c1c1e] text-white flex items-center justify-center shadow-[0_10px_40px_rgba(0,0,0,0.12)]">
-                <BookOpen size={32} strokeWidth={1.8} />
-              </div>
+              <TheodoreLogo size={96} className="w-20 h-20 sm:w-24 sm:h-24 shadow-[0_10px_40px_rgba(0,0,0,0.12)] rounded-[22px]" />
               <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40">Theodore</div>
             </div>
             <X size={28} className="text-black/25" strokeWidth={1.5} />
