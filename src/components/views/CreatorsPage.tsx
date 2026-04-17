@@ -137,9 +137,9 @@ export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </div>
-            <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40 text-center">Theodore</div>
+            <div className="w-20 sm:w-24 text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40 text-center leading-tight break-words justify-self-center">Theodore</div>
             <div />
-            <div className="text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40 text-center">
+            <div className="w-20 sm:w-24 text-[11px] uppercase tracking-[0.18em] font-semibold text-black/40 text-center leading-tight break-words justify-self-center">
               {creator.channelName}
             </div>
           </div>
@@ -157,8 +157,7 @@ export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
             <div className="mt-8 max-w-xl mx-auto animate-fade-in" style={{ animationDelay: '320ms' }}>
               <div className="relative overflow-hidden rounded-2xl bg-black shadow-[0_20px_60px_rgba(0,0,0,0.18)] aspect-video">
                 <video
-                  src={`/uploads/creator-videos/${creator.slug}.mp4`}
-                  poster={creator.photo}
+                  src={`/uploads/creator-videos/${creator.slug}.mp4#t=0.1`}
                   controls
                   preload="metadata"
                   playsInline
