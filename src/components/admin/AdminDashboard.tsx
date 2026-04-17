@@ -3,8 +3,10 @@ import {
   Users, CreditCard, TrendingUp, Activity, FileText,
   ChevronRight, ArrowLeft, BarChart3, Zap, BookOpen,
   Headphones, Image, Music, Sparkles, RefreshCw, Globe,
+  Film, Upload, Trash2, CheckCircle2, Mail, ExternalLink, Volume2,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { CREATORS } from '../../data/creators';
 
 const API = '/api/admin';
 
@@ -186,7 +188,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators';
 
 interface JourneySession {
   session_id: string;
@@ -382,6 +384,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'users', label: 'Users', icon: Users },
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'journey', label: 'Journey', icon: TrendingUp },
+    { id: 'creators', label: 'Creators', icon: Film },
   ];
 
   return (
@@ -1187,7 +1190,220 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         )}
+
+        {/* ========== Creators ========== */}
+        {view === 'creators' && <CreatorsPanel />}
       </div>
+    </div>
+  );
+}
+
+interface UploadState {
+  slug: string;
+  progress: number;
+}
+
+function CreatorsPanel() {
+  const [videos, setVideos] = useState<Set<string>>(new Set());
+  const [upload, setUpload] = useState<UploadState | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [bump, setBump] = useState(0); // cache-bust video previews after upload
+
+  const loadVideos = async () => {
+    try {
+      const res = await fetch('/api/creator-videos');
+      const data = await res.json();
+      setVideos(new Set<string>(data.videos || []));
+    } catch {
+      setError('Could not load video manifest.');
+    } finally {
+      setLoaded(true);
+    }
+  };
+
+  useEffect(() => { loadVideos(); }, []);
+
+  const handleFile = (slug: string, file: File) => {
+    setError(null);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/admin/creator-videos/${slug}`);
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        setUpload({ slug, progress: Math.round((e.loaded / e.total) * 100) });
+      }
+    };
+    xhr.onload = () => {
+      setUpload(null);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        setVideos((prev) => new Set(prev).add(slug));
+        setBump((n) => n + 1);
+      } else {
+        try { setError(JSON.parse(xhr.responseText).error || `Upload failed (${xhr.status})`); }
+        catch { setError(`Upload failed (${xhr.status})`); }
+      }
+    };
+    xhr.onerror = () => {
+      setUpload(null);
+      setError('Network error during upload.');
+    };
+    const fd = new FormData();
+    fd.append('video', file);
+    setUpload({ slug, progress: 0 });
+    xhr.send(fd);
+  };
+
+  const handleDelete = async (slug: string) => {
+    if (!confirm(`Delete the video for ${slug}?`)) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/creator-videos/${slug}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      setVideos((prev) => {
+        const next = new Set(prev);
+        next.delete(slug);
+        return next;
+      });
+    } catch {
+      setError('Delete failed.');
+    }
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-4">
+      <div className="glass-pill rounded-2xl p-4 sm:p-5">
+        <h2 className="text-sm font-semibold mb-1">Welcome videos</h2>
+        <p className="text-xs text-text-tertiary leading-relaxed">
+          Upload a short personalized MP4 for each creator. It renders under the "Hey {'{name}'}" hero on their page at{' '}
+          <code className="text-[11px] bg-black/5 px-1.5 py-0.5 rounded">theodore.tools/creators/[slug]</code>.
+          Max 150 MB. Record on your phone, tap upload — the file survives deploys on the persistent disk.
+        </p>
+      </div>
+
+      {error && (
+        <div className="glass-pill rounded-xl p-3 text-sm text-error">{error}</div>
+      )}
+
+      {!loaded && (
+        <div className="text-center text-sm text-text-tertiary py-8">Loading creators…</div>
+      )}
+
+      {loaded && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {CREATORS.map((c) => {
+            const hasVideo = videos.has(c.slug);
+            const isUploading = upload?.slug === c.slug;
+            return (
+              <div key={c.slug} className="glass-pill rounded-2xl p-4 flex flex-col gap-3">
+                <div className="flex items-start gap-3">
+                  <img
+                    src={c.photo}
+                    alt={c.channelName}
+                    className="w-12 h-12 rounded-full object-cover bg-black/5 shrink-0"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold truncate">{c.fullName}</div>
+                    <div className="text-[11px] text-text-tertiary truncate">{c.channelName}</div>
+                    {c.pronunciation && (
+                      <div className="flex items-center gap-1 mt-1 text-[10px] text-text-tertiary italic">
+                        <Volume2 size={10} className="shrink-0" />
+                        <span className="truncate">{c.pronunciation}</span>
+                      </div>
+                    )}
+                  </div>
+                  {hasVideo ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full shrink-0">
+                      <CheckCircle2 size={11} /> Live
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary bg-black/5 px-2 py-0.5 rounded-full shrink-0">
+                      Empty
+                    </span>
+                  )}
+                </div>
+
+                {hasVideo && (
+                  <video
+                    key={`${c.slug}-${bump}`}
+                    src={`/uploads/creator-videos/${c.slug}.mp4?v=${bump}`}
+                    controls
+                    preload="metadata"
+                    playsInline
+                    className="w-full rounded-lg bg-black aspect-video object-cover"
+                  />
+                )}
+
+                {isUploading ? (
+                  <div className="space-y-1.5">
+                    <div className="h-1.5 bg-black/5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-text-primary transition-all"
+                        style={{ width: `${upload!.progress}%` }}
+                      />
+                    </div>
+                    <div className="text-[11px] text-text-tertiary text-center">
+                      Uploading… {upload!.progress}%
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <label className="flex-1 cursor-pointer">
+                      <input
+                        type="file"
+                        accept="video/*"
+                        capture="user"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleFile(c.slug, f);
+                          e.target.value = '';
+                        }}
+                      />
+                      <div className="flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded-lg bg-text-primary text-white hover:opacity-90 transition-opacity">
+                        <Upload size={13} />
+                        {hasVideo ? 'Replace' : 'Upload'}
+                      </div>
+                    </label>
+                    {hasVideo && (
+                      <button
+                        onClick={() => handleDelete(c.slug)}
+                        className="px-3 py-2 rounded-lg bg-black/5 hover:bg-black/10 text-text-tertiary hover:text-error transition-colors"
+                        title="Delete video"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <a
+                    href={`/creators/${c.slug}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-1.5 text-[11px] font-medium text-text-secondary hover:text-text-primary bg-black/5 hover:bg-black/10 rounded-lg py-2 transition-colors"
+                  >
+                    <ExternalLink size={12} />
+                    Page
+                  </a>
+                  <a
+                    href={`mailto:${c.email}?subject=${encodeURIComponent(c.subject)}&body=${encodeURIComponent(c.body)}`}
+                    className="flex items-center justify-center gap-1.5 text-[11px] font-medium text-text-secondary hover:text-text-primary bg-black/5 hover:bg-black/10 rounded-lg py-2 transition-colors"
+                  >
+                    <Mail size={12} />
+                    Email
+                  </a>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

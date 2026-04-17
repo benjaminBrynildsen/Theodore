@@ -26,7 +26,8 @@ import {
 import { generate, generateStream } from './ai.js';
 import { generateImage, generateImageOpenAI, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, requireAdmin } from './admin.js';
+import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
@@ -2458,6 +2459,79 @@ app.post('/api/upload/cover', async (req, res) => {
   } catch (e: any) {
     respondInternalError(res, 'upload.cover', e);
   }
+});
+
+// ========== Creator welcome videos ==========
+// Each of the 12 outreach creators can have one personalized MP4 stored on
+// the persistent disk and rendered on /creators/[slug]. Upload lives in the
+// admin dashboard; Ben records on his phone.
+const CREATOR_SLUGS = new Set([
+  'malva', 'manu', 'tommy', 'tom', 'thomas', 'dan',
+  'dom', 'alamin', 'tim', 'artturi', 'bitnext', 'ken',
+]);
+const creatorVideoDir = path.join(uploadsPath, 'creator-videos');
+if (!fs.existsSync(creatorVideoDir)) fs.mkdirSync(creatorVideoDir, { recursive: true });
+
+const creatorVideoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, creatorVideoDir),
+    filename: (req, _file, cb) => cb(null, `${(req.params as any).slug}.mp4`),
+  }),
+  limits: { fileSize: 150 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith('video/')) {
+      cb(new Error('File must be a video'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+app.get('/api/creator-videos', (_req, res) => {
+  try {
+    const files = fs.existsSync(creatorVideoDir) ? fs.readdirSync(creatorVideoDir) : [];
+    const videos = files
+      .filter((f) => f.endsWith('.mp4'))
+      .map((f) => f.slice(0, -4))
+      .filter((slug) => CREATOR_SLUGS.has(slug));
+    res.json({ videos });
+  } catch {
+    res.json({ videos: [] });
+  }
+});
+
+app.post('/api/admin/creator-videos/:slug', async (req, res) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const slug = req.params.slug;
+  if (!CREATOR_SLUGS.has(slug)) {
+    res.status(400).json({ error: 'Unknown creator slug' });
+    return;
+  }
+  creatorVideoUpload.single('video')(req, res, (err) => {
+    if (err) {
+      res.status(400).json({ error: err.message || 'Upload failed' });
+      return;
+    }
+    if (!(req as any).file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
+    res.json({ ok: true, url: `/uploads/creator-videos/${slug}.mp4` });
+  });
+});
+
+app.delete('/api/admin/creator-videos/:slug', async (req, res) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  const slug = req.params.slug;
+  if (!CREATOR_SLUGS.has(slug)) {
+    res.status(400).json({ error: 'Unknown creator slug' });
+    return;
+  }
+  const filePath = path.join(creatorVideoDir, `${slug}.mp4`);
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  res.json({ ok: true });
 });
 
 // ========== Serve static in production ==========

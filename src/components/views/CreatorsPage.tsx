@@ -93,6 +93,7 @@ interface CreatorsPageProps {
 
 export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [hasVideo, setHasVideo] = useState(false);
 
   useEffect(() => {
     jTrack('creator_page_view', {
@@ -100,6 +101,16 @@ export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
       creator: creator?.channelName ?? null,
       personalized: !!creator,
     });
+  }, [creator]);
+
+  useEffect(() => {
+    if (!creator) return;
+    fetch('/api/creator-videos')
+      .then((r) => r.json())
+      .then((d: { videos?: string[] }) => {
+        if (d.videos?.includes(creator.slug)) setHasVideo(true);
+      })
+      .catch(() => {});
   }, [creator]);
 
   return (
@@ -142,11 +153,11 @@ export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
           <p className="mt-6 text-base sm:text-lg text-black/60 leading-relaxed max-w-xl mx-auto animate-fade-in" style={{ animationDelay: '280ms' }}>
             I built this page for you specifically. If you're open to partnering on Theodore, here's exactly how it'd work — and what your audience would get.
           </p>
-          {creator.hasVideo && (
+          {hasVideo && (
             <div className="mt-8 max-w-xl mx-auto animate-fade-in" style={{ animationDelay: '320ms' }}>
               <div className="relative overflow-hidden rounded-2xl bg-black shadow-[0_20px_60px_rgba(0,0,0,0.18)] aspect-video">
                 <video
-                  src={`/creators/videos/${creator.slug}.mp4`}
+                  src={`/uploads/creator-videos/${creator.slug}.mp4`}
                   poster={creator.photo}
                   controls
                   preload="metadata"
