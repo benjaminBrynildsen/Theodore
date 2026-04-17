@@ -1404,7 +1404,6 @@ function CreatorsPanel() {
                       <input
                         type="file"
                         accept="video/*"
-                        capture="user"
                         className="hidden"
                         onChange={(e) => {
                           const f = e.target.files?.[0];
