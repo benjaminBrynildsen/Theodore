@@ -6,6 +6,7 @@ export interface Creator {
   channelUrl: string;
   photo: string;
   handle: string;
+  hasVideo?: boolean;
 }
 
 export const CREATORS: Creator[] = [

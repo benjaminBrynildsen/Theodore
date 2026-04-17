@@ -142,7 +142,22 @@ export function CreatorsPage({ creator }: CreatorsPageProps = {}) {
           <p className="mt-6 text-base sm:text-lg text-black/60 leading-relaxed max-w-xl mx-auto animate-fade-in" style={{ animationDelay: '280ms' }}>
             I built this page for you specifically. If you're open to partnering on Theodore, here's exactly how it'd work — and what your audience would get.
           </p>
-          <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center animate-fade-in" style={{ animationDelay: '360ms' }}>
+          {creator.hasVideo && (
+            <div className="mt-8 max-w-xl mx-auto animate-fade-in" style={{ animationDelay: '320ms' }}>
+              <div className="relative overflow-hidden rounded-2xl bg-black shadow-[0_20px_60px_rgba(0,0,0,0.18)] aspect-video">
+                <video
+                  src={`/creators/videos/${creator.slug}.mp4`}
+                  poster={creator.photo}
+                  controls
+                  preload="metadata"
+                  playsInline
+                  onPlay={() => jTrack('creator_video_play', { slug: creator.slug, creator: creator.channelName })}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            </div>
+          )}
+          <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center animate-fade-in" style={{ animationDelay: '400ms' }}>
             <a
               href="/"
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#1c1c1e] px-6 py-3 text-[15px] font-medium text-white shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:-translate-y-0.5 transition-transform"
