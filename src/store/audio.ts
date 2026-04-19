@@ -25,8 +25,8 @@ interface AudioState {
   narratorVoice: ElevenLabsVoice;
   characterVoices: Record<string, ElevenLabsVoice>;
   multiVoice: boolean;
-  ttsProvider: 'elevenlabs' | 'openai';
-  ttsModel: ElevenLabsModel | 'openai-gpt-4o-mini-tts';
+  ttsProvider: 'elevenlabs' | 'openai' | 'grok';
+  ttsModel: ElevenLabsModel | 'openai-gpt-4o-mini-tts' | 'grok-tts-1';
   speed: number;
 
   // Generation
@@ -48,8 +48,8 @@ interface AudioState {
   setNarratorVoice: (voice: ElevenLabsVoice) => void;
   setCharacterVoice: (name: string, voice: ElevenLabsVoice) => void;
   setMultiVoice: (enabled: boolean) => void;
-  setTtsProvider: (provider: 'elevenlabs' | 'openai' | 'fish') => void;
-  setTtsModel: (model: ElevenLabsModel | 'openai-gpt-4o-mini-tts') => void;
+  setTtsProvider: (provider: 'elevenlabs' | 'openai' | 'fish' | 'grok') => void;
+  setTtsModel: (model: ElevenLabsModel | 'openai-gpt-4o-mini-tts' | 'grok-tts-1') => void;
   setSpeed: (speed: number) => void;
   setGenerating: (id: string | null) => void;
   setError: (error: string | null) => void;
@@ -232,11 +232,34 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   setCharacterVoice: (name, voice) =>
     set((s) => ({ characterVoices: { ...s.characterVoices, [name]: voice } })),
   setMultiVoice: (enabled) => set({ multiVoice: enabled }),
-  setTtsProvider: (provider) => set((s) => ({
-    ttsProvider: provider,
-    ttsModel: provider === 'openai' ? 'openai-gpt-4o-mini-tts' : provider === 'fish' ? 'fish-s2-pro' : (s.ttsModel === 'openai-gpt-4o-mini-tts' ? 'eleven_v3' : s.ttsModel),
-    speed: (provider === 'openai' || provider === 'fish') ? 1.0 : s.speed,
-  })),
+  setTtsProvider: (provider) => set((s) => {
+    // If current narratorVoice doesn't belong to the new provider, pick a sensible
+    // default so we never send a mismatched voice ID to the wrong TTS API
+    // (e.g. sending `openai:fable` to xAI's /tts endpoint → 400).
+    const currentVoice = s.narratorVoice || '';
+    let narratorVoice = s.narratorVoice;
+    if (provider === 'openai' && !currentVoice.startsWith('openai:')) {
+      narratorVoice = 'openai:fable' as ElevenLabsVoice;
+    } else if (provider === 'grok' && !currentVoice.startsWith('grok:')) {
+      narratorVoice = 'grok:eve' as ElevenLabsVoice;
+    } else if (provider === 'fish' && !currentVoice.startsWith('fish:')) {
+      narratorVoice = 'fish:933563129e564b19a115bedd57b7406a' as ElevenLabsVoice; // Sarah
+    } else if (provider === 'elevenlabs' && (currentVoice.startsWith('openai:') || currentVoice.startsWith('grok:') || currentVoice.startsWith('fish:'))) {
+      narratorVoice = DEFAULT_NARRATOR_VOICE;
+    }
+    return {
+      ttsProvider: provider,
+      narratorVoice,
+      ttsModel: provider === 'openai'
+        ? 'openai-gpt-4o-mini-tts'
+        : provider === 'grok'
+        ? 'grok-tts-1'
+        : provider === 'fish'
+        ? 'fish-s2-pro'
+        : (s.ttsModel === 'openai-gpt-4o-mini-tts' || s.ttsModel === 'grok-tts-1' ? 'eleven_v3' : s.ttsModel),
+      speed: (provider === 'openai' || provider === 'fish' || provider === 'grok') ? 1.0 : s.speed,
+    };
+  }),
   setTtsModel: (model) => set({ ttsModel: model }),
   setSpeed: (speed) => set({ speed }),
   setGenerating: (id) => set({ generating: id, miniPlayerVisible: id ? true : get().miniPlayerVisible }),

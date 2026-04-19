@@ -48,6 +48,15 @@ const OPENAI_TTS_VOICES = [
   { id: 'openai:verse', name: 'Verse', desc: 'Lyrical, dynamic' },
 ] as const;
 
+// xAI Grok TTS voices (launched 2026). Budget pricing, high quality.
+const GROK_VOICES = [
+  { id: 'grok:eve', name: 'Eve', desc: 'Energetic & bright', gender: 'female' },
+  { id: 'grok:ara', name: 'Ara', desc: 'Warm & inviting', gender: 'female' },
+  { id: 'grok:rex', name: 'Rex', desc: 'Confident & clear', gender: 'male' },
+  { id: 'grok:sal', name: 'Sal', desc: 'Smooth & grounded', gender: 'male' },
+  { id: 'grok:leo', name: 'Leo', desc: 'Authoritative', gender: 'male' },
+] as const;
+
 const FISH_AUDIO_VOICES = [
   { id: 'fish:933563129e564b19a115bedd57b7406a', name: 'Sarah', desc: 'Soft & intimate', gender: 'female' },
   { id: 'fish:bf322df2096a46f18c579d0baa36f41d', name: 'Adrian', desc: 'Deep & dramatic', gender: 'male' },
@@ -597,6 +606,15 @@ export function AudiobookPanel() {
         age: 'middle' as const,
         tone: 'neutral',
       }))
+    : ttsProvider === 'grok'
+    ? GROK_VOICES.map(v => ({
+        id: v.id,
+        name: v.name,
+        desc: `${v.desc} · Budget`,
+        gender: v.gender as any,
+        age: 'middle' as const,
+        tone: 'neutral',
+      }))
     : ttsProvider === 'fish'
     ? FISH_AUDIO_VOICES.map(v => ({
         id: v.id,
@@ -762,6 +780,10 @@ export function AudiobookPanel() {
       // ~100 credits per 1k chars
       return Math.max(100, Math.ceil(charCount / 1000) * 100);
     }
+    if (provider === 'grok') {
+      // Grok is cheapest — ~6 credits per 1k chars
+      return Math.max(10, Math.ceil(charCount / 1000) * 6);
+    }
     // OpenAI budget: ~20 credits per 1k chars
     return Math.max(20, Math.ceil(charCount / 1000) * 20);
   }
@@ -775,7 +797,7 @@ export function AudiobookPanel() {
     const words = prose.split(/\s+/).length;
     const chars = prose.length;
     const label = `Scene ${scene.order}: ${scene.title || 'Untitled'}`;
-    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : ttsProvider === 'fish' ? 'Fish Audio' : 'OpenAI';
+    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : ttsProvider === 'fish' ? 'Fish Audio' : ttsProvider === 'grok' ? 'Grok' : 'OpenAI';
     const isFreeSample = freeSampleAvailable && ttsProvider !== 'elevenlabs';
     const showSwitchToOpenAI = freeSampleAvailable && ttsProvider === 'elevenlabs';
     setConfirmModal({
@@ -808,7 +830,7 @@ export function AudiobookPanel() {
     const words = prose.split(/\s+/).length;
     const chars = prose.length;
     const label = `Ch ${chapter.number}: ${chapter.title}`;
-    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : ttsProvider === 'fish' ? 'Fish Audio' : 'OpenAI';
+    const qualityLabel = ttsProvider === 'elevenlabs' ? 'ElevenLabs' : ttsProvider === 'fish' ? 'Fish Audio' : ttsProvider === 'grok' ? 'Grok' : 'OpenAI';
     const isFreeSample = freeSampleAvailable && ttsProvider !== 'elevenlabs';
     const showSwitchToOpenAI = freeSampleAvailable && ttsProvider === 'elevenlabs';
     setConfirmModal({
@@ -894,7 +916,7 @@ export function AudiobookPanel() {
         characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
         provider: isGuest ? 'openai' : ttsProvider,
-        speed: (ttsProvider === 'openai' || ttsProvider === 'fish') ? 1.0 : speed,
+        speed: (ttsProvider === 'openai' || ttsProvider === 'fish' || ttsProvider === 'grok') ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: sceneSFXData,
         chapterNumber: isFirstScene ? chapter.number : undefined,
@@ -1013,7 +1035,7 @@ export function AudiobookPanel() {
           characterDescriptions: effectiveCharacterDescriptions,
           model: ttsModel,
           provider,
-          speed: (provider === 'openai' || provider === 'fish') ? 1.0 : speed,
+          speed: (provider === 'openai' || provider === 'fish' || provider === 'grok') ? 1.0 : speed,
           multiVoice: effectiveMultiVoice,
           sceneSFX: sceneSFX0,
           chapterNumber: chapter.number,
@@ -1061,7 +1083,7 @@ export function AudiobookPanel() {
                 characterDescriptions: effectiveCharacterDescriptions,
                 model: ttsModel,
                 provider,
-                speed: (provider === 'openai' || provider === 'fish') ? 1.0 : speed,
+                speed: (provider === 'openai' || provider === 'fish' || provider === 'grok') ? 1.0 : speed,
                 multiVoice: effectiveMultiVoice,
                 sceneSFX,
                 isGuest,
@@ -1118,7 +1140,7 @@ export function AudiobookPanel() {
           characterDescriptions: effectiveCharacterDescriptions,
           model: ttsModel,
           provider,
-          speed: (provider === 'openai' || provider === 'fish') ? 1.0 : speed,
+          speed: (provider === 'openai' || provider === 'fish' || provider === 'grok') ? 1.0 : speed,
           multiVoice: effectiveMultiVoice,
           sceneSFX: allSceneSFX,
           chapterNumber: chapter.number,
@@ -1706,7 +1728,7 @@ export function AudiobookPanel() {
               {/* Provider + pricing */}
               <div>
                 <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2 block">TTS Provider</label>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
                     onClick={() => audioStore.setTtsProvider('openai')}
                     className={cn(
@@ -1716,6 +1738,22 @@ export function AudiobookPanel() {
                   >
                     <div className="font-medium">OpenAI</div>
                     <div className={cn('text-[10px]', ttsProvider === 'openai' ? 'text-white/60' : 'text-text-tertiary')}>Recommended</div>
+                  </button>
+                  <button
+                    onClick={() => audioStore.setTtsProvider('grok')}
+                    className={cn(
+                      'text-left p-2.5 rounded-xl transition-all text-xs',
+                      ttsProvider === 'grok' ? 'bg-text-primary text-text-inverse' : 'glass-pill hover:bg-white/60'
+                    )}
+                  >
+                    <div className="font-medium flex items-center gap-1">
+                      <span>Grok</span>
+                      <span className={cn(
+                        'text-[8px] font-bold px-1 py-px rounded uppercase tracking-wider',
+                        ttsProvider === 'grok' ? 'bg-white/20 text-white/90' : 'bg-emerald-500/15 text-emerald-700'
+                      )}>beta</span>
+                    </div>
+                    <div className={cn('text-[10px]', ttsProvider === 'grok' ? 'text-white/60' : 'text-emerald-600')}>Cheapest</div>
                   </button>
                   <button
                     onClick={() => audioStore.setTtsProvider('elevenlabs')}

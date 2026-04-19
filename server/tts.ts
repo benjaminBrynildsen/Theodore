@@ -125,7 +125,7 @@ export interface TTSRequest {
   chapterId: string;
   prose: string;
   voiceMap: VoiceMap;
-  provider?: 'elevenlabs' | 'openai' | 'fish';
+  provider?: 'elevenlabs' | 'openai' | 'fish' | 'grok';
   model?: string;
   speed?: number; // 0.5 – 2.0
   multiVoice?: boolean; // if false, use narrator for everything
@@ -216,6 +216,50 @@ async function callOpenAITTS(text: string, voice: string, speed = 1.0): Promise<
       throw new Error('Audio generation is temporarily unavailable due to API limits. Please try again later.');
     }
     throw new Error(`OpenAI TTS error ${response.status}: ${detail}`);
+  }
+
+  return Buffer.from(await response.arrayBuffer());
+}
+
+// ========== Grok (xAI) TTS ==========
+
+const GROK_TTS_API = 'https://api.x.ai/v1/tts';
+
+// xAI hard limit is 15,000 chars per request. We cap our chunks much lower
+// (~5500) to keep parallel generation fast and avoid any silent cut-off
+// behaviour on boundary-sized inputs.
+const GROK_MAX_CHARS_PER_REQUEST = 14500;
+
+async function callGrokTTS(text: string, voiceId: string): Promise<Buffer> {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) throw new Error('XAI_API_KEY is required for Grok TTS');
+
+  // Hard guard so we never accidentally send > 15K chars and get a truncated response.
+  const safeText = text.length > GROK_MAX_CHARS_PER_REQUEST
+    ? text.slice(0, GROK_MAX_CHARS_PER_REQUEST)
+    : text;
+  const cleanedVoice = (voiceId || 'eve').replace(/^grok:/, '');
+
+  const response = await fetch(GROK_TTS_API, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text: safeText,
+      voice_id: cleanedVoice,
+      language: 'en',
+      output_format: 'mp3',
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    if (response.status === 429) {
+      throw new Error('Grok TTS rate limit — please retry in a moment.');
+    }
+    throw new Error(`Grok TTS error ${response.status}: ${detail}`);
   }
 
   return Buffer.from(await response.arrayBuffer());
@@ -355,6 +399,7 @@ function buildChapterAnnouncement(
         ? `Chapter ${number}. (break) (break) (break) ${t}. (break) (break) (break) (break) `
         : `Chapter ${number}. (break) (break) (break) (break) `;
     case 'openai':
+    case 'grok':
       return t
         ? `Chapter ${number}.\n\n\n\n\n\n\n—\n\n\n\n\n\n\n${t}.\n\n\n\n\n\n\n—\n\n\n\n\n\n\n\n`
         : `Chapter ${number}.\n\n\n\n\n\n\n—\n\n\n\n\n\n\n\n`;
@@ -1047,6 +1092,99 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     };
   }
 
+  // ── Grok (xAI) path: single-voice, budget pricing ──
+  // xAI allows 15K chars per request — we chunk much smaller for parallelism
+  // and to match the pacing/boundary logic we already use for OpenAI.
+  if ((req.provider || '').toLowerCase() === 'grok') {
+    const clean = stripCharacterTags(req.prose)
+      .replace(/\{sfx:[^}]+\}\s*/g, '')
+      .replace(/\*/g, '')
+      .trim();
+    const announcement = req.chapterNumber
+      ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'grok')
+      : '';
+    let proseBody = clean;
+    if (req.chapterNumber) {
+      proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
+    }
+    // Grok takes plain text — our OpenAI-style pacing adds newline pauses
+    // that Grok reads as natural breaths, so reuse it for now.
+    const paced = announcement + addTTSPacing(proseBody, voiceMap.narrator);
+
+    // Chunk long text. Keep chunks well below xAI's 15K limit for safety +
+    // parallelism. Split on paragraph boundaries first, with sentence-level
+    // fallback for ultra-long paragraphs so we never cut mid-sentence.
+    const MAX_CHUNK_CHARS = 5500;
+    const chunks: string[] = [];
+    if (paced.length <= MAX_CHUNK_CHARS) {
+      chunks.push(paced);
+    } else {
+      const paragraphs = paced.split(/\n\n+/);
+      let current = '';
+      for (const para of paragraphs) {
+        if (current.length + para.length + 2 > MAX_CHUNK_CHARS && current.length > 0) {
+          chunks.push(current.trim());
+          current = para;
+        } else {
+          current += (current ? '\n\n' : '') + para;
+        }
+      }
+      if (current.trim()) chunks.push(current.trim());
+      // Safety: if any single chunk is still too long, split by sentences
+      const safeChunks: string[] = [];
+      for (const chunk of chunks) {
+        if (chunk.length <= MAX_CHUNK_CHARS) {
+          safeChunks.push(chunk);
+        } else {
+          const sentences = chunk.match(/[^.!?]+[.!?]+[\s]*/g) || [chunk];
+          let sc = '';
+          for (const s of sentences) {
+            if (sc.length + s.length > MAX_CHUNK_CHARS && sc.length > 0) {
+              safeChunks.push(sc.trim());
+              sc = s;
+            } else {
+              sc += s;
+            }
+          }
+          if (sc.trim()) safeChunks.push(sc.trim());
+        }
+      }
+      chunks.length = 0;
+      chunks.push(...safeChunks);
+    }
+
+    // Filter out empty/whitespace-only chunks — past Fish bug caused duplicates.
+    const validChunks = chunks.filter(c => c.replace(/[.\s,;:!?\-—]/g, '').length > 0);
+    ttsLog(`Grok TTS: ${validChunks.length} chunks for ${paced.length} chars (parallel), voice=${voiceMap.narrator}`);
+
+    // Generate all chunks in parallel. If any one fails, fail the whole
+    // generation — partial audio would silently drop a segment of the chapter.
+    const audioBuffers = await Promise.all(
+      validChunks.map(async (chunk, ci) => {
+        const buf = await callGrokTTS(chunk, voiceMap.narrator);
+        req.onProgress?.(Math.round(((ci + 1) / validChunks.length) * 100));
+        return buf;
+      })
+    );
+
+    // Concatenate MP3 buffers (MP3 frames are independently decodable)
+    const combined = Buffer.concat(audioBuffers);
+    const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
+    const filename = `ch-${hash}.mp3`;
+    const filepath = path.join(AUDIO_DIR, filename);
+    fs.writeFileSync(filepath, combined);
+    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND);
+    // Grok is ~$4.20/1M chars (cheaper than OpenAI's $15/1M).
+    // Pricing: 6 credits per 1K chars, min 10 — matches budget-tier feel.
+    const creditsUsed = Math.max(10, Math.ceil(clean.length / 1000) * 6);
+    return {
+      audioUrl: `/uploads/audio/${filename}`,
+      durationEstimate,
+      segments: validChunks.length,
+      creditsUsed,
+    };
+  }
+
   // ── Fish Audio path: single-voice, high-quality narration ──
   if ((req.provider || '').toLowerCase() === 'fish') {
     const clean = stripCharacterTags(req.prose)
@@ -1338,6 +1476,10 @@ export async function generateVoicePreview(voiceId: string, text?: string): Prom
 
   if (voiceId.startsWith('openai:')) {
     return callOpenAITTS(previewText, voiceId, 1.0);
+  }
+
+  if (voiceId.startsWith('grok:')) {
+    return callGrokTTS(previewText, voiceId);
   }
 
   return callElevenLabsTTS(previewText, voiceId as ElevenLabsVoice, 'eleven_flash_v2_5', 1.0);
