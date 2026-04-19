@@ -250,7 +250,11 @@ async function callGrokTTS(text: string, voiceId: string): Promise<Buffer> {
       text: safeText,
       voice_id: cleanedVoice,
       language: 'en',
-      output_format: 'mp3',
+      output_format: {
+        codec: 'mp3',
+        sample_rate: 24000,
+        bit_rate: 128000,
+      },
     }),
   });
 
