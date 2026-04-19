@@ -225,6 +225,26 @@ export const journeyEvents = pgTable('journey_events', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ========== Guest Backups ==========
+// Server-side backup of unauthenticated visitors' in-progress work.
+// Keyed by guest_session_id (set via HttpOnly cookie by the server on first
+// unauth API hit). Upserted by the client whenever guest state is dirty;
+// claimed on register/google login so signup doesn't lose the work the
+// visitor did before creating an account. Rows with claimed_at != null are
+// retained briefly for admin diagnostics, then purged; unclaimed rows are
+// purged after ~30 days.
+export const guestBackups = pgTable('guest_backups', {
+  guestSessionId: text('guest_session_id').primaryKey(),
+  data: jsonb('data').$type<Record<string, any>>().notNull(),
+  ipHash: text('ip_hash'),
+  userAgent: text('user_agent'),
+  sizeBytes: integer('size_bytes').notNull().default(0),
+  claimedByUserId: text('claimed_by_user_id'),
+  claimedAt: timestamp('claimed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),

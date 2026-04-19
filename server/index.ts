@@ -35,6 +35,7 @@ type OpenAIVoice = ElevenLabsVoice;
 import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN } from './billing.js';
 import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './meta-capi.js';
 import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail } from './journey.js';
+import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001');
@@ -846,7 +847,16 @@ app.post('/api/auth/register', async (req, res) => {
 
     const token = await createSession(user.id, req, res);
     trackRegistration(req as any);
-    res.json({ user: toSafeUser(user), token });
+    let guestClaim: Awaited<ReturnType<typeof claimGuestBackupForUser>> | null = null;
+    try {
+      guestClaim = await claimGuestBackupForUser(req, res, user.id);
+      if (guestClaim.claimed) {
+        console.log('[guest-claim] register user=%s projects=%d chapters=%d canon=%d errors=%d', user.id, guestClaim.projects, guestClaim.chapters, guestClaim.canon, guestClaim.errors);
+      }
+    } catch (claimErr) {
+      console.error('[guest-claim] failed during register', claimErr);
+    }
+    res.json({ user: toSafeUser(user), token, guestClaim });
   } catch (e: any) {
     respondInternalError(res, 'auth.register', e);
   }
@@ -908,7 +918,16 @@ app.post('/api/auth/google', async (req, res) => {
     }
 
     const token = await createSession(user.id, req, res);
-    res.json({ user: toSafeUser(user), token });
+    let guestClaim: Awaited<ReturnType<typeof claimGuestBackupForUser>> | null = null;
+    try {
+      guestClaim = await claimGuestBackupForUser(req, res, user.id);
+      if (guestClaim.claimed) {
+        console.log('[guest-claim] google user=%s projects=%d chapters=%d canon=%d errors=%d', user.id, guestClaim.projects, guestClaim.chapters, guestClaim.canon, guestClaim.errors);
+      }
+    } catch (claimErr) {
+      console.error('[guest-claim] failed during google auth', claimErr);
+    }
+    res.json({ user: toSafeUser(user), token, guestClaim });
   } catch (e: any) {
     respondInternalError(res, 'auth.google', e);
   }
@@ -1331,6 +1350,47 @@ app.post('/api/guest/log', async (req, res) => {
     res.json({ ok: true });
   } catch {
     res.status(500).json({ error: 'Log failed' });
+  }
+});
+
+// Back up an unauthenticated visitor's local project state so it survives
+// signup even if their browser's localStorage doesn't (different device,
+// incognito, cleared cache). Cookie-keyed, heavily rate-limited + size-capped
+// to defend against spam since the endpoint is unauth.
+app.post('/api/guest/backup', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (auth?.user) {
+      // Logged-in users should not be using this path — their data is already
+      // persisted via the normal /projects endpoints. Silently no-op rather
+      // than 401 so we don't noise up the client during the auth transition.
+      return res.json({ ok: true, skipped: 'authed' });
+    }
+
+    const ip = requestClientIp(req);
+    if (!takeRateLimitToken(res, 'guest-backup', ip, 60, 60 * 60 * 1000)) return;
+
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      return res.status(400).json({ error: 'Invalid payload' });
+    }
+    const sizeBytes = estimatePayloadBytes(body);
+    if (sizeBytes > MAX_PAYLOAD_BYTES) {
+      return res.status(413).json({ error: 'Backup too large', maxBytes: MAX_PAYLOAD_BYTES });
+    }
+    if (sizeBytes === 0) {
+      return res.status(400).json({ error: 'Empty payload' });
+    }
+
+    const guestSessionId = ensureGuestSessionId(req, res);
+    await upsertGuestBackup(guestSessionId, body, {
+      ipHash: hashIp(ip),
+      userAgent: req.get('user-agent') || null,
+      sizeBytes,
+    });
+    res.json({ ok: true, sizeBytes });
+  } catch (e: any) {
+    respondInternalError(res, 'guest.backup', e);
   }
 });
 

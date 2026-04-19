@@ -258,7 +258,15 @@ export default function App() {
         const localCanonEntries = useCanonStore.getState().entries;
 
         if (localProjects.length > 0) {
-          // We have local guest data — persist it to the new account before loading server data
+          // We have local guest data — persist it to the new account before loading server data.
+          // Note: the server *also* claims any guest_backups row tied to the
+          // visitor's guest-session cookie at register/google time. That path
+          // handles the "different device / cleared localStorage" case; this
+          // client loop handles the happy path where localStorage survived.
+          // Errors are now logged (previously silently swallowed), so a real
+          // migration failure is visible in the console instead of masked as
+          // an empty account.
+          let migrationErrors = 0;
           for (const project of localProjects) {
             try {
               await api.createProject({
@@ -266,23 +274,30 @@ export default function App() {
                 userId,
                 narrativeControls: project.narrativeControls,
               });
-            } catch {
-              // Project may already exist on server (duplicate), that's fine
+            } catch (err) {
+              migrationErrors++;
+              // Likely a duplicate (project already claimed server-side) — keep going.
+              console.warn('[guest-migrate] createProject failed', project.id, err);
             }
           }
           for (const chapter of localChapters) {
             try {
               await api.createChapter(chapter);
-            } catch {
-              // Chapter may already exist
+            } catch (err) {
+              migrationErrors++;
+              console.warn('[guest-migrate] createChapter failed', chapter.id, err);
             }
           }
           for (const entry of localCanonEntries) {
             try {
               await api.createCanon({ ...entry, projectId: entry.projectId });
-            } catch {
-              // Canon entry may already exist
+            } catch (err) {
+              migrationErrors++;
+              console.warn('[guest-migrate] createCanon failed', entry.id, err);
             }
+          }
+          if (migrationErrors > 0) {
+            console.warn(`[guest-migrate] completed with ${migrationErrors} errors — server-side claim should have caught the rest`);
           }
         }
 
@@ -329,6 +344,53 @@ export default function App() {
       setCreditTransactions([]);
     }
   }, [hydrateCreditsFromUser, loadProjects, setCreditTransactions, setCurrentUserId, user]);
+
+  // Guest backup: while unauthenticated, debounce-push the visitor's local
+  // project state to the server so signup doesn't lose it if localStorage
+  // dies (different device, incognito, cache clear, delay). Cookie-keyed.
+  // Server is authoritative for skipping when a session exists, but we also
+  // early-return here to avoid needless traffic.
+  useEffect(() => {
+    if (user) return; // authed users persist via the normal /projects APIs
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let lastSignature = '';
+
+    const maybeBackup = () => {
+      const projects = useStore.getState().projects;
+      const chapters = useStore.getState().chapters;
+      const entries = useCanonStore.getState().entries;
+      if (projects.length === 0 && chapters.length === 0 && entries.length === 0) return;
+      const activeProjectId = useStore.getState().activeProjectId || null;
+      const payload = { projects, chapters, canonEntries: entries, activeProjectId };
+      // Lightweight change detection — sizes + active id are enough to avoid
+      // the common "nothing changed" case without hashing the full JSON.
+      const signature = `${projects.length}:${chapters.length}:${entries.length}:${activeProjectId || ''}:${projects.reduce((n, p) => n + (p.updatedAt || ''), '')}`;
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+      api.guestBackup(payload).catch((err) => {
+        // 413 (too large) and 429 (rate-limited) are non-fatal and expected
+        // under abuse; log but don't retry in a tight loop.
+        console.warn('[guest-backup] failed', err?.message || err);
+      });
+    };
+
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(maybeBackup, 2000);
+    };
+
+    // Subscribe to both stores so any project/chapter/canon change triggers a debounced sync.
+    const unsubProjects = useStore.subscribe(schedule);
+    const unsubCanon = useCanonStore.subscribe(schedule);
+    // Kick once in case there's already local state on mount.
+    schedule();
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubProjects();
+      unsubCanon();
+    };
+  }, [user]);
 
   // Load chapters and canon when active project changes
   useEffect(() => {

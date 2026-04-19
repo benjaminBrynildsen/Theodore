@@ -227,6 +227,16 @@ export const api = {
     }>;
   }>(`/sfx/library/search?q=${encodeURIComponent(query)}`),
 
+  // ========== Guest Backup ==========
+  // Unauthenticated: snapshot the guest's in-progress local state to the server
+  // so signup doesn't lose it if localStorage dies (different device, incognito,
+  // cache clear, long delay). Cookie-keyed; server no-ops for logged-in users.
+  guestBackup: (data: { projects: any[]; chapters: any[]; canonEntries: any[]; activeProjectId?: string | null }) =>
+    request<{ ok: boolean; sizeBytes?: number; skipped?: string }>(
+      '/guest/backup',
+      { method: 'POST', body: JSON.stringify(data) }
+    ),
+
   // ========== Billing ==========
   billingPlans: () => request<any>('/billing/plans'),
   billingStatus: () => request<any>('/billing/status'),
