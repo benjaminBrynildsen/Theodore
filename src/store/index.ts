@@ -435,6 +435,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
       };
     }
 
+    // Mirror server: prose edits invalidate cached scenes so audio regen re-decomposes from new text.
+    if (typeof updates.prose === 'string' && !('scenes' in updates)) {
+      mergedUpdates = { ...mergedUpdates, scenes: [] };
+    }
+
     set((s) => ({
       chapters: s.chapters.map((c) => c.id === id ? { ...c, ...mergedUpdates, updatedAt: new Date().toISOString() } : c),
     }));

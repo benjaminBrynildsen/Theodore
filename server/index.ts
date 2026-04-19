@@ -352,6 +352,9 @@ function buildChapterUpdate(bodyRaw: unknown, projectId: string) {
   if ('aiIntentMetadata' in body) updates.aiIntentMetadata = body.aiIntentMetadata === null ? null : asObject(body.aiIntentMetadata);
   if ('validationStatus' in body) updates.validationStatus = asObject(body.validationStatus, DEFAULT_VALIDATION_STATUS);
   if ('scenes' in body) updates.scenes = Array.isArray(body.scenes) ? body.scenes : [];
+  // Invalidate cached scenes when prose is edited without an accompanying scenes update.
+  // Prevents audio regeneration from using stale per-scene text after chapter edits.
+  if ('prose' in body && !('scenes' in body)) updates.scenes = [];
   if ('editChatHistory' in body) updates.editChatHistory = Array.isArray(body.editChatHistory) ? body.editChatHistory : [];
   if ('imageUrl' in body) updates.imageUrl = body.imageUrl === null ? null : asOptionalString(body.imageUrl);
   if ('illustrationNotes' in body) updates.illustrationNotes = body.illustrationNotes === null ? null : asOptionalString(body.illustrationNotes);
