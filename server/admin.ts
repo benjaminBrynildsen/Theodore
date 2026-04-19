@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { db } from './db.js';
 import { users, projects, chapters, creditTransactions, audioGenerations, guestEvents } from './schema.js';
-import { sql, eq, desc, count, sum } from 'drizzle-orm';
+import { sql, eq, desc, count, sum, gt, and } from 'drizzle-orm';
 import { getAuth } from './auth.js';
 
 // Must match the hashing in server/index.ts so the admin's own IP
@@ -66,10 +66,12 @@ export async function getOverview(_req: Request, res: Response) {
     // Total chapters
     const [{ value: totalChapters }] = await db.select({ value: count() }).from(chapters);
 
-    // Total credits consumed
+    // Total credits consumed — positive rows only so admin grants/debits
+    // don't skew the number.
     const [{ value: totalCreditsUsed }] = await db
       .select({ value: sum(creditTransactions.creditsUsed) })
-      .from(creditTransactions);
+      .from(creditTransactions)
+      .where(gt(creditTransactions.creditsUsed, 0));
 
     // Credits by action
     const creditsByAction = await db
@@ -404,11 +406,14 @@ export async function getUserDetail(req: Request, res: Response) {
       .orderBy(desc(creditTransactions.createdAt))
       .limit(50);
 
-    // Total credits used
+    // Total credits used — exclude admin grant/debit rows.
     const [{ value: totalUsed }] = await db
       .select({ value: sum(creditTransactions.creditsUsed) })
       .from(creditTransactions)
-      .where(eq(creditTransactions.userId, userId));
+      .where(and(
+        eq(creditTransactions.userId, userId),
+        gt(creditTransactions.creditsUsed, 0),
+      ));
 
     res.json({
       user,
@@ -654,11 +659,12 @@ export async function getDailyStats(req: Request, res: Response) {
       ORDER BY day
     `);
 
-    // Credits used per day
+    // Credits used per day — ignore admin grant/debit rows (negative creditsUsed).
     const creditsPerDay = await db.execute(sql`
       SELECT DATE(created_at) as day, SUM(credits_used) as total, COUNT(*) as count
       FROM credit_transactions
       WHERE created_at > NOW() - INTERVAL '30 days'
+        AND credits_used > 0
       GROUP BY DATE(created_at)
       ORDER BY day
     `);
