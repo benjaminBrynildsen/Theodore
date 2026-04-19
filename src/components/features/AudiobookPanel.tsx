@@ -1467,26 +1467,34 @@ export function AudiobookPanel() {
                           <Layers size={12} />
                         </button>
                       )}
+                      {audio && hasMultipleVersions && (
+                        <button
+                          onClick={() => setExpandedVersions(isVersionsExpanded ? null : ch.id)}
+                          className="px-1.5 py-0.5 rounded-md bg-black/5 text-[10px] font-medium text-text-tertiary hover:text-text-primary transition-colors"
+                          title={`${versions.length} versions`}
+                        >
+                          v{audio.activeVersion}
+                          <span className="text-text-tertiary/60 ml-0.5">/{versions.length}</span>
+                        </button>
+                      )}
+                      {(ch.prose?.trim()?.length ?? 0) > 0 && (
+                        <button
+                          onClick={() => confirmGenerateChapter(ch.id)}
+                          disabled={isGenerating || !!generatingScene}
+                          className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary transition-colors disabled:opacity-40"
+                          title={audio ? 'Regenerate audio' : 'Generate audio'}
+                        >
+                          <RotateCcw size={12} />
+                        </button>
+                      )}
                       {audio && (
-                        <>
-                          {hasMultipleVersions && (
-                            <button
-                              onClick={() => setExpandedVersions(isVersionsExpanded ? null : ch.id)}
-                              className="px-1.5 py-0.5 rounded-md bg-black/5 text-[10px] font-medium text-text-tertiary hover:text-text-primary transition-colors"
-                              title={`${versions.length} versions`}
-                            >
-                              v{audio.activeVersion}
-                              <span className="text-text-tertiary/60 ml-0.5">/{versions.length}</span>
-                            </button>
-                          )}
-                          <button
-                            onClick={() => downloadChapter(ch.id)}
-                            className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary transition-colors"
-                            title="Download MP3"
-                          >
-                            <Download size={12} />
-                          </button>
-                        </>
+                        <button
+                          onClick={() => downloadChapter(ch.id)}
+                          className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary transition-colors"
+                          title="Download MP3"
+                        >
+                          <Download size={12} />
+                        </button>
                       )}
                     </div>
                   </div>
