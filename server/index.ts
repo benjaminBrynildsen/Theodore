@@ -26,7 +26,7 @@ import {
 import { generate, generateStream } from './ai.js';
 import { generateImage, generateImageOpenAI, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, requireAdmin } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, requireAdmin } from './admin.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
@@ -2423,6 +2423,7 @@ app.get('/api/admin/overview', getOverview);
 app.get('/api/admin/users', getUsers);
 app.get('/api/admin/users/:userId', getUserDetail);
 app.delete('/api/admin/users/:userId', deleteUser);
+app.post('/api/admin/users/:userId/credits', adjustUserCredits);
 app.get('/api/admin/activity', getActivity);
 app.get('/api/admin/stats/daily', getDailyStats);
 app.get('/api/admin/traffic', getTrafficStats);

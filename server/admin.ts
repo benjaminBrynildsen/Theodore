@@ -434,6 +434,43 @@ export async function getUserDetail(req: Request, res: Response) {
 //   - requires ?confirm=true query param (guards accidental DELETEs)
 //   - refuses to delete ADMIN_EMAILS accounts
 //   - returns per-table counts so the caller can audit
+export async function adjustUserCredits(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const userId = req.params.userId;
+    const delta = Number((req.body as any)?.delta);
+    const reason = String((req.body as any)?.reason || 'admin adjustment');
+    if (!Number.isFinite(delta) || delta === 0) {
+      return res.status(400).json({ error: 'delta must be a non-zero number' });
+    }
+
+    const [user] = await db
+      .select({ id: users.id, email: users.email, creditsRemaining: users.creditsRemaining })
+      .from(users)
+      .where(eq(users.id, userId));
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const before = user.creditsRemaining || 0;
+    const after = Math.max(0, before + delta);
+
+    await db.update(users).set({ creditsRemaining: after }).where(eq(users.id, userId));
+    await db.insert(creditTransactions).values({
+      userId,
+      action: delta > 0 ? 'admin-grant' : 'admin-debit',
+      creditsUsed: -delta,
+      model: '',
+      metadata: { reason, adjustedBy: admin.user.email, before, after },
+    });
+
+    res.json({ ok: true, userId, email: user.email, delta, before, after, reason });
+  } catch (e: any) {
+    console.error('[Admin] adjust credits error:', e);
+    res.status(500).json({ error: 'Internal server error', message: e?.message });
+  }
+}
+
 export async function deleteUser(req: Request, res: Response) {
   try {
     const admin = await requireAdmin(req, res);
