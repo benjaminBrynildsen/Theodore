@@ -434,6 +434,29 @@ export async function getUserDetail(req: Request, res: Response) {
 //   - requires ?confirm=true query param (guards accidental DELETEs)
 //   - refuses to delete ADMIN_EMAILS accounts
 //   - returns per-table counts so the caller can audit
+export async function clearChapterScenes(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const chapterId = req.params.chapterId;
+    const [chapter] = await db
+      .select({ id: chapters.id, projectId: chapters.projectId, number: chapters.number, scenes: chapters.scenes })
+      .from(chapters)
+      .where(eq(chapters.id, chapterId));
+    if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
+
+    const before = (chapter.scenes as any[] || []).length;
+    await db.update(chapters).set({ scenes: [], updatedAt: new Date() }).where(eq(chapters.id, chapterId));
+
+    console.log(`[Admin] cleared ${before} scenes on chapter ${chapterId} by ${admin.user.email}`);
+    res.json({ ok: true, chapterId, scenesCleared: before });
+  } catch (e: any) {
+    console.error('[Admin] clear scenes error:', e);
+    res.status(500).json({ error: 'Internal server error', message: e?.message });
+  }
+}
+
 export async function adjustUserCredits(req: Request, res: Response) {
   try {
     const admin = await requireAdmin(req, res);
