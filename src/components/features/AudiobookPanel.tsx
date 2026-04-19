@@ -1753,7 +1753,6 @@ export function AudiobookPanel() {
                         ttsProvider === 'grok' ? 'bg-white/20 text-white/90' : 'bg-emerald-500/15 text-emerald-700'
                       )}>beta</span>
                     </div>
-                    <div className={cn('text-[10px]', ttsProvider === 'grok' ? 'text-white/60' : 'text-emerald-600')}>Cheapest</div>
                   </button>
                   <button
                     onClick={() => audioStore.setTtsProvider('elevenlabs')}
