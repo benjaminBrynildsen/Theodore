@@ -8,7 +8,6 @@ import { EditModeSidebar } from '../editmode/EditModeSidebar';
 import { InlineEditChat } from '../features/InlineEditChat';
 import { buildSceneDecompositionPrompt, buildSceneProseSplitPrompt } from '../../lib/prompt-builder';
 import { generateText } from '../../lib/generate';
-import { redistributeProseToScenes } from '../../lib/scene-sync';
 import { generateId } from '../../lib/utils';
 import type { CanonType } from '../../types/canon';
 import type { Scene } from '../../types';
@@ -356,15 +355,6 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
                 setTimeout(() => setEditHighlight(null), 4000);
               } else {
                 setEditHighlight(null);
-              }
-              // After an inline edit, redistribute the new prose into the
-              // existing scenes so scene.prose stays in sync. Background,
-              // non-blocking — chat replies are unaffected if this fails.
-              if ((chapter.scenes || []).length > 0) {
-                void redistributeProseToScenes(
-                  chapter.id,
-                  settings.ai?.preferredModel || 'claude-sonnet',
-                ).catch((e) => console.warn('[InlineEdit] Scene resync failed:', e));
               }
             }}
             onClose={() => setActiveSection('scenes')}
