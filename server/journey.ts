@@ -22,6 +22,15 @@ function tokenizeTitle(title: string): string[] {
     .filter(w => w.length >= 4 && !STOPWORDS.has(w));
 }
 
+// Build a PostgreSQL text[] literal string. Drizzle's `${array}` flattens
+// arrays into comma-joined scalars, which breaks `= ANY(...)`. Passing a
+// single literal string like `{"a","b"}` and casting with `::text[]`
+// round-trips correctly.
+function pgTextArrayLiteral(arr: string[]): string {
+  const parts = arr.map(s => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+  return `{${parts.join(',')}}`;
+}
+
 const IP_SALT = process.env.IP_HASH_SALT || 'theodore-journey-2026';
 
 function hashIp(ip: string): string {
@@ -174,6 +183,10 @@ export async function getUserJourneys(req: Request, res: Response) {
     // returns an error; sentinels match nothing real.
     const gs = guestSessionIds.length ? guestSessionIds : ['__none__'];
     const ih = ipHashes.length ? ipHashes : ['__none__'];
+    // Pass arrays as PG text[] literals — drizzle's `${arr}` template
+    // flattens arrays to comma-joined scalars, which breaks `= ANY(...)`.
+    const gsLit = pgTextArrayLiteral(gs);
+    const ihLit = pgTextArrayLiteral(ih);
 
     const directSessions = await db.execute(sql`
       SELECT
@@ -189,16 +202,16 @@ export async function getUserJourneys(req: Request, res: Response) {
         ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
         BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin,
         BOOL_OR(data->>'user_id' = ${userId}) AS signed_in,
-        BOOL_OR(data->>'guest_session_id' = ANY(${gs})) AS matched_guest_cookie,
+        BOOL_OR(data->>'guest_session_id' = ANY(${gsLit}::text[])) AS matched_guest_cookie,
         CASE
-          WHEN BOOL_OR(data->>'guest_session_id' = ANY(${gs})) THEN 'guest_cookie'
+          WHEN BOOL_OR(data->>'guest_session_id' = ANY(${gsLit}::text[])) THEN 'guest_cookie'
           WHEN BOOL_OR(data->>'user_id' = ${userId}) THEN 'user_id'
           ELSE 'ip_hash'
         END AS match_type
       FROM journey_events
-      WHERE (data->>'guest_session_id' = ANY(${gs}))
+      WHERE (data->>'guest_session_id' = ANY(${gsLit}::text[]))
          OR (data->>'user_id' = ${userId})
-         OR (ip_hash = ANY(${ih}))
+         OR (ip_hash = ANY(${ihLit}::text[]))
       GROUP BY session_id
       ORDER BY MIN(created_at) DESC
       LIMIT ${limit}
@@ -237,6 +250,7 @@ export async function getUserJourneys(req: Request, res: Response) {
       // (a) title-token match — strong signal
       if (tokens.length > 0) {
         const likePatterns = tokens.map(t => `%${t}%`);
+        const likeLit = pgTextArrayLiteral(likePatterns);
         const r = await db.execute(sql`
           SELECT
             session_id,
@@ -258,7 +272,7 @@ export async function getUserJourneys(req: Request, res: Response) {
             SELECT DISTINCT session_id FROM journey_events
             WHERE event IN ('prompt_redirect_arrived','chat_auto_send')
               AND COALESCE((data->>'is_admin')::boolean, false) = false
-              AND LOWER(data->>'prompt') LIKE ANY(${likePatterns})
+              AND LOWER(data->>'prompt') LIKE ANY(${likeLit}::text[])
               AND created_at BETWEEN (${createdIso}::timestamptz - INTERVAL '24 hours')
                                  AND (${createdIso}::timestamptz + INTERVAL '5 minutes')
           )
