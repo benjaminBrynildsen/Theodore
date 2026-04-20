@@ -34,7 +34,7 @@ import type { ElevenLabsVoice } from './tts.js';
 type OpenAIVoice = ElevenLabsVoice;
 import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN } from './billing.js';
 import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './meta-capi.js';
-import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail } from './journey.js';
+import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail, getUserJourneys } from './journey.js';
 import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
 
 const app = express();
@@ -2494,6 +2494,7 @@ app.get('/api/admin/recover-scenes', async (req, res) => {
 app.get('/api/admin/overview', getOverview);
 app.get('/api/admin/users', getUsers);
 app.get('/api/admin/users/:userId', getUserDetail);
+app.get('/api/admin/users/:userId/journeys', getUserJourneys);
 app.delete('/api/admin/users/:userId', deleteUser);
 app.post('/api/admin/users/:userId/credits', adjustUserCredits);
 app.post('/api/admin/chapters/:chapterId/clear-scenes', clearChapterScenes);

@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { db } from './db.js';
 import { journeyEvents } from './schema.js';
 import { desc, eq, sql, and } from 'drizzle-orm';
+import { requireAdmin } from './admin.js';
 
 const IP_SALT = process.env.IP_HASH_SALT || 'theodore-journey-2026';
 
@@ -105,6 +106,65 @@ export async function getJourneys(req: Request, res: Response) {
   } catch (err: any) {
     console.error('[journey] admin list error:', err?.message || err);
     res.status(500).json({ error: 'Failed to fetch journeys' });
+  }
+}
+
+// GET /api/admin/users/:userId/journeys — sessions linked to a user
+//
+// Links are discovered two ways:
+//   1. journey_events with data->>'user_id' = userId (tagged once user signs in)
+//   2. guest_backups with claimed_by_user_id = userId (historical signups via guest flow)
+// We collect ip_hashes from both, then return every session that shares any of
+// those ip_hashes — surfacing pre-signup anonymous visits from the same device.
+export async function getUserJourneys(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const { userId } = req.params;
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+
+    const hashRows = await db.execute(sql`
+      SELECT DISTINCT ip_hash FROM (
+        SELECT ip_hash FROM journey_events
+          WHERE ip_hash IS NOT NULL AND data->>'user_id' = ${userId}
+        UNION
+        SELECT ip_hash FROM guest_backups
+          WHERE ip_hash IS NOT NULL AND claimed_by_user_id = ${userId}
+      ) t
+    `);
+    const ipHashes = (hashRows.rows as { ip_hash: string }[])
+      .map(r => r.ip_hash)
+      .filter(Boolean);
+
+    if (ipHashes.length === 0) {
+      return res.json({ sessions: [], ipHashes: [] });
+    }
+
+    const sessions = await db.execute(sql`
+      SELECT
+        session_id,
+        MIN(created_at)::text || 'Z' AS started_at,
+        MAX(created_at)::text || 'Z' AS last_event_at,
+        COUNT(*) AS event_count,
+        MAX(city) AS city,
+        MAX(region) AS region,
+        MAX(country) AS country,
+        MAX(ip_hash) AS ip_hash,
+        ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))))::int AS duration_seconds,
+        ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
+        BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin,
+        BOOL_OR(data->>'user_id' = ${userId}) AS signed_in
+      FROM journey_events
+      WHERE ip_hash = ANY(${ipHashes})
+      GROUP BY session_id
+      ORDER BY MIN(created_at) DESC
+      LIMIT ${limit}
+    `);
+
+    res.json({ sessions: sessions.rows, ipHashes });
+  } catch (err: any) {
+    console.error('[journey] user journeys error:', err?.message || err);
+    res.status(500).json({ error: 'Failed to fetch user journeys' });
   }
 }
 

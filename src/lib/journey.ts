@@ -8,9 +8,13 @@ const FLUSH_INTERVAL = 5000; // send batch every 5 seconds
 const API_URL = '/api/journey';
 const BEACON_URL = '/api/beacon';
 let isAdmin = false;
+let currentUserId: string | null = null;
 
 /** Call this when we know the current user is an admin (e.g. after auth) */
 export function setAdmin(admin: boolean) { isAdmin = admin; }
+
+/** Tag subsequent events with the signed-in user's id so admin can bundle a user's sessions. */
+export function setUser(userId: string | null) { currentUserId = userId; }
 
 interface JourneyEvent {
   sessionId: string;
@@ -46,7 +50,7 @@ export function track(event: string, data?: Record<string, unknown>) {
   queue.push({
     sessionId: SESSION_ID,
     event,
-    data: { ...data, ...(isAdmin ? { is_admin: true } : {}) },
+    data: { ...data, ...(isAdmin ? { is_admin: true } : {}), ...(currentUserId ? { user_id: currentUserId } : {}) },
     page: getPage(),
     ...geo,
   });

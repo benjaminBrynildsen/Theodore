@@ -151,17 +151,25 @@ const PLAN_LABELS: Record<string, string> = {
   studio: 'Studio',
 };
 
-function StatCard({ label, value, sub, icon: Icon }: { label: string; value: string | number; sub?: string; icon: typeof Users }) {
-  return (
-    <div className="glass-pill rounded-2xl p-4 sm:p-5">
+function StatCard({ label, value, sub, icon: Icon, onClick }: { label: string; value: string | number; sub?: string; icon: typeof Users; onClick?: () => void }) {
+  const body = (
+    <>
       <div className="flex items-start justify-between mb-2">
         <span className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">{label}</span>
         <Icon size={16} className="text-text-tertiary" />
       </div>
       <div className="text-2xl sm:text-3xl font-semibold text-text-primary">{value}</div>
       {sub && <div className="text-xs text-text-tertiary mt-1">{sub}</div>}
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button onClick={onClick} className="glass-pill rounded-2xl p-4 sm:p-5 text-left hover:bg-white/60 active:scale-[0.98] transition-all">
+        {body}
+      </button>
+    );
+  }
+  return <div className="glass-pill rounded-2xl p-4 sm:p-5">{body}</div>;
 }
 
 function PlanBadge({ plan }: { plan: string }) {
@@ -236,7 +244,9 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const [dailyStats, setDailyStats] = useState<DailyStats | null>(null);
   const [traffic, setTraffic] = useState<TrafficStats | null>(null);
   const [journeys, setJourneys] = useState<JourneySession[]>([]);
+  const [userJourneys, setUserJourneys] = useState<JourneySession[]>([]);
   const [journeyDetail, setJourneyDetail] = useState<JourneyDetail | null>(null);
+  const [journeyDetailOrigin, setJourneyDetailOrigin] = useState<View>('journey');
   const [journeyFilter, setJourneyFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -337,11 +347,12 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     setLoading(false);
   };
 
-  const loadJourneyDetail = async (sessionId: string) => {
+  const loadJourneyDetail = async (sessionId: string, origin: View = 'journey') => {
     setLoading(true);
     try {
       const data = await fetchJson<JourneyDetail>(`/journeys/${sessionId}`);
       setJourneyDetail(data);
+      setJourneyDetailOrigin(origin);
       setView('journey-detail');
     } catch { setError('Failed to load journey detail.'); }
     setLoading(false);
@@ -349,10 +360,15 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
   const loadUserDetail = async (userId: string) => {
     setLoading(true);
+    setUserJourneys([]);
     try {
       const data = await fetchJson<UserDetail>(`/users/${userId}`);
       setUserDetail(data);
       setView('user-detail');
+      // Fetch bundled journeys in parallel — don't block the detail render.
+      fetchJson<{ sessions: JourneySession[] }>(`/users/${userId}/journeys`)
+        .then(j => setUserJourneys(j.sessions || []))
+        .catch(() => { /* silently absent is fine */ });
     } catch { setError('Failed to load user.'); }
     setLoading(false);
   };
@@ -493,7 +509,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
           <div className="max-w-5xl mx-auto space-y-6">
             {/* Top stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <StatCard label="Total Users" value={overview.totalUsers} sub={`+${overview.recentSignups} this week`} icon={Users} />
+              <StatCard label="Total Users" value={overview.totalUsers} sub={`+${overview.recentSignups} this week`} icon={Users} onClick={() => setView('users')} />
               <StatCard label="MRR" value={`$${overview.mrr}`} sub={`${overview.planBreakdown.filter(p => p.plan !== 'free').reduce((a, b) => a + b.count, 0)} paid`} icon={CreditCard} />
               <StatCard label="Credits Used" value={overview.totalCreditsUsed.toLocaleString()} icon={Zap} />
               <StatCard label="Projects" value={overview.totalProjects} sub={`${overview.totalChapters} chapters`} icon={BookOpen} />
@@ -953,6 +969,66 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             )}
+
+            {/* Bundled Journey — every session from IPs linked to this user */}
+            <div className="glass-pill rounded-2xl p-4">
+              <div className="flex items-baseline justify-between mb-2">
+                <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Journey</h3>
+                <span className="text-[10px] text-text-tertiary">{userJourneys.length} session{userJourneys.length === 1 ? '' : 's'}</span>
+              </div>
+              {userJourneys.length === 0 ? (
+                <div className="text-xs text-text-tertiary py-2">No sessions linked yet. Signups through Google-only (no guest flow) start linking on their next visit after this feature ships.</div>
+              ) : (
+                <div className="space-y-1">
+                  {userJourneys.map((s) => {
+                    const dur = s.duration_seconds;
+                    const durLabel = dur < 60 ? `${dur}s` : `${Math.floor(dur / 60)}m ${dur % 60}s`;
+                    const signedIn = !!(s as any).signed_in;
+                    const hasEngagement = s.event_types.some(e =>
+                      ['prompt_submit', 'play_audio', 'focus_input', 'chat_auto_send', 'first_ai_response'].includes(e)
+                    );
+                    return (
+                      <button
+                        key={s.session_id}
+                        onClick={() => loadJourneyDetail(s.session_id, 'user-detail')}
+                        className={cn(
+                          'w-full flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all hover:bg-black/[0.03]',
+                          hasEngagement && 'bg-green-50/30'
+                        )}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-text-primary flex items-center gap-1.5">
+                            {s.city || 'Unknown'}{s.region ? `, ${s.region}` : ''}{s.country ? ` · ${s.country}` : ''}
+                            <span className={cn(
+                              'text-[9px] px-1.5 py-0.5 rounded-full font-semibold',
+                              signedIn ? 'bg-emerald-100 text-emerald-700' : 'bg-black/5 text-text-tertiary'
+                            )}>{signedIn ? 'signed in' : 'pre-signup'}</span>
+                          </div>
+                          <div className="text-[11px] text-text-tertiary mt-0.5 flex flex-wrap gap-1">
+                            {s.event_types.filter(e => e !== 'engaged' && e !== 'exit').slice(0, 8).map(e => (
+                              <span key={e} className={cn(
+                                'px-1.5 py-0.5 rounded-full',
+                                ['prompt_submit', 'chat_auto_send', 'first_ai_response'].includes(e)
+                                  ? 'bg-green-100 text-green-700'
+                                  : e === 'play_audio' ? 'bg-purple-100 text-purple-700'
+                                  : e === 'focus_input' ? 'bg-amber-100 text-amber-700'
+                                  : 'bg-black/[0.04] text-text-tertiary'
+                              )}>{e.replace(/_/g, ' ')}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-xs font-medium text-text-primary">{durLabel}</div>
+                          <div className="text-[10px] text-text-tertiary">{s.event_count} events</div>
+                          <div className="text-[10px] text-text-tertiary">{timeAgo(s.started_at)}</div>
+                        </div>
+                        <ChevronRight size={14} className="text-text-tertiary flex-shrink-0" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -1051,10 +1127,10 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {view === 'journey-detail' && journeyDetail && (
           <div className="max-w-3xl mx-auto">
             <button
-              onClick={() => setView('journey')}
+              onClick={() => setView(journeyDetailOrigin)}
               className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-primary mb-4"
             >
-              <ArrowLeft size={14} /> Back to journeys
+              <ArrowLeft size={14} /> {journeyDetailOrigin === 'user-detail' ? 'Back to user' : 'Back to journeys'}
             </button>
             <div className="glass-pill px-4 py-3 rounded-xl mb-4">
               <div className="text-sm font-medium">

@@ -18,7 +18,7 @@ import { AudiobookPanel } from './components/features/AudiobookPanel';
 import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/MobilePlayer';
 import { MobileStudioPanel } from './components/layout/MobileStudioPanel';
 import * as pixel from './lib/pixel';
-import { track as jTrack, setAdmin as setJourneyAdmin } from './lib/journey';
+import { track as jTrack, setAdmin as setJourneyAdmin, setUser as setJourneyUser } from './lib/journey';
 import { findCreator } from './data/creators';
 
 const ProjectView = lazy(async () => {
@@ -144,6 +144,7 @@ export default function App() {
   const ADMIN_EMAILS = ['benbrynildsen5757@gmail.com', 'ben@germaniabrewhaus.com'];
   useEffect(() => {
     setJourneyAdmin(!!user && ADMIN_EMAILS.includes(user.email));
+    setJourneyUser(user?.id || null);
   }, [user]);
 
   const [showGuestChat, setShowGuestChat] = useState(false);
