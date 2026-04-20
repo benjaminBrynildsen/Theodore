@@ -11,6 +11,7 @@ import { AuthView } from './AuthView';
 import { IllustrateButton } from '../features/IllustrateButton';
 import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../../lib/scaffold';
 import { generateStream } from '../../lib/generate';
+import { generateImageApi } from '../../lib/image-gen';
 import { cn, generateId } from '../../lib/utils';
 import { triggerListen, playExistingAudio } from '../../lib/chapter-listen';
 import { useAudioStore } from '../../store/audio';
@@ -45,6 +46,9 @@ export function ProjectView() {
   const isGuest = !user;
   const [showSignUpPrompt, setShowSignUpPrompt] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
+  const [bulkIllustrating, setBulkIllustrating] = useState(false);
+  const [bulkIllustrateProgress, setBulkIllustrateProgress] = useState<{ current: number; total: number } | null>(null);
+  const [bulkIllustrateError, setBulkIllustrateError] = useState<string | null>(null);
 
   // Auto-close auth modal when user signs in
   useEffect(() => {
@@ -170,6 +174,39 @@ export function ProjectView() {
       createdAt: now,
       updatedAt: now,
     });
+  };
+
+  // Bulk-illustrate every page missing an image. Sequential so xAI's rate
+  // limiter doesn't trip, and so the user can watch images appear one by one.
+  const handleIllustrateAllPages = async () => {
+    if (bulkIllustrating) return;
+    const missing = chapters.filter((c) => !c.imageUrl && (c.prose?.trim() || c.illustrationNotes?.trim() || c.premise?.purpose?.trim()));
+    if (missing.length === 0) return;
+    setBulkIllustrating(true);
+    setBulkIllustrateError(null);
+    setBulkIllustrateProgress({ current: 0, total: missing.length });
+    for (let i = 0; i < missing.length; i++) {
+      const chapter = missing[i];
+      try {
+        const result = await generateImageApi({
+          target: 'page',
+          targetId: chapter.id,
+          projectId: project.id,
+          provider: 'grok',
+          aspectRatio: '1:1',
+          style: 'illustration',
+        });
+        updateChapter(chapter.id, { imageUrl: result.imageUrl });
+      } catch (e: any) {
+        // Don't stop the whole batch on one failure — log, surface at the end.
+        console.error(`[Bulk illustrate] page ${chapter.number} failed:`, e?.message);
+        if (!bulkIllustrateError) setBulkIllustrateError(e?.message || 'Some pages failed to illustrate.');
+      } finally {
+        setBulkIllustrateProgress({ current: i + 1, total: missing.length });
+      }
+    }
+    setBulkIllustrating(false);
+    setTimeout(() => setBulkIllustrateProgress(null), 2500);
   };
 
   // Style guide handlers for children's books
@@ -571,6 +608,34 @@ export function ProjectView() {
               </div>
             ))}
             <p className="text-xs text-text-tertiary text-center pt-2">Building your chapter outline…</p>
+          </div>
+        )}
+
+        {/* Bulk-illustrate action for children's books — fills every page
+            that's still missing artwork via Grok so the set stays stylistically
+            consistent. Hidden when every page already has an image. */}
+        {isChildrensBook && chapters.some((c) => !c.imageUrl) && (
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <button
+              onClick={handleIllustrateAllPages}
+              disabled={bulkIllustrating}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all',
+                bulkIllustrating
+                  ? 'bg-purple-100 text-purple-700 cursor-wait'
+                  : 'bg-text-primary text-text-inverse hover:shadow-md',
+              )}
+            >
+              {bulkIllustrating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {bulkIllustrating
+                ? bulkIllustrateProgress
+                  ? `Illustrating ${bulkIllustrateProgress.current} of ${bulkIllustrateProgress.total}…`
+                  : 'Illustrating…'
+                : `Illustrate all ${chapters.filter((c) => !c.imageUrl).length} remaining pages`}
+            </button>
+            {bulkIllustrateError && (
+              <span className="text-[11px] text-red-600">{bulkIllustrateError}</span>
+            )}
           </div>
         )}
 

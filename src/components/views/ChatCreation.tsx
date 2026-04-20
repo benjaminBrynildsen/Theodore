@@ -1874,10 +1874,14 @@ ${childrensRule}`,
                     <div className="absolute inset-0 rounded-[10.5px]" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 50%)' }} />
                     <span className="relative z-10">
                       {creatingProject
-                        ? selectedSettings ? 'Creating…' : 'Building your novel…'
+                        ? selectedSettings
+                          ? 'Creating…'
+                          : bookType === 'childrens-book' ? 'Building your picture book…' : 'Building your novel…'
                         : selectedSettings?.title
-                        ? <>Read <em className="italic">{selectedSettings.title}</em> →</>
-                        : "Read My Book (It's Ready) →"}
+                        ? <>{bookType === 'childrens-book' ? 'Create ' : 'Read '}<em className="italic">{selectedSettings.title}</em> →</>
+                        : bookType === 'childrens-book'
+                          ? "Create My Children's Book →"
+                          : "Read My Book (It's Ready) →"}
                     </span>
                   </button>
                 </div>
@@ -1954,10 +1958,12 @@ ${childrensRule}`,
                   <div className="absolute inset-0 rounded-[14.5px]" style={{ background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, transparent 50%)' }} />
                   <span className="relative z-10">
                     {creatingProject
-                      ? selectedSettings ? 'Creating…' : 'Building your novel…'
+                      ? selectedSettings
+                        ? 'Creating…'
+                        : bookType === 'childrens-book' ? 'Building your picture book…' : 'Building your novel…'
                       : selectedSettings?.title
-                      ? <>Read <em className="italic">{selectedSettings.title}</em> →</>
-                      : 'Create Novel'}
+                      ? <>{bookType === 'childrens-book' ? 'Create ' : 'Read '}<em className="italic">{selectedSettings.title}</em> →</>
+                      : bookType === 'childrens-book' ? "Create Children's Book" : 'Create Novel'}
                   </span>
                 </button>
               </div>

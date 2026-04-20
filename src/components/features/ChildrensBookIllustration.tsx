@@ -15,7 +15,10 @@ interface Props {
 
 /**
  * Children's book page illustration. Calls /api/generate/image with
- * provider='openai' (gpt-image-1, gated to publisher tier server-side).
+ * provider='grok' — xAI's image model keeps art style and characters
+ * consistent across related prompts, which matters when every page of a
+ * picture book needs to look like it came from the same illustrator.
+ * Server is gated to the publisher tier.
  *
  * Visibility is controlled at the call site by checking:
  *   - project.subtype === 'childrens-book'
@@ -42,7 +45,7 @@ export function ChildrensBookIllustration({ chapterId, projectId, imageUrl, onIm
         target: 'page',
         targetId: chapterId,
         projectId,
-        provider: 'openai',
+        provider: 'grok',
         aspectRatio: '1:1',
         style: 'illustration',
       });
@@ -53,7 +56,7 @@ export function ChildrensBookIllustration({ chapterId, projectId, imageUrl, onIm
           creditsUsed: result.creditsUsed,
           tokensInput: 0,
           tokensOutput: 0,
-          model: 'gpt-image-1',
+          model: 'grok-2-image-1212',
           creditsRemaining: result.creditsRemaining ?? null,
         });
       }

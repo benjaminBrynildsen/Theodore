@@ -199,6 +199,73 @@ export async function generateImageOpenAI(req: ImageGenRequest): Promise<ImageGe
   };
 }
 
+// ========== Grok (xAI) Image Generation ==========
+// Used for children's-book page illustrations. Grok's image model produces
+// more consistent style across related prompts than OpenAI's gpt-image-1,
+// which matters a lot when every page in a picture book needs to look like
+// it came from the same illustrator.
+// API is OpenAI-compatible; differences:
+//   - Endpoint: https://api.x.ai/v1/images/generations
+//   - Auth: XAI_API_KEY
+//   - Model: grok-2-image-1212 (latest xAI image model)
+//   - Does not accept a `size` parameter — output is fixed at 1024x768.
+
+export async function generateImageGrok(req: ImageGenRequest): Promise<ImageGenResult> {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) throw new Error('XAI_API_KEY not configured.');
+
+  ensureUploadsDir();
+
+  const fullPrompt = buildImagePrompt(req);
+  const model = 'grok-2-image-1212';
+
+  const response = await fetch('https://api.x.ai/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      prompt: fullPrompt,
+      n: 1,
+      response_format: 'b64_json',
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({} as any));
+    throw new Error(
+      `Grok image API error ${response.status}: ${(err as any).error?.message || response.statusText}`,
+    );
+  }
+
+  const data = (await response.json()) as { data?: Array<{ b64_json?: string; url?: string }> };
+  const item = data.data?.[0];
+  if (!item) throw new Error('Grok returned no image.');
+
+  let imageBytes: Buffer | null = null;
+  if (item.b64_json) {
+    imageBytes = Buffer.from(item.b64_json, 'base64');
+  } else if (item.url) {
+    const fetched = await fetch(item.url);
+    if (!fetched.ok) throw new Error(`Failed to download generated image: ${fetched.status}`);
+    imageBytes = Buffer.from(await fetched.arrayBuffer());
+  }
+  if (!imageBytes) throw new Error('No image data in Grok response.');
+
+  const filename = `${crypto.randomUUID()}.png`;
+  const filepath = path.join(UPLOADS_DIR, filename);
+  fs.writeFileSync(filepath, imageBytes);
+
+  return {
+    imageUrl: `/uploads/generated/${filename}`,
+    prompt: fullPrompt,
+    model,
+    creditsUsed: 20,
+  };
+}
+
 // ========== Canon-Aware Prompt Builders ==========
 
 export function buildCharacterPortraitPrompt(character: {

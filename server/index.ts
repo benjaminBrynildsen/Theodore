@@ -24,7 +24,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
-import { generateImage, generateImageOpenAI, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
+import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin } from './admin.js';
 import multer from 'multer';
@@ -1722,9 +1722,14 @@ app.post('/api/generate/image', async (req, res) => {
       if (!user) return res.status(404).json({ error: 'User not found' });
     }
 
-    // OpenAI image gen is the children's book beta path. Restricted to publisher.
+    // Children's-book page images default to Grok for cross-page style
+    // consistency (xAI's image model keeps character + art style steadier
+    // across related prompts than gpt-image-1). Explicit provider='openai'
+    // still routes to OpenAI. Both are gated to the publisher plan.
     const wantsOpenAI = provider === 'openai';
-    if (wantsOpenAI && user?.plan !== 'publisher') {
+    const wantsGrok = provider === 'grok' || (target === 'page' && !wantsOpenAI);
+    const usingBetaImageProvider = wantsOpenAI || wantsGrok;
+    if (usingBetaImageProvider && user?.plan !== 'publisher') {
       return res.status(403).json({
         error: 'Image generation is currently available on the Publisher plan only.',
       });
@@ -1826,7 +1831,11 @@ app.post('/api/generate/image', async (req, res) => {
 
     if (!finalPrompt) return res.status(400).json({ error: 'Could not build image prompt' });
 
-    const generator = wantsOpenAI ? generateImageOpenAI : generateImage;
+    const generator = wantsGrok
+      ? generateImageGrok
+      : wantsOpenAI
+        ? generateImageOpenAI
+        : generateImage;
     const result = await generator({
       prompt: finalPrompt,
       aspectRatio: aspectRatio || '1:1',
