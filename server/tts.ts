@@ -287,7 +287,7 @@ function looksLikeInvalidVoiceError(status: number, detail: string): boolean {
   return false;
 }
 
-async function callOpenAITTS(text: string, voice: string, speed = 1.0): Promise<Buffer> {
+export async function callOpenAITTS(text: string, voice: string, speed = 1.0): Promise<Buffer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY is required for OpenAI TTS');
 
@@ -346,7 +346,7 @@ const GROK_TTS_API = 'https://api.x.ai/v1/tts';
 // behaviour on boundary-sized inputs.
 const GROK_MAX_CHARS_PER_REQUEST = 14500;
 
-async function callGrokTTS(text: string, voiceId: string): Promise<Buffer> {
+export async function callGrokTTS(text: string, voiceId: string): Promise<Buffer> {
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) throw new Error('XAI_API_KEY is required for Grok TTS');
 

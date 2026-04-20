@@ -1,10 +1,19 @@
 /**
  * Active Character routes — the live-beat pipeline for Active Character Books.
  *
- * Three endpoints:
- *   POST /api/active-character/place-beats    — AI places 2-3 Open Beats in a chapter
- *   POST /api/active-character/transcribe     — xAI Speech (→ OpenAI Whisper fallback)
- *   POST /api/active-character/react          — Grok fast-lane LLM streams reaction prose
+ * Five endpoints:
+ *   POST /api/active-character/place-beats        — AI places 2-3 Open Beats in a chapter
+ *   POST /api/active-character/transcribe         — xAI Speech (→ OpenAI Whisper fallback)
+ *   POST /api/active-character/react              — Grok streams reaction prose (text only)
+ *   POST /api/active-character/react-speak        — Grok reaction PLUS pipelined Grok TTS,
+ *                                                   streaming audio chunks as each sentence
+ *                                                   completes so the client can start playback
+ *                                                   in ~2s instead of waiting 10-15s for
+ *                                                   full-text → full-TTS round-trips.
+ *   POST /api/active-character/continue-chapter   — After a beat, generate the next prose
+ *                                                   segment dynamically (steered by the
+ *                                                   listener's utterance) and stream it as
+ *                                                   text + audio chunks.
  *
  * Everything is stateless per-request. Persistence of Open Beats happens via
  * the existing chapter PATCH endpoint (scenes jsonb). Playthrough rows are not
@@ -14,6 +23,7 @@ import type { Request, Response, Router } from 'express';
 import express from 'express';
 import multer from 'multer';
 import crypto from 'crypto';
+import { callGrokTTS } from './tts';
 
 const XAI_BASE_URL = 'https://api.x.ai/v1';
 const XAI_CHAT_MODEL = process.env.XAI_REACTION_MODEL || 'grok-2-latest';
@@ -304,6 +314,242 @@ Rules:
 }
 
 // ============================================================================
+// Pipelined text+TTS streaming — sentence buffering with parallel Grok TTS
+// ============================================================================
+
+interface AudioChunkOut {
+  index: number;
+  audio: string; // base64 MP3
+}
+
+interface StreamHandlers {
+  onTextDelta: (delta: string) => void;
+  onAudioChunk: (chunk: AudioChunkOut) => void;
+}
+
+// Greedy sentence splitter — matches ". ", "! ", "? " or line breaks. Tuned
+// to produce 20-120-char chunks so each Grok TTS call stays <1s round-trip.
+function extractSentences(buf: string): { sentences: string[]; remainder: string } {
+  const out: string[] = [];
+  let remainder = buf;
+  const re = /([^.!?\n]+[.!?]+["')\]]*)(\s+|$)/g;
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(buf)) !== null) {
+    const sent = match[1].trim();
+    if (sent.length >= 8) out.push(sent);
+    lastIdx = re.lastIndex;
+  }
+  if (lastIdx > 0) remainder = buf.slice(lastIdx);
+  return { sentences: out, remainder };
+}
+
+// Kick off Grok TTS for a sentence, preserving order. Chunks are emitted to
+// the client as their TTS completes, but we serialize the EMIT so the audio
+// plays in narrative order even if shorter sentences finish synthesis first.
+function makeOrderedEmitter(onAudioChunk: (c: AudioChunkOut) => void) {
+  const buffer: Map<number, string> = new Map();
+  let nextToEmit = 0;
+  return {
+    add(index: number, audioBase64: string) {
+      buffer.set(index, audioBase64);
+      while (buffer.has(nextToEmit)) {
+        const audio = buffer.get(nextToEmit)!;
+        buffer.delete(nextToEmit);
+        onAudioChunk({ index: nextToEmit, audio });
+        nextToEmit++;
+      }
+    },
+    get pending() {
+      return buffer.size;
+    },
+  };
+}
+
+async function ttsSentence(sentence: string, voiceId: string): Promise<string> {
+  const buf = await callGrokTTS(sentence, voiceId);
+  return buf.toString('base64');
+}
+
+async function streamGrokReactionWithAudio(
+  r: ReactRequest,
+  voiceId: string,
+  handlers: StreamHandlers,
+): Promise<string> {
+  let textBuf = '';
+  let chunkIndex = 0;
+  const inflight: Promise<void>[] = [];
+  const emitter = makeOrderedEmitter(handlers.onAudioChunk);
+
+  const enqueueTTS = (sentence: string) => {
+    const myIndex = chunkIndex++;
+    const p = ttsSentence(sentence, voiceId)
+      .then((audio) => emitter.add(myIndex, audio))
+      .catch((err) => {
+        console.warn('[react-speak] tts chunk failed:', err?.message || err);
+        // Emit a silent marker so the client knows to skip this slot rather
+        // than wait forever for an out-of-order chunk that will never land.
+        emitter.add(myIndex, '');
+      });
+    inflight.push(p);
+  };
+
+  const full = await streamGrokReaction(r, (delta) => {
+    handlers.onTextDelta(delta);
+    textBuf += delta;
+    const { sentences, remainder } = extractSentences(textBuf);
+    for (const s of sentences) enqueueTTS(s);
+    textBuf = remainder;
+  });
+
+  // TTS any trailing fragment that didn't hit a sentence terminator
+  const tail = textBuf.trim();
+  if (tail.length >= 8) enqueueTTS(tail);
+
+  await Promise.all(inflight);
+  return full;
+}
+
+// ============================================================================
+// Continue-chapter — dynamically generate post-beat prose steered by listener
+// ============================================================================
+
+export interface ContinueChapterRequest {
+  priorProse: string;           // everything the listener has already heard
+  listenerUtterance: string;    // what the user just said in-character
+  reactionText: string;         // the immediate NPC reaction that just played
+  characterName: string;
+  characterArchetype?: string;
+  characterRegister?: string;
+  chapterTitle?: string;
+  chapterPremise?: string;      // original premise so the story still lands
+  targetWords?: number;         // how much continuation to produce (default 300)
+}
+
+function buildContinueSystemPrompt(r: ContinueChapterRequest): string {
+  const target = r.targetWords ?? 300;
+  return `You are writing the next ~${target} words of an audiobook chapter. The listener is voicing "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''} in real time. They just spoke a line and another character reacted. Now continue the chapter prose — this is the real narrative, not a side scene.
+
+Hard rules:
+- ~${target} words. Pace the continuation so it lands on a natural moment (end of scene beat, new question, or revelation).
+- Maintain the third-person narrative voice and register from the prior prose.
+- Treat the listener's line as canon dialogue spoken by ${r.characterName}; build on its emotional weight.
+- Do NOT restate the listener's line or the reaction — continue forward.
+- Do NOT break the fourth wall or acknowledge the listener.
+- If the chapter premise below still has unfulfilled beats, keep moving toward them.
+${r.characterRegister ? `- When ${r.characterName} speaks or thinks, match the register: "${r.characterRegister}".` : ''}`;
+}
+
+function buildContinueUserPrompt(r: ContinueChapterRequest): string {
+  return `Chapter${r.chapterTitle ? `: ${r.chapterTitle}` : ''}
+${r.chapterPremise ? `\nOriginal premise: ${r.chapterPremise}` : ''}
+
+Prose so far (already heard by the listener):
+${r.priorProse.trim().slice(-3500)}
+
+${r.characterName} (voiced by the listener) just said:
+"${r.listenerUtterance.trim() || '(silence)'}"
+
+Immediate reaction that just played:
+"${r.reactionText.trim()}"
+
+Now write the next ~${r.targetWords ?? 300} words of the chapter, continuing naturally.`;
+}
+
+async function streamGrokContinuation(
+  r: ContinueChapterRequest,
+  onToken: (t: string) => void,
+): Promise<string> {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) throw new Error('XAI_API_KEY missing');
+
+  const resp = await fetch(`${XAI_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: XAI_CHAT_MODEL,
+      stream: true,
+      temperature: 0.75,
+      max_tokens: Math.max(400, Math.ceil((r.targetWords ?? 300) * 1.8)),
+      messages: [
+        { role: 'system', content: buildContinueSystemPrompt(r) },
+        { role: 'user', content: buildContinueUserPrompt(r) },
+      ],
+    }),
+  });
+
+  if (!resp.ok || !resp.body) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`continue-chapter ${resp.status}: ${body.slice(0, 400)}`);
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let full = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() ?? '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      if (payload === '[DONE]') continue;
+      try {
+        const evt = JSON.parse(payload);
+        const delta = evt?.choices?.[0]?.delta?.content;
+        if (typeof delta === 'string' && delta.length > 0) {
+          full += delta;
+          onToken(delta);
+        }
+      } catch { /* keep streaming */ }
+    }
+  }
+  return full;
+}
+
+async function streamContinueChapterWithAudio(
+  r: ContinueChapterRequest,
+  voiceId: string,
+  handlers: StreamHandlers,
+): Promise<string> {
+  let textBuf = '';
+  let chunkIndex = 0;
+  const inflight: Promise<void>[] = [];
+  const emitter = makeOrderedEmitter(handlers.onAudioChunk);
+
+  const enqueueTTS = (sentence: string) => {
+    const myIndex = chunkIndex++;
+    const p = ttsSentence(sentence, voiceId)
+      .then((audio) => emitter.add(myIndex, audio))
+      .catch((err) => {
+        console.warn('[continue-chapter] tts chunk failed:', err?.message || err);
+        emitter.add(myIndex, '');
+      });
+    inflight.push(p);
+  };
+
+  const full = await streamGrokContinuation(r, (delta) => {
+    handlers.onTextDelta(delta);
+    textBuf += delta;
+    const { sentences, remainder } = extractSentences(textBuf);
+    for (const s of sentences) enqueueTTS(s);
+    textBuf = remainder;
+  });
+
+  const tail = textBuf.trim();
+  if (tail.length >= 8) enqueueTTS(tail);
+  await Promise.all(inflight);
+  return full;
+}
+
+// ============================================================================
 // Route registration — called from server/index.ts via attach()
 // ============================================================================
 
@@ -355,6 +601,88 @@ export function attachActiveCharacterRoutes(app: Router, requireAuth: RequireAut
     } catch (e: any) {
       ac('react outer failed', e?.message || e);
       if (!res.headersSent) res.status(500).json({ error: e?.message || 'react failed' });
+    }
+  });
+
+  // ----- React + stream audio chunks (fast-lane for live playback) -----
+  //
+  // Pipeline: Grok token stream → sentence buffer → parallel Grok TTS per
+  // sentence → SSE events with base64 MP3 chunks emitted IN ORDER. The client
+  // plays chunks as they arrive so the first sound reaches the ear in ~2s
+  // instead of waiting for full-text → full-TTS (10-15s).
+  app.post('/api/active-character/react-speak', express.json({ limit: '256kb' }), async (req: Request, res: Response) => {
+    try {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+      const body = req.body as ReactRequest & { voiceId?: string };
+      if (!body?.cueText || !body?.characterName) {
+        return res.status(400).json({ error: 'cueText and characterName required' });
+      }
+      const voiceId = body.voiceId || 'eve';
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      try {
+        const full = await streamGrokReactionWithAudio(body, voiceId, {
+          onTextDelta: (delta) => {
+            res.write(`data: ${JSON.stringify({ type: 'text', delta })}\n\n`);
+          },
+          onAudioChunk: (chunk) => {
+            res.write(`data: ${JSON.stringify({ type: 'audio', index: chunk.index, audio: chunk.audio, mime: 'audio/mpeg' })}\n\n`);
+          },
+        });
+        res.write(`data: ${JSON.stringify({ type: 'done', text: full })}\n\n`);
+      } catch (err: any) {
+        res.write(`data: ${JSON.stringify({ type: 'error', error: err?.message || 'react-speak failed' })}\n\n`);
+      } finally {
+        res.end();
+      }
+    } catch (e: any) {
+      ac('react-speak outer failed', e?.message || e);
+      if (!res.headersSent) res.status(500).json({ error: e?.message || 'react-speak failed' });
+    }
+  });
+
+  // ----- Continue-chapter: dynamically generate post-beat prose steered by
+  // the listener's utterance, and stream it + TTS audio chunks. Used right
+  // after a beat completes so the rest of the chapter adapts to what the
+  // listener said instead of resuming pre-written prose.
+  app.post('/api/active-character/continue-chapter', express.json({ limit: '512kb' }), async (req: Request, res: Response) => {
+    try {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+      const body = req.body as ContinueChapterRequest & { voiceId?: string };
+      if (!body?.priorProse || !body?.listenerUtterance || !body?.characterName) {
+        return res.status(400).json({ error: 'priorProse, listenerUtterance, characterName required' });
+      }
+      const voiceId = body.voiceId || 'eve';
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      try {
+        const full = await streamContinueChapterWithAudio(body, voiceId, {
+          onTextDelta: (delta) => {
+            res.write(`data: ${JSON.stringify({ type: 'text', delta })}\n\n`);
+          },
+          onAudioChunk: (chunk) => {
+            res.write(`data: ${JSON.stringify({ type: 'audio', index: chunk.index, audio: chunk.audio, mime: 'audio/mpeg' })}\n\n`);
+          },
+        });
+        res.write(`data: ${JSON.stringify({ type: 'done', text: full })}\n\n`);
+      } catch (err: any) {
+        res.write(`data: ${JSON.stringify({ type: 'error', error: err?.message || 'continue-chapter failed' })}\n\n`);
+      } finally {
+        res.end();
+      }
+    } catch (e: any) {
+      ac('continue-chapter outer failed', e?.message || e);
+      if (!res.headersSent) res.status(500).json({ error: e?.message || 'continue-chapter failed' });
     }
   });
 
