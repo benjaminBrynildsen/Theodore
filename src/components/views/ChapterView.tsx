@@ -279,29 +279,21 @@ export function ChapterView({ chapter }: Props) {
       async (usage) => {
         setGenerationPct(100);
         useGenerationStore.getState().setPhase('finalizing');
+        useGenerationStore.getState().setSubtitle('Saving chapter…');
         // Generation complete — clean up AI artifacts and save to chapter
         // Strip leading chapter title/heading lines (e.g. "**Chapter 1: Title**", "# Chapter 1", "Chapter 1: Title")
         accumulated = accumulated.replace(/^\s*(\*{1,2})?#*\s*(Chapter\s+\d+[:\s].*?)(\*{1,2})?\s*\n+/i, '').trimStart();
 
-        let finalProse = accumulated;
-        if (needsDialogueClarityPass(finalProse)) {
-          try {
-            const repaired = await generateText({
-              prompt: `Rewrite this chapter prose ONLY to improve dialogue speaker clarity. Keep all plot events, tone, pacing, and wording as intact as possible. Do not shorten. Do not summarize. Do not add new events.\n\nRules:\n- Whenever speaker changes, make speaker identity explicit nearby.\n- Avoid consecutive unattributed quote-only paragraphs when speakers alternate.\n- Keep natural prose quality; avoid over-tagging every line.\n\nCHAPTER PROSE:\n${finalProse}`,
-              model: settings.ai?.preferredModel || 'claude-sonnet',
-              maxTokens: wordTargetMaxTokens,
-              action: 'dialogue-clarity-pass',
-              projectId: project.id,
-              chapterId: chapter.id,
-            });
-            if (repaired?.text?.trim()) finalProse = repaired.text.trim();
-          } catch (e) {
-            console.warn('[Generation] Dialogue clarity pass failed (non-blocking):', e);
-          }
-        }
+        const initialProse = accumulated;
+        const initialWordCount = initialProse.trim().split(/\s+/).filter(Boolean).length;
 
+        // Save the initial prose FIRST so the chapter is usable immediately.
+        // The dialogue-clarity pass (below) used to block here for a full
+        // second generation, so the progress bar sat in "finalizing" for 1-2
+        // minutes and auto-audio had to wait the whole time — users assumed
+        // the generation was stuck.
         const generationPayload = {
-          prose: finalProse,
+          prose: initialProse,
           status: 'draft-generated' as const,
           aiIntentMetadata: {
             model: usage.creditsUsed ? settings.ai?.preferredModel || 'claude-sonnet' : 'unknown',
@@ -318,9 +310,7 @@ export function ChapterView({ chapter }: Props) {
           },
         };
         updateChapter(chapter.id, generationPayload);
-
-        // Immediately save prose to server (don't rely on debounce which can be cancelled)
-        api.updateChapter(chapter.id, { prose: finalProse, status: 'draft-generated' }).catch((e) =>
+        api.updateChapter(chapter.id, { prose: initialProse, status: 'draft-generated' }).catch((e) =>
           console.error('[Generation] Immediate prose save failed:', e),
         );
 
@@ -331,28 +321,26 @@ export function ChapterView({ chapter }: Props) {
         // user sees what actually came out before the bar fades. If the model
         // stopped significantly short of target, the persistent banner below
         // the title will keep the "Continue / Extend" option in front of them.
-        const finalWordCount = finalProse.trim().split(/\s+/).filter(Boolean).length;
         useGenerationStore.getState().setSubtitle(
           isChildrensBook
-            ? `${finalWordCount.toLocaleString()} words`
-            : `${finalWordCount.toLocaleString()} / ${wordTarget.toLocaleString()} target words`,
+            ? `${initialWordCount.toLocaleString()} words`
+            : `${initialWordCount.toLocaleString()} / ${wordTarget.toLocaleString()} target words`,
         );
         useGenerationStore.getState().setPhase('done');
 
         // Auto-trigger audiobook generation so the user hits the audio "wow"
-        // moment without a second click. Gated by:
-        //   - children's books skip (no audio pipeline for picture-book pages)
-        //   - user setting `autoAudioOnGenerate` (default true)
-        //   - prose length check (>200 words) handled inside triggerListen
+        // moment without a second click. Fires BEFORE the dialogue-clarity
+        // polish pass so audio starts streaming while polish runs in the
+        // background (polish only retags dialogue attributions — audio
+        // quality from the initial prose is already fine).
         const autoAudio = settings.ai?.autoAudioOnGenerate !== false;
-        const finalWords = finalProse.trim().split(/\s+/).length;
-        if (autoAudio && !isChildrensBook && finalWords >= 200) {
+        if (autoAudio && !isChildrensBook && initialWordCount >= 200) {
           try {
             jTrack('audio_auto_dispatched', {
               chapter_id: chapter.id,
               chapter_number: chapter.number,
               source: 'bundled_generate',
-              words: finalWords,
+              words: initialWordCount,
             });
             window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: chapter.id } }));
           } catch (e) {
@@ -362,8 +350,36 @@ export function ChapterView({ chapter }: Props) {
           jTrack('audio_auto_skipped', {
             chapter_id: chapter.id,
             reason: !autoAudio ? 'setting_off' : isChildrensBook ? 'childrens_book' : 'prose_too_short',
-            words: finalWords,
+            words: initialWordCount,
           });
+        }
+
+        // Dialogue-clarity polish pass runs in the background — non-blocking.
+        // If it produces cleaner prose, we silently replace the stored text.
+        // Bounded by a 45s timeout so a hung upstream can't leave the chapter
+        // in a half-polished state forever.
+        if (!isChildrensBook && needsDialogueClarityPass(initialProse)) {
+          void (async () => {
+            try {
+              const polishPromise = generateText({
+                prompt: `Rewrite this chapter prose ONLY to improve dialogue speaker clarity. Keep all plot events, tone, pacing, and wording as intact as possible. Do not shorten. Do not summarize. Do not add new events.\n\nRules:\n- Whenever speaker changes, make speaker identity explicit nearby.\n- Avoid consecutive unattributed quote-only paragraphs when speakers alternate.\n- Keep natural prose quality; avoid over-tagging every line.\n\nCHAPTER PROSE:\n${initialProse}`,
+                model: settings.ai?.preferredModel || 'claude-sonnet',
+                maxTokens: wordTargetMaxTokens,
+                action: 'dialogue-clarity-pass',
+                projectId: project.id,
+                chapterId: chapter.id,
+              });
+              const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 45_000));
+              const repaired = await Promise.race([polishPromise, timeout]);
+              if (repaired && (repaired as any).text?.trim()) {
+                const polished = (repaired as any).text.trim();
+                updateChapter(chapter.id, { prose: polished });
+                api.updateChapter(chapter.id, { prose: polished }).catch(() => {});
+              }
+            } catch (e) {
+              console.warn('[Generation] Dialogue clarity pass failed (non-blocking):', e);
+            }
+          })();
         }
 
         // Auto-run post-generation pipeline (entity scan + scene decomposition for sidebar/studio)
