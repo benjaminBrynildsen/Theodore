@@ -221,8 +221,12 @@ export async function placeBeatsWithGrok(r: PlaceBeatsRequest): Promise<Array<{
   intentHints: string[];
   stateMutationRules: string[];
 }>> {
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) throw new Error('XAI_API_KEY missing');
+  // Anthropic Claude Haiku handles this structured-extraction task cheaply and
+  // reliably. Previously delegated to Grok (xAI) but their chat model names
+  // keep moving (grok-2-latest, grok-beta, grok-4) — the resulting 400s
+  // silently shipped 0 beats. Using Haiku removes that fragility.
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
   const maxBeats = Math.min(Math.max(r.maxBeats ?? 3, 1), 5);
 
   const sys = `You are an audiobook director identifying 2-${maxBeats} natural moments where "${r.activeCharacterName}" would speak a line of dialogue. These are "Open Beats" — the listener will voice the character at each of them during playback. Return ONLY a JSON array of objects with this exact shape and no other text:
@@ -244,30 +248,29 @@ Rules:
 
   const user = `Chapter: ${r.chapterTitle}\n\nProse:\n${r.prose.slice(0, 8000)}`;
 
-  const resp = await fetch(`${XAI_BASE_URL}/chat/completions`, {
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: XAI_CHAT_MODEL,
-      temperature: 0.4,
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 900,
-      messages: [
-        { role: 'system', content: sys },
-        { role: 'user', content: user },
-      ],
+      temperature: 0.4,
+      system: sys,
+      messages: [{ role: 'user', content: user }],
     }),
   });
 
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
-    throw new Error(`Grok place-beats ${resp.status}: ${body.slice(0, 400)}`);
+    throw new Error(`place-beats ${resp.status}: ${body.slice(0, 400)}`);
   }
 
   const json = (await resp.json()) as any;
-  const raw = json?.choices?.[0]?.message?.content ?? '';
+  const raw = json?.content?.[0]?.text ?? '';
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
 
   let parsed: any[] = [];
