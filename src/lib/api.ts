@@ -2,6 +2,17 @@
 
 const API_BASE = '/api';
 
+export class ApiError extends Error {
+  status: number;
+  body: any;
+  constructor(message: string, status: number, body: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -13,8 +24,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `API error ${res.status}`);
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new ApiError(body.error || `API error ${res.status}`, res.status, body);
   }
   return res.json();
 }
@@ -96,10 +107,21 @@ export const api = {
     // Unauthenticated guests get one free OpenAI sample per IP per day via
     // the /tts/generate/guest endpoint; the authenticated path requires login.
     const endpoint = data.isGuest ? '/tts/generate/guest' : '/tts/generate';
-    const jobResponse = await request<{ jobId: string; status: string }>(
+    // Retry submit once on transient network errors (e.g. Render cold start,
+    // Safari "Load failed" on brief connectivity drop). Do NOT retry on an
+    // ApiError — those are deliberate server responses (402, 429, 400, etc).
+    const submit = () => request<{ jobId: string; status: string }>(
       endpoint,
       { method: 'POST', body: JSON.stringify(data) }
     );
+    let jobResponse: { jobId: string; status: string };
+    try {
+      jobResponse = await submit();
+    } catch (err: any) {
+      if (err instanceof ApiError) throw err;
+      await new Promise(r => setTimeout(r, 1500));
+      jobResponse = await submit();
+    }
 
     if (!jobResponse.jobId) {
       // Fallback: server returned result directly (shouldn't happen but just in case)

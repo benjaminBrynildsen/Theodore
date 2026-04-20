@@ -9,7 +9,7 @@ import { useCreditsStore } from '../../store/credits';
 import { useGenerationStore } from '../../store/generation';
 import { useMusicStore } from '../../store/music';
 import { cn } from '../../lib/utils';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { ELEVENLABS_VOICES, getVoiceName, resolveVoiceId } from '../../lib/tts-types';
 import type { ElevenLabsVoice } from '../../lib/tts-types';
 import type { CharacterEntry } from '../../types/canon';
@@ -788,6 +788,29 @@ export function AudiobookPanel() {
     return Math.max(20, Math.ceil(charCount / 1000) * 20);
   }
 
+  // Re-sync the "free first sample" state from the server. The single
+  // fetch on mount goes stale the moment the user generates anything —
+  // call this after every completed gen so repeat generations don't
+  // keep thinking the freebie is still available.
+  const refreshFreeSampleAvailable = async () => {
+    try {
+      const res = await fetch('/api/tts/free-sample', { credentials: 'include' });
+      const d = await res.json();
+      setFreeSampleAvailable(!!d.available);
+    } catch {}
+  };
+
+  // Route TTS failures to the right UX: upgrade modal for credits,
+  // error banner for anything else. Returns true if it was a credit
+  // gate (caller can skip its own banner).
+  const handleTTSError = (e: any): boolean => {
+    if (e instanceof ApiError && e.status === 402 && e.body?.needsUpgrade) {
+      useCreditsStore.getState().setShowUpgradeModal(true);
+      return true;
+    }
+    return false;
+  };
+
   /** Show confirmation before generating */
   const confirmGenerateScene = (chapterId: string, sceneId: string) => {
     const chapter = chapters.find(c => c.id === chapterId);
@@ -953,9 +976,12 @@ export function AudiobookPanel() {
         detail: { chapterId: `scene-${sceneId}` },
       }));
       useGenerationStore.getState().setPhase('done');
+      void refreshFreeSampleAvailable();
     } catch (e: any) {
-      audioStore.setError(e.message || 'Scene generation failed');
       useGenerationStore.getState().end();
+      if (!handleTTSError(e)) {
+        audioStore.setError(e.message || 'Scene generation failed');
+      }
     } finally {
       setGeneratingScene(null);
     }
@@ -1167,9 +1193,12 @@ export function AudiobookPanel() {
       }
 
       useGenerationStore.getState().setPhase('done');
+      void refreshFreeSampleAvailable();
     } catch (e: any) {
-      audioStore.setError(e.message || 'Generation failed');
       useGenerationStore.getState().end();
+      if (!handleTTSError(e)) {
+        audioStore.setError(e.message || 'Generation failed');
+      }
     } finally {
       audioStore.setGenerating(null);
     }

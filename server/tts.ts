@@ -150,6 +150,19 @@ const CHARS_PER_SECOND = 14;
 
 // Credit cost is now character-based — imported from billing.ts at call site
 // Legacy constant kept for reference only
+
+/**
+ * Estimate TTS credit cost for a given char count + provider.
+ * Must stay in lockstep with the client-side `estimateTTSCredits` in
+ * `src/components/features/AudiobookPanel.tsx` — otherwise the confirm
+ * modal shows one number and the server rejects at another.
+ */
+export function estimateTTSCredits(charCount: number, provider: string): number {
+  if (provider === 'elevenlabs') return Math.max(100, Math.ceil(charCount / 1000) * 100);
+  if (provider === 'grok') return Math.max(10, Math.ceil(charCount / 1000) * 6);
+  // openai + fish + anything else: ~20 credits per 1K chars
+  return Math.max(20, Math.ceil(charCount / 1000) * 20);
+}
 const CREDITS_PER_CHAPTER_LEGACY = 2;
 
 const ELEVENLABS_API = 'https://api.elevenlabs.io/v1';

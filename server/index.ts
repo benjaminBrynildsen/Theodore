@@ -25,7 +25,7 @@ import {
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
 import { generateImage, generateImageOpenAI, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
-import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews } from './tts.js';
+import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin } from './admin.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
@@ -1964,8 +1964,20 @@ app.post('/api/tts/generate', async (req, res) => {
     }
 
     if (!isFreeAudioSample) {
-      // Minimum TTS cost is 100 credits (1K chars)
-      if (user.creditsRemaining < 100) return res.status(402).json({ error: 'Insufficient credits for audio generation' });
+      // Provider-aware estimate — the flat 100-credit floor was calibrated for
+      // ElevenLabs and blocked users on cheap providers (Grok: 10 min, OpenAI: 20 min)
+      // from ever generating. Mirrors client-side estimateTTSCredits so the
+      // confirm modal and server gate agree.
+      const providerKey = (provider || 'elevenlabs') as string;
+      const estimatedCost = estimateTTSCredits(String(prose).length, providerKey);
+      if (user.creditsRemaining < estimatedCost) {
+        return res.status(402).json({
+          error: 'Insufficient credits for audio generation',
+          creditsRemaining: user.creditsRemaining,
+          creditsNeeded: estimatedCost,
+          needsUpgrade: true,
+        });
+      }
     }
 
     // Create job and return immediately
