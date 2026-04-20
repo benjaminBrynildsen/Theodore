@@ -984,9 +984,19 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                     const dur = s.duration_seconds;
                     const durLabel = dur < 60 ? `${dur}s` : `${Math.floor(dur / 60)}m ${dur % 60}s`;
                     const signedIn = !!(s as any).signed_in;
+                    const matchType = (s as any).match_type as string | undefined;
+                    const matchedTokens = (s as any).matched_tokens as string[] | null;
                     const hasEngagement = s.event_types.some(e =>
                       ['prompt_submit', 'play_audio', 'focus_input', 'chat_auto_send', 'first_ai_response'].includes(e)
                     );
+                    const matchLabel =
+                      matchType === 'guest_cookie' ? { text: 'linked', cls: 'bg-emerald-100 text-emerald-700', title: 'Linked via guest cookie — reliable' } :
+                      matchType === 'user_id' ? { text: 'signed in', cls: 'bg-emerald-100 text-emerald-700', title: 'Event was tagged with this user_id' } :
+                      matchType === 'ip_hash' ? { text: 'ip match', cls: 'bg-amber-100 text-amber-700', title: 'Matched via IP hash — loose' } :
+                      matchType === 'fuzzy_prompt' ? { text: 'likely (title)', cls: 'bg-blue-100 text-blue-700', title: `Prompt text contains token from one of the user's project titles${matchedTokens?.length ? ': ' + matchedTokens.map(t => t.replace(/%/g,'')).join(', ') : ''}` } :
+                      matchType === 'fuzzy_time' ? { text: 'maybe (time)', cls: 'bg-orange-100 text-orange-700', title: 'Session ended within 2 minutes of signup — guess' } :
+                      signedIn ? { text: 'signed in', cls: 'bg-emerald-100 text-emerald-700', title: '' } :
+                      { text: 'pre-signup', cls: 'bg-black/5 text-text-tertiary', title: '' };
                     return (
                       <button
                         key={s.session_id}
@@ -999,10 +1009,10 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-text-primary flex items-center gap-1.5">
                             {s.city || 'Unknown'}{s.region ? `, ${s.region}` : ''}{s.country ? ` · ${s.country}` : ''}
-                            <span className={cn(
-                              'text-[9px] px-1.5 py-0.5 rounded-full font-semibold',
-                              signedIn ? 'bg-emerald-100 text-emerald-700' : 'bg-black/5 text-text-tertiary'
-                            )}>{signedIn ? 'signed in' : 'pre-signup'}</span>
+                            <span
+                              title={matchLabel.title}
+                              className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-semibold', matchLabel.cls)}
+                            >{matchLabel.text}</span>
                           </div>
                           <div className="text-[11px] text-text-tertiary mt-0.5 flex flex-wrap gap-1">
                             {s.event_types.filter(e => e !== 'engaged' && e !== 'exit').slice(0, 8).map(e => (
