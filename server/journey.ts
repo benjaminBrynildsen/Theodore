@@ -288,9 +288,11 @@ export async function getUserJourneys(req: Request, res: Response) {
         }
       }
 
-      // (b) tight time proximity — weak signal, only used to surface
-      // candidates when nothing else matched at all.
-      if (directRows.length === 0 && fuzzyRows.length === 0) {
+      // (b) time proximity — loose signal, always run so pre-fix users
+      // still get something to click into. Window covers 30min before
+      // signup (typical browse→signup span) through 30s after (first
+      // post-signup page loads often reuse the guest session).
+      if (directRows.length === 0) {
         const r = await db.execute(sql`
           SELECT
             session_id,
@@ -309,10 +311,13 @@ export async function getUserJourneys(req: Request, res: Response) {
             'fuzzy_time' AS match_type
           FROM journey_events
           WHERE COALESCE((data->>'is_admin')::boolean, false) = false
+            AND created_at BETWEEN (${createdIso}::timestamptz - INTERVAL '30 minutes')
+                               AND (${createdIso}::timestamptz + INTERVAL '30 seconds')
           GROUP BY session_id
-          HAVING ABS(EXTRACT(EPOCH FROM (MAX(created_at) - ${createdIso}::timestamptz))) < 120
+          HAVING MAX(created_at) BETWEEN (${createdIso}::timestamptz - INTERVAL '30 minutes')
+                                     AND (${createdIso}::timestamptz + INTERVAL '30 seconds')
           ORDER BY ABS(EXTRACT(EPOCH FROM (MAX(created_at) - ${createdIso}::timestamptz))) ASC
-          LIMIT 5
+          LIMIT 10
         `);
         for (const row of r.rows as any[]) {
           if (!matchedIds.has(row.session_id)) {
