@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2 } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw } from 'lucide-react';
 import { ShareBookDialog } from '../share/ShareBookDialog';
 import { computeArcBreakpoints, getStructureById } from '../../lib/story-structures';
 import { useStore } from '../../store';
@@ -9,6 +9,7 @@ import { Badge } from '../ui/Badge';
 import { ChapterView } from './ChapterView';
 import { AuthView } from './AuthView';
 import { IllustrateButton } from '../features/IllustrateButton';
+import { ChildrensBookReader } from '../features/ChildrensBookReader';
 import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../../lib/scaffold';
 import { generateStream } from '../../lib/generate';
 import { generateImageApi } from '../../lib/image-gen';
@@ -49,6 +50,8 @@ export function ProjectView() {
   const [bulkIllustrating, setBulkIllustrating] = useState(false);
   const [bulkIllustrateProgress, setBulkIllustrateProgress] = useState<{ current: number; total: number } | null>(null);
   const [bulkIllustrateError, setBulkIllustrateError] = useState<string | null>(null);
+  const [regeneratingPageId, setRegeneratingPageId] = useState<string | null>(null);
+  const [readerPageIdx, setReaderPageIdx] = useState<number | null>(null);
 
   // Auto-close auth modal when user signs in
   useEffect(() => {
@@ -174,6 +177,28 @@ export function ProjectView() {
       createdAt: now,
       updatedAt: now,
     });
+  };
+
+  // Regenerate a single page's illustration — used by the top-right button
+  // on each page card. Same Grok-first path as bulk, just one page.
+  const handleRegenPageImage = async (chapterId: string) => {
+    if (regeneratingPageId) return;
+    setRegeneratingPageId(chapterId);
+    try {
+      const result = await generateImageApi({
+        target: 'page',
+        targetId: chapterId,
+        projectId: project.id,
+        provider: 'grok',
+        aspectRatio: '1:1',
+        style: 'illustration',
+      });
+      updateChapter(chapterId, { imageUrl: result.imageUrl });
+    } catch (e: any) {
+      console.error('[page-regen] failed:', e?.message);
+    } finally {
+      setRegeneratingPageId(null);
+    }
   };
 
   // Bulk-illustrate every page missing an image. Sequential so xAI's rate
@@ -382,6 +407,19 @@ export function ProjectView() {
           defaultDescription={chapters.slice(0, 3).map(c => c.premise?.purpose).filter(Boolean).join(' ')}
           defaultAuthorName={user?.name || ''}
           onClose={() => setShowShareDialog(false)}
+        />
+      )}
+
+      {isChildrensBook && readerPageIdx !== null && (
+        <ChildrensBookReader
+          chapters={chapters}
+          startIdx={readerPageIdx}
+          projectTitle={project.title}
+          onClose={() => setReaderPageIdx(null)}
+          onEdit={(id) => {
+            setReaderPageIdx(null);
+            setActiveChapter(id);
+          }}
         />
       )}
 
@@ -642,7 +680,9 @@ export function ProjectView() {
         {/* Children's Book Grid Layout */}
         {isChildrensBook ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {chapters.map((chapter, index) => (
+            {chapters.map((chapter, index) => {
+              const isRegen = regeneratingPageId === chapter.id;
+              return (
               <div
                 key={chapter.id}
                 className="group animate-scale-in"
@@ -650,7 +690,7 @@ export function ProjectView() {
               >
                 <div
                   className="rounded-2xl glass hover:bg-white/70 overflow-hidden transition-all duration-200 cursor-pointer active:scale-[0.98]"
-                  onClick={() => setActiveChapter(chapter.id)}
+                  onClick={() => setReaderPageIdx(index)}
                 >
                   {/* Image area */}
                   <div className="aspect-[4/3] relative bg-gradient-to-br from-purple-50 to-pink-50 overflow-hidden">
@@ -670,22 +710,26 @@ export function ProjectView() {
                     <div className="absolute top-2 left-2 w-7 h-7 rounded-lg bg-black/40 backdrop-blur-sm flex items-center justify-center text-white text-xs font-mono font-medium">
                       {chapter.number}
                     </div>
-                    {/* Generate button overlay */}
+                    {/* Always-visible regen button top-right — one-tap fix for
+                        a page whose illustration came out off-style. Shows
+                        a loader while regen is in flight. */}
+                    {chapter.imageUrl && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRegenPageImage(chapter.id); }}
+                        disabled={isRegen}
+                        aria-label="Regenerate illustration"
+                        title="Regenerate illustration"
+                        className={cn(
+                          'absolute top-2 right-2 w-7 h-7 rounded-lg bg-black/50 backdrop-blur-sm flex items-center justify-center text-white transition-all',
+                          isRegen ? 'cursor-wait' : 'hover:bg-black/70',
+                        )}
+                      >
+                        {isRegen ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                      </button>
+                    )}
+                    {/* First-time generate button (no image yet) */}
                     {!chapter.imageUrl && (
                       <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                        <IllustrateButton
-                          target="page"
-                          targetId={chapter.id}
-                          projectId={project.id}
-                          currentImageUrl={chapter.imageUrl}
-                          onImageGenerated={(url) => updateChapter(chapter.id, { imageUrl: url })}
-                          compact
-                        />
-                      </div>
-                    )}
-                    {/* Regenerate overlay on existing image */}
-                    {chapter.imageUrl && (
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
                         <IllustrateButton
                           target="page"
                           targetId={chapter.id}
@@ -722,7 +766,8 @@ export function ProjectView() {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {/* Add Page card */}
             <div className="animate-scale-in" style={{ animationDelay: `${chapters.length * 30}ms` }}>

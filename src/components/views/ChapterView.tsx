@@ -145,6 +145,18 @@ export function ChapterView({ chapter }: Props) {
   // ~1.4 tokens per word typical; use 3x for safety headroom so model never runs out of output budget
   const wordTargetMaxTokens = Math.max(2000, Math.round(wordTarget * 3));
 
+  // Children's books: a page is 2-3 sentences (~10-200 words by age range),
+  // NOT a novel chapter. Previously several generation paths (extend, scene
+  // gen, dialogue polish) kept using the 2,500-word novel budget and pushed
+  // out 1,500+ word pages. Clamp every kids-book generation to a tight token
+  // cap and surface the age-appropriate word target everywhere the user can
+  // see it.
+  const isChildrensBookType = project?.subtype === 'childrens-book';
+  const childrensPageTargetWords = (project?.childrensBookSettings as any)?.wordsPerSpread || 40;
+  const childrensPageMaxTokens = 300;
+  const effectiveWordTarget = isChildrensBookType ? childrensPageTargetWords : wordTarget;
+  const effectiveMaxTokens = isChildrensBookType ? childrensPageMaxTokens : wordTargetMaxTokens;
+
   const needsDialogueClarityPass = (text: string) => {
     const paragraphs = text.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
     const quoteOnly = (p: string) => /^["“][\s\S]*["”]\s*[.!?…]*\s*$/.test(p) && !/[A-Za-z]+\s+(said|asked|replied|whispered|murmured|snapped|shouted)\b/i.test(p);
@@ -201,8 +213,8 @@ export function ChapterView({ chapter }: Props) {
 
     generationProgress.start({
       kind: 'generate-chapter',
-      label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
-      subtitle: `target ~${wordTarget.toLocaleString()} words`,
+      label: `${isChildrensBookType ? 'Page' : 'Ch.'} ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
+      subtitle: `target ~${effectiveWordTarget.toLocaleString()} words`,
     });
 
     // Persist target word count at generation START so the "Finish Chapter" button
@@ -456,14 +468,16 @@ export function ChapterView({ chapter }: Props) {
       writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
       generationType: 'full-chapter' as GenerationType,
       previousChapterProse: prevChapter?.prose,
-    }) + `\n\nContinue this chapter from the exact ending of the current draft. Add approximately ${wordTarget} more words. Do not restart scenes or repeat existing content. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`;
+    }) + (isChildrensBookType
+      ? `\n\nAdd ${effectiveWordTarget} more words (2-3 sentences) that continue this picture-book page. Keep the same simple vocabulary, cadence, and tone. Do not add a chapter heading. Do not write more than is natural for a single spread.`
+      : `\n\nContinue this chapter from the exact ending of the current draft. Add approximately ${wordTarget} more words. Do not restart scenes or repeat existing content. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`);
 
     let extension = '';
     await generateStream(
       {
         prompt,
         model: settings.ai?.preferredModel || 'claude-sonnet',
-        maxTokens: wordTargetMaxTokens,
+        maxTokens: effectiveMaxTokens,
         action: 'extend-chapter',
         projectId: project.id,
         chapterId: chapter.id,
@@ -659,14 +673,14 @@ export function ChapterView({ chapter }: Props) {
     const scenePrompt = basePrompt +
       `\n\n=== SCENE TO WRITE ===\nScene ${scene.order}: "${scene.title}"\nSummary: ${scene.summary}` +
       (prevSceneProse ? `\n\n=== PREVIOUS SCENES IN THIS CHAPTER ===\n${prevSceneProse.slice(-2000)}` : '') +
-      `\n\nWrite ONLY this scene targeting approximately ${wordTarget} words. Write finished prose for this single scene only — no scene titles or headers.`;
+      `\n\nWrite ONLY this scene targeting approximately ${effectiveWordTarget} words. Write finished prose for this single scene only — no scene titles or headers.`;
 
     let accumulated = '';
     await generateStream(
       {
         prompt: scenePrompt,
         model: settings.ai?.preferredModel || 'claude-sonnet',
-        maxTokens: wordTargetMaxTokens,
+        maxTokens: effectiveMaxTokens,
         action: 'generate-scene',
         projectId: project.id,
         chapterId: chapter.id,
