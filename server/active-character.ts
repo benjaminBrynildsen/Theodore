@@ -417,7 +417,7 @@ async function streamGrokReactionWithAudio(
 export interface ContinueChapterRequest {
   priorProse: string;           // everything the listener has already heard
   listenerUtterance: string;    // what the user just said in-character
-  reactionText: string;         // the immediate NPC reaction that just played
+  reactionText?: string;        // optional — only when we pre-generated an NPC reply
   characterName: string;
   characterArchetype?: string;
   characterRegister?: string;
@@ -428,32 +428,32 @@ export interface ContinueChapterRequest {
 
 function buildContinueSystemPrompt(r: ContinueChapterRequest): string {
   const target = r.targetWords ?? 300;
-  return `You are writing the next ~${target} words of an audiobook chapter. The listener is voicing "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''} in real time. They just spoke a line and another character reacted. Now continue the chapter prose — this is the real narrative, not a side scene.
+  return `You are writing the next ~${target} words of an audiobook chapter. The listener is voicing "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''} in real time. They just spoke a line of dialogue AS ${r.characterName}. Continue the chapter — other characters react, the scene moves forward, consequences unfold.
 
 Hard rules:
 - ~${target} words. Pace the continuation so it lands on a natural moment (end of scene beat, new question, or revelation).
 - Maintain the third-person narrative voice and register from the prior prose.
-- Treat the listener's line as canon dialogue spoken by ${r.characterName}; build on its emotional weight.
-- Do NOT restate the listener's line or the reaction — continue forward.
+- Treat the listener's spoken line as canon dialogue from ${r.characterName}. Other characters should react to it naturally (dialogue, action, internal shift).
+- Do NOT restate the listener's line verbatim — assume the listener heard themselves; narrate from AFTER the line.
 - Do NOT break the fourth wall or acknowledge the listener.
 - If the chapter premise below still has unfulfilled beats, keep moving toward them.
-${r.characterRegister ? `- When ${r.characterName} speaks or thinks, match the register: "${r.characterRegister}".` : ''}`;
+${r.characterRegister ? `- When ${r.characterName} speaks or thinks later in this passage, match the register: "${r.characterRegister}".` : ''}`;
 }
 
 function buildContinueUserPrompt(r: ContinueChapterRequest): string {
+  const reactionLine = r.reactionText?.trim()
+    ? `\nImmediate reaction that just played (narrate what happens after it):\n"${r.reactionText.trim()}"\n`
+    : '';
   return `Chapter${r.chapterTitle ? `: ${r.chapterTitle}` : ''}
 ${r.chapterPremise ? `\nOriginal premise: ${r.chapterPremise}` : ''}
 
 Prose so far (already heard by the listener):
 ${r.priorProse.trim().slice(-3500)}
 
-${r.characterName} (voiced by the listener) just said:
+${r.characterName} (voiced by the listener) just said aloud:
 "${r.listenerUtterance.trim() || '(silence)'}"
-
-Immediate reaction that just played:
-"${r.reactionText.trim()}"
-
-Now write the next ~${r.targetWords ?? 300} words of the chapter, continuing naturally.`;
+${reactionLine}
+Now write the next ~${r.targetWords ?? 300} words of the chapter, continuing naturally from the moment right after ${r.characterName} spoke.`;
 }
 
 async function streamGrokContinuation(
