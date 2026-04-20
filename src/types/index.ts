@@ -63,6 +63,12 @@ export interface ChildrensBookSettings {
   // Style consistency fields
   styleGuide?: string; // e.g. "Soft watercolor with muted earth tones, whimsical forest setting"
   characterVisuals?: CharacterVisual[]; // visual descriptions for consistent character rendering
+  // Character hero shot — a reference portrait fed as image input to Grok on
+  // every page generation so the character looks the same across the whole
+  // book. Auto-generated on project creation, regenerable from the Style
+  // Guide panel.
+  characterHeroImageUrl?: string;
+  characterHeroPrompt?: string; // text prompt used to generate the hero, stored for audit
 }
 
 export const AGE_RANGE_LABELS: Record<AgeRange, string> = {

@@ -52,6 +52,7 @@ export function ProjectView() {
   const [bulkIllustrateError, setBulkIllustrateError] = useState<string | null>(null);
   const [regeneratingPageId, setRegeneratingPageId] = useState<string | null>(null);
   const [readerPageIdx, setReaderPageIdx] = useState<number | null>(null);
+  const [generatingHero, setGeneratingHero] = useState(false);
 
   // Auto-close auth modal when user signs in
   useEffect(() => {
@@ -177,6 +178,35 @@ export function ProjectView() {
       createdAt: now,
       updatedAt: now,
     });
+  };
+
+  // Regenerate the project's character hero-shot. Server stores the URL on
+  // project.childrensBookSettings.characterHeroImageUrl and subsequent page
+  // image calls feed it back to Grok as an image input.
+  const handleGenerateHeroShot = async () => {
+    if (generatingHero) return;
+    setGeneratingHero(true);
+    try {
+      const result = await generateImageApi({
+        target: 'childrens-hero',
+        projectId: project.id,
+        provider: 'grok',
+        aspectRatio: '1:1',
+        style: 'illustration',
+      });
+      if (result?.imageUrl) {
+        updateProject(project.id, {
+          childrensBookSettings: {
+            ...(cbs || { ageRange: '3-5', illustrationStyle: 'watercolor', wordsPerSpread: 40, spreadCount: 16, hasRhyme: false }),
+            characterHeroImageUrl: result.imageUrl,
+          },
+        });
+      }
+    } catch (e: any) {
+      console.error('[hero-shot] failed:', e?.message);
+    } finally {
+      setGeneratingHero(false);
+    }
   };
 
   // Regenerate a single page's illustration — used by the top-right button
@@ -448,6 +478,46 @@ export function ProjectView() {
           </button>
           {showStyleGuide && (
             <div className="mt-2 rounded-2xl glass p-5 animate-fade-in space-y-4">
+              {/* Character hero shot — reference image fed to Grok on every
+                  page generation so the character stays on-model across the
+                  whole book. Auto-generated on project creation; regen here
+                  if the first pass didn't capture the character right. */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider block">
+                      Character Reference
+                    </label>
+                    <p className="text-[10px] text-text-tertiary">
+                      Hero shot used as image input for every page so the character looks consistent.
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleGenerateHeroShot}
+                    disabled={generatingHero}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all',
+                      generatingHero
+                        ? 'bg-purple-100 text-purple-700 cursor-wait'
+                        : 'bg-text-primary text-text-inverse hover:shadow-md',
+                    )}
+                  >
+                    {generatingHero ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                    {generatingHero ? 'Generating…' : (cbs?.characterHeroImageUrl ? 'Regenerate hero' : 'Generate hero')}
+                  </button>
+                </div>
+                {cbs?.characterHeroImageUrl ? (
+                  <div className="rounded-xl overflow-hidden border border-black/5 bg-white/50 aspect-square max-w-[240px]">
+                    <img src={cbs.characterHeroImageUrl} alt="Character hero shot" className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-purple-200 bg-purple-50/30 p-4 flex items-center gap-2 text-[11px] text-purple-700">
+                    <ImageIcon size={14} />
+                    <span>No hero shot yet — fill Art Direction + Character Appearances below, then hit Generate.</span>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-1.5 block">
                   Art Direction

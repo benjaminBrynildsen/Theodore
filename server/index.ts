@@ -24,7 +24,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
-import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt } from './image-gen.js';
+import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin } from './admin.js';
 import multer from 'multer';
@@ -1827,9 +1827,37 @@ app.post('/api/generate/image', async (req, res) => {
         styleGuide: cbs.styleGuide || undefined,
         characterVisuals: cbs.characterVisuals || undefined,
       });
+    } else if (target === 'childrens-hero' && projectId) {
+      const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+      if (!project) return res.status(404).json({ error: 'Project not found' });
+      const cbs = (project.childrensBookSettings as any) || {};
+      finalPrompt = buildChildrensHeroPrompt({
+        bookTitle: project.title,
+        ageRange: cbs.ageRange,
+        illustrationStyle: cbs.illustrationStyle,
+        styleGuide: cbs.styleGuide || undefined,
+        characterVisuals: cbs.characterVisuals || undefined,
+      });
     }
 
     if (!finalPrompt) return res.status(400).json({ error: 'Could not build image prompt' });
+
+    // Resolve the project's hero shot (if any) so page generations can
+    // feed it back into Grok as a reference image for consistent
+    // character rendering. We skip the reference when generating the
+    // hero itself or the cover.
+    let referenceImagePath: string | undefined;
+    if (wantsGrok && target === 'page' && projectId) {
+      try {
+        const [proj] = await db.select().from(projects).where(eq(projects.id, projectId));
+        const heroUrl = (proj?.childrensBookSettings as any)?.characterHeroImageUrl;
+        if (typeof heroUrl === 'string' && heroUrl.startsWith('/uploads/')) {
+          const rel = heroUrl.replace(/^\//, '');
+          const abs = path.join(process.cwd(), rel);
+          if (fs.existsSync(abs)) referenceImagePath = abs;
+        }
+      } catch { /* non-fatal */ }
+    }
 
     const generator = wantsGrok
       ? generateImageGrok
@@ -1842,6 +1870,7 @@ app.post('/api/generate/image', async (req, res) => {
       style: style || 'concept-art',
       userId: auth?.user?.id || 'guest',
       projectId,
+      referenceImagePath,
     });
 
     // Deduct credits (skip for guests)
@@ -1874,6 +1903,24 @@ app.post('/api/generate/image', async (req, res) => {
         imageUrl: result.imageUrl,
         updatedAt: new Date(),
       }).where(eq(chapters.id, targetId));
+    }
+
+    // If target is the children's-book hero shot, save the URL (and the
+    // prompt we used, for auditing) on the project so subsequent page
+    // generations can reference it as an image input.
+    if (target === 'childrens-hero' && projectId) {
+      const [proj] = await db.select().from(projects).where(eq(projects.id, projectId));
+      if (proj) {
+        const nextCbs = {
+          ...((proj.childrensBookSettings as any) || {}),
+          characterHeroImageUrl: result.imageUrl,
+          characterHeroPrompt: result.prompt,
+        };
+        await db.update(projects).set({
+          childrensBookSettings: nextCbs,
+          updatedAt: new Date(),
+        }).where(eq(projects.id, projectId));
+      }
     }
 
     res.json({

@@ -2,7 +2,7 @@
 
 export interface ImageGenOptions {
   prompt?: string;
-  target?: 'character' | 'location' | 'scene' | 'cover' | 'page';
+  target?: 'character' | 'location' | 'scene' | 'cover' | 'page' | 'childrens-hero';
   targetId?: string;
   projectId?: string;
   aspectRatio?: '1:1' | '16:9' | '9:16' | '4:3' | '3:4';

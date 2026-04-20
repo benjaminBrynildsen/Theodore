@@ -11,6 +11,11 @@ export interface ImageGenRequest {
   style?: 'photorealistic' | 'illustration' | 'watercolor' | 'oil-painting' | 'sketch' | 'concept-art' | 'anime';
   userId: string;
   projectId?: string;
+  // Optional reference image for image-to-image generation. Used for
+  // children's-book page generation to keep the character consistent with
+  // the hero shot. Supported by Grok (grok-imagine-image accepts image
+  // input); Gemini and OpenAI paths ignore this.
+  referenceImagePath?: string; // absolute filesystem path to the reference image
 }
 
 export interface ImageGenResult {
@@ -221,18 +226,41 @@ export async function generateImageGrok(req: ImageGenRequest): Promise<ImageGenR
   const fullPrompt = buildImagePrompt(req);
   const model = GROK_IMAGE_MODEL;
 
+  // Build request body — pass the hero-shot reference image as base64 data
+  // URL when present so every page inherits the same character design. Field
+  // name follows xAI's multimodal-input convention on grok-imagine-image.
+  const body: Record<string, unknown> = {
+    model,
+    prompt: fullPrompt,
+    n: 1,
+    response_format: 'b64_json',
+  };
+
+  if (req.referenceImagePath) {
+    try {
+      const fileBytes = fs.readFileSync(req.referenceImagePath);
+      const mime = req.referenceImagePath.endsWith('.jpg') || req.referenceImagePath.endsWith('.jpeg')
+        ? 'image/jpeg'
+        : 'image/png';
+      const dataUrl = `data:${mime};base64,${fileBytes.toString('base64')}`;
+      // Duplicate the image across likely field names — different xAI
+      // releases have used `image`, `images`, and `image_url`. Whichever one
+      // the current API accepts picks it up; the others are ignored.
+      body.image = dataUrl;
+      body.images = [dataUrl];
+      body.image_url = dataUrl;
+    } catch (err: any) {
+      console.warn(`[grok-image] could not attach reference image: ${err?.message}`);
+    }
+  }
+
   const response = await fetch('https://api.x.ai/v1/images/generations', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      prompt: fullPrompt,
-      n: 1,
-      response_format: 'b64_json',
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -389,6 +417,47 @@ export function buildBookCoverPrompt(project: {
   parts.push('FULL BLEED artwork that fills the entire canvas edge to edge, NO borders NO frames NO mockup NO book shape NO 3D rendering of a physical book, the artwork IS the cover not a picture OF a cover, ABSOLUTELY NO TEXT of any kind anywhere in the image — no titles, no letters, no words, no signs with writing, no readable text on objects, no typography, no watermarks, no labels, purely visual scene artwork with zero text elements, square 1:1 aspect ratio');
 
   return parts.join(', ');
+}
+
+// Character hero-shot prompt. Generated once per project and used as the
+// image-input reference for every page, so the character looks the same
+// across the whole book regardless of scene composition.
+export function buildChildrensHeroPrompt(input: {
+  bookTitle?: string;
+  ageRange?: string;
+  illustrationStyle?: string;
+  styleGuide?: string;
+  characterVisuals?: { name: string; description: string }[];
+}): string {
+  const parts: string[] = [];
+
+  if (input.characterVisuals?.length) {
+    const chars = input.characterVisuals
+      .map(cv => `${cv.name}: ${cv.description}`)
+      .join('; ');
+    parts.push(`Character portrait reference sheet for: ${chars}`);
+  } else {
+    parts.push('Character portrait reference sheet');
+  }
+
+  parts.push('full-body standing pose, neutral expression, facing forward, centered on a plain cream-colored background, soft even lighting');
+
+  if (input.styleGuide) parts.push(input.styleGuide);
+
+  const styleMap: Record<string, string> = {
+    watercolor: 'soft watercolor illustration style, gentle colors, painterly textures',
+    cartoon: 'bright cartoon illustration, bold outlines, playful exaggerated features',
+    realistic: 'detailed realistic illustration, rich colors, lifelike rendering',
+    collage: 'mixed media collage style, textured paper elements, layered composition',
+    pencil: 'gentle pencil illustration, soft shading, hand-drawn feel',
+    digital: 'clean digital illustration, vibrant colors, modern children\'s book style',
+  };
+  parts.push(styleMap[input.illustrationStyle || 'watercolor'] || styleMap.watercolor);
+
+  if (input.bookTitle) parts.push(`from the children's book "${input.bookTitle}"`);
+  parts.push('no text, no logos, no book cover elements, this is a character reference');
+
+  return parts.join('. ');
 }
 
 export function buildChildrensPagePrompt(page: {

@@ -1250,8 +1250,38 @@ ${childrensRule}`,
           }
         })();
 
-        // Chapter 1 auto-gen works for both guests and signed-in users
-        // (generateStream auto-detects guest mode and uses the guest endpoint)
+        // Kids books also get a character hero-shot in the background. The
+        // server stores it on project.childrensBookSettings.characterHeroImageUrl
+        // and subsequent page generations feed it back to Grok as an image
+        // input so the character's appearance stays consistent across pages.
+        const heroPromise = (async () => {
+          try {
+            const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
+            if (latestProject.subtype !== 'childrens-book') return;
+            const { generateImageApi } = await import('../../lib/image-gen');
+            const result = await generateImageApi({
+              target: 'childrens-hero',
+              projectId,
+              provider: 'grok',
+              aspectRatio: '1:1',
+              style: 'illustration',
+            });
+            if (result?.imageUrl) {
+              const cbs = (latestProject as any).childrensBookSettings || {};
+              useStore.getState().updateProject(projectId, {
+                childrensBookSettings: {
+                  ...cbs,
+                  characterHeroImageUrl: result.imageUrl,
+                },
+              } as any);
+            }
+          } catch (e) {
+            console.warn('[Creation] Auto-hero-shot failed (non-fatal):', e);
+          }
+        })();
+
+        // Chapter 1 (or Page 1 for picture books) auto-gen works for both
+        // guests and signed-in users.
         const ch1Promise = (async () => {
           try {
             const ch1 = useStore.getState().chapters
@@ -1259,23 +1289,45 @@ ${childrensRule}`,
               .sort((a, b) => a.number - b.number)[0];
             if (ch1 && !ch1.prose?.trim()) {
               const latestProject2 = useStore.getState().projects.find(p => p.id === projectId) || project;
+              const isChildrens = latestProject2.subtype === 'childrens-book';
+              const cbs = (latestProject2 as any).childrensBookSettings || {};
               const allCh = useStore.getState().chapters.filter(c => c.projectId === projectId).sort((a, b) => a.number - b.number);
-              const outlineContext = allCh.map(c => `Ch ${c.number}: ${c.title} — ${c.premise?.purpose || ''}`).join('\n');
+              const outlineContext = allCh.map(c => `${isChildrens ? 'Page' : 'Ch'} ${c.number}: ${c.title} — ${c.premise?.purpose || ''}`).join('\n');
 
-              const TARGET_WORDS = 1500;
+              // Picture-book page-1 uses a tight per-age word budget; novel
+              // chapter-1 uses the existing 1,500-word target. Without this
+              // split, new kids-book projects came out of creation with a
+              // 1,500-word first page — way past the age-appropriate limit.
+              const childrensWordTarget = (() => {
+                const ageRange = cbs.ageRange || '3-5';
+                return cbs.wordsPerSpread
+                  || ({ '0-2': 10, '3-5': 40, '6-8': 80, '9-12': 200 } as Record<string, number>)[ageRange]
+                  || 40;
+              })();
+              const TARGET_WORDS = isChildrens ? childrensWordTarget : 1500;
+              const maxTokens = isChildrens ? 300 : 3000;
+
               let ch1Prose = '';
               useGenerationStore.getState().start({
                 kind: 'generate-chapter',
-                label: `Ch. 1: ${ch1.title || 'Chapter 1'}`,
-                subtitle: 'Generating cover + writing Chapter 1…',
+                label: isChildrens
+                  ? `Page 1: ${ch1.title || 'Page 1'}`
+                  : `Ch. 1: ${ch1.title || 'Chapter 1'}`,
+                subtitle: isChildrens
+                  ? 'Generating cover + writing Page 1…'
+                  : 'Generating cover + writing Chapter 1…',
                 indeterminate: false,
               });
 
+              const prompt = isChildrens
+                ? `Write Page 1 of the children's picture book "${latestProject2.title}" for ages ${cbs.ageRange || '3-5'}.\n\nPage 1: ${ch1.title}\nWhat happens: ${ch1.premise?.purpose || ''}\n\nWhole story outline:\n${outlineContext}\n\nThis is a PICTURE BOOK PAGE, not a novel chapter — the illustration does most of the storytelling.\n- Write EXACTLY 2-3 short sentences (${TARGET_WORDS} words max).\n- Simple vocabulary appropriate for the age range.\n- Present tense, active voice, concrete sensory details.\n- No chapter heading, no page number, no stage directions.\n- Just the page text.`
+                : `Write Chapter 1 of "${latestProject2.title}".\n\nChapter 1: ${ch1.title}\nPremise: ${ch1.premise?.purpose || ''}\n\nFull outline:\n${outlineContext}\n\nWrite a complete, engaging first chapter of approximately ${TARGET_WORDS} words. Begin directly with prose — no chapter title or heading. Include dialogue, description, and interiority. Establish the protagonist, setting, and inciting tension.`;
+
               await generateStream(
                 {
-                  prompt: `Write Chapter 1 of "${latestProject2.title}".\n\nChapter 1: ${ch1.title}\nPremise: ${ch1.premise?.purpose || ''}\n\nFull outline:\n${outlineContext}\n\nWrite a complete, engaging first chapter of approximately ${TARGET_WORDS} words. Begin directly with prose — no chapter title or heading. Include dialogue, description, and interiority. Establish the protagonist, setting, and inciting tension.`,
+                  prompt,
                   model: 'claude-sonnet-4-6',
-                  maxTokens: 3000,
+                  maxTokens,
                   action: 'generate-chapter',
                   projectId,
                   chapterId: ch1.id,
@@ -1295,12 +1347,15 @@ ${childrensRule}`,
                   prose: ch1Prose.trim(),
                   status: 'draft-generated',
                 });
-                // Auto-decompose into scenes so it's ready for audio streaming
-                useGenerationStore.getState().setSubtitle('Preparing scenes…');
-                try {
-                  const { runSceneDecomposition } = await import('../../lib/post-generation-pipeline');
-                  await (runSceneDecomposition as any)(ch1.id);
-                } catch { /* non-fatal */ }
+                // Novels get scene-decomposed for streaming audio. Picture-
+                // book pages don't have scenes — each page IS a spread.
+                if (!isChildrens) {
+                  useGenerationStore.getState().setSubtitle('Preparing scenes…');
+                  try {
+                    const { runSceneDecomposition } = await import('../../lib/post-generation-pipeline');
+                    await (runSceneDecomposition as any)(ch1.id);
+                  } catch { /* non-fatal */ }
+                }
               }
             }
           } catch (e) {
@@ -1308,8 +1363,8 @@ ${childrensRule}`,
           }
         })();
 
-        // Wait for both to finish
-        await Promise.all([coverPromise, ch1Promise]);
+        // Wait for cover / hero / ch1 to finish
+        await Promise.all([coverPromise, heroPromise, ch1Promise]);
 
         useGenerationStore.getState().setPhase('done');
       })().catch((e) => {
