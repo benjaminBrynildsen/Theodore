@@ -148,6 +148,43 @@ export interface TTSResult {
 const AUDIO_DIR = path.join(process.cwd(), 'uploads', 'audio');
 const CHARS_PER_SECOND = 14;
 
+/**
+ * Measure the real duration of an MP3 file by running ffprobe on it.
+ * Falls back to a character-count estimate if probing fails.
+ *
+ * Why ffprobe: character-based estimates underrun the real audio because
+ * the TTS pacing passes insert newline/ellipsis pauses that add playback
+ * time but not text length (~2min short over a chapter). JS-based MP3
+ * parsers (music-metadata, etc.) trust the first Xing/LAME header of the
+ * file, which lies for MP3 buffers we concatenate from multiple chunks.
+ * ffprobe scans all frames and reports the true duration. It's already
+ * used elsewhere in this file for SFX mixing, so the binary is present.
+ */
+function measureMp3DurationFromFile(filepath: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    execFile(
+      'ffprobe',
+      ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', filepath],
+      { timeout: 10_000 },
+      (err, stdout) => {
+        if (err) {
+          resolve(null);
+          return;
+        }
+        const seconds = parseFloat(String(stdout).trim());
+        resolve(Number.isFinite(seconds) && seconds > 0 ? seconds : null);
+      }
+    );
+  });
+}
+
+async function measureMp3Duration(filepath: string, fallbackChars: number, fallbackSpeed = 1.0): Promise<number> {
+  const measured = await measureMp3DurationFromFile(filepath);
+  if (measured !== null) return Math.round(measured);
+  ttsLog(`ffprobe could not measure ${filepath}, using char-based fallback`);
+  return Math.round(fallbackChars / CHARS_PER_SECOND / (fallbackSpeed || 1));
+}
+
 // Credit cost is now character-based — imported from billing.ts at call site
 // Legacy constant kept for reference only
 
@@ -1200,7 +1237,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const filename = `ch-${hash}.mp3`;
     const filepath = path.join(AUDIO_DIR, filename);
     fs.writeFileSync(filepath, combined);
-    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND / openaiSpeed);
+    const durationEstimate = await measureMp3Duration(filepath, clean.length, openaiSpeed);
     // Budget tier pricing: ~5x cheaper than ElevenLabs baseline in Theodore credits
     const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
     return {
@@ -1292,7 +1329,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const filename = `ch-${hash}.mp3`;
     const filepath = path.join(AUDIO_DIR, filename);
     fs.writeFileSync(filepath, combined);
-    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND);
+    const durationEstimate = await measureMp3Duration(filepath, clean.length);
     // Grok is ~$4.20/1M chars (cheaper than OpenAI's $15/1M).
     // Pricing: 6 credits per 1K chars, min 10 — matches budget-tier feel.
     const creditsUsed = Math.max(10, Math.ceil(clean.length / 1000) * 6);
@@ -1369,7 +1406,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const filename = `ch-${hash}.mp3`;
     const filepath = path.join(AUDIO_DIR, filename);
     fs.writeFileSync(filepath, combined);
-    const durationEstimate = Math.round(clean.length / CHARS_PER_SECOND);
+    const durationEstimate = await measureMp3Duration(filepath, clean.length);
     // Same credit cost as OpenAI (similar API price)
     const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
     return {
@@ -1573,7 +1610,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     console.error(`[TTS] FAILED to write audio file: ${writeErr.message}`);
   }
 
-  const durationEstimate = Math.round(req.prose.length / CHARS_PER_SECOND / speed);
+  const durationEstimate = await measureMp3Duration(filepath, req.prose.length, speed);
 
   // Character-based credit cost: 100 credits per 1,000 characters
   const charCount = req.prose.length;
