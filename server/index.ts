@@ -6,7 +6,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { db, pool } from './db.js';
-import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents } from './schema.js';
+import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents, ttsJobs as ttsJobsTable } from './schema.js';
 import crypto from 'crypto';
 import {
   clearAllUserSessions,
@@ -1923,26 +1923,245 @@ app.get('/api/tts/voices', async (_req, res) => {
 });
 
 // ========== Async TTS Job System ==========
-// Jobs run in the background to avoid Render's 30-second proxy timeout
+// Jobs are persisted to the tts_jobs DB table so they survive server restarts.
+// Render deploys used to interrupt long generations — in-memory job state was
+// lost and the client's next poll got a 404. Now each job's full spec is in
+// the DB; on startup we pick up any unfinished job and re-run it.
 
-interface TTSJob {
-  id: string;
-  status: 'pending' | 'processing' | 'complete' | 'error';
-  progress?: number; // 0-100
-  result?: any;
-  error?: string;
-  createdAt: number;
+const STALE_HEARTBEAT_SECONDS = 30;
+const RESUME_WINDOW_MINUTES = 60;
+
+interface TTSJobSpec {
+  chapterId: string;
+  prose: string;
+  narratorVoice?: string;
+  characterVoices?: Record<string, string>;
+  characterDescriptions?: Record<string, string>;
+  narratorStyle?: string;
+  model?: string;
+  provider?: string;
+  speed?: number;
+  multiVoice?: boolean;
+  sceneSFX?: any[];
+  chapterNumber?: number;
+  chapterTitle?: string;
+  isFreeAudioSample?: boolean;
 }
 
-const ttsJobs = new Map<string, TTSJob>();
+// Lightweight in-memory progress tracker so frequent /job/:id polls don't hit
+// the DB on every tick. Writes still go to DB; this is just a read cache.
+const liveProgress = new Map<string, number>();
+// In-memory set of jobs this instance is currently generating, so graceful
+// shutdown can mark them for fast pick-up by the next instance.
+const activeJobIds = new Set<string>();
 
-// Clean up old jobs every 10 minutes
-setInterval(() => {
-  const cutoff = Date.now() - 30 * 60 * 1000; // 30 min
-  for (const [id, job] of ttsJobs) {
-    if (job.createdAt < cutoff) ttsJobs.delete(id);
+async function createPersistedJob(job: { id: string; spec: TTSJobSpec; userId?: string | null; isGuest?: boolean }) {
+  await db.insert(ttsJobsTable).values({
+    id: job.id,
+    status: 'pending',
+    progress: 0,
+    spec: job.spec,
+    userId: job.userId || null,
+    isGuest: !!job.isGuest,
+  });
+}
+
+async function updatePersistedJob(id: string, patch: Partial<{ status: 'pending' | 'processing' | 'complete' | 'error'; progress: number; result: any; error: string | null; attempts: number }>) {
+  const values: Record<string, any> = { updatedAt: new Date() };
+  if (patch.status !== undefined) values.status = patch.status;
+  if (patch.progress !== undefined) values.progress = patch.progress;
+  if (patch.result !== undefined) values.result = patch.result;
+  if (patch.error !== undefined) values.error = patch.error;
+  if (patch.attempts !== undefined) values.attempts = patch.attempts;
+  await db.update(ttsJobsTable).set(values).where(eq(ttsJobsTable.id, id));
+}
+
+async function getPersistedJob(id: string) {
+  const [row] = await db.select().from(ttsJobsTable).where(eq(ttsJobsTable.id, id));
+  return row;
+}
+
+// Try to atomically claim a stalled job. Returns true if this instance now
+// owns the job (so we should run it), false if another instance already did.
+async function claimPersistedJob(id: string): Promise<boolean> {
+  const cutoff = new Date(Date.now() - STALE_HEARTBEAT_SECONDS * 1000);
+  const claimed = await db
+    .update(ttsJobsTable)
+    .set({ status: 'processing', updatedAt: new Date() })
+    .where(
+      and(
+        eq(ttsJobsTable.id, id),
+        or(eq(ttsJobsTable.status, 'pending'), eq(ttsJobsTable.status, 'processing')),
+        sql`${ttsJobsTable.updatedAt} < ${cutoff}`,
+      ),
+    )
+    .returning({ id: ttsJobsTable.id });
+  return claimed.length > 0;
+}
+
+// Execute a TTS job: runs generation, saves audio, deducts credits, updates
+// DB status. Used by both the initial submit path and the resume-on-startup
+// sweep. Idempotent-ish: if it completes, it writes 'complete'; if it throws,
+// it writes 'error'. Credit deduction only happens on successful completion.
+async function runTTSJob(jobId: string) {
+  const row = await getPersistedJob(jobId);
+  if (!row) return;
+  const spec = row.spec as unknown as TTSJobSpec;
+  activeJobIds.add(jobId);
+
+  const heartbeat = setInterval(() => {
+    void db.update(ttsJobsTable).set({ updatedAt: new Date() }).where(eq(ttsJobsTable.id, jobId)).catch(() => {});
+  }, 10_000);
+
+  try {
+    const voiceMap = {
+      narrator: (spec.narratorVoice || 'XrExE9yKIg1WjnnlVkGX') as ElevenLabsVoice,
+      characters: (spec.characterVoices || {}) as Record<string, ElevenLabsVoice>,
+    };
+    const knownCharacters = Object.keys(spec.characterVoices || {});
+    console.log(`[TTS] Running job ${jobId} (attempt ${row.attempts + 1}) for ${spec.chapterId}`);
+    await updatePersistedJob(jobId, { status: 'processing', attempts: row.attempts + 1, error: null });
+
+    const result = await generateChapterAudio({
+      chapterId: spec.chapterId,
+      prose: spec.prose,
+      voiceMap,
+      provider: spec.provider || 'elevenlabs',
+      model: spec.model || 'eleven_multilingual_v2',
+      speed: spec.speed || 1.0,
+      multiVoice: spec.multiVoice ?? false,
+      knownCharacters,
+      characterDescriptions: spec.characterDescriptions || {},
+      narratorStyle: spec.narratorStyle || undefined,
+      sceneSFX: spec.sceneSFX || [],
+      chapterNumber: spec.chapterNumber || undefined,
+      chapterTitle: spec.chapterTitle || undefined,
+      onProgress: (pct) => {
+        liveProgress.set(jobId, pct);
+        void db.update(ttsJobsTable).set({ progress: pct, updatedAt: new Date() }).where(eq(ttsJobsTable.id, jobId)).catch(() => {});
+      },
+    });
+
+    const isFreeSample = !!spec.isFreeAudioSample;
+    const actualCreditsUsed = isFreeSample ? 0 : result.creditsUsed;
+    let creditsRemaining: number | null = null;
+
+    if (row.userId && !row.isGuest) {
+      if (!isFreeSample) {
+        await db.update(users).set({
+          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
+        }).where(eq(users.id, row.userId));
+      }
+      await db.insert(creditTransactions).values({
+        userId: row.userId,
+        action: 'generate-audio',
+        creditsUsed: actualCreditsUsed,
+        model: spec.model || 'eleven_multilingual_v2',
+        chapterId: spec.chapterId,
+        metadata: {
+          narratorVoice: spec.narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate,
+          charCount: spec.prose.length, freeAudioSample: isFreeSample || undefined,
+        },
+      });
+
+      // Save audio generation record for persistence
+      const isScene = spec.chapterId.startsWith('scene-');
+      const realChapterId = isScene ? undefined : spec.chapterId;
+      const sceneId = isScene ? spec.chapterId.replace('scene-', '') : undefined;
+      let projectId = '';
+      if (realChapterId) {
+        const [ch] = await db.select({ projectId: chapters.projectId }).from(chapters).where(eq(chapters.id, realChapterId));
+        projectId = ch?.projectId || '';
+      } else if (sceneId) {
+        const userChapters = await db.select().from(chapters);
+        for (const ch of userChapters) {
+          const scenes = (ch.scenes || []) as any[];
+          if (scenes.some((s: any) => s.id === sceneId)) {
+            projectId = ch.projectId;
+            break;
+          }
+        }
+      }
+      if (projectId) {
+        await db.update(audioGenerations).set({ isActive: false }).where(eq(audioGenerations.chapterId, spec.chapterId));
+        const existing = await db.select({ version: audioGenerations.version })
+          .from(audioGenerations)
+          .where(eq(audioGenerations.chapterId, spec.chapterId))
+          .orderBy(audioGenerations.version);
+        const nextVersion = existing.length > 0 ? Math.max(...existing.map(e => e.version)) + 1 : 1;
+        await db.insert(audioGenerations).values({
+          userId: row.userId,
+          projectId,
+          chapterId: spec.chapterId,
+          sceneId: sceneId || null,
+          version: nextVersion,
+          audioUrl: result.audioUrl,
+          durationSeconds: result.durationEstimate,
+          segments: result.segments,
+          voiceConfig: { provider: spec.provider || 'elevenlabs', narratorVoice: spec.narratorVoice, model: spec.model, speed: spec.speed, multiVoice: spec.multiVoice },
+          sfxConfig: spec.sceneSFX || [],
+          creditsUsed: result.creditsUsed,
+          isActive: true,
+        });
+      }
+
+      const [userRow] = await db.select({ credits: users.creditsRemaining }).from(users).where(eq(users.id, row.userId));
+      creditsRemaining = userRow?.credits ?? null;
+    }
+
+    await updatePersistedJob(jobId, {
+      status: 'complete',
+      progress: 100,
+      result: {
+        audioUrl: result.audioUrl,
+        durationEstimate: result.durationEstimate,
+        segments: result.segments,
+        creditsUsed: actualCreditsUsed,
+        creditsRemaining,
+      },
+      error: null,
+    });
+    console.log(`[TTS] Job ${jobId}: Complete → ${result.audioUrl}`);
+  } catch (e: any) {
+    console.error(`[TTS] Job ${jobId}: Failed —`, e.message);
+    try { fs.appendFileSync(path.join(process.cwd(), 'uploads', 'audio', 'error.log'), `[${new Date().toISOString()}] Job ${jobId} error: ${e.message}\n${e.stack || ''}\n`); } catch {}
+    await updatePersistedJob(jobId, { status: 'error', error: e.message || 'Audio generation failed' });
+  } finally {
+    clearInterval(heartbeat);
+    liveProgress.delete(jobId);
+    activeJobIds.delete(jobId);
   }
-}, 10 * 60 * 1000);
+}
+
+// On startup, pick up any job that was interrupted by a previous instance
+// and hasn't been heartbeating for STALE_HEARTBEAT_SECONDS. Runs in the
+// background so it doesn't block /api/health.
+async function resumeInterruptedJobs() {
+  try {
+    const cutoffHeartbeat = new Date(Date.now() - STALE_HEARTBEAT_SECONDS * 1000);
+    const cutoffAge = new Date(Date.now() - RESUME_WINDOW_MINUTES * 60 * 1000);
+    const rows = await db.select().from(ttsJobsTable).where(
+      and(
+        or(eq(ttsJobsTable.status, 'pending'), eq(ttsJobsTable.status, 'processing')),
+        sql`${ttsJobsTable.updatedAt} < ${cutoffHeartbeat}`,
+        sql`${ttsJobsTable.createdAt} > ${cutoffAge}`,
+      ),
+    );
+    if (rows.length === 0) return;
+    console.log(`[TTS] Resuming ${rows.length} interrupted job(s)`);
+    for (const row of rows) {
+      const claimed = await claimPersistedJob(row.id);
+      if (!claimed) continue; // another instance beat us to it
+      void runTTSJob(row.id).catch((err) => console.error(`[TTS] Resume of ${row.id} failed:`, err));
+    }
+  } catch (e: any) {
+    console.error('[TTS] resumeInterruptedJobs failed:', e?.message);
+  }
+}
+
+// Periodic sweep catches stalled jobs from peers whose SIGTERM we didn't hear
+// (e.g. SIGKILL after the drain timeout).
+setInterval(() => { void resumeInterruptedJobs(); }, 60_000);
 
 app.post('/api/tts/generate', async (req, res) => {
   try {
@@ -1990,133 +2209,17 @@ app.post('/api/tts/generate', async (req, res) => {
       }
     }
 
-    // Create job and return immediately
     const jobId = `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const job: TTSJob = { id: jobId, status: 'pending', createdAt: Date.now() };
-    ttsJobs.set(jobId, job);
+    const spec: TTSJobSpec = {
+      chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle,
+      model, provider, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle,
+      isFreeAudioSample,
+    };
+    await createPersistedJob({ id: jobId, spec, userId: auth.user.id, isGuest: false });
 
-    // Return job ID immediately (beats the 30-second timeout)
     res.json({ jobId, status: 'pending' });
 
-    // Run generation in background
-    job.status = 'processing';
-
-    const voiceMap = {
-      narrator: (narratorVoice || 'XrExE9yKIg1WjnnlVkGX') as ElevenLabsVoice,
-      characters: (characterVoices || {}) as Record<string, ElevenLabsVoice>,
-    };
-    const knownCharacters = Object.keys(characterVoices || {});
-    console.log(`[TTS] Job ${jobId}: Generating for ${chapterId}, multiVoice: ${multiVoice}, narrator: ${narratorVoice}`);
-
-    try {
-      const result = await generateChapterAudio({
-        chapterId,
-        prose,
-        voiceMap,
-        provider: provider || 'elevenlabs',
-        model: model || 'eleven_multilingual_v2',
-        speed: speed || 1.0,
-        multiVoice: multiVoice ?? false,
-        knownCharacters,
-        characterDescriptions: characterDescriptions || {},
-        narratorStyle: narratorStyle || undefined,
-        sceneSFX: sceneSFX || [],
-        chapterNumber: chapterNumber || undefined,
-        chapterTitle: chapterTitle || undefined,
-        onProgress: (pct) => { job.progress = pct; },
-      });
-
-      const actualCreditsUsed = isFreeAudioSample ? 0 : result.creditsUsed;
-
-      if (!isFreeAudioSample) {
-        // Deduct credits atomically (user object may be stale since TTS runs in background)
-        await db.update(users).set({
-          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${result.creditsUsed})`,
-        }).where(eq(users.id, auth.user.id));
-      }
-
-      // Log transaction (even free samples, so we know they used their freebie)
-      await db.insert(creditTransactions).values({
-        userId: auth.user.id,
-        action: 'generate-audio',
-        creditsUsed: actualCreditsUsed,
-        model: model || 'eleven_multilingual_v2',
-        chapterId,
-        metadata: {
-          narratorVoice, segments: result.segments, durationEstimate: result.durationEstimate,
-          charCount: prose.length, freeAudioSample: isFreeAudioSample || undefined,
-        },
-      });
-
-      // Save audio generation to DB for persistence
-      // Determine projectId and sceneId from chapterId
-      const isScene = chapterId.startsWith('scene-');
-      const realChapterId = isScene ? undefined : chapterId;
-      const sceneId = isScene ? chapterId.replace('scene-', '') : undefined;
-      
-      // Look up project from chapter
-      let projectId = '';
-      if (realChapterId) {
-        const [ch] = await db.select({ projectId: chapters.projectId }).from(chapters).where(eq(chapters.id, realChapterId));
-        projectId = ch?.projectId || '';
-      } else if (sceneId) {
-        // Scene IDs are stored in chapters.scenes JSON - search all user chapters
-        const userChapters = await db.select().from(chapters);
-        for (const ch of userChapters) {
-          const scenes = (ch.scenes || []) as any[];
-          if (scenes.some((s: any) => s.id === sceneId)) {
-            projectId = ch.projectId;
-            realChapterId && (undefined); // already set
-            break;
-          }
-        }
-      }
-
-      // Deactivate previous versions for this chapter/scene
-      if (projectId) {
-        await db.update(audioGenerations)
-          .set({ isActive: false })
-          .where(eq(audioGenerations.chapterId, chapterId));
-        
-        // Get next version number
-        const existing = await db.select({ version: audioGenerations.version })
-          .from(audioGenerations)
-          .where(eq(audioGenerations.chapterId, chapterId))
-          .orderBy(audioGenerations.version);
-        const nextVersion = existing.length > 0 ? Math.max(...existing.map(e => e.version)) + 1 : 1;
-
-        await db.insert(audioGenerations).values({
-          userId: auth.user.id,
-          projectId,
-          chapterId,
-          sceneId: sceneId || null,
-          version: nextVersion,
-          audioUrl: result.audioUrl,
-          durationSeconds: result.durationEstimate,
-          segments: result.segments,
-          voiceConfig: { provider: provider || 'elevenlabs', narratorVoice, model, speed, multiVoice },
-          sfxConfig: sceneSFX || [],
-          creditsUsed: result.creditsUsed,
-          isActive: true,
-        });
-        console.log(`[TTS] Saved audio generation v${nextVersion} for ${chapterId}`);
-      }
-
-      job.status = 'complete';
-      job.result = {
-        audioUrl: result.audioUrl,
-        durationEstimate: result.durationEstimate,
-        segments: result.segments,
-        creditsUsed: result.creditsUsed,
-        creditsRemaining: Math.max(0, (user.creditsRemaining ?? 0) - result.creditsUsed),
-      };
-      console.log(`[TTS] Job ${jobId}: Complete → ${result.audioUrl}`);
-    } catch (e: any) {
-      console.error(`[TTS] Job ${jobId}: Error:`, e.message);
-      try { fs.appendFileSync(path.join(process.cwd(), 'uploads', 'audio', 'error.log'), `[${new Date().toISOString()}] Job ${jobId} inner error: ${e.message}\n${e.stack || ''}\n`); } catch {}
-      job.status = 'error';
-      job.error = e.message || 'Audio generation failed';
-    }
+    void runTTSJob(jobId).catch((err) => console.error(`[TTS] runTTSJob(${jobId}) crashed:`, err));
   } catch (e: any) {
     console.error('TTS generation error:', e);
     try { fs.appendFileSync(path.join(process.cwd(), 'uploads', 'audio', 'error.log'), `[${new Date().toISOString()}] TTS outer error: ${e.message}\n${e.stack || ''}\n`); } catch {}
@@ -2149,50 +2252,21 @@ app.post('/api/tts/generate/guest', async (req, res) => {
     void logGuestEvent(req, { ip, event: 'tts', action: 'generate-audio', model: model || 'openai-gpt-4o-mini-tts' });
 
     const jobId = `tts-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const job: TTSJob = { id: jobId, status: 'pending', createdAt: Date.now() };
-    ttsJobs.set(jobId, job);
+    const spec: TTSJobSpec = {
+      chapterId, prose, narratorVoice,
+      model: model || 'openai-gpt-4o-mini-tts',
+      provider: 'openai',
+      speed: speed || 1.0,
+      multiVoice: false,
+      sceneSFX: sceneSFX || [],
+      chapterNumber, chapterTitle,
+    };
+    await createPersistedJob({ id: jobId, spec, isGuest: true });
 
     res.json({ jobId, status: 'pending' });
 
-    job.status = 'processing';
-    const voiceMap = {
-      narrator: (narratorVoice || 'XrExE9yKIg1WjnnlVkGX') as ElevenLabsVoice,
-      characters: {} as Record<string, ElevenLabsVoice>,
-    };
     console.log(`[TTS] Guest job ${jobId}: Generating for ${chapterId} from ${ip}`);
-
-    try {
-      const result = await generateChapterAudio({
-        chapterId,
-        prose,
-        voiceMap,
-        provider: 'openai',
-        model: model || 'openai-gpt-4o-mini-tts',
-        speed: speed || 1.0,
-        multiVoice: false,
-        knownCharacters: [],
-        characterDescriptions: {},
-        narratorStyle: undefined,
-        sceneSFX: sceneSFX || [],
-        chapterNumber: chapterNumber || undefined,
-        chapterTitle: chapterTitle || undefined,
-        onProgress: (pct) => { job.progress = pct; },
-      });
-
-      job.status = 'complete';
-      job.result = {
-        audioUrl: result.audioUrl,
-        durationEstimate: result.durationEstimate,
-        segments: result.segments,
-        creditsUsed: 0,
-        creditsRemaining: null,
-      };
-      console.log(`[TTS] Guest job ${jobId}: Complete → ${result.audioUrl}`);
-    } catch (e: any) {
-      console.error(`[TTS] Guest job ${jobId}: Failed —`, e.message);
-      job.status = 'error';
-      job.error = e.message || 'Audio generation failed';
-    }
+    void runTTSJob(jobId).catch((err) => console.error(`[TTS] Guest runTTSJob(${jobId}) crashed:`, err));
   } catch (e: any) {
     console.error('Guest TTS error:', e.message);
     if (!res.headersSent) respondInternalError(res, 'api', e);
@@ -2200,15 +2274,17 @@ app.post('/api/tts/generate/guest', async (req, res) => {
 });
 
 app.get('/api/tts/job/:jobId', async (req, res) => {
-  const job = ttsJobs.get(req.params.jobId);
+  const job = await getPersistedJob(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job not found' });
 
   if (job.status === 'complete') {
-    res.json({ status: 'complete', ...job.result });
+    res.json({ status: 'complete', ...((job.result as any) || {}) });
   } else if (job.status === 'error') {
-    res.json({ status: 'error', error: job.error });
+    res.json({ status: 'error', error: job.error || 'Audio generation failed' });
   } else {
-    res.json({ status: job.status, progress: job.progress || 0 });
+    // Prefer live progress from this instance if present (more up-to-date).
+    const pct = liveProgress.get(req.params.jobId) ?? job.progress ?? 0;
+    res.json({ status: job.status, progress: pct });
   }
 });
 
@@ -3277,6 +3353,20 @@ async function ensureAdditiveSchema() {
          END;
        END IF;
      END $$`,
+    `CREATE TABLE IF NOT EXISTS tts_jobs (
+       id text PRIMARY KEY,
+       status text NOT NULL DEFAULT 'pending',
+       progress integer NOT NULL DEFAULT 0,
+       spec jsonb NOT NULL,
+       result jsonb,
+       error text,
+       user_id text,
+       is_guest boolean NOT NULL DEFAULT false,
+       attempts integer NOT NULL DEFAULT 0,
+       created_at timestamp NOT NULL DEFAULT NOW(),
+       updated_at timestamp NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS tts_jobs_status_updated_idx ON tts_jobs(status, updated_at)`,
   ];
   for (const sql of statements) {
     try {
@@ -3300,12 +3390,31 @@ ensureAdditiveSchema().finally(() => {
     console.log(`Theodore API running on port ${PORT}`);
   });
 
+  // Pick up any TTS job the previous instance left unfinished. Runs async so
+  // the server starts serving immediately; resumed jobs stream progress back
+  // to polling clients the same way fresh ones do.
+  void resumeInterruptedJobs();
+
   // Graceful shutdown: when Render deploys a new version it sends SIGTERM.
   // Without a handler the process dies instantly and any in-flight request
   // returns 502. Stop accepting new connections, let pending ones finish
   // (up to 25s — Render's proxy typically gives ~30s before force-killing).
+  // For in-flight TTS jobs: mark their DB row with an old updated_at so the
+  // next instance picks them up immediately via resumeInterruptedJobs.
   const shutdown = (signal: string) => {
     console.log(`[${signal}] received — draining requests…`);
+    if (activeJobIds.size > 0) {
+      const stalePast = new Date(Date.now() - (STALE_HEARTBEAT_SECONDS + 5) * 1000);
+      const ids = Array.from(activeJobIds);
+      console.log(`[shutdown] releasing ${ids.length} active TTS job(s) for resume`);
+      // Best-effort, fire-and-forget — we don't want to block server.close on DB.
+      for (const id of ids) {
+        void db.update(ttsJobsTable)
+          .set({ status: 'pending', updatedAt: stalePast })
+          .where(eq(ttsJobsTable.id, id))
+          .catch(() => {});
+      }
+    }
     server.close(() => {
       console.log('[shutdown] all connections closed, exiting');
       process.exit(0);

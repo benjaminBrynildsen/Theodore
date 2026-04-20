@@ -245,6 +245,25 @@ export const guestBackups = pgTable('guest_backups', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ========== TTS Jobs ==========
+// Persistent TTS job state so long generations survive server restarts.
+// Render deploys send SIGTERM and restart the instance; without this table the
+// in-memory job map was lost and the client's next poll got a 404. On startup,
+// any job still in 'processing'/'pending' with a stale heartbeat is re-run.
+export const ttsJobs = pgTable('tts_jobs', {
+  id: text('id').primaryKey(),
+  status: text('status').notNull().default('pending'), // pending | processing | complete | error
+  progress: integer('progress').notNull().default(0),
+  spec: jsonb('spec').$type<Record<string, any>>().notNull(),
+  result: jsonb('result').$type<Record<string, any>>(),
+  error: text('error'),
+  userId: text('user_id'),
+  isGuest: boolean('is_guest').notNull().default(false),
+  attempts: integer('attempts').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),
