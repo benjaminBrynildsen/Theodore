@@ -202,13 +202,15 @@ export async function generateImageOpenAI(req: ImageGenRequest): Promise<ImageGe
 // ========== Grok (xAI) Image Generation ==========
 // Used for children's-book page illustrations. Grok's image model produces
 // more consistent style across related prompts than OpenAI's gpt-image-1,
-// which matters a lot when every page in a picture book needs to look like
-// it came from the same illustrator.
-// API is OpenAI-compatible; differences:
-//   - Endpoint: https://api.x.ai/v1/images/generations
-//   - Auth: XAI_API_KEY
-//   - Model: grok-2-image-1212 (latest xAI image model)
-//   - Does not accept a `size` parameter — output is fixed at 1024x768.
+// which matters when every page of a picture book needs to look like it
+// came from the same illustrator.
+//
+// Model catalog (xAI): grok-imagine-image (300 rpm, $0.02/img) and
+// grok-imagine-image-pro (30 rpm, $0.07/img). We default to the fast/cheap
+// one; Pro is opt-in via XAI_IMAGE_MODEL env for the higher-quality pass.
+// API is OpenAI-compatible but does NOT accept a `size` parameter.
+
+const GROK_IMAGE_MODEL = process.env.XAI_IMAGE_MODEL || 'grok-imagine-image';
 
 export async function generateImageGrok(req: ImageGenRequest): Promise<ImageGenResult> {
   const apiKey = process.env.XAI_API_KEY;
@@ -217,7 +219,7 @@ export async function generateImageGrok(req: ImageGenRequest): Promise<ImageGenR
   ensureUploadsDir();
 
   const fullPrompt = buildImagePrompt(req);
-  const model = 'grok-2-image-1212';
+  const model = GROK_IMAGE_MODEL;
 
   const response = await fetch('https://api.x.ai/v1/images/generations', {
     method: 'POST',
@@ -235,12 +237,14 @@ export async function generateImageGrok(req: ImageGenRequest): Promise<ImageGenR
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({} as any));
-    const detail = (err as any).error?.message || response.statusText;
-    // 402 = xAI account out of credits; 429 = rate-limited. Both are retriable
-    // on a different provider, so fall back to OpenAI instead of failing the
-    // whole illustration. Other statuses are passed through.
+    const detail = (err as any).error?.message || (err as any).message || response.statusText;
+    console.error(`[grok-image] ${response.status} model=${model}: ${detail}`);
+    // 402 = account/model access issue, 429 = rate-limited, 5xx = upstream
+    // flap. Transparently fall back to gpt-image-1 so the user still gets
+    // their illustration. Other statuses are passed through so we can see
+    // real bugs (bad prompt, etc.).
     if (response.status === 402 || response.status === 429 || response.status >= 500) {
-      console.warn(`[grok-image] status ${response.status} (${detail}) — falling back to OpenAI`);
+      console.warn(`[grok-image] falling back to OpenAI (${response.status})`);
       return generateImageOpenAI(req);
     }
     throw new Error(`Grok image API error ${response.status}: ${detail}`);
