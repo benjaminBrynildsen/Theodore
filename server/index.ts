@@ -37,6 +37,16 @@ import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './
 import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail, getUserJourneys } from './journey.js';
 import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
 
+// Keep the process alive when a rogue async error escapes a handler. Without
+// these, a single failed fetch or bad JSON body crashes the whole server and
+// every user gets a 502 until Render restarts it.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001');
 
@@ -3277,8 +3287,34 @@ async function ensureAdditiveSchema() {
   }
 }
 
+// Catch-all Express error handler — must be registered LAST. Without this,
+// an error thrown inside a route can bubble up and crash the process.
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[express-error]', req.method, req.originalUrl, err?.message || err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: 'internal', message: 'Something went wrong on our side.' });
+});
+
 ensureAdditiveSchema().finally(() => {
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Theodore API running on port ${PORT}`);
   });
+
+  // Graceful shutdown: when Render deploys a new version it sends SIGTERM.
+  // Without a handler the process dies instantly and any in-flight request
+  // returns 502. Stop accepting new connections, let pending ones finish
+  // (up to 25s — Render's proxy typically gives ~30s before force-killing).
+  const shutdown = (signal: string) => {
+    console.log(`[${signal}] received — draining requests…`);
+    server.close(() => {
+      console.log('[shutdown] all connections closed, exiting');
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.warn('[shutdown] timed out waiting for connections, forcing exit');
+      process.exit(0);
+    }, 25_000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 });
