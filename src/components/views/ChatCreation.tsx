@@ -1637,7 +1637,7 @@ ${childrensRule}`,
                             className={cn(
                               'flex items-center gap-2 px-3 py-1.5 rounded-xl text-[11px] max-w-[240px] transition-colors',
                               msg.role === 'user'
-                                ? 'bg-white/15 text-white hover:bg-white/25'
+                                ? 'bg-text-primary text-text-inverse hover:opacity-90'
                                 : 'bg-black/[0.05] text-text-secondary hover:bg-black/[0.08]',
                             )}
                           >
