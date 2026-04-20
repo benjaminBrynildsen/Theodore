@@ -315,8 +315,8 @@ export async function getUserJourneys(req: Request, res: Response) {
 
     res.json({ sessions: allSessions, guestSessionIds, ipHashes, fuzzyTokens: tokens });
   } catch (err: any) {
-    console.error('[journey] user journeys error:', err?.message || err);
-    res.status(500).json({ error: 'Failed to fetch user journeys' });
+    console.error('[journey] user journeys error:', err?.message || err, err?.stack);
+    res.status(500).json({ error: 'Failed to fetch user journeys', detail: err?.message || String(err) });
   }
 }
 
