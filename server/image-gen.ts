@@ -235,14 +235,23 @@ export async function generateImageGrok(req: ImageGenRequest): Promise<ImageGenR
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({} as any));
-    throw new Error(
-      `Grok image API error ${response.status}: ${(err as any).error?.message || response.statusText}`,
-    );
+    const detail = (err as any).error?.message || response.statusText;
+    // 402 = xAI account out of credits; 429 = rate-limited. Both are retriable
+    // on a different provider, so fall back to OpenAI instead of failing the
+    // whole illustration. Other statuses are passed through.
+    if (response.status === 402 || response.status === 429 || response.status >= 500) {
+      console.warn(`[grok-image] status ${response.status} (${detail}) — falling back to OpenAI`);
+      return generateImageOpenAI(req);
+    }
+    throw new Error(`Grok image API error ${response.status}: ${detail}`);
   }
 
   const data = (await response.json()) as { data?: Array<{ b64_json?: string; url?: string }> };
   const item = data.data?.[0];
-  if (!item) throw new Error('Grok returned no image.');
+  if (!item) {
+    console.warn('[grok-image] empty response — falling back to OpenAI');
+    return generateImageOpenAI(req);
+  }
 
   let imageBytes: Buffer | null = null;
   if (item.b64_json) {
