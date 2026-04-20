@@ -8,6 +8,7 @@ import { db } from './db.js';
 import { journeyEvents } from './schema.js';
 import { desc, eq, sql, and } from 'drizzle-orm';
 import { requireAdmin } from './admin.js';
+import { ensureGuestSessionId } from './guest-session.js';
 
 const IP_SALT = process.env.IP_HASH_SALT || 'theodore-journey-2026';
 
@@ -34,10 +35,16 @@ export async function receiveJourneyEvents(req: Request, res: Response) {
     const ipHash = hashIp(ip);
     const ua = (req.headers['user-agent'] as string) || '';
 
+    // Mint/read the theodore_guest HttpOnly cookie and stamp it onto every
+    // event. This is the load-bearing link between pre-signup journey sessions
+    // and a user after they sign up: guest_backups.guestSessionId matches
+    // events carrying the same cookie, regardless of ip_hash drift.
+    const guestSessionId = ensureGuestSessionId(req, res);
+
     const rows = events.map((e: any) => ({
       sessionId: String(e.sessionId || 'unknown'),
       event: String(e.event || 'unknown'),
-      data: e.data || null,
+      data: { ...(e.data || {}), guest_session_id: guestSessionId },
       ipHash,
       city: e.city ? String(e.city) : null,
       region: e.region ? String(e.region) : null,
@@ -111,11 +118,15 @@ export async function getJourneys(req: Request, res: Response) {
 
 // GET /api/admin/users/:userId/journeys — sessions linked to a user
 //
-// Links are discovered two ways:
-//   1. journey_events with data->>'user_id' = userId (tagged once user signs in)
-//   2. guest_backups with claimed_by_user_id = userId (historical signups via guest flow)
-// We collect ip_hashes from both, then return every session that shares any of
-// those ip_hashes — surfacing pre-signup anonymous visits from the same device.
+// Linked via three keys, in order of reliability:
+//   1. guest_session_id — the theodore_guest cookie, stamped onto every
+//      journey event server-side. If the user signed up through the guest
+//      flow, guest_backups.guestSessionId for their claim maps straight to
+//      those events. Works across signup without ip_hash reliance.
+//   2. data.user_id — events recorded after the user signed in (tagged by
+//      setJourneyUser in the client).
+//   3. ip_hash — last resort; brittle because of historical salt/length
+//      drift across modules, but kept for backward-compat with pre-fix rows.
 export async function getUserJourneys(req: Request, res: Response) {
   try {
     const admin = await requireAdmin(req, res);
@@ -123,6 +134,17 @@ export async function getUserJourneys(req: Request, res: Response) {
     const { userId } = req.params;
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
 
+    // Collect all guest_session_ids claimed by this user (primary link).
+    const gsRows = await db.execute(sql`
+      SELECT guest_session_id FROM guest_backups WHERE claimed_by_user_id = ${userId}
+    `);
+    const guestSessionIds = (gsRows.rows as { guest_session_id: string }[])
+      .map(r => r.guest_session_id)
+      .filter(Boolean);
+
+    // Fallback: ip_hashes from events the user is already tagged on, or from
+    // their claimed guest_backups row. Matches are looser but surface sessions
+    // from before the cookie-stamping fix landed.
     const hashRows = await db.execute(sql`
       SELECT DISTINCT ip_hash FROM (
         SELECT ip_hash FROM journey_events
@@ -136,9 +158,14 @@ export async function getUserJourneys(req: Request, res: Response) {
       .map(r => r.ip_hash)
       .filter(Boolean);
 
-    if (ipHashes.length === 0) {
-      return res.json({ sessions: [], ipHashes: [] });
+    if (guestSessionIds.length === 0 && ipHashes.length === 0) {
+      return res.json({ sessions: [], guestSessionIds: [], ipHashes: [] });
     }
+
+    // Use sentinel values for empty arrays so PG `= ANY(...)` never
+    // returns an error; sentinels match nothing real.
+    const gs = guestSessionIds.length ? guestSessionIds : ['__none__'];
+    const ih = ipHashes.length ? ipHashes : ['__none__'];
 
     const sessions = await db.execute(sql`
       SELECT
@@ -153,15 +180,18 @@ export async function getUserJourneys(req: Request, res: Response) {
         ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))))::int AS duration_seconds,
         ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
         BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin,
-        BOOL_OR(data->>'user_id' = ${userId}) AS signed_in
+        BOOL_OR(data->>'user_id' = ${userId}) AS signed_in,
+        BOOL_OR(data->>'guest_session_id' = ANY(${gs})) AS matched_guest_cookie
       FROM journey_events
-      WHERE ip_hash = ANY(${ipHashes})
+      WHERE (data->>'guest_session_id' = ANY(${gs}))
+         OR (data->>'user_id' = ${userId})
+         OR (ip_hash = ANY(${ih}))
       GROUP BY session_id
       ORDER BY MIN(created_at) DESC
       LIMIT ${limit}
     `);
 
-    res.json({ sessions: sessions.rows, ipHashes });
+    res.json({ sessions: sessions.rows, guestSessionIds, ipHashes });
   } catch (err: any) {
     console.error('[journey] user journeys error:', err?.message || err);
     res.status(500).json({ error: 'Failed to fetch user journeys' });
