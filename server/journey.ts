@@ -232,6 +232,8 @@ export async function getUserJourneys(req: Request, res: Response) {
 
     const fuzzyRows: any[] = [];
     if (userRow) {
+      const createdIso = new Date(userRow.createdAt).toISOString();
+
       // (a) title-token match — strong signal
       if (tokens.length > 0) {
         const likePatterns = tokens.map(t => `%${t}%`);
@@ -250,18 +252,15 @@ export async function getUserJourneys(req: Request, res: Response) {
             BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin,
             false AS signed_in,
             false AS matched_guest_cookie,
-            'fuzzy_prompt' AS match_type,
-            (SELECT ARRAY_AGG(DISTINCT t) FROM journey_events e2, UNNEST(${likePatterns}::text[]) t
-              WHERE e2.session_id = journey_events.session_id
-                AND LOWER(e2.data->>'prompt') LIKE t) AS matched_tokens
+            'fuzzy_prompt' AS match_type
           FROM journey_events
           WHERE session_id IN (
             SELECT DISTINCT session_id FROM journey_events
             WHERE event IN ('prompt_redirect_arrived','chat_auto_send')
               AND COALESCE((data->>'is_admin')::boolean, false) = false
               AND LOWER(data->>'prompt') LIKE ANY(${likePatterns})
-              AND created_at BETWEEN (${userRow.createdAt}::timestamptz - INTERVAL '24 hours')
-                                 AND (${userRow.createdAt}::timestamptz + INTERVAL '5 minutes')
+              AND created_at BETWEEN (${createdIso}::timestamptz - INTERVAL '24 hours')
+                                 AND (${createdIso}::timestamptz + INTERVAL '5 minutes')
           )
           GROUP BY session_id
           ORDER BY MIN(created_at) DESC
@@ -293,13 +292,12 @@ export async function getUserJourneys(req: Request, res: Response) {
             BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin,
             false AS signed_in,
             false AS matched_guest_cookie,
-            'fuzzy_time' AS match_type,
-            NULL::text[] AS matched_tokens
+            'fuzzy_time' AS match_type
           FROM journey_events
           WHERE COALESCE((data->>'is_admin')::boolean, false) = false
           GROUP BY session_id
-          HAVING ABS(EXTRACT(EPOCH FROM (MAX(created_at) - ${userRow.createdAt}::timestamptz))) < 120
-          ORDER BY ABS(EXTRACT(EPOCH FROM (MAX(created_at) - ${userRow.createdAt}::timestamptz))) ASC
+          HAVING ABS(EXTRACT(EPOCH FROM (MAX(created_at) - ${createdIso}::timestamptz))) < 120
+          ORDER BY ABS(EXTRACT(EPOCH FROM (MAX(created_at) - ${createdIso}::timestamptz))) ASC
           LIMIT 5
         `);
         for (const row of r.rows as any[]) {
