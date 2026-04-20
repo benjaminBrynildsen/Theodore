@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { BookOpen, ArrowRight, X, Mail, Lock, Eye, EyeOff, Headphones } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import * as pixel from '../../lib/pixel';
@@ -43,26 +43,35 @@ export function GuestSignupModal({ onSignUp, onDismiss, variant = 'novel' }: Gue
     document.head.appendChild(script);
   }, []);
 
-  const handleGoogle = useCallback(async (response: any) => {
-    try {
-      await googleLogin(response.credential);
-      pixel.trackCustom('GuestSignupModalSignUp');
-      jTrack('guest_signup_modal_google');
-      onSignUp();
-    } catch { /* error shown via state */ }
-  }, [googleLogin, onSignUp]);
+  // Route Google sign-in through a ref so the effect below can stay stable
+  // even when the parent passes fresh `onSignUp` refs on every render
+  // (which it does — AudioPlayerBar re-renders ~4x/sec on timeupdate).
+  // Without this, the render-button effect re-ran every parent tick, wiping
+  // the Google iframe (innerHTML = '') and re-injecting it — since the
+  // modal is flex-centered, the 40px iframe collapsing/reappearing made the
+  // whole card jump up and down.
+  const onSignUpRef = useRef(onSignUp);
+  useEffect(() => { onSignUpRef.current = onSignUp; }, [onSignUp]);
 
   useEffect(() => {
     if (!googleReady || !googleBtnRef.current) return;
     const google = (window as any).google;
     if (!google?.accounts?.id) return;
+    const cb = async (response: any) => {
+      try {
+        await googleLogin(response.credential);
+        pixel.trackCustom('GuestSignupModalSignUp');
+        jTrack('guest_signup_modal_google');
+        onSignUpRef.current();
+      } catch { /* error shown via state */ }
+    };
     googleBtnRef.current.innerHTML = '';
-    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogle });
+    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: cb });
     google.accounts.id.renderButton(googleBtnRef.current, {
       theme: 'outline', size: 'large', width: googleBtnRef.current.offsetWidth || 300,
       text: 'continue_with', shape: 'pill',
     });
-  }, [googleReady, handleGoogle]);
+  }, [googleReady, googleLogin]);
 
   useEffect(() => {
     pixel.trackCustom('GuestSignupModalShown');
