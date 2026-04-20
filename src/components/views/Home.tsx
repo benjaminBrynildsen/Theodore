@@ -7,6 +7,7 @@ import { ChatCreation } from './ChatCreation';
 export function Home() {
   const [showChatCreation, setShowChatCreation] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [importedMessage, setImportedMessage] = useState<string | undefined>(undefined);
   const { projects, setActiveProject, setCurrentView } = useStore();
 
   const sortedProjects = useMemo(() => {
@@ -28,7 +29,12 @@ export function Home() {
 
   // Full-screen chat creation
   if (showChatCreation) {
-    return <ChatCreation onClose={() => setShowChatCreation(false)} />;
+    return (
+      <ChatCreation
+        onClose={() => { setShowChatCreation(false); setImportedMessage(undefined); }}
+        initialMessage={importedMessage}
+      />
+    );
   }
 
   // Main home screen
@@ -117,7 +123,16 @@ export function Home() {
         </div>
       )}
       </div>
-      {showImport && <ImportProjectModal onClose={() => setShowImport(false)} />}
+      {showImport && (
+        <ImportProjectModal
+          onClose={() => setShowImport(false)}
+          onImported={(text) => {
+            setImportedMessage(text);
+            setShowImport(false);
+            setShowChatCreation(true);
+          }}
+        />
+      )}
     </div>
   );
 }

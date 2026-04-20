@@ -2538,6 +2538,142 @@ app.post('/api/upload/cover', async (req, res) => {
   }
 });
 
+// ========== Document import: extract plain text from uploaded file ==========
+// Accepts .pdf, .docx; returns normalized plain text capped at MAX_IMPORT_TEXT_BYTES.
+// The client pipes this text into the Imagine chat as the user's opening message,
+// so the AI can assess the work and ask follow-up questions about gaps.
+const MAX_IMPORT_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_IMPORT_TEXT_BYTES = 60 * 1024;
+const IMPORT_ACCEPTED_EXTENSIONS = new Set(['.pdf', '.docx']);
+
+const importUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_IMPORT_UPLOAD_BYTES, files: 1 },
+});
+
+function normalizeExtractedText(raw: string): string {
+  return raw
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+async function extractTextFromFile(fileName: string, buffer: Buffer): Promise<string> {
+  const ext = (() => {
+    const idx = fileName.lastIndexOf('.');
+    return idx >= 0 ? fileName.slice(idx).toLowerCase() : '';
+  })();
+
+  if (ext === '.pdf') {
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    try {
+      const result = await parser.getText();
+      return result.text || '';
+    } finally {
+      try { await parser.destroy(); } catch {}
+    }
+  }
+
+  if (ext === '.docx') {
+    const mammoth = await import('mammoth');
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value || '';
+  }
+
+  throw new Error(`Unsupported file type: ${ext || 'unknown'}`);
+}
+
+app.post('/api/import/extract', (req, res) => {
+  importUpload.single('file')(req, res, async (err: any) => {
+    try {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          res.status(400).json({ error: 'too-large-upload', message: `File exceeds ${Math.round(MAX_IMPORT_UPLOAD_BYTES / 1024 / 1024)} MB limit.` });
+          return;
+        }
+        res.status(400).json({ error: 'upload-failed', message: err.message || 'Upload failed.' });
+        return;
+      }
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) {
+        res.status(400).json({ error: 'no-file', message: 'No file uploaded.' });
+        return;
+      }
+
+      const fileName = file.originalname || 'upload';
+      const ext = (() => {
+        const idx = fileName.lastIndexOf('.');
+        return idx >= 0 ? fileName.slice(idx).toLowerCase() : '';
+      })();
+
+      if (!IMPORT_ACCEPTED_EXTENSIONS.has(ext)) {
+        res.status(400).json({
+          error: 'unsupported-format',
+          message: `We can't read ${ext || 'this file type'} yet. Try .pdf or .docx, or paste your synopsis instead.`,
+        });
+        return;
+      }
+
+      let text: string;
+      try {
+        const raw = await extractTextFromFile(fileName, file.buffer);
+        text = normalizeExtractedText(raw);
+      } catch (parseErr: any) {
+        console.error('[import] parse failed', { fileName, err: parseErr?.message });
+        res.status(400).json({
+          error: 'parse-failed',
+          message: `We couldn't read "${fileName}". Try exporting it as a text file and uploading that instead.`,
+        });
+        return;
+      }
+
+      if (text.length < 50) {
+        res.status(400).json({
+          error: 'empty',
+          message: `That file had no readable text. If it's a scan or image-only PDF, we can't OCR it yet — try a text version.`,
+        });
+        return;
+      }
+
+      const extractedBytes = Buffer.byteLength(text, 'utf8');
+      let truncated = false;
+      let finalText = text;
+
+      if (extractedBytes > MAX_IMPORT_TEXT_BYTES) {
+        truncated = true;
+        const sliced = Buffer.from(text, 'utf8').subarray(0, MAX_IMPORT_TEXT_BYTES);
+        finalText = sliced.toString('utf8').replace(/\uFFFD+$/, '');
+        const lastBreak = Math.max(
+          finalText.lastIndexOf('\n\n'),
+          finalText.lastIndexOf('. '),
+          finalText.lastIndexOf('! '),
+          finalText.lastIndexOf('? '),
+        );
+        if (lastBreak > finalText.length - 2000) {
+          finalText = finalText.slice(0, lastBreak + 1).trim();
+        }
+      }
+
+      const words = finalText.split(/\s+/).filter(Boolean).length;
+      res.json({
+        text: finalText,
+        fileName,
+        words,
+        bytes: Buffer.byteLength(finalText, 'utf8'),
+        extractedBytes,
+        truncated,
+      });
+    } catch (e: any) {
+      console.error('[import] unexpected error', e);
+      res.status(500).json({ error: 'server-error', message: 'Something went wrong on our side — try again.' });
+    }
+  });
+});
+
 // ========== Creator welcome videos ==========
 // Each of the 12 outreach creators can have one personalized MP4 stored on
 // the persistent disk and rendered on /creators/[slug]. Upload lives in the
