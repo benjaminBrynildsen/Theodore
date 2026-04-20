@@ -179,6 +179,24 @@ export async function getUserJourneys(req: Request, res: Response) {
       .map(r => r.ip_hash)
       .filter(Boolean);
 
+    // Known locations for the user: pulled from any journey event already
+    // tagged with their user_id (post-fix events carry this stamp). Used to
+    // filter fuzzy candidates so we don't attribute a stranger in a
+    // different city to this user just because the timing lined up.
+    const locRows = await db.execute(sql`
+      SELECT DISTINCT city, region, country
+      FROM journey_events
+      WHERE data->>'user_id' = ${userId}
+        AND country IS NOT NULL
+    `);
+    const knownCities = [...new Set((locRows.rows as any[]).map(r => r.city).filter(Boolean))];
+    const knownRegions = [...new Set((locRows.rows as any[]).map(r => r.region).filter(Boolean))];
+    const knownCountries = [...new Set((locRows.rows as any[]).map(r => r.country).filter(Boolean))];
+    const cityLit = pgTextArrayLiteral(knownCities.length ? knownCities : ['__none__']);
+    const regionLit = pgTextArrayLiteral(knownRegions.length ? knownRegions : ['__none__']);
+    const countryLit = pgTextArrayLiteral(knownCountries.length ? knownCountries : ['__none__']);
+    const hasKnownLocation = knownCountries.length > 0;
+
     // Use sentinel values for empty arrays so PG `= ANY(...)` never
     // returns an error; sentinels match nothing real.
     const gs = guestSessionIds.length ? guestSessionIds : ['__none__'];
@@ -243,6 +261,18 @@ export async function getUserJourneys(req: Request, res: Response) {
     for (const p of userProjects) tokenizeTitle(p.title).forEach(t => tokenSet.add(t));
     const tokens = [...tokenSet];
 
+    // Filter a fuzzy row against the user's known locations. Strict match
+    // when we have region data (same country + region), country-only fall
+    // back otherwise. Rows without a recorded location are allowed through
+    // when the user themselves has none either.
+    const matchesKnownLocation = (row: any): boolean => {
+      if (!hasKnownLocation) return true;
+      if (!row.country) return false;
+      if (!knownCountries.includes(row.country)) return false;
+      if (knownRegions.length > 0 && row.region && !knownRegions.includes(row.region)) return false;
+      return true;
+    };
+
     const fuzzyRows: any[] = [];
     if (userRow) {
       const createdIso = new Date(userRow.createdAt).toISOString();
@@ -281,10 +311,10 @@ export async function getUserJourneys(req: Request, res: Response) {
           LIMIT 20
         `);
         for (const row of r.rows as any[]) {
-          if (!matchedIds.has(row.session_id)) {
-            fuzzyRows.push(row);
-            matchedIds.add(row.session_id);
-          }
+          if (matchedIds.has(row.session_id)) continue;
+          if (!matchesKnownLocation(row)) continue;
+          fuzzyRows.push(row);
+          matchedIds.add(row.session_id);
         }
       }
 
@@ -317,13 +347,15 @@ export async function getUserJourneys(req: Request, res: Response) {
           HAVING MAX(created_at) BETWEEN (${createdIso}::timestamptz - INTERVAL '30 minutes')
                                      AND (${createdIso}::timestamptz + INTERVAL '30 seconds')
           ORDER BY ABS(EXTRACT(EPOCH FROM (MAX(created_at) - ${createdIso}::timestamptz))) ASC
-          LIMIT 10
+          LIMIT 30
         `);
+        let picked = 0;
         for (const row of r.rows as any[]) {
-          if (!matchedIds.has(row.session_id)) {
-            fuzzyRows.push(row);
-            matchedIds.add(row.session_id);
-          }
+          if (matchedIds.has(row.session_id)) continue;
+          if (!matchesKnownLocation(row)) continue;
+          fuzzyRows.push(row);
+          matchedIds.add(row.session_id);
+          if (++picked >= 10) break;
         }
       }
     }
@@ -332,7 +364,15 @@ export async function getUserJourneys(req: Request, res: Response) {
       (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
     );
 
-    res.json({ sessions: allSessions, guestSessionIds, ipHashes, fuzzyTokens: tokens });
+    res.json({
+      sessions: allSessions,
+      guestSessionIds,
+      ipHashes,
+      fuzzyTokens: tokens,
+      knownLocation: hasKnownLocation
+        ? { cities: knownCities, regions: knownRegions, countries: knownCountries }
+        : null,
+    });
   } catch (err: any) {
     console.error('[journey] user journeys error:', err?.message || err, err?.stack);
     res.status(500).json({ error: 'Failed to fetch user journeys', detail: err?.message || String(err) });
