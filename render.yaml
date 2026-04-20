@@ -44,7 +44,9 @@ services:
     name: theodore-production
     branch: main
     region: ohio
-    plan: starter
+    # Standard (not starter) so deploys are zero-downtime — Render runs the
+    # new instance alongside the old, waits for /api/health, then switches.
+    plan: standard
     buildCommand: npm ci --include=dev && npm run build
     # db:push runs with a hard 90-second timeout and `|| true`, so a slow
     # DB connection can't strand the deploy — worst case, the push is
