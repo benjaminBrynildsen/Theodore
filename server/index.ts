@@ -36,6 +36,7 @@ import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlan
 import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './meta-capi.js';
 import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail, getUserJourneys } from './journey.js';
 import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
+import { attachActiveCharacterRoutes } from './active-character.js';
 
 // Keep the process alive when a rogue async error escapes a handler. Without
 // these, a single failed fetch or bad JSON body crashes the whole server and
@@ -1260,6 +1261,9 @@ app.delete('/api/canon/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e: any) { respondInternalError(res, 'api', e); }
 });
+
+// ========== Active Character (Open Beats, STT, Grok reaction stream) ==========
+attachActiveCharacterRoutes(app, requireAuth);
 
 // ========== Credit Transactions ==========
 app.get('/api/users/:userId/transactions', async (req, res) => {

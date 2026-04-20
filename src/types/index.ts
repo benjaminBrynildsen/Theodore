@@ -1,7 +1,7 @@
 // ========== Project Types ==========
 
 export type ProjectType = 'book' | 'screenplay' | 'tv-series' | 'film' | 'musical' | 'documentary';
-export type BookSubtype = 'novel' | 'short-stories' | 'childrens-book';
+export type BookSubtype = 'novel' | 'short-stories' | 'childrens-book' | 'active-character';
 
 export type ProjectStatus = 'active' | 'archived' | 'completed';
 
@@ -102,6 +102,23 @@ export interface Scene {
   status: SceneStatus;
   emotionalMetadata?: import('./music').SceneEmotionalMetadata;
   sfx?: SceneSFX[];
+  openBeats?: OpenBeat[];
+}
+
+/**
+ * Open Beat — a pause in Active Character Book playback where the listener
+ * speaks as the active character. Placed by the AI during generation; author
+ * can edit cue text + timing + guardrails in the editor.
+ */
+export interface OpenBeat {
+  beatId: string;
+  activeCharacterId: string; // canonEntries.id of the active character
+  cueText: string; // narrator line that hands off — e.g. "Mira turned to me, waiting."
+  setupAudioMarkerMs?: number; // position in chapter audio where cue ends — filled after TTS
+  bridgeAudioUrl?: string; // fallback filler played if reaction runs long
+  maxSpeakMs: number; // hard cutoff for listener's speaking window
+  intentHints: string[]; // anticipated intents to help classifier/pre-gen — e.g. "accept", "refuse"
+  stateMutationRules: string[]; // dimensions this beat is allowed to move — e.g. "trust", "knowledge"
 }
 
 export interface EditChatMessage {

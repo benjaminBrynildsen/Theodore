@@ -25,10 +25,16 @@ const projectTypes = [
   { type: 'documentary' as const, label: 'Documentary', icon: FileVideo, available: false },
 ];
 
-const bookSubtypes: { type: BookSubtype; label: string; desc: string; comingSoon?: boolean }[] = [
+const bookSubtypes: { type: BookSubtype; label: string; desc: string; comingSoon?: boolean; beta?: boolean }[] = [
   { type: 'novel', label: 'Novel', desc: 'Full-length narrative fiction' },
   { type: 'short-stories', label: 'Short Story Collection', desc: 'Multiple connected or standalone stories' },
   { type: 'childrens-book', label: "Children's Book", desc: 'Illustrated stories for young readers' },
+  {
+    type: 'active-character',
+    label: 'Active Character Book',
+    desc: 'One character is voiced by you — speak their lines at live beats during playback.',
+    beta: true,
+  },
 ];
 
 interface Props {
@@ -168,7 +174,7 @@ export function NewProjectModal({ onClose }: Props) {
           <div className="px-6 pb-6 animate-fade-in">
             <p className="text-sm text-text-secondary mb-5">What kind of book?</p>
             <div className="space-y-2">
-              {bookSubtypes.map(({ type, label, desc, comingSoon }) => (
+              {bookSubtypes.map(({ type, label, desc, comingSoon, beta }) => (
                 <button
                   key={type}
                   disabled={comingSoon}
@@ -183,6 +189,11 @@ export function NewProjectModal({ onClose }: Props) {
                     {comingSoon && (
                       <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-black/[0.06] text-text-tertiary font-semibold">
                         Coming soon
+                      </span>
+                    )}
+                    {beta && (
+                      <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 font-semibold">
+                        Beta
                       </span>
                     )}
                   </div>

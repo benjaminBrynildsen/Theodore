@@ -91,7 +91,28 @@ export interface CharacterEntry extends CanonBase {
       allegiance: string;
       lastSeenChapter: number;
     };
+
+    // Active Character (Active Character Book subtype)
+    // When true, this character's dialogue at Open Beats is spoken by the
+    // listener during playback. Exactly one character per project may be
+    // marked active, and only when project.subtype === 'active-character'.
+    isActive?: boolean;
+    activeProfile?: ActiveCharacterProfile;
   };
+}
+
+/**
+ * Constraints the AI uses when this character is the listener's avatar:
+ * shapes dialogue length, guardrails on plot-steering, and fallback voice
+ * identity if re-synthesis is ever needed.
+ */
+export interface ActiveCharacterProfile {
+  archetype: string; // e.g. "reluctant hero", "trickster"
+  register: string; // formality band — "casual", "terse", "courtly"
+  dialogueLength: { min: number; max: number }; // words per speaking turn
+  knowsAtStart: string[]; // what they know when the story opens
+  doesNotKnow: string[]; // plot points that stay dark to them
+  guardrails: string[]; // what the listener cannot push the plot to do
 }
 
 export interface FamilyMember {
