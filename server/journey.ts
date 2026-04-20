@@ -356,10 +356,30 @@ export async function getUserJourneys(req: Request, res: Response) {
           ORDER BY ABS(EXTRACT(EPOCH FROM (MAX(created_at) - ${createdIso}::timestamptz))) ASC
           LIMIT 30
         `);
+        // If we have no anchor location, derive one from the closest-in-time
+        // candidate that carries a country — typically the user's own session.
+        // Then apply the same location filter to drop strangers from the list.
+        const rows = r.rows as any[];
+        let anchorCountry: string | null = knownCountries[0] || null;
+        let anchorRegion: string | null = knownRegions[0] || null;
+        if (!anchorCountry) {
+          const firstLocated = rows.find(x => x.country);
+          if (firstLocated) {
+            anchorCountry = firstLocated.country;
+            anchorRegion = firstLocated.region || null;
+          }
+        }
+        const passesAnchor = (row: any) => {
+          if (!anchorCountry) return true;
+          if (!row.country) return true; // keep unknown-location rows, they may be real
+          if (row.country !== anchorCountry) return false;
+          if (anchorRegion && row.region && row.region !== anchorRegion) return false;
+          return true;
+        };
         let picked = 0;
-        for (const row of r.rows as any[]) {
+        for (const row of rows) {
           if (matchedIds.has(row.session_id)) continue;
-          if (!matchesKnownLocation(row)) continue;
+          if (!passesAnchor(row)) continue;
           fuzzyRows.push(row);
           matchedIds.add(row.session_id);
           if (++picked >= 10) break;
