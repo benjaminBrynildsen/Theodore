@@ -803,12 +803,10 @@ export function AudioPlayerBar() {
               onClick={() => {
                 if (currentChapterId) window.dispatchEvent(new CustomEvent('theodore:togglePlayback'));
               }}
-              disabled={!currentChapterId || !!generating}
+              disabled={!currentChapterId}
               className="p-2.5 rounded-full bg-white text-[#181818] hover:scale-105 disabled:opacity-50 transition-all"
             >
-              {generating ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : playing ? (
+              {playing ? (
                 <Pause size={18} />
               ) : (
                 <Play size={18} className="ml-0.5" />

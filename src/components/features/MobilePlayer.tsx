@@ -162,9 +162,7 @@ export function MobilePlayerBar({ onExpand }: { onExpand: () => void }) {
           }}
           className="w-8 h-8 flex items-center justify-center flex-shrink-0"
         >
-          {generating ? (
-            <Loader2 size={18} className="animate-spin text-text-tertiary" />
-          ) : playing ? (
+          {playing ? (
             <Pause size={20} className="text-text-primary" />
           ) : (
             <Play size={20} className="text-text-primary ml-0.5" fill="currentColor" />
@@ -329,12 +327,10 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
           </button>
           <button
             onClick={() => { if (currentChapterId) window.dispatchEvent(new CustomEvent('theodore:togglePlayback')); }}
-            disabled={!currentChapterId || !!generating}
+            disabled={!currentChapterId}
             className="w-16 h-16 rounded-full bg-white text-black flex items-center justify-center disabled:opacity-40 transition-all shadow-lg hover:scale-105 active:scale-95"
           >
-            {generating ? (
-              <Loader2 size={28} className="animate-spin" />
-            ) : playing ? (
+            {playing ? (
               <Pause size={28} fill="currentColor" />
             ) : (
               <Play size={28} className="ml-1" fill="currentColor" />
