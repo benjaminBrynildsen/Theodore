@@ -179,15 +179,22 @@ export async function getUserJourneys(req: Request, res: Response) {
       .map(r => r.ip_hash)
       .filter(Boolean);
 
-    // Known locations for the user: pulled from any journey event already
-    // tagged with their user_id (post-fix events carry this stamp). Used to
-    // filter fuzzy candidates so we don't attribute a stranger in a
-    // different city to this user just because the timing lined up.
+    // Known locations for the user: pulled from any journey event we can
+    // reliably tie to them — by user_id, by a claimed guest_session_id, or
+    // by an ip_hash that shows up on one of their claimed guest_backups.
+    // Used to filter fuzzy candidates so we don't attribute a stranger in
+    // a different city to this user just because the timing lined up.
+    const gsForLoc = guestSessionIds.length ? guestSessionIds : ['__none__'];
+    const ihForLoc = ipHashes.length ? ipHashes : ['__none__'];
     const locRows = await db.execute(sql`
       SELECT DISTINCT city, region, country
       FROM journey_events
-      WHERE data->>'user_id' = ${userId}
-        AND country IS NOT NULL
+      WHERE country IS NOT NULL
+        AND (
+          data->>'user_id' = ${userId}
+          OR data->>'guest_session_id' = ANY(${pgTextArrayLiteral(gsForLoc)}::text[])
+          OR ip_hash = ANY(${pgTextArrayLiteral(ihForLoc)}::text[])
+        )
     `);
     const knownCities = [...new Set((locRows.rows as any[]).map(r => r.city).filter(Boolean))];
     const knownRegions = [...new Set((locRows.rows as any[]).map(r => r.region).filter(Boolean))];
