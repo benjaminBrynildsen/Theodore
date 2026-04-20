@@ -310,6 +310,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
     narratorVoice: state.narratorVoice,
     characterVoices: state.characterVoices,
     multiVoice: state.multiVoice,
+    ttsProvider: state.ttsProvider,
     ttsModel: state.ttsModel,
     speed: state.speed,
     volume: state.volume,
@@ -340,8 +341,26 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
         persistedState.ttsModel = 'openai-gpt-4o-mini-tts';
         persistedState.narratorVoice = 'openai:fable';
       }
+
+      // v7: Defensively align narrator voice with provider. Bug: ttsProvider
+      // used to reset to 'openai' on reload while narratorVoice persisted,
+      // letting a 'grok:rex' voice get sent to OpenAI's TTS API.
+      const narrator = persistedState.narratorVoice || '';
+      const provider = persistedState.ttsProvider || 'openai';
+      const expectedPrefix =
+        provider === 'openai' ? 'openai:' :
+        provider === 'grok' ? 'grok:' :
+        provider === 'fish' ? 'fish:' :
+        null;
+      if (expectedPrefix && !narrator.startsWith(expectedPrefix)) {
+        persistedState.narratorVoice =
+          provider === 'openai' ? 'openai:fable' :
+          provider === 'grok' ? 'grok:eve' :
+          provider === 'fish' ? 'fish:933563129e564b19a115bedd57b7406a' :
+          narrator;
+      }
     }
     return persistedState;
   },
-  version: 6,
+  version: 7,
 }));

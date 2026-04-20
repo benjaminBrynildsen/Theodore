@@ -202,36 +202,102 @@ OVERALL:
 - If a moment is meant to land hard, let it land. Don't rush past it.
 - The listener should FEEL the story, not just hear words.`;
 
+// ========== Voice sanitization ==========
+// The client can send a voice that doesn't match the chosen provider (e.g.
+// a stale 'grok:rex' persisted from a previous session while the provider
+// reset to 'openai'). We guard against this two ways:
+//   1. Preemptively coerce a mismatched voice to the provider's default.
+//   2. If the provider's API still rejects the voice (e.g. an unknown name),
+//      retry once with the provider's default voice rather than surfacing
+//      a raw API error to the user.
+
+const OPENAI_VALID_VOICES = new Set([
+  'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer',
+  'coral', 'verse', 'ballad', 'ash', 'sage', 'marin', 'cedar',
+]);
+const GROK_VALID_VOICES = new Set(['eve', 'ara', 'rex', 'sal', 'leo']);
+
+const PROVIDER_DEFAULT_VOICE = {
+  openai: 'fable',
+  grok: 'eve',
+  fish: '933563129e564b19a115bedd57b7406a', // Sarah
+} as const;
+
+type KnownProvider = keyof typeof PROVIDER_DEFAULT_VOICE;
+
+function coerceVoiceForProvider(voice: string, provider: KnownProvider): { voice: string; coerced: boolean; original: string } {
+  const original = voice || '';
+  const stripped = original.replace(/^(openai|grok|fish):/i, '');
+  const fallback = PROVIDER_DEFAULT_VOICE[provider];
+  if (!stripped) return { voice: fallback, coerced: true, original };
+  if (provider === 'openai' && !OPENAI_VALID_VOICES.has(stripped.toLowerCase())) {
+    return { voice: fallback, coerced: true, original };
+  }
+  if (provider === 'grok' && !GROK_VALID_VOICES.has(stripped.toLowerCase())) {
+    return { voice: fallback, coerced: true, original };
+  }
+  if (provider === 'fish' && !/^[a-f0-9]{32}$/i.test(stripped)) {
+    return { voice: fallback, coerced: true, original };
+  }
+  return { voice: stripped, coerced: false, original };
+}
+
+function looksLikeInvalidVoiceError(status: number, detail: string): boolean {
+  if (status !== 400) return false;
+  const lower = (detail || '').toLowerCase();
+  if (lower.includes('invalid_value') || lower.includes('invalid value')) return true;
+  if (lower.includes('voice') && (lower.includes('invalid') || lower.includes('not found') || lower.includes('unknown') || lower.includes('unsupported'))) return true;
+  return false;
+}
+
 async function callOpenAITTS(text: string, voice: string, speed = 1.0): Promise<Buffer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY is required for OpenAI TTS');
 
-  const cleanedVoice = (voice || 'alloy').replace(/^openai:/, '');
-  const response = await fetch(OPENAI_API, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini-tts',
-      voice: cleanedVoice,
-      input: text,
-      instructions: OPENAI_TTS_INSTRUCTIONS,
-      speed: Math.max(0.5, Math.min(2.0, speed || 1.0)),
-      format: 'mp3',
-    }),
-  });
+  const coerced = coerceVoiceForProvider(voice, 'openai');
+  if (coerced.coerced) ttsLog(`[openai] coerced voice "${coerced.original}" → "${coerced.voice}" (mismatched provider)`);
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText);
-    if (response.status === 429 || detail.includes('insufficient_quota')) {
-      throw new Error('Audio generation is temporarily unavailable due to API limits. Please try again later.');
+  const attempt = async (v: string) => {
+    const response = await fetch(OPENAI_API, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini-tts',
+        voice: v,
+        input: text,
+        instructions: OPENAI_TTS_INSTRUCTIONS,
+        speed: Math.max(0.5, Math.min(2.0, speed || 1.0)),
+        format: 'mp3',
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText);
+      if (response.status === 429 || detail.includes('insufficient_quota')) {
+        throw new Error('Audio generation is temporarily unavailable due to API limits. Please try again later.');
+      }
+      const err = new Error(`OpenAI TTS error ${response.status}: ${detail}`) as Error & { status?: number; detail?: string };
+      err.status = response.status;
+      err.detail = detail;
+      throw err;
     }
-    throw new Error(`OpenAI TTS error ${response.status}: ${detail}`);
-  }
 
-  return Buffer.from(await response.arrayBuffer());
+    return Buffer.from(await response.arrayBuffer());
+  };
+
+  try {
+    return await attempt(coerced.voice);
+  } catch (err: any) {
+    const fallback = PROVIDER_DEFAULT_VOICE.openai;
+    if (looksLikeInvalidVoiceError(err.status, err.detail || err.message) && coerced.voice !== fallback) {
+      ttsLog(`[openai] voice "${coerced.voice}" rejected; retrying with fallback "${fallback}"`);
+      return await attempt(fallback);
+    }
+    throw err;
+  }
 }
 
 // ========== Grok (xAI) TTS ==========
@@ -251,35 +317,52 @@ async function callGrokTTS(text: string, voiceId: string): Promise<Buffer> {
   const safeText = text.length > GROK_MAX_CHARS_PER_REQUEST
     ? text.slice(0, GROK_MAX_CHARS_PER_REQUEST)
     : text;
-  const cleanedVoice = (voiceId || 'eve').replace(/^grok:/, '');
+  const coerced = coerceVoiceForProvider(voiceId, 'grok');
+  if (coerced.coerced) ttsLog(`[grok] coerced voice "${coerced.original}" → "${coerced.voice}" (mismatched provider)`);
 
-  const response = await fetch(GROK_TTS_API, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      text: safeText,
-      voice_id: cleanedVoice,
-      language: 'en',
-      output_format: {
-        codec: 'mp3',
-        sample_rate: 24000,
-        bit_rate: 128000,
+  const attempt = async (v: string) => {
+    const response = await fetch(GROK_TTS_API, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
-    }),
-  });
+      body: JSON.stringify({
+        text: safeText,
+        voice_id: v,
+        language: 'en',
+        output_format: {
+          codec: 'mp3',
+          sample_rate: 24000,
+          bit_rate: 128000,
+        },
+      }),
+    });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText);
-    if (response.status === 429) {
-      throw new Error('Grok TTS rate limit — please retry in a moment.');
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText);
+      if (response.status === 429) {
+        throw new Error('Grok TTS rate limit — please retry in a moment.');
+      }
+      const err = new Error(`Grok TTS error ${response.status}: ${detail}`) as Error & { status?: number; detail?: string };
+      err.status = response.status;
+      err.detail = detail;
+      throw err;
     }
-    throw new Error(`Grok TTS error ${response.status}: ${detail}`);
-  }
 
-  return Buffer.from(await response.arrayBuffer());
+    return Buffer.from(await response.arrayBuffer());
+  };
+
+  try {
+    return await attempt(coerced.voice);
+  } catch (err: any) {
+    const fallback = PROVIDER_DEFAULT_VOICE.grok;
+    if (looksLikeInvalidVoiceError(err.status, err.detail || err.message) && coerced.voice !== fallback) {
+      ttsLog(`[grok] voice "${coerced.voice}" rejected; retrying with fallback "${fallback}"`);
+      return await attempt(fallback);
+    }
+    throw err;
+  }
 }
 
 // ========== Fish Audio TTS ==========
@@ -453,34 +536,53 @@ async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> 
   const apiKey = process.env.FISH_AUDIO_API_KEY;
   if (!apiKey) throw new Error('FISH_AUDIO_API_KEY is required for Fish Audio TTS');
 
-  const body = msgpackEncode({
-    text: text,
-    reference_id: voiceId,
-    format: 'mp3',
-    mp3_bitrate: 192,
-    normalize: false,
-    latency: 'normal',
-  });
+  const coerced = coerceVoiceForProvider(voiceId, 'fish');
+  if (coerced.coerced) ttsLog(`[fish] coerced voice "${coerced.original}" → "${coerced.voice}" (mismatched provider)`);
 
-  const response = await fetch(FISH_AUDIO_API, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/msgpack',
-      'model': 's2-pro',
-    },
-    body: body,
-  });
+  const attempt = async (v: string) => {
+    const body = msgpackEncode({
+      text: text,
+      reference_id: v,
+      format: 'mp3',
+      mp3_bitrate: 192,
+      normalize: false,
+      latency: 'normal',
+    });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText);
-    if (response.status === 429) {
-      throw new Error('Fish Audio rate limit — too many concurrent requests. Please try again.');
+    const response = await fetch(FISH_AUDIO_API, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/msgpack',
+        'model': 's2-pro',
+      },
+      body: body,
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText);
+      if (response.status === 429) {
+        throw new Error('Fish Audio rate limit — too many concurrent requests. Please try again.');
+      }
+      const err = new Error(`Fish Audio TTS error ${response.status}: ${detail}`) as Error & { status?: number; detail?: string };
+      err.status = response.status;
+      err.detail = detail;
+      throw err;
     }
-    throw new Error(`Fish Audio TTS error ${response.status}: ${detail}`);
-  }
 
-  return Buffer.from(await response.arrayBuffer());
+    return Buffer.from(await response.arrayBuffer());
+  };
+
+  try {
+    return await attempt(coerced.voice);
+  } catch (err: any) {
+    const fallback = PROVIDER_DEFAULT_VOICE.fish;
+    if (looksLikeInvalidVoiceError(err.status, err.detail || err.message) && coerced.voice !== fallback) {
+      ttsLog(`[fish] voice "${coerced.voice}" rejected; retrying with fallback "${fallback}"`);
+      return await attempt(fallback);
+    }
+    throw err;
+  }
 }
 
 export interface ElevenLabsVoiceInfo {
