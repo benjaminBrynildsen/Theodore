@@ -327,6 +327,16 @@ export function ChapterView({ chapter }: Props) {
         setGenerating(false);
         setGeneratedText('');
         accumulatedRef.current = '';
+        // Surface the final word count in the progress bar's done state so the
+        // user sees what actually came out before the bar fades. If the model
+        // stopped significantly short of target, the persistent banner below
+        // the title will keep the "Continue / Extend" option in front of them.
+        const finalWordCount = finalProse.trim().split(/\s+/).filter(Boolean).length;
+        useGenerationStore.getState().setSubtitle(
+          isChildrensBook
+            ? `${finalWordCount.toLocaleString()} words`
+            : `${finalWordCount.toLocaleString()} / ${wordTarget.toLocaleString()} target words`,
+        );
         useGenerationStore.getState().setPhase('done');
 
         // Auto-trigger audiobook generation so the user hits the audio "wow"
@@ -1468,6 +1478,33 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                       <><Headphones size={17} /> Listen to Chapter {chapter.number}</>
                     )}
                   </span>
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Short-chapter banner — shows whenever prose exists but is well
+              under target, regardless of generation state. Without this, a
+              generation that completes short (model stopped early on its own)
+              looked identical to a generation still happening silently. */}
+          {project?.subtype !== 'childrens-book' && !generating && !extending && (() => {
+            const proseWords = chapter.prose?.trim().split(/\s+/).filter(Boolean).length || 0;
+            const meta = chapter.aiIntentMetadata as any;
+            const targetWords = parseInt(meta?.chunking?.targetWords || '0', 10);
+            if (!targetWords || proseWords < 50) return null;
+            if (proseWords >= targetWords * 0.9) return null;
+            const pct = Math.round((proseWords / targetWords) * 100);
+            return (
+              <div className="mb-4 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-amber-50 border border-amber-200">
+                <span className="text-xs text-amber-800 flex-1">
+                  Chapter is <strong>{pct}%</strong> of target ({proseWords.toLocaleString()} / {targetWords.toLocaleString()} words). Generation completed — extend to reach the target.
+                </span>
+                <button
+                  onClick={handleExtend}
+                  disabled={extending}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-text-primary text-text-inverse hover:shadow-md transition-all flex-shrink-0"
+                >
+                  Extend chapter
                 </button>
               </div>
             );

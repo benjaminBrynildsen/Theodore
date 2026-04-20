@@ -14,10 +14,13 @@ export function GenerationProgressBar() {
   useEffect(() => {
     if (phase === 'done') {
       setHideAfterDone(false);
+      // Linger the "Complete" state for a beat so users actually see it —
+      // 1.5s was short enough that people thought the bar had just vanished
+      // mid-generation and assumed work was still happening.
       const t = setTimeout(() => {
         setHideAfterDone(true);
         end();
-      }, 1500);
+      }, 3500);
       return () => clearTimeout(t);
     }
     setHideAfterDone(false);
