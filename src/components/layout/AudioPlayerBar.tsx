@@ -412,9 +412,15 @@ export function AudioPlayerBar() {
     setError(null);
     setCurrentChapter(chapterId);
 
-    // Auto-decompose into scenes if none exist (needed for streaming playback)
-    let scenes = (chapter.scenes || []).filter(s => s.prose?.trim()).sort((a, b) => a.order - b.order);
-    if (scenes.length < 2 && chapter.prose.length > 500) {
+    // Auto-decompose into scenes if none exist (needed for streaming playback).
+    // We only decompose when the chapter has NO scenes yet. If scenes exist but
+    // some are empty, we don't re-split — we fall back to chapter.prose for the
+    // audio to avoid dropping the content the empty scenes correspond to.
+    const allScenes = (chapter.scenes || []).slice().sort((a, b) => a.order - b.order);
+    let scenes = allScenes.filter(s => s.prose?.trim());
+    const hasEmptyScenes = allScenes.length > 0 && scenes.length < allScenes.length;
+
+    if (allScenes.length === 0 && chapter.prose.length > 500) {
       useGenerationStore.getState().start({
         kind: 'generate-audio',
         label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
@@ -425,16 +431,25 @@ export function AudioPlayerBar() {
         const { runSceneDecomposition } = await import('../../lib/post-generation-pipeline');
         await (runSceneDecomposition as any)(chapterId);
         chapter = useStore.getState().chapters.find(c => c.id === chapterId) || chapter;
-        scenes = (chapter.scenes || []).filter(s => s.prose?.trim()).sort((a, b) => a.order - b.order);
+        const refreshedAll = (chapter.scenes || []).slice().sort((a, b) => a.order - b.order);
+        scenes = refreshedAll.filter(s => s.prose?.trim());
       } catch (e) {
         console.warn('[AudioPlayer] Scene decomposition failed, generating as single chunk:', e);
       }
     }
 
+    // Iterate scenes only when every scene has prose. If any scene is empty,
+    // the per-scene path would silently drop that scene's content — instead
+    // use the full chapter.prose so the audio is complete.
+    const iterateScenes = scenes.length > 1 && !hasEmptyScenes;
+    if (hasEmptyScenes) {
+      console.info(`[AudioPlayer] ${allScenes.length - scenes.length} empty scenes on chapter ${chapterId}; using chapter.prose to avoid dropped content`);
+    }
+
     useGenerationStore.getState().start({
       kind: 'generate-audio',
       label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
-      subtitle: scenes.length > 1 ? `Generating ${scenes.length} scenes…` : 'Generating audio…',
+      subtitle: iterateScenes ? `Generating ${scenes.length} scenes…` : 'Generating audio…',
       // TTS server progress is unreliable; show indeterminate motion.
       indeterminate: true,
     });
@@ -445,7 +460,7 @@ export function AudioPlayerBar() {
       const effectiveProvider = ttsProvider || 'fish';
       const effectiveModel = ttsModel || 'fish-s2-pro';
 
-      if (scenes.length > 1) {
+      if (iterateScenes) {
         const firstScene = scenes[0];
         const firstSceneSFX = (firstScene.sfx || []).map((s: any) => ({
           prompt: s.prompt, audioUrl: s.audioUrl, position: s.position, enabled: s.enabled,
