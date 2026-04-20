@@ -2561,11 +2561,13 @@ function normalizeExtractedText(raw: string): string {
     .trim();
 }
 
+function fileExtension(name: string): string {
+  const idx = name.lastIndexOf('.');
+  return idx >= 0 ? name.slice(idx).toLowerCase() : '';
+}
+
 async function extractTextFromFile(fileName: string, buffer: Buffer): Promise<string> {
-  const ext = (() => {
-    const idx = fileName.lastIndexOf('.');
-    return idx >= 0 ? fileName.slice(idx).toLowerCase() : '';
-  })();
+  const ext = fileExtension(fileName);
 
   if (ext === '.pdf') {
     const { PDFParse } = await import('pdf-parse');
@@ -2584,7 +2586,36 @@ async function extractTextFromFile(fileName: string, buffer: Buffer): Promise<st
     return result.value || '';
   }
 
+  if (ext === '.txt' || ext === '.md' || ext === '.markdown') {
+    return buffer.toString('utf8');
+  }
+
   throw new Error(`Unsupported file type: ${ext || 'unknown'}`);
+}
+
+function truncateToBytes(text: string, maxBytes: number): { text: string; truncated: boolean } {
+  const full = Buffer.byteLength(text, 'utf8');
+  if (full <= maxBytes) return { text, truncated: false };
+  const sliced = Buffer.from(text, 'utf8').subarray(0, maxBytes);
+  let out = sliced.toString('utf8').replace(/\uFFFD+$/, '');
+  const lastBreak = Math.max(
+    out.lastIndexOf('\n\n'),
+    out.lastIndexOf('. '),
+    out.lastIndexOf('! '),
+    out.lastIndexOf('? '),
+  );
+  if (lastBreak > out.length - 2000) out = out.slice(0, lastBreak + 1).trim();
+  return { text: out, truncated: true };
+}
+
+function sanitizeFilename(name: string): string {
+  const base = name.split(/[/\\]/).pop() || 'file';
+  return base.replace(/[^\w.\-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 100) || 'file';
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isSafeId(id: unknown): id is string {
+  return typeof id === 'string' && (UUID_RE.test(id) || /^[a-zA-Z0-9_-]{8,64}$/.test(id));
 }
 
 app.post('/api/import/extract', (req, res) => {
@@ -2640,23 +2671,7 @@ app.post('/api/import/extract', (req, res) => {
       }
 
       const extractedBytes = Buffer.byteLength(text, 'utf8');
-      let truncated = false;
-      let finalText = text;
-
-      if (extractedBytes > MAX_IMPORT_TEXT_BYTES) {
-        truncated = true;
-        const sliced = Buffer.from(text, 'utf8').subarray(0, MAX_IMPORT_TEXT_BYTES);
-        finalText = sliced.toString('utf8').replace(/\uFFFD+$/, '');
-        const lastBreak = Math.max(
-          finalText.lastIndexOf('\n\n'),
-          finalText.lastIndexOf('. '),
-          finalText.lastIndexOf('! '),
-          finalText.lastIndexOf('? '),
-        );
-        if (lastBreak > finalText.length - 2000) {
-          finalText = finalText.slice(0, lastBreak + 1).trim();
-        }
-      }
+      const { text: finalText, truncated } = truncateToBytes(text, MAX_IMPORT_TEXT_BYTES);
 
       const words = finalText.split(/\s+/).filter(Boolean).length;
       res.json({
@@ -2672,6 +2687,162 @@ app.post('/api/import/extract', (req, res) => {
       res.status(500).json({ error: 'server-error', message: 'Something went wrong on our side — try again.' });
     }
   });
+});
+
+// ========== Chat attachments: stored files with extracted text for Imagine chat ==========
+// The Imagine chat (ChatCreation) lets users attach files to the conversation so
+// the AI has durable text context for every turn. We extract the text once on upload
+// and save the original to /uploads/chat/{sessionId}/ so it can be moved into the
+// project's folder when the project is actually created (via /api/chat/claim).
+const CHAT_ACCEPTED_EXTENSIONS = new Set(['.pdf', '.docx', '.txt', '.md', '.markdown']);
+const chatUploadsDir = path.join(uploadsPath, 'chat');
+const projectUploadsDir = path.join(uploadsPath, 'projects');
+if (!fs.existsSync(chatUploadsDir)) fs.mkdirSync(chatUploadsDir, { recursive: true });
+if (!fs.existsSync(projectUploadsDir)) fs.mkdirSync(projectUploadsDir, { recursive: true });
+
+app.post('/api/chat/attach', (req, res) => {
+  importUpload.single('file')(req, res, async (err: any) => {
+    try {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          res.status(400).json({ error: 'too-large-upload', message: `File exceeds ${Math.round(MAX_IMPORT_UPLOAD_BYTES / 1024 / 1024)} MB limit.` });
+          return;
+        }
+        res.status(400).json({ error: 'upload-failed', message: err.message || 'Upload failed.' });
+        return;
+      }
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) {
+        res.status(400).json({ error: 'no-file', message: 'No file uploaded.' });
+        return;
+      }
+      const sessionId = req.body?.sessionId;
+      if (!isSafeId(sessionId)) {
+        res.status(400).json({ error: 'bad-session', message: 'Missing or invalid session id.' });
+        return;
+      }
+
+      const fileName = file.originalname || 'upload';
+      const ext = fileExtension(fileName);
+      if (!CHAT_ACCEPTED_EXTENSIONS.has(ext)) {
+        res.status(400).json({
+          error: 'unsupported-format',
+          message: `We can't read ${ext || 'this file type'} yet. Try a .pdf, .docx, .txt, or .md file.`,
+        });
+        return;
+      }
+
+      let text: string;
+      try {
+        const raw = await extractTextFromFile(fileName, file.buffer);
+        text = normalizeExtractedText(raw);
+      } catch (parseErr: any) {
+        console.error('[chat.attach] parse failed', { fileName, err: parseErr?.message });
+        res.status(400).json({
+          error: 'parse-failed',
+          message: `We couldn't read "${fileName}". Try a different file.`,
+        });
+        return;
+      }
+
+      if (text.length < 20) {
+        res.status(400).json({
+          error: 'empty',
+          message: `That file had no readable text. If it's a scan or image-only PDF, we can't OCR it yet.`,
+        });
+        return;
+      }
+
+      const extractedBytes = Buffer.byteLength(text, 'utf8');
+      const { text: finalText, truncated } = truncateToBytes(text, MAX_IMPORT_TEXT_BYTES);
+
+      // Persist the original file so it can be claimed into the project folder later.
+      const sessionDir = path.join(chatUploadsDir, sessionId);
+      if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+      const attachmentId = randomUUID();
+      const storedName = `${attachmentId}-${sanitizeFilename(fileName)}`;
+      const storedPath = path.join(sessionDir, storedName);
+      try {
+        fs.writeFileSync(storedPath, file.buffer);
+      } catch (writeErr: any) {
+        console.error('[chat.attach] failed to persist', { storedPath, err: writeErr?.message });
+        res.status(500).json({ error: 'server-error', message: 'Could not save the file — try again.' });
+        return;
+      }
+
+      const url = `/uploads/chat/${sessionId}/${storedName}`;
+      const words = finalText.split(/\s+/).filter(Boolean).length;
+      res.json({
+        id: attachmentId,
+        fileName,
+        storedName,
+        url,
+        size: file.size,
+        words,
+        extractedBytes,
+        text: finalText,
+        truncated,
+      });
+    } catch (e: any) {
+      console.error('[chat.attach] unexpected error', e);
+      res.status(500).json({ error: 'server-error', message: 'Something went wrong on our side — try again.' });
+    }
+  });
+});
+
+// Claim chat attachments for a newly created project: move files from
+// /uploads/chat/{sessionId}/ to /uploads/projects/{projectId}/ and return a
+// URL rewrite map the client uses to update message attachments.
+app.post('/api/chat/claim', express.json(), async (req, res) => {
+  try {
+    const { sessionId, projectId } = (req.body || {}) as { sessionId?: unknown; projectId?: unknown };
+    if (!isSafeId(sessionId)) {
+      res.status(400).json({ error: 'bad-session', message: 'Invalid session id.' });
+      return;
+    }
+    if (!isSafeId(projectId)) {
+      res.status(400).json({ error: 'bad-project', message: 'Invalid project id.' });
+      return;
+    }
+    const sessionDir = path.join(chatUploadsDir, sessionId);
+    if (!fs.existsSync(sessionDir)) {
+      res.json({ urlMap: {}, moved: 0 });
+      return;
+    }
+    const projectDir = path.join(projectUploadsDir, projectId);
+    if (!fs.existsSync(projectDir)) fs.mkdirSync(projectDir, { recursive: true });
+
+    const entries = fs.readdirSync(sessionDir);
+    const urlMap: Record<string, string> = {};
+    let moved = 0;
+    for (const entry of entries) {
+      const src = path.join(sessionDir, entry);
+      const dst = path.join(projectDir, entry);
+      try {
+        fs.renameSync(src, dst);
+      } catch {
+        // Fallback for cross-device renames: copy + unlink.
+        try {
+          fs.copyFileSync(src, dst);
+          fs.unlinkSync(src);
+        } catch (copyErr: any) {
+          console.error('[chat.claim] move failed', { src, dst, err: copyErr?.message });
+          continue;
+        }
+      }
+      urlMap[`/uploads/chat/${sessionId}/${entry}`] = `/uploads/projects/${projectId}/${entry}`;
+      moved++;
+    }
+    try {
+      fs.rmdirSync(sessionDir);
+    } catch {
+      // Directory may still have leftover files that failed to move; leave for cleanup.
+    }
+    res.json({ urlMap, moved });
+  } catch (e: any) {
+    console.error('[chat.claim] unexpected error', e);
+    res.status(500).json({ error: 'server-error', message: 'Could not move attachments.' });
+  }
 });
 
 // ========== Creator welcome videos ==========
