@@ -17,6 +17,7 @@ import { GenerationProgressBar } from './components/layout/GenerationProgressBar
 import { AudiobookPanel } from './components/features/AudiobookPanel';
 import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/MobilePlayer';
 import { MobileStudioPanel } from './components/layout/MobileStudioPanel';
+import { useAudioStore } from './store/audio';
 import * as pixel from './lib/pixel';
 import { track as jTrack, setAdmin as setJourneyAdmin, setUser as setJourneyUser } from './lib/journey';
 import { findCreator } from './data/creators';
@@ -104,6 +105,12 @@ export default function App() {
   const showWorkspaceChrome = !showSettingsView && !showToolsView && currentView !== 'home' && hasActiveProject;
   const [showAuth, setShowAuth] = useState(false);
   const [mobilePlayerExpanded, setMobilePlayerExpanded] = useState(false);
+  const miniPlayerVisible = useAudioStore((s) => s.miniPlayerVisible);
+  // Show a mobile-styled mini bar globally (above BottomNav) whenever audio is
+  // active and we're not already showing the fullscreen player or the Studio
+  // panel (which has its own inline version). This means the Edit/Read tabs
+  // also surface a pause/expand bar when a chapter is playing.
+  const showMobileMiniBar = showWorkspaceChrome && miniPlayerVisible && !mobilePlayerExpanded && mobilePanel !== 'studio' && !showReadingMode;
 
   // Listen for expand event from AudioPlayerBar
   useEffect(() => {
@@ -525,6 +532,11 @@ export default function App() {
             {showWorkspaceChrome && <div className="hidden sm:block h-full"><RightSidebar /></div>}
           </div>
           {showWorkspaceChrome && <AudioPlayerBar />}
+          {showMobileMiniBar && (
+            <div className="sm:hidden fixed bottom-14 inset-x-0 z-[52]">
+              <MobilePlayerBar onExpand={() => setMobilePlayerExpanded(true)} />
+            </div>
+          )}
           <GenerationProgressBar />
           <BottomNav />
 
@@ -642,6 +654,11 @@ export default function App() {
       </div>
       
       {showWorkspaceChrome && <AudioPlayerBar />}
+      {showMobileMiniBar && (
+        <div className="sm:hidden fixed bottom-14 inset-x-0 z-[52]">
+          <MobilePlayerBar onExpand={() => setMobilePlayerExpanded(true)} />
+        </div>
+      )}
       <GenerationProgressBar />
       <BottomNav />
       <CookieConsent />

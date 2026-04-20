@@ -737,7 +737,7 @@ export function AudioPlayerBar() {
   const isMuted = volume === 0;
 
   return (
-    <div className="fixed bottom-14 sm:bottom-0 inset-x-0 z-[55] sm:z-50 safe-area-bottom">
+    <div className="hidden sm:block fixed bottom-0 inset-x-0 z-50 safe-area-bottom">
       <div className="bg-[#181818] text-white shadow-2xl">
         {/* Progress bar — draggable on desktop & mobile */}
         <ProgressScrubber progressPct={progressPct} onSeek={seekTo} />

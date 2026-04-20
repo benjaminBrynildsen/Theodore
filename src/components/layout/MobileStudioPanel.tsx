@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Headphones, ImageIcon } from 'lucide-react';
 import { AudiobookPanel } from '../features/AudiobookPanel';
 import { BookCoverSection } from '../features/BookCoverSection';
-import { MobilePlayerBar } from '../features/MobilePlayer';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
 
@@ -10,10 +9,10 @@ type StudioTab = 'audio' | 'cover';
 
 interface Props {
   onClose: () => void;
-  onExpandPlayer: () => void;
+  onExpandPlayer?: () => void;
 }
 
-export function MobileStudioPanel({ onClose, onExpandPlayer }: Props) {
+export function MobileStudioPanel({ onClose, onExpandPlayer: _onExpandPlayer }: Props) {
   const [tab, setTab] = useState<StudioTab>('audio');
   const project = useStore((s) => s.getActiveProject());
 
@@ -63,12 +62,8 @@ export function MobileStudioPanel({ onClose, onExpandPlayer }: Props) {
         </div>
       )}
 
-      {/* Player bar */}
-      {tab === 'audio' && (
-        <div className="flex-shrink-0 mb-14">
-          <MobilePlayerBar onExpand={onExpandPlayer} />
-        </div>
-      )}
+      {/* Player bar is rendered globally above BottomNav in App.tsx so it
+          appears on every mobile tab, not just here. Intentionally omitted. */}
     </div>
   );
 }
