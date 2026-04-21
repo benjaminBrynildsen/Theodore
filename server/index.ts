@@ -25,6 +25,7 @@ import {
 } from './auth.js';
 import { generate, generateStream } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
+import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin } from './admin.js';
 import multer from 'multer';
@@ -1914,6 +1915,27 @@ app.post('/api/generate/image', async (req, res) => {
       projectId,
       referenceImagePath,
     });
+
+    // For covers, bake the Theodore wordmark (and typography-style title)
+    // into the saved image so every client renders the same finished art.
+    if (target === 'cover') {
+      try {
+        const rel = result.imageUrl.replace(/^\//, '');
+        const srcAbs = path.join(process.cwd(), rel);
+        const project = projectId
+          ? (await db.select().from(projects).where(eq(projects.id, projectId)))[0]
+          : undefined;
+        const wm = await applyCoverWatermark({
+          sourcePath: srcAbs,
+          style: style || 'illustrated',
+          title: project?.title,
+        });
+        try { fs.unlinkSync(srcAbs); } catch { /* source cleanup best-effort */ }
+        result.imageUrl = wm.imageUrl;
+      } catch (err) {
+        console.warn('[cover] watermark failed, returning unwatermarked image:', err);
+      }
+    }
 
     // Deduct credits (skip for guests)
     if (auth?.user) {
