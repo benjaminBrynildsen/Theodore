@@ -20,6 +20,7 @@ export interface Project {
   coverUrl?: string;
   status: ProjectStatus;
   chapterCount?: number; // populated from list-projects response (not stored)
+  wordCount?: number; // populated from list-projects response (not stored)
   createdAt: string;
   updatedAt: string;
 }

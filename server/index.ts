@@ -1117,24 +1117,36 @@ app.get('/api/projects', async (req, res) => {
     const auth = await requireAuth(req, res);
     if (!auth) return;
     const result = await db.select().from(projects).where(eq(projects.userId, auth.user.id));
-    // Piggyback chapter counts so the project cards can show "N chapters"
-    // without the client doing N fan-out requests. One aggregate query.
-    let countsByProject: Record<string, number> = {};
+    // Piggyback chapter counts + word counts so the project cards can show
+    // "N chapters · M pages" without N fan-out requests. One aggregate query.
+    let statsByProject: Record<string, { chapterCount: number; wordCount: number }> = {};
     if (result.length) {
-      const counts = await db.execute<{ project_id: string; chapter_count: number }>(sql`
-        SELECT project_id, COUNT(*)::int AS chapter_count
+      const stats = await db.execute<{ project_id: string; chapter_count: number; word_count: number }>(sql`
+        SELECT
+          project_id,
+          COUNT(*)::int AS chapter_count,
+          COALESCE(SUM(
+            CASE
+              WHEN length(trim(prose)) = 0 THEN 0
+              ELSE array_length(regexp_split_to_array(trim(prose), E'\\s+'), 1)
+            END
+          ), 0)::int AS word_count
         FROM chapters
         WHERE project_id IN (${sql.join(result.map((p: any) => sql`${p.id}`), sql`, `)})
         GROUP BY project_id
       `);
-      const rows = (counts as any).rows || counts;
-      for (const r of rows as Array<{ project_id: string; chapter_count: number }>) {
-        countsByProject[r.project_id] = Number(r.chapter_count) || 0;
+      const rows = (stats as any).rows || stats;
+      for (const r of rows as Array<{ project_id: string; chapter_count: number; word_count: number }>) {
+        statsByProject[r.project_id] = {
+          chapterCount: Number(r.chapter_count) || 0,
+          wordCount: Number(r.word_count) || 0,
+        };
       }
     }
     const enriched = result.map((p: any) => ({
       ...p,
-      chapterCount: countsByProject[p.id] || 0,
+      chapterCount: statsByProject[p.id]?.chapterCount || 0,
+      wordCount: statsByProject[p.id]?.wordCount || 0,
     }));
     res.json(enriched);
   } catch (e: any) { respondInternalError(res, 'api', e); }

@@ -73,8 +73,19 @@ export function Home() {
           <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-4 px-1">Your Projects</h2>
           <div className="space-y-3">
             {sortedProjects.map((project, i) => {
-              const loadedCount = chapters.filter((c) => c.projectId === project.id).length;
-              const chapterCount = typeof project.chapterCount === 'number' ? project.chapterCount : loadedCount;
+              const loaded = chapters.filter((c) => c.projectId === project.id);
+              const chapterCount = typeof project.chapterCount === 'number'
+                ? project.chapterCount
+                : loaded.length;
+              const loadedWordCount = loaded.reduce((sum, c) => {
+                const w = (c.prose || '').trim();
+                return sum + (w ? w.split(/\s+/).length : 0);
+              }, 0);
+              const wordCount = typeof project.wordCount === 'number'
+                ? project.wordCount
+                : loadedWordCount;
+              // Manuscript/trade-paperback convention: 250 words per page.
+              const pageCount = wordCount > 0 ? Math.max(1, Math.round(wordCount / 250)) : 0;
               return (
               <button
                 key={project.id}
@@ -102,10 +113,13 @@ export function Home() {
                 )}
                 <div className="flex-1 text-left min-w-0">
                   <div className="font-medium">{project.title}</div>
-                  <div className="text-sm text-text-tertiary capitalize flex items-center gap-2">
-                    <span>{project.subtype?.replace('-', ' ') || project.type}</span>
-                    <span className="text-text-tertiary/60">·</span>
+                  <div className="text-sm text-text-tertiary capitalize">
+                    {project.subtype?.replace('-', ' ') || project.type}
+                  </div>
+                  <div className="text-xs text-text-tertiary/80 mt-0.5 flex items-center gap-1.5">
                     <span>{chapterCount} {chapterCount === 1 ? 'chapter' : 'chapters'}</span>
+                    <span className="text-text-tertiary/50">·</span>
+                    <span>{pageCount.toLocaleString()} {pageCount === 1 ? 'page' : 'pages'}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 text-text-tertiary">
