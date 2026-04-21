@@ -25,8 +25,8 @@ interface AudioState {
   narratorVoice: ElevenLabsVoice;
   characterVoices: Record<string, ElevenLabsVoice>;
   multiVoice: boolean;
-  ttsProvider: 'elevenlabs' | 'openai' | 'grok';
-  ttsModel: ElevenLabsModel | 'openai-gpt-4o-mini-tts' | 'grok-tts-1';
+  ttsProvider: 'elevenlabs' | 'openai' | 'grok' | 'fish';
+  ttsModel: ElevenLabsModel | 'openai-gpt-4o-mini-tts' | 'grok-tts-1' | 'fish-s2-pro';
   speed: number;
 
   // Generation
@@ -49,7 +49,7 @@ interface AudioState {
   setCharacterVoice: (name: string, voice: ElevenLabsVoice) => void;
   setMultiVoice: (enabled: boolean) => void;
   setTtsProvider: (provider: 'elevenlabs' | 'openai' | 'fish' | 'grok') => void;
-  setTtsModel: (model: ElevenLabsModel | 'openai-gpt-4o-mini-tts' | 'grok-tts-1') => void;
+  setTtsModel: (model: ElevenLabsModel | 'openai-gpt-4o-mini-tts' | 'grok-tts-1' | 'fish-s2-pro') => void;
   setSpeed: (speed: number) => void;
   setGenerating: (id: string | null) => void;
   setError: (error: string | null) => void;
@@ -116,11 +116,11 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
   miniPlayerVisible: false,
   sidebarPlayerVisible: false,
   chapterAudio: {},
-  narratorVoice: 'openai:fable',
+  narratorVoice: 'grok:leo',
   characterVoices: {},
   multiVoice: false,
-  ttsProvider: 'openai',
-  ttsModel: 'openai-gpt-4o-mini-tts',
+  ttsProvider: 'grok',
+  ttsModel: 'grok-tts-1',
   speed: 1.0,
   generating: null,
   error: null,
@@ -228,7 +228,36 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
       };
     }),
 
-  setNarratorVoice: (voice) => set({ narratorVoice: voice }),
+  setNarratorVoice: (voice) => set((s) => {
+    // Voice IDs are prefixed with their provider (e.g. "grok:leo", "openai:fable").
+    // When the voice prefix changes, the provider + model must follow or the
+    // next TTS request will hit the wrong API (e.g. sending "grok:leo" to
+    // OpenAI's /tts endpoint → 400). This sync is the safety net.
+    const v = String(voice || '');
+    let ttsProvider: typeof s.ttsProvider = s.ttsProvider;
+    let ttsModel = s.ttsModel;
+    let speed = s.speed;
+    if (v.startsWith('grok:')) {
+      ttsProvider = 'grok';
+      ttsModel = 'grok-tts-1';
+      speed = 1.0;
+    } else if (v.startsWith('openai:')) {
+      ttsProvider = 'openai';
+      ttsModel = 'openai-gpt-4o-mini-tts';
+      speed = 1.0;
+    } else if (v.startsWith('fish:')) {
+      ttsProvider = 'fish' as typeof s.ttsProvider;
+      ttsModel = 'fish-s2-pro';
+      speed = 1.0;
+    } else if (v && !v.includes(':')) {
+      // Bare voice ID (no prefix) = ElevenLabs — that's the legacy format.
+      ttsProvider = 'elevenlabs';
+      if (ttsModel === 'openai-gpt-4o-mini-tts' || ttsModel === 'grok-tts-1' || ttsModel === 'fish-s2-pro') {
+        ttsModel = 'eleven_v3';
+      }
+    }
+    return { narratorVoice: voice, ttsProvider, ttsModel, speed };
+  }),
   setCharacterVoice: (name, voice) =>
     set((s) => ({ characterVoices: { ...s.characterVoices, [name]: voice } })),
   setMultiVoice: (enabled) => set({ multiVoice: enabled }),
@@ -359,8 +388,22 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
           provider === 'fish' ? 'fish:933563129e564b19a115bedd57b7406a' :
           narrator;
       }
+
+      // v8: Default narrator is now Grok / Leo. Reset users who never
+      // moved off the previous default (openai:fable) — they've never
+      // actively chosen a voice, so no preference is being overwritten.
+      if (version < 8) {
+        const stillOnPreviousDefault =
+          persistedState.narratorVoice === 'openai:fable' &&
+          persistedState.ttsProvider === 'openai';
+        if (stillOnPreviousDefault) {
+          persistedState.narratorVoice = 'grok:leo';
+          persistedState.ttsProvider = 'grok';
+          persistedState.ttsModel = 'grok-tts-1';
+        }
+      }
     }
     return persistedState;
   },
-  version: 7,
+  version: 8,
 }));
