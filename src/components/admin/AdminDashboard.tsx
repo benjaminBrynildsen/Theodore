@@ -196,7 +196,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe';
 
 interface JourneySession {
   session_id: string;
@@ -402,6 +402,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'journey', label: 'Journey', icon: TrendingUp },
     { id: 'creators', label: 'Creators', icon: Film },
+    { id: 'grok-probe', label: 'Grok Probe', icon: Image },
   ];
 
   return (
@@ -1327,7 +1328,137 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
         {/* ========== Creators ========== */}
         {view === 'creators' && <CreatorsPanel />}
+
+        {/* ========== Grok image-reference probe ========== */}
+        {view === 'grok-probe' && <GrokProbePanel />}
       </div>
+    </div>
+  );
+}
+
+// Fires /api/admin/debug/grok-image-ref-test for a given project and lays the
+// four variants (none | image | images | image_url) out side-by-side so you
+// can visually confirm which field xAI actually honors.
+function GrokProbePanel() {
+  const [projectId, setProjectId] = useState('');
+  const [prompt, setPrompt] = useState('The same character, side profile, standing on a grassy hill at sunrise, same outfit and hair');
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{
+    model: string;
+    promptUsed: string;
+    heroUrl: string;
+    heroBytes: number;
+    results: Array<{ label: string; ok: boolean; imageUrl?: string; error?: string; status?: number }>;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    if (!projectId.trim()) { setError('Enter a project ID first.'); return; }
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    try {
+      const resp = await fetch('/api/admin/debug/grok-image-ref-test', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: projectId.trim(), prompt: prompt.trim() || undefined }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setError(data?.error || `Request failed (${resp.status})`);
+        return;
+      }
+      setResult(data);
+    } catch (e: any) {
+      setError(e?.message || 'Request failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 max-w-5xl">
+      <div className="glass rounded-2xl p-5">
+        <h2 className="text-sm font-serif font-semibold mb-1">Grok image reference-input probe</h2>
+        <p className="text-xs text-text-tertiary mb-4">
+          Uses the project's hero shot + your prompt, fires four xAI calls varying only the image field
+          name. Visually compare — whichever variant matches the hero's character while <code>none</code>{' '}
+          doesn't is the field xAI honors. If all four look like <code>none</code>, xAI is ignoring image input.
+        </p>
+
+        <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider block mb-1">Project ID</label>
+        <input
+          value={projectId}
+          onChange={(e) => setProjectId(e.target.value)}
+          placeholder="e.g. proj_abc123"
+          className="w-full px-3 py-2 rounded-lg text-xs bg-black/5 border-none outline-none mb-3 font-mono"
+        />
+
+        <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider block mb-1">Test prompt</label>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          rows={3}
+          className="w-full px-3 py-2 rounded-lg text-xs bg-black/5 border-none outline-none mb-4 resize-none"
+        />
+
+        <button
+          onClick={run}
+          disabled={running || !projectId.trim()}
+          className={cn(
+            'px-4 py-2 rounded-xl text-xs font-medium transition-all',
+            running || !projectId.trim()
+              ? 'bg-black/10 text-text-tertiary cursor-not-allowed'
+              : 'bg-text-primary text-text-inverse hover:shadow-md',
+          )}
+        >
+          {running ? 'Running 4 variants…' : 'Run probe'}
+        </button>
+
+        {error && <div className="mt-3 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+      </div>
+
+      {result && (
+        <div className="glass rounded-2xl p-5 space-y-4">
+          <div className="text-[11px] text-text-tertiary">
+            Model: <code>{result.model}</code> · Hero:{' '}
+            <a href={result.heroUrl} target="_blank" rel="noreferrer" className="underline">{result.heroUrl}</a>{' '}
+            ({Math.round(result.heroBytes / 1024)} KB)
+          </div>
+
+          <div className="rounded-xl overflow-hidden border border-black/10 max-w-xs">
+            <img src={result.heroUrl} alt="Hero reference" className="w-full h-auto" />
+            <div className="text-[10px] text-center py-1 bg-black/5">Hero reference</div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {result.results.map((r) => (
+              <div key={r.label} className={cn(
+                'rounded-xl overflow-hidden border',
+                r.ok ? 'border-black/10' : 'border-red-200 bg-red-50',
+              )}>
+                {r.ok && r.imageUrl ? (
+                  <a href={r.imageUrl} target="_blank" rel="noreferrer">
+                    <img src={r.imageUrl} alt={r.label} className="w-full h-auto" />
+                  </a>
+                ) : (
+                  <div className="aspect-square flex items-center justify-center p-3 text-[10px] text-red-700 text-center">
+                    {r.error || 'failed'}
+                    {r.status && <div className="mt-1 opacity-60">HTTP {r.status}</div>}
+                  </div>
+                )}
+                <div className="text-[10px] text-center py-1 bg-black/5 font-mono">{r.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-[11px] text-text-tertiary leading-relaxed">
+            Compare each variant to the hero. The variant that matches = field xAI uses. If every variant
+            looks identical to <code>none</code> and unlike the hero, xAI is ignoring image input entirely.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
