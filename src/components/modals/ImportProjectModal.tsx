@@ -3,7 +3,7 @@ import { X, Upload, FileText, Sparkles, AlertCircle, Loader2 } from 'lucide-reac
 import { cn } from '../../lib/utils';
 
 const CHAT_DRAFT_STORAGE_KEY = 'theodore-chat-creation-draft-v1';
-const MAX_IMPORT_BYTES = 60 * 1024;
+const MAX_IMPORT_BYTES = 500 * 1024;
 const MIN_IMPORT_CHARS = 50;
 const CLIENT_PARSE_EXTENSIONS = ['.txt', '.md', '.markdown'];
 const SERVER_PARSE_EXTENSIONS = ['.pdf', '.docx'];

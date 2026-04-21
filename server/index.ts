@@ -2833,7 +2833,7 @@ app.post('/api/upload/cover', async (req, res) => {
 // The client pipes this text into the Imagine chat as the user's opening message,
 // so the AI can assess the work and ask follow-up questions about gaps.
 const MAX_IMPORT_UPLOAD_BYTES = 10 * 1024 * 1024;
-const MAX_IMPORT_TEXT_BYTES = 60 * 1024;
+const MAX_IMPORT_TEXT_BYTES = 500 * 1024;
 const IMPORT_ACCEPTED_EXTENSIONS = new Set(['.pdf', '.docx']);
 
 const importUpload = multer({
