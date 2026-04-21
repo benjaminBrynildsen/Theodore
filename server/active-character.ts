@@ -2,6 +2,10 @@
  * Active Character routes — the live-beat pipeline for Active Character Books.
  *
  * Five endpoints:
+
+ *   POST /api/active-character/generate-outline   — Claude Haiku plans a 3-5 scene outline
+ *                                                   (intent + beatIntent each) to act as a
+ *                                                   structured-improv skeleton at runtime.
  *   POST /api/active-character/place-beats        — AI places 2-3 Open Beats in a chapter
  *   POST /api/active-character/transcribe         — xAI Speech (→ OpenAI Whisper fallback)
  *   POST /api/active-character/react              — Grok streams reaction prose (text only)
@@ -207,6 +211,100 @@ async function streamGrokReaction(
     }
   }
   return full;
+}
+
+// ============================================================================
+// Chapter outline — structured-improv skeleton for active-character chapters.
+//
+// The listener IS the character. To give them real agency without letting a
+// single improvised line derail the whole chapter, we plan a lightweight
+// outline upfront: 3-5 scenes, each with a one-sentence `intent` (what MUST
+// happen) and a one-sentence `beatIntent` (what moment the character speaks
+// at). The outline is cheap, JSON-only, and is consulted at runtime so every
+// scene's continuation honors the planned spine while still flexing to what
+// the listener actually said.
+// ============================================================================
+
+interface OutlineRequest {
+  chapterTitle?: string;
+  chapterPremise: string;
+  characterName: string;
+  characterArchetype?: string;
+  characterRegister?: string;
+  priorChapterSummaries?: string[]; // continuity with earlier chapters
+  targetScenes?: number;            // default 4, clamped 3-5
+}
+
+export async function generateActiveCharacterOutline(r: OutlineRequest): Promise<OutlineScene[]> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
+  const sceneCount = Math.min(Math.max(r.targetScenes ?? 4, 3), 5);
+
+  const sys = `You are an audiobook director planning an Active Character chapter. The listener voices "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''} in real time — they speak as ${r.characterName} at the end of each scene, and that line is canon.
+
+Plan exactly ${sceneCount} scenes for this chapter. Return ONLY a JSON array of objects — no prose, no code fences:
+
+[
+  {
+    "intent": "one sentence — what MUST happen in this scene, plot-wise. This is the guardrail.",
+    "beatIntent": "one sentence — the moment at scene-end where ${r.characterName} is given space to speak (e.g., 'another character asks the question', 'the antagonist waits for an answer', 'the silence after a revelation')."
+  }
+]
+
+Rules:
+- Exactly ${sceneCount} objects in the array.
+- intent is tight: action + consequence. Not tone words.
+- beatIntent describes the narrative setup for the character's line, NOT a scripted line.
+- The final scene should bring the chapter to resolution — its beatIntent should be a moment of closure, not a cliffhanger.
+- Output MUST be valid JSON. No commentary.`;
+
+  const priorSummary = (r.priorChapterSummaries || []).slice(-3).map((s, i) => `Previous chapter ${i + 1}: ${s}`).join('\n');
+  const user = `${priorSummary ? priorSummary + '\n\n' : ''}Chapter${r.chapterTitle ? `: ${r.chapterTitle}` : ''}
+Premise: ${r.chapterPremise}
+${r.characterRegister ? `\n${r.characterName}'s register: ${r.characterRegister}` : ''}
+
+Plan ${sceneCount} scenes for this chapter.`;
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 900,
+      temperature: 0.5,
+      system: sys,
+      messages: [{ role: 'user', content: user }],
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`generate-outline ${resp.status}: ${body.slice(0, 400)}`);
+  }
+
+  const json = (await resp.json()) as any;
+  const raw = json?.content?.[0]?.text ?? '';
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+  let parsed: any[] = [];
+  try { parsed = JSON.parse(cleaned); } catch {
+    const match = cleaned.match(/\[[\s\S]*\]/);
+    if (match) { try { parsed = JSON.parse(match[0]); } catch { parsed = []; } }
+  }
+  if (!Array.isArray(parsed)) parsed = [];
+
+  return parsed
+    .filter((s) => typeof s?.intent === 'string' && typeof s?.beatIntent === 'string')
+    .slice(0, sceneCount)
+    .map((s, i) => ({
+      index: i,
+      intent: String(s.intent).trim(),
+      beatIntent: String(s.beatIntent).trim(),
+    }));
 }
 
 // ============================================================================
@@ -416,7 +514,7 @@ async function streamGrokReactionWithAudio(
 
 export interface ContinueChapterRequest {
   priorProse: string;           // everything the listener has already heard
-  listenerUtterance: string;    // what the user just said in-character
+  listenerUtterance: string;    // what the user just said in-character (may be empty — silence is canon)
   reactionText?: string;        // optional — only when we pre-generated an NPC reply
   characterName: string;
   characterArchetype?: string;
@@ -424,23 +522,54 @@ export interface ContinueChapterRequest {
   chapterTitle?: string;
   chapterPremise?: string;      // original premise so the story still lands
   targetWords?: number;         // how much continuation to produce (default 300)
+  // Structured-improv fields. When present, continuation is shaped by the
+  // chapter's planned outline so the user can steer within guardrails rather
+  // than derail the whole story.
+  outline?: OutlineScene[];
+  sceneIndex?: number;          // 0-based index of the scene we're writing now
+}
+
+export interface OutlineScene {
+  index: number;           // 0-based order
+  intent: string;           // what must happen in this scene (one sentence)
+  beatIntent: string;       // what moment the character speaks at (one sentence)
 }
 
 function buildContinueSystemPrompt(r: ContinueChapterRequest): string {
   const target = r.targetWords ?? 300;
-  return `You are writing the next ~${target} words of an audiobook chapter. The listener is voicing "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''} in real time. They just spoke a line of dialogue AS ${r.characterName}. Continue the chapter — other characters react, the scene moves forward, consequences unfold.
+  const spokeSilence = !r.listenerUtterance?.trim();
+  const scene = r.outline?.find((s) => s.index === (r.sceneIndex ?? -1));
+  const nextScene = r.outline?.find((s) => s.index === (r.sceneIndex ?? -1) + 1);
+  const isFinal = !!r.outline && r.sceneIndex === r.outline.length - 1;
+
+  const silenceLine = spokeSilence
+    ? `- The listener did NOT speak — they chose silence. Silence IS canon. Let the pause land: narrate other characters reacting to ${r.characterName}'s silence (waiting, pressing, interpreting it as hesitation, defiance, grief, whatever fits). Do NOT put words in their mouth; the silence stays unspoken.`
+    : `- Treat the listener's spoken line as canon dialogue from ${r.characterName}. Other characters should react to it naturally (dialogue, action, internal shift). Do NOT restate the listener's line verbatim — assume the listener heard themselves; narrate from AFTER the line.`;
+
+  const sceneLine = scene
+    ? `\nThis scene (scene ${scene.index + 1}) MUST fulfill this intent:\n  "${scene.intent}"\n\nIt should end at this beat moment (so the listener speaks next):\n  "${scene.beatIntent}"\n\nGuardrails: the listener's line may change *how* the character gets to this intent (tone, micro-choices, resistance, compliance) but MUST NOT erase the outlined events. If what they said would skip or contradict the intent, let other characters push back, consequences redirect, or reality interrupt — the story still lands where it's supposed to land.`
+    : '';
+
+  const endingLine = isFinal
+    ? `\nThis is the FINAL scene. After the outlined intent lands, bring the chapter to a satisfying close — no cliffhanger beat needed. Do NOT end on a line the character would speak.`
+    : nextScene
+      ? `\nEnd the scene on a narrator line that HANDS OFF to ${r.characterName} again — a moment where the character is addressed, asked a question, pressed for a decision, or silence is being read for an answer. Do NOT write their reply.`
+      : `\nPace the continuation so it lands on a natural moment where ${r.characterName} would speak again.`;
+
+  return `You are writing scene ${(r.sceneIndex ?? 0) + 1}${r.outline ? ` of ${r.outline.length}` : ''} of an audiobook chapter. The listener is voicing "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''} in real time.
 
 Hard rules:
-- ~${target} words. Pace the continuation so it lands on a natural moment (end of scene beat, new question, or revelation).
-- Maintain the third-person narrative voice and register from the prior prose.
-- Treat the listener's spoken line as canon dialogue from ${r.characterName}. Other characters should react to it naturally (dialogue, action, internal shift).
-- Do NOT restate the listener's line verbatim — assume the listener heard themselves; narrate from AFTER the line.
+- ~${target} words. Maintain the third-person narrative voice and register from the prior prose.
 - Do NOT break the fourth wall or acknowledge the listener.
-- If the chapter premise below still has unfulfilled beats, keep moving toward them.
+${silenceLine}${sceneLine}${endingLine}
 ${r.characterRegister ? `- When ${r.characterName} speaks or thinks later in this passage, match the register: "${r.characterRegister}".` : ''}`;
 }
 
 function buildContinueUserPrompt(r: ContinueChapterRequest): string {
+  const utter = r.listenerUtterance?.trim();
+  const spokenBlock = utter
+    ? `${r.characterName} (voiced by the listener) just said aloud:\n"${utter}"`
+    : `${r.characterName} (voiced by the listener) stayed silent — no reply.`;
   const reactionLine = r.reactionText?.trim()
     ? `\nImmediate reaction that just played (narrate what happens after it):\n"${r.reactionText.trim()}"\n`
     : '';
@@ -450,10 +579,9 @@ ${r.chapterPremise ? `\nOriginal premise: ${r.chapterPremise}` : ''}
 Prose so far (already heard by the listener):
 ${r.priorProse.trim().slice(-3500)}
 
-${r.characterName} (voiced by the listener) just said aloud:
-"${r.listenerUtterance.trim() || '(silence)'}"
+${spokenBlock}
 ${reactionLine}
-Now write the next ~${r.targetWords ?? 300} words of the chapter, continuing naturally from the moment right after ${r.characterName} spoke.`;
+Now write the next ~${r.targetWords ?? 300} words, continuing naturally from the moment right after.`;
 }
 
 async function streamGrokContinuation(
@@ -655,9 +783,11 @@ export function attachActiveCharacterRoutes(app: Router, requireAuth: RequireAut
       const auth = await requireAuth(req, res);
       if (!auth) return;
       const body = req.body as ContinueChapterRequest & { voiceId?: string };
-      if (!body?.priorProse || !body?.listenerUtterance || !body?.characterName) {
-        return res.status(400).json({ error: 'priorProse, listenerUtterance, characterName required' });
+      // listenerUtterance may be empty — silence is canon input; we still continue.
+      if (!body?.priorProse || !body?.characterName) {
+        return res.status(400).json({ error: 'priorProse and characterName required' });
       }
+      if (body.listenerUtterance == null) body.listenerUtterance = '';
       const voiceId = body.voiceId || 'eve';
 
       res.setHeader('Content-Type', 'text/event-stream');
@@ -700,6 +830,27 @@ export function attachActiveCharacterRoutes(app: Router, requireAuth: RequireAut
     } catch (e: any) {
       ac('place-beats failed', e?.message || e);
       res.status(500).json({ error: e?.message || 'place-beats failed' });
+    }
+  });
+
+  // ----- Generate chapter outline (structured-improv skeleton) -----
+  app.post('/api/active-character/generate-outline', express.json({ limit: '128kb' }), async (req: Request, res: Response) => {
+    try {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+      const body = req.body as OutlineRequest;
+      if (!body?.chapterPremise || !body?.characterName) {
+        return res.status(400).json({ error: 'chapterPremise and characterName required' });
+      }
+      const scenes = await generateActiveCharacterOutline(body);
+      if (scenes.length < 3) {
+        return res.status(502).json({ error: 'outline returned fewer than 3 scenes' });
+      }
+      ac('outline ok', { scenes: scenes.length });
+      res.json({ scenes });
+    } catch (e: any) {
+      ac('outline failed', e?.message || e);
+      res.status(500).json({ error: e?.message || 'outline failed' });
     }
   });
 }
