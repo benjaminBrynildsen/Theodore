@@ -324,11 +324,20 @@ export function AudioPlayerBar() {
   }, [user?.id, planTier]);
 
   useEffect(() => {
-    if (!user || planTier !== 'free' || !audioCapKey) return;
+    console.log('[audio-cap] effect run', { hasUser: !!user, planTier, audioCapKey, hasAudioEl: !!audioRef.current });
+    if (!user || planTier !== 'free' || !audioCapKey) {
+      console.log('[audio-cap] not attaching — user/plan/key gate failed');
+      return;
+    }
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio) {
+      console.log('[audio-cap] audio element not ready');
+      return;
+    }
+    console.log('[audio-cap] attached listeners; current localStorage counter=', Number(localStorage.getItem(audioCapKey) || '0'));
 
     let lastTime = audio.currentTime;
+    let tickCount = 0;
     const onPlayReset = () => { lastTime = audio.currentTime; };
     const onSeeked = () => { lastTime = audio.currentTime; };
 
@@ -337,11 +346,13 @@ export function AudioPlayerBar() {
       const now = audio.currentTime;
       const delta = now - lastTime;
       lastTime = now;
-      // Ignore rewinds and big jumps (scene transitions reset to 0; seeks).
       if (delta <= 0 || delta > 2) return;
       const listened = Number(localStorage.getItem(audioCapKey) || '0') + delta;
       localStorage.setItem(audioCapKey, String(listened));
+      tickCount++;
+      if (tickCount % 20 === 0) console.log('[audio-cap] listened=', listened.toFixed(1), 'currentTime=', now.toFixed(1));
       if (listened >= AUDIO_CAP_SECONDS && !audioCapTriggered.current) {
+        console.log('[audio-cap] CAP HIT at', listened.toFixed(1), 'seconds');
         audioCapTriggered.current = true;
         if (!audio.paused) audio.pause();
         setPlaying(false);
