@@ -538,8 +538,15 @@ app.post('/api/billing/checkout', async (req, res) => {
     const auth = await requireAuth(req, res);
     if (!auth) return;
     const tier = String(req.body?.tier || '');
+    const reason = String(req.body?.reason || '');
     const tierConfig = getPaidTierConfig(tier);
     if (!tierConfig) return res.status(400).json({ error: 'Invalid tier. Use writer, author, studio, or publisher.' });
+
+    // 7-day free trial when the upgrade is triggered by the audio cap. Card
+    // is required up front (payment_method_collection defaults to 'if_required'
+    // in older APIs; we set it explicitly to 'always' to be safe across
+    // versions). Other upgrade paths keep the original no-trial flow.
+    const isAudioCapTrial = reason === 'audio_cap';
 
     const stripe = await getStripeClient();
     if (!stripe) {
@@ -589,12 +596,15 @@ app.post('/api/billing/checkout', async (req, res) => {
         userId: auth.user.id,
         tier: tierConfig.tier,
       },
+      payment_method_collection: 'always',
       subscription_data: {
         metadata: {
           userId: auth.user.id,
           tier: tierConfig.tier,
           credits: String(tierConfig.credits),
+          ...(isAudioCapTrial ? { trial_source: 'audio_cap' } : {}),
         },
+        ...(isAudioCapTrial ? { trial_period_days: 7 } : {}),
       },
     });
 
@@ -2259,27 +2269,36 @@ app.post('/api/tts/generate', async (req, res) => {
     const auth = await getAuth(req);
     if (!auth) return res.status(401).json({ error: 'Not authenticated' });
 
-    const { chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle, model, provider, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle } = req.body;
+    let { narratorVoice, provider } = req.body;
+    const { chapterId, prose, characterVoices, characterDescriptions, narratorStyle, model, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle } = req.body;
     if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
 
     // Credit check
     const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Free audio sample: Dreamer (free) users get 1 free scene with OpenAI TTS
+    // Free users always get Grok/Leo — it's the cheapest provider Theodore
+    // supports and is the default preview voice for the 60-second free cap.
+    // Whatever the client asked for (ElevenLabs premium, OpenAI budget, etc.)
+    // is ignored until they upgrade. This keeps ElevenLabs spend to paying
+    // users only.
     const isFreeUser = !user.planTier || user.planTier === 'free';
+    if (isFreeUser) {
+      provider = 'grok';
+      narratorVoice = 'grok:leo';
+    }
+
+    // First audio gen for a free user is on the house — the playback-side 60s
+    // cap is the real economic gate. Subsequent generations charge credits
+    // (Grok is cheap, so this rarely matters).
     let isFreeAudioSample = false;
     if (isFreeUser) {
       const existingAudioTxns = await db.select({ id: creditTransactions.id })
         .from(creditTransactions)
         .where(and(eq(creditTransactions.userId, auth.user.id), eq(creditTransactions.action, 'generate-audio')))
         .limit(1);
-      if (existingAudioTxns.length === 0 && (provider || 'elevenlabs') !== 'elevenlabs') {
-        // First audio gen + using OpenAI = free sample
+      if (existingAudioTxns.length === 0) {
         isFreeAudioSample = true;
-      } else if (existingAudioTxns.length === 0 && (provider || 'elevenlabs') === 'elevenlabs') {
-        // Free sample only works with OpenAI budget voices
-        return res.status(402).json({ error: 'Free audio sample is only available with OpenAI TTS. Switch to Budget quality to try it free!' });
       }
     }
 
@@ -2680,6 +2699,99 @@ app.get('/api/admin/stats/daily', getDailyStats);
 app.get('/api/admin/traffic', getTrafficStats);
 app.get('/api/admin/journeys', getJourneys);
 app.get('/api/admin/journeys/:sessionId', getJourneyDetail);
+
+// Grok image reference-input diagnostic. Hits xAI's /v1/images/generations
+// four times with the same project's hero shot + prompt, varying ONLY the
+// image field name ('none' | 'image' | 'images' | 'image_url'). Admin can
+// visually compare the four outputs to confirm which field xAI honors.
+// Usage: POST /api/admin/debug/grok-image-ref-test
+//   body: { projectId, prompt?: string }
+app.post('/api/admin/debug/grok-image-ref-test', express.json(), async (req, res) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  try {
+    const { projectId, prompt } = (req.body || {}) as { projectId?: string; prompt?: string };
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+
+    const [proj] = await db.select().from(projects).where(eq(projects.id, String(projectId)));
+    if (!proj) return res.status(404).json({ error: 'Project not found' });
+    const heroUrl = (proj.childrensBookSettings as any)?.characterHeroImageUrl;
+    if (typeof heroUrl !== 'string' || !heroUrl.startsWith('/uploads/')) {
+      return res.status(400).json({ error: 'Project has no hero shot — generate one first.' });
+    }
+    const absPath = path.join(process.cwd(), heroUrl.replace(/^\//, ''));
+    if (!fs.existsSync(absPath)) {
+      return res.status(400).json({ error: `Hero file missing on disk: ${absPath}` });
+    }
+
+    const apiKey = process.env.XAI_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'XAI_API_KEY not configured' });
+
+    const fileBytes = fs.readFileSync(absPath);
+    const mime = absPath.endsWith('.jpg') || absPath.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+    const dataUrl = `data:${mime};base64,${fileBytes.toString('base64')}`;
+    const model = process.env.XAI_IMAGE_MODEL || 'grok-imagine-image';
+    const testPrompt = prompt
+      || 'The same character, side profile, standing on a grassy hill at sunrise, same outfit and hair';
+
+    const variants: Array<{ label: string; extra: Record<string, unknown> }> = [
+      { label: 'none', extra: {} },
+      { label: 'image', extra: { image: dataUrl } },
+      { label: 'images', extra: { images: [dataUrl] } },
+      { label: 'image_url', extra: { image_url: dataUrl } },
+    ];
+
+    const ensureDir = () => {
+      const dir = path.join(uploadsPath, 'generated');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    };
+    const saveDir = ensureDir();
+
+    const results = await Promise.all(variants.map(async (v) => {
+      try {
+        const body = { model, prompt: testPrompt, n: 1, response_format: 'b64_json', ...v.extra };
+        const response = await fetch('https://api.x.ai/v1/images/generations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify(body),
+        });
+        const detail = await response.text();
+        if (!response.ok) {
+          return { label: v.label, ok: false, status: response.status, error: detail.slice(0, 400) };
+        }
+        const data = JSON.parse(detail) as { data?: Array<{ b64_json?: string; url?: string }> };
+        const item = data.data?.[0];
+        if (!item?.b64_json && !item?.url) {
+          return { label: v.label, ok: false, status: 200, error: 'No image in response' };
+        }
+        let bytes: Buffer;
+        if (item.b64_json) bytes = Buffer.from(item.b64_json, 'base64');
+        else {
+          const f = await fetch(item.url!);
+          bytes = Buffer.from(await f.arrayBuffer());
+        }
+        const fname = `grok-ref-test-${v.label}-${randomUUID().slice(0, 6)}.png`;
+        fs.writeFileSync(path.join(saveDir, fname), bytes);
+        return { label: v.label, ok: true, imageUrl: `/uploads/generated/${fname}`, bytes: bytes.length };
+      } catch (e: any) {
+        return { label: v.label, ok: false, error: e?.message || 'request failed' };
+      }
+    }));
+
+    res.json({
+      model,
+      promptUsed: testPrompt,
+      heroUrl,
+      heroBytes: fileBytes.length,
+      results,
+      instructions: 'Visually compare the four output images. If /uploads/generated/grok-ref-test-image-*.png matches the hero shot character but grok-ref-test-none-*.png does not, the `image` field is being honored. Same logic for `images` and `image_url`. If all four look identical and unlike the hero, xAI is ignoring all three field names.',
+    });
+  } catch (e: any) {
+    console.error('[admin.grok-image-ref-test] unexpected error', e);
+    res.status(500).json({ error: e?.message || 'debug failed' });
+  }
+});
 
 // Journey tracking — public endpoints (no auth, guests need to send events)
 app.post('/api/journey', express.json(), receiveJourneyEvents);

@@ -236,9 +236,12 @@ export async function generateImageGrok(req: ImageGenRequest): Promise<ImageGenR
     response_format: 'b64_json',
   };
 
+  let referenceAttached = false;
+  let referenceBytes = 0;
   if (req.referenceImagePath) {
     try {
       const fileBytes = fs.readFileSync(req.referenceImagePath);
+      referenceBytes = fileBytes.length;
       const mime = req.referenceImagePath.endsWith('.jpg') || req.referenceImagePath.endsWith('.jpeg')
         ? 'image/jpeg'
         : 'image/png';
@@ -249,10 +252,15 @@ export async function generateImageGrok(req: ImageGenRequest): Promise<ImageGenR
       body.image = dataUrl;
       body.images = [dataUrl];
       body.image_url = dataUrl;
+      referenceAttached = true;
     } catch (err: any) {
       console.warn(`[grok-image] could not attach reference image: ${err?.message}`);
     }
   }
+
+  console.log(
+    `[grok-image] → model=${model} prompt_len=${fullPrompt.length} ref_attached=${referenceAttached}${referenceAttached ? ` ref_bytes=${referenceBytes}` : ''}${req.referenceImagePath ? ` ref_path=${req.referenceImagePath}` : ''}`,
+  );
 
   const response = await fetch('https://api.x.ai/v1/images/generations', {
     method: 'POST',
