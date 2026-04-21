@@ -337,20 +337,26 @@ export async function placeBeatsWithGrok(r: PlaceBeatsRequest): Promise<Array<{
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
   const maxBeats = Math.min(Math.max(r.maxBeats ?? 3, 1), 5);
 
-  const sys = `You are an audiobook director identifying 2-${maxBeats} natural moments where "${r.activeCharacterName}" would speak a line of dialogue. These are "Open Beats" — the listener will voice the character at each of them during playback. Return ONLY a JSON array of objects with this exact shape and no other text:
+  const sys = `You are an audiobook director placing 2-${maxBeats} "Open Beats" in a chapter. At each beat, the listener voices "${r.activeCharacterName}" speaking a line of dialogue. The cueText is the dialogue-tag line that hands off to the character — the audiobook will play right up to the end of that tag and then pause for the listener's voice.
+
+Return ONLY a JSON array of objects with this exact shape and no other text:
 
 [
   {
-    "cueText": "the narrator line immediately before the character's turn (must appear verbatim in the prose)",
+    "cueText": "the dialogue tag line — ending with 'said,' / 'asked,' / 'replied,' etc. (must appear verbatim in the prose)",
     "intentHints": ["short phrase", "short phrase"],
     "stateMutationRules": ["trust", "knowledge"]
   }
 ]
 
 Rules:
-- cueText must be a string that EXACTLY appears in the chapter prose provided — no paraphrasing. Keep it short: one sentence or clause, ≤ 140 chars.
-- Pick moments where ${r.activeCharacterName} is clearly being addressed or given space to speak.
-- intentHints: 2-3 short phrases anticipating how the listener might respond ("accept", "refuse", "deflect", etc.).
+- cueText MUST be a dialogue attribution that introduces ${r.activeCharacterName} about to speak. Patterns to prefer (all verbatim from prose):
+  · "${r.activeCharacterName} said," / "said ${r.activeCharacterName}," / "${r.activeCharacterName} replied," / "${r.activeCharacterName} asked,"
+  · "He/She turned and said," / "After a pause, he/she answered," — but only if the surrounding prose makes clear the speaker is ${r.activeCharacterName}.
+- cueText MUST appear EXACTLY in the chapter prose provided — no paraphrasing, no invention. If the prose has no dialogue tag for ${r.activeCharacterName}, return fewer beats (or an empty array) rather than faking one.
+- Keep cueText short: one sentence or clause, ≤ 140 chars. It should end right before ${r.activeCharacterName}'s spoken line (often ending with a comma or colon).
+- Skip moments that aren't dialogue. If ${r.activeCharacterName} is only being described or addressed without speaking, DO NOT place a beat there.
+- intentHints: 2-3 short phrases anticipating how the listener might respond ("accept", "refuse", "deflect", "ask back", etc.).
 - stateMutationRules: 1-3 dimensions this beat may shift — pick from: trust, knowledge, allegiance, emotion, location.
 - Output MUST be valid JSON. No prose, no code fences, just the array.`;
 
