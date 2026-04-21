@@ -1128,7 +1128,7 @@ app.get('/api/projects', async (req, res) => {
           COALESCE(SUM(
             CASE
               WHEN length(trim(prose)) = 0 THEN 0
-              ELSE array_length(regexp_split_to_array(trim(prose), E'\\s+'), 1)
+              ELSE array_length(regexp_split_to_array(trim(prose), '[[:space:]]+'), 1)
             END
           ), 0)::int AS word_count
         FROM chapters
