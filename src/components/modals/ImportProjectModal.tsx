@@ -150,10 +150,31 @@ export function ImportProjectModal({
         return;
       }
       const projectId = typeof data?.project?.id === 'string' ? data.project.id : null;
+      const projectTitle = typeof data?.project?.title === 'string' ? data.project.title : '';
       if (!projectId) {
         setStatus({ kind: 'extract-error', message: `Import completed but the server didn't return a project ID.` });
         return;
       }
+
+      // Generate a placeholder cover from the title so the project grid/cards
+      // don't show an empty box. This mirrors what ChatCreation does after
+      // creating a project — client-side canvas, no API calls, no credits.
+      // We do it best-effort: if the generator fails, the import still succeeds.
+      try {
+        const { generateBookCover } = await import('../../lib/cover-generator');
+        const coverUrl = generateBookCover(projectTitle || 'Imported Book');
+        if (coverUrl) {
+          await fetch(`/api/projects/${projectId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ coverUrl }),
+          }).catch(() => {});
+        }
+      } catch (e) {
+        console.warn('[ImportProject] Cover generation failed, continuing:', e);
+      }
+
       try { localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY); } catch {}
       onCreatedProject(projectId);
     } catch {

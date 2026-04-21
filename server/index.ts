@@ -3058,7 +3058,9 @@ app.post('/api/import/as-project', (req, res) => {
 
       // Create chapters sequentially. We build them as `human-edited` with
       // full prose + scenes so the UI treats them as the user's own work
-      // and never tries to auto-generate drafts over them.
+      // and never tries to auto-generate drafts over them. premise.purpose
+      // gets seeded from the opening paragraph so chapter cards show a
+      // teaser rather than a bare "Chapter N" label.
       const createdChapters = [];
       for (let i = 0; i < parsed.chapters.length; i++) {
         const ch = parsed.chapters[i];
@@ -3070,7 +3072,7 @@ app.post('/api/import/as-project', (req, res) => {
           timelinePosition: i + 1,
           scenes: ch.scenes,
           premise: {
-            purpose: '',
+            purpose: ch.premiseSummary,
             changes: '',
             characters: [],
             emotionalBeat: '',

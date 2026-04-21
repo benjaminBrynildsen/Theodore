@@ -22,6 +22,7 @@ export interface ParsedScene {
 export interface ParsedChapter {
   title: string;
   prose: string;
+  premiseSummary: string;
   scenes: ParsedScene[];
 }
 
@@ -210,6 +211,51 @@ function stripChapterTitleFromBody(body: string, title: string): string {
   return lines.join('\n').trim();
 }
 
+// Rejoin lines that PDF extraction wrapped mid-paragraph. PDFs commonly give
+// one line per line-of-page — displayed with white-space: pre-wrap that
+// shows as awkward mid-sentence breaks. We split the body on paragraph
+// boundaries (double newlines), then within each paragraph collapse single
+// newlines to spaces so the prose flows as a normal paragraph again.
+//
+// We preserve the paragraph break itself (double newline) so the editor
+// still shows proper paragraph structure. Also preserves standalone lines
+// like scene-break markers, which sit in their own paragraph already.
+function rewrapParagraphs(text: string): string {
+  const paragraphs = text.split(/\n{2,}/);
+  const rewrapped = paragraphs.map((p) => {
+    const trimmed = p.trim();
+    if (!trimmed) return '';
+    // Don't rewrap a paragraph that's a single line already.
+    if (!trimmed.includes('\n')) return trimmed;
+    // Don't rewrap standalone markers (scene breaks, section separators).
+    if (SCENE_BREAK_LINE.test(trimmed)) return trimmed;
+    // Join single newlines with a space, collapse any resulting double spaces.
+    return trimmed.replace(/\n/g, ' ').replace(/ {2,}/g, ' ');
+  });
+  return rewrapped.filter((p) => p.length > 0).join('\n\n');
+}
+
+// First ~200 characters of the first paragraph — used as chapter.premise.purpose
+// so the chapter cards in the project grid show a readable teaser instead of
+// a bare "Chapter 1" label. Cuts at the last sentence boundary within the
+// budget to avoid chopping mid-word.
+function deriveChapterSummary(prose: string, maxChars = 200): string {
+  const firstParagraph = prose.split(/\n{2,}/).find((p) => p.trim().length > 0) || '';
+  const clean = firstParagraph.trim().replace(/\s+/g, ' ');
+  if (clean.length <= maxChars) return clean;
+  const clipped = clean.slice(0, maxChars);
+  const lastBreak = Math.max(
+    clipped.lastIndexOf('. '),
+    clipped.lastIndexOf('! '),
+    clipped.lastIndexOf('? '),
+    clipped.lastIndexOf('… '),
+  );
+  if (lastBreak > maxChars * 0.5) return clipped.slice(0, lastBreak + 1).trim();
+  // Fall back to last word boundary with an ellipsis.
+  const lastSpace = clipped.lastIndexOf(' ');
+  return (lastSpace > 0 ? clipped.slice(0, lastSpace) : clipped).trim() + '…';
+}
+
 function splitIntoScenes(prose: string): ParsedScene[] {
   const lines = prose.split('\n');
   const buckets: string[][] = [[]];
@@ -284,14 +330,15 @@ export function parseBookText(rawText: string, fileName: string): ParsedBook {
   // Fallback: no headings detected. Treat the entire manuscript as one
   // chapter so the user can still narrate it; they can split manually later.
   if (headings.length === 0) {
-    const prose = cleaned.trim();
+    const body = rewrapParagraphs(cleaned.trim());
     return {
       title: inferTitleFromFilename(fileName),
-      chapters: prose
+      chapters: body
         ? [{
             title: 'Chapter 1',
-            prose,
-            scenes: splitIntoScenes(prose),
+            prose: body,
+            premiseSummary: deriveChapterSummary(body),
+            scenes: splitIntoScenes(body),
           }]
         : [],
     };
@@ -306,13 +353,15 @@ export function parseBookText(rawText: string, fileName: string): ParsedBook {
     const bodyStart = heading.lineIndex + 1;
     const bodyEnd = next ? next.lineIndex : lines.length;
     const rawBody = lines.slice(bodyStart, bodyEnd).join('\n');
-    const body = stripChapterTitleFromBody(rawBody, heading.title);
+    const bodyWithoutTitle = stripChapterTitleFromBody(rawBody, heading.title);
     // Skip chapters that have no body — likely a "Part One" standalone heading
     // right before "Chapter 1", or a duplicate TOC entry that slipped through.
-    if (!body.trim()) continue;
+    if (!bodyWithoutTitle.trim()) continue;
+    const body = rewrapParagraphs(bodyWithoutTitle);
     chapters.push({
       title: heading.title,
       prose: body,
+      premiseSummary: deriveChapterSummary(body),
       scenes: splitIntoScenes(body),
     });
   }
