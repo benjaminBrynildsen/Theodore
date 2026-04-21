@@ -156,27 +156,40 @@ export function ImportProjectModal({
         return;
       }
 
-      // Generate a placeholder cover from the title so the project grid/cards
-      // don't show an empty box. This mirrors what ChatCreation does after
-      // creating a project — client-side canvas, no API calls, no credits.
-      // We do it best-effort: if the generator fails, the import still succeeds.
-      try {
-        const { generateBookCover } = await import('../../lib/cover-generator');
-        const coverUrl = generateBookCover(projectTitle || 'Imported Book');
-        if (coverUrl) {
+      try { localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY); } catch {}
+      onCreatedProject(projectId);
+
+      // Real cover generation runs in the background after navigation. We
+      // skip the client-side placeholder (data: URL) entirely — the UI
+      // filters those out everywhere (ProjectView/Home/AudioPlayerBar all
+      // do `!coverUrl.startsWith('data:')`), so storing one accomplishes
+      // nothing. The AI cover can take 10-30s; the user sees the project
+      // immediately and the cover populates when it arrives.
+      void (async () => {
+        try {
+          const project = data?.project;
+          const chapters = Array.isArray(data?.chapters) ? data.chapters : [];
+          const coverHints = chapters
+            .slice(0, 3)
+            .map((c: any) => c?.premise?.purpose)
+            .filter(Boolean)
+            .join('; ')
+            .slice(0, 300) || `${projectTitle || 'novel'} novel`;
+          const { generateCover } = await import('../../lib/cover-gen-ai');
+          const coverUrl = await generateCover(project, coverHints);
           await fetch(`/api/projects/${projectId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({ coverUrl }),
           }).catch(() => {});
+          // Also update the in-memory store so the cover shows without a reload.
+          const { useStore } = await import('../../store');
+          useStore.getState().updateProject(projectId, { coverUrl });
+        } catch (e) {
+          console.warn('[ImportProject] AI cover generation failed (non-fatal):', e);
         }
-      } catch (e) {
-        console.warn('[ImportProject] Cover generation failed, continuing:', e);
-      }
-
-      try { localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY); } catch {}
-      onCreatedProject(projectId);
+      })();
     } catch {
       setStatus({
         kind: 'extract-error',

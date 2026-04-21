@@ -213,26 +213,72 @@ function stripChapterTitleFromBody(body: string, title: string): string {
 
 // Rejoin lines that PDF extraction wrapped mid-paragraph. PDFs commonly give
 // one line per line-of-page — displayed with white-space: pre-wrap that
-// shows as awkward mid-sentence breaks. We split the body on paragraph
-// boundaries (double newlines), then within each paragraph collapse single
-// newlines to spaces so the prose flows as a normal paragraph again.
+// shows as awkward mid-sentence breaks. We support two input formats:
 //
-// We preserve the paragraph break itself (double newline) so the editor
-// still shows proper paragraph structure. Also preserves standalone lines
-// like scene-break markers, which sit in their own paragraph already.
+// 1. **Well-structured text** (double-newline between paragraphs): split on
+//    paragraph boundaries, collapse single newlines to spaces within each.
+//
+// 2. **Flat PDF extraction** (only single newlines, no paragraph markers):
+//    harder case. We reconstruct paragraph breaks using a sentence-end +
+//    capital-start heuristic — a line that ends with `.!?…` followed by a
+//    line that starts with a capital letter (or opening quote+capital) is
+//    almost certainly a paragraph break in fiction. Lines that don't end
+//    in sentence punctuation are almost certainly mid-paragraph wraps and
+//    get joined to the next line with a space.
+//
+// Scene-break markers on their own line are preserved.
 function rewrapParagraphs(text: string): string {
-  const paragraphs = text.split(/\n{2,}/);
-  const rewrapped = paragraphs.map((p) => {
-    const trimmed = p.trim();
-    if (!trimmed) return '';
-    // Don't rewrap a paragraph that's a single line already.
-    if (!trimmed.includes('\n')) return trimmed;
-    // Don't rewrap standalone markers (scene breaks, section separators).
-    if (SCENE_BREAK_LINE.test(trimmed)) return trimmed;
-    // Join single newlines with a space, collapse any resulting double spaces.
-    return trimmed.replace(/\n/g, ' ').replace(/ {2,}/g, ' ');
-  });
-  return rewrapped.filter((p) => p.length > 0).join('\n\n');
+  // If there are any blank-line separators, trust them — that's the well-
+  // structured case and rewriting paragraph-by-paragraph is safe.
+  if (/\n[ \t]*\n/.test(text)) {
+    const paragraphs = text.split(/\n{2,}/);
+    const rewrapped = paragraphs.map((p) => {
+      const trimmed = p.trim();
+      if (!trimmed) return '';
+      if (!trimmed.includes('\n')) return trimmed;
+      if (SCENE_BREAK_LINE.test(trimmed)) return trimmed;
+      return trimmed.replace(/\n/g, ' ').replace(/ {2,}/g, ' ');
+    });
+    return rewrapped.filter((p) => p.length > 0).join('\n\n');
+  }
+
+  // Flat input — reconstruct paragraphs from sentence-end boundaries.
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+  if (lines.length <= 1) return lines.join('');
+
+  const paragraphs: string[] = [];
+  let current = '';
+
+  for (const line of lines) {
+    if (SCENE_BREAK_LINE.test(line)) {
+      if (current) paragraphs.push(current);
+      paragraphs.push(line);
+      current = '';
+      continue;
+    }
+    if (!current) {
+      current = line;
+      continue;
+    }
+    const endsSentence = /[.!?…][")'’”]?$/.test(current);
+    const startsNewParagraph = /^["'“‘(]?[A-Z]/.test(line);
+    // An all-caps "title abbreviation" at the end of the previous line (e.g.
+    // "Mr.", "Dr.", "Jr.") isn't really a sentence end — the next line is a
+    // continuation. Catch the common ones so we don't split inside a name.
+    const looksLikeTitleAbbrev = /\b(?:Mr|Mrs|Ms|Dr|Jr|Sr|St|Prof|Capt|Lt|Sgt)\.$/.test(current);
+    if (endsSentence && startsNewParagraph && !looksLikeTitleAbbrev) {
+      paragraphs.push(current);
+      current = line;
+    } else {
+      current += ' ' + line;
+    }
+  }
+  if (current) paragraphs.push(current);
+
+  return paragraphs
+    .map((p) => p.replace(/ {2,}/g, ' ').trim())
+    .filter((p) => p.length > 0)
+    .join('\n\n');
 }
 
 // First ~200 characters of the first paragraph — used as chapter.premise.purpose
