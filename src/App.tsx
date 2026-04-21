@@ -12,6 +12,7 @@ import { useCreditsStore } from './store/credits';
 import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
 import { CookieConsent } from './components/layout/CookieConsent';
+import { AudioCapPill } from './components/credits/AudioCapPill';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
@@ -161,42 +162,12 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
 
   const [showAnimationTest, setShowAnimationTest] = useState(false);
+  // Guest signup modal is now opened manually (banner's Sign Up button, or the
+  // 10s audio-gate inside AudioPlayerBar). The old 3s-after-cover auto-fire
+  // was pruned — three overlapping prompts (banner + modal + audio gate) made
+  // the first-session feel like a gauntlet.
   const [showGuestSignupModal, setShowGuestSignupModal] = useState(false);
   const [guestModalDismissed, setGuestModalDismissed] = useState(false);
-  const guestModalTriggered = useRef(false);
-
-  // Show guest signup modal 3 seconds after the workspace renders for guests.
-  // Must be a top-level useEffect (not inside conditional render) to avoid
-  // mounting/unmounting issues that cause the modal to glitch or disappear.
-  // Show guest signup modal AFTER Chapter 1 finishes generating.
-  // This ensures the user sees their novel (cover, chapters, prose) before
-  // the modal slides in — much harder to dismiss when their book is visible.
-  const isGuestWorkspace = !user && hasActiveProject && (currentView === 'project' || currentView === 'chapter');
-  useEffect(() => {
-    if (!isGuestWorkspace || guestModalDismissed || showGuestSignupModal) return;
-
-    // Poll the store for cover art — the last thing to generate.
-    // The user sees: chapter titles → Chapter 1 prose streaming → cover art appears.
-    // Modal shows 3 seconds AFTER cover art is ready so they can take it in.
-    const check = setInterval(() => {
-      const store = useStore.getState();
-      const project = store.projects.find(p => p.id === store.activeProjectId);
-      if (project?.coverUrl && !project.coverUrl.startsWith('data:')) {
-        clearInterval(check);
-        setTimeout(() => setShowGuestSignupModal(true), 3000);
-      }
-    }, 1000);
-
-    // Safety: if Chapter 1 never generates (error, timeout), show modal after 60s anyway
-    const fallback = setTimeout(() => {
-      clearInterval(check);
-      if (!showGuestSignupModal && !guestModalDismissed) {
-        setShowGuestSignupModal(true);
-      }
-    }, 60000);
-
-    return () => { clearInterval(check); clearTimeout(fallback); };
-  }, [isGuestWorkspace, guestModalDismissed, showGuestSignupModal, activeProjectId]);
 
   const [showGoogleTest, setShowGoogleTest] = useState(false);
   const [showCreators, setShowCreators] = useState(false);
@@ -411,9 +382,10 @@ export default function App() {
   // Guard against stale persisted view/project ids that can produce a blank center pane.
   useEffect(() => {
     if ((currentView === 'project' || currentView === 'chapter') && !hasActiveProject) {
+      console.warn('[nav-home-guard] forced home — activeProjectId=', activeProjectId, 'projects=', projects.length, 'user=', user?.id);
       setCurrentView('home');
     }
-  }, [currentView, hasActiveProject, setCurrentView]);
+  }, [currentView, hasActiveProject, setCurrentView, activeProjectId, projects.length, user?.id]);
 
   useEffect(() => {
     if (currentView === 'home' || !hasActiveProject) {
@@ -687,6 +659,7 @@ export default function App() {
         <UpgradeModal />
         <ImpactPanel />
       </Suspense>
+      <AudioCapPill />
       {showReadingMode && (
         <Suspense fallback={<ViewLoader label="Loading reading mode..." />}>
           <ReadingMode onClose={() => setShowReadingMode(false)} />

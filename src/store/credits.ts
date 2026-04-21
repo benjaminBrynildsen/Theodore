@@ -2,17 +2,20 @@ import { create } from 'zustand';
 import type { UserPlan, CreditTransaction, PlanTier } from '../types/credits';
 import { generateId } from '../lib/utils';
 
+export type UpgradeReason = 'generic' | 'audio_cap';
+
 interface CreditsState {
   plan: UserPlan;
   transactions: CreditTransaction[];
   showUpgradeModal: boolean;
+  upgradeReason: UpgradeReason;
   showSettingsModal: boolean;
 
   // Actions
   spendCredits: (amount: number, action: CreditTransaction['action'], meta?: Partial<CreditTransaction>) => boolean;
   canAfford: (amount: number) => boolean;
   setPlan: (tier: PlanTier, credits: number) => void;
-  setShowUpgradeModal: (show: boolean) => void;
+  setShowUpgradeModal: (show: boolean, reason?: UpgradeReason) => void;
   setShowSettingsModal: (show: boolean) => void;
   hydrateFromUser: (user: {
     plan?: string | null;
@@ -51,13 +54,14 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
   },
   transactions: [],
   showUpgradeModal: false,
+  upgradeReason: 'generic',
   showSettingsModal: false,
 
   spendCredits: (amount, action, meta = {}) => {
     const { plan } = get();
 
     if (plan.creditsRemaining < amount) {
-      set({ showUpgradeModal: true });
+      set({ showUpgradeModal: true, upgradeReason: 'generic' });
       return false;
     }
 
@@ -98,7 +102,7 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
     }));
   },
 
-  setShowUpgradeModal: (show) => set({ showUpgradeModal: show }),
+  setShowUpgradeModal: (show, reason = 'generic') => set({ showUpgradeModal: show, upgradeReason: show ? reason : 'generic' }),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
 
   hydrateFromUser: (user) => {

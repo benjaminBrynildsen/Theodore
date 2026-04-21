@@ -11,11 +11,12 @@ import {
 } from '../../lib/currency';
 
 export function UpgradeModal() {
-  const { showUpgradeModal, setShowUpgradeModal, plan } = useCreditsStore();
+  const { showUpgradeModal, setShowUpgradeModal, plan, upgradeReason } = useCreditsStore();
   const [busyTier, setBusyTier] = useState<PlanTier | null>(null);
   const [error, setError] = useState('');
   const displayCurrency = useMemo(() => detectDisplayCurrency(), []);
   const showUsdDisclaimer = isNonUsdDisplay(displayCurrency);
+  const isAudioCap = upgradeReason === 'audio_cap';
   const priceFor = (tier: PlanTier): string => {
     if (tier === 'free') return PLAN_DETAILS.free.price;
     const usd = TIER_PRICES_USD[tier as 'writer' | 'author' | 'studio' | 'publisher'];
@@ -29,7 +30,7 @@ export function UpgradeModal() {
     setBusyTier(tier);
     setError('');
     try {
-      const checkout = await api.billingCheckout({ tier });
+      const checkout = await api.billingCheckout({ tier, reason: isAudioCap ? 'audio_cap' : undefined });
       if (!checkout?.url) throw new Error('Stripe checkout URL was not returned.');
       window.location.href = checkout.url;
     } catch (e: any) {
@@ -79,16 +80,33 @@ export function UpgradeModal() {
           <div className="relative z-10 p-6 sm:p-8">
             {/* Header */}
             <div className="text-center mb-6">
-              <h2 className="text-xl font-serif font-semibold text-white">Unlock more of Theodore</h2>
-              <p className="text-sm text-white/50 mt-1">
-                {plan.creditsRemaining <= 0
-                  ? "You've used all your free credits. Upgrade to keep creating."
-                  : 'More credits, more chapters, more audiobooks.'}
-              </p>
-              {plan.tier === 'free' && (
-                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.06] border border-white/10 text-xs text-white/60">
-                  <span className="font-semibold text-white/80">{plan.creditsRemaining}</span> of {plan.creditsTotal} free credits remaining
-                </div>
+              {isAudioCap ? (
+                <>
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
+                    <Headphones size={22} className="text-white/80" />
+                  </div>
+                  <h2 className="text-xl font-serif font-semibold text-white">That's your preview</h2>
+                  <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
+                    Keep listening — unlock unlimited audio with any paid plan.
+                  </p>
+                  <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/20 text-xs text-emerald-300">
+                    <Sparkles size={11} /> 7 days free · cancel anytime
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-xl font-serif font-semibold text-white">Unlock more of Theodore</h2>
+                  <p className="text-sm text-white/50 mt-1">
+                    {plan.creditsRemaining <= 0
+                      ? "You've used all your free credits. Upgrade to keep creating."
+                      : 'More credits, more chapters, more audiobooks.'}
+                  </p>
+                  {plan.tier === 'free' && (
+                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.06] border border-white/10 text-xs text-white/60">
+                      <span className="font-semibold text-white/80">{plan.creditsRemaining}</span> of {plan.creditsTotal} free credits remaining
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -177,7 +195,11 @@ export function UpgradeModal() {
                                 : 'bg-white/[0.08] text-white hover:bg-white/[0.12]'
                             )}
                           >
-                            {busyTier === tier ? 'Redirecting...' : `Choose ${details.name}`}
+                            {busyTier === tier
+                              ? 'Redirecting...'
+                              : isAudioCap && recommended
+                              ? `Start 7-day trial · ${details.name}`
+                              : `Choose ${details.name}`}
                           </button>
                         </div>
                       )}
@@ -203,7 +225,9 @@ export function UpgradeModal() {
 
             {/* Stripe notice */}
             <div className="mt-4 text-center text-[10px] text-white/25">
-              Payments by Stripe · Cancel anytime · Credits reset monthly
+              {isAudioCap
+                ? 'Card required · no charge for 7 days · cancel anytime'
+                : 'Payments by Stripe · Cancel anytime · Credits reset monthly'}
               {showUsdDisclaimer && (
                 <span className="block mt-0.5">
                   Prices in {displayCurrency} for reference · billed in USD
