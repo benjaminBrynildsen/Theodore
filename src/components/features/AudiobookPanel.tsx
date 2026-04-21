@@ -21,6 +21,7 @@ import { tagDirections } from '../../lib/direction-tagger';
 import { planChapterSFX, applySFXPlan } from '../../lib/scene-sfx-planner';
 import { buildSunoPrompt, estimateSceneDuration } from '../../lib/suno-prompt-builder';
 import { SceneSFXBadges } from './SceneSFXBadges';
+import { GuestSignupModal } from '../credits/GuestSignupModal';
 import { FEATURES } from '../../lib/feature-flags';
 import type { SceneEmotionalMetadata } from '../../types/music';
 import { EMOTION_COLORS } from '../../types/music';
@@ -92,6 +93,7 @@ export function AudiobookPanel() {
   const [audioGenProgress, setAudioGenProgress] = useState(0);
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
   const [showMusicConfig, setShowMusicConfig] = useState(true);
+  const [showAudioSignupModal, setShowAudioSignupModal] = useState(false);
   const [analyzingChapter, setAnalyzingChapter] = useState<string | null>(null);
   const [taggingAll, setTaggingAll] = useState(false);
   const [taggingAllSFX, setTaggingAllSFX] = useState(false);
@@ -806,6 +808,13 @@ export function AudiobookPanel() {
   const handleTTSError = (e: any): boolean => {
     if (e instanceof ApiError && e.status === 402 && e.body?.needsUpgrade) {
       useCreditsStore.getState().setShowUpgradeModal(true);
+      return true;
+    }
+    // 429 on the guest TTS endpoint means the one-per-day free sample is used.
+    // Rather than a terse "Too many attempts" banner, prompt signup — that's
+    // the actual next step for the user.
+    if (e instanceof ApiError && e.status === 429 && isGuest) {
+      setShowAudioSignupModal(true);
       return true;
     }
     return false;
@@ -2064,6 +2073,13 @@ export function AudiobookPanel() {
           </div>
         )}
       </div>
+      {showAudioSignupModal && (
+        <GuestSignupModal
+          variant="audio"
+          onSignUp={() => setShowAudioSignupModal(false)}
+          onDismiss={() => setShowAudioSignupModal(false)}
+        />
+      )}
     </div>
   );
 }
