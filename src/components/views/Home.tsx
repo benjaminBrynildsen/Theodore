@@ -8,7 +8,7 @@ export function Home() {
   const [showChatCreation, setShowChatCreation] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importedMessage, setImportedMessage] = useState<string | undefined>(undefined);
-  const { projects, setActiveProject, setCurrentView } = useStore();
+  const { projects, chapters, setActiveProject, setCurrentView } = useStore();
 
   const sortedProjects = useMemo(() => {
     let openedMap: Record<string, string> = {};
@@ -72,7 +72,10 @@ export function Home() {
         <div className="w-full max-w-2xl px-4 sm:px-0">
           <h2 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-4 px-1">Your Projects</h2>
           <div className="space-y-3">
-            {sortedProjects.map((project, i) => (
+            {sortedProjects.map((project, i) => {
+              const loadedCount = chapters.filter((c) => c.projectId === project.id).length;
+              const chapterCount = typeof project.chapterCount === 'number' ? project.chapterCount : loadedCount;
+              return (
               <button
                 key={project.id}
                 onClick={() => {
@@ -99,8 +102,10 @@ export function Home() {
                 )}
                 <div className="flex-1 text-left min-w-0">
                   <div className="font-medium">{project.title}</div>
-                  <div className="text-sm text-text-tertiary capitalize">
-                    {project.subtype?.replace('-', ' ') || project.type}
+                  <div className="text-sm text-text-tertiary capitalize flex items-center gap-2">
+                    <span>{project.subtype?.replace('-', ' ') || project.type}</span>
+                    <span className="text-text-tertiary/60">·</span>
+                    <span>{chapterCount} {chapterCount === 1 ? 'chapter' : 'chapters'}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 text-text-tertiary">
@@ -111,7 +116,8 @@ export function Home() {
                   <ChevronRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

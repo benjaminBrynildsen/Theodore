@@ -19,6 +19,7 @@ export interface Project {
   storyStructureId?: string; // one of the 9 story structures (see story-structures.ts)
   coverUrl?: string;
   status: ProjectStatus;
+  chapterCount?: number; // populated from list-projects response (not stored)
   createdAt: string;
   updatedAt: string;
 }
