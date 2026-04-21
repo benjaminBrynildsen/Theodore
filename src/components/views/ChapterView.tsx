@@ -31,6 +31,80 @@ import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { cn, generateId } from '../../lib/utils';
 import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
 
+/**
+ * Clean up the base-prose ↔ extension seam before concatenation.
+ *
+ * Why: extend generations can end mid-word (prior draft got truncated at
+ * maxTokens) and can begin with an unwanted chapter heading or a rehash of
+ * the previous chapter's last lines. Without cleanup, the chapter ends up
+ * like "…feeling the d\n\n## Chapter 3: Echoes at the Thames\n\nThe bus
+ * shelter was a decoy." — visible artifacts at the seam.
+ *
+ * Strategy:
+ *   1. Trim the tail of baseProse back to the last complete sentence so
+ *      we never append after a mid-word cut.
+ *   2. Strip leading chapter headings ("## Chapter 3: …", "Chapter 3 — …",
+ *      a title alone on one line) from the extension.
+ *   3. If the extension's first paragraph matches a window near the end of
+ *      the trimmed base, drop that paragraph as a duplicate.
+ */
+function cleanExtendMerge(baseProse: string, rawExtension: string): { cleanedBase: string; cleanedExtension: string } {
+  const base = baseProse || '';
+  let ext = rawExtension.replace(/^\uFEFF/, '').replace(/^\s+/, '');
+
+  // Strip leading markdown/plain chapter headings, possibly stacked with blank lines.
+  const headingRe = /^(?:#{1,6}\s*)?(?:chapter|ch\.?)\s*\d+[^\n]*\n+/i;
+  const titleOnlyRe = /^(?:#{1,6}\s+[^\n]+)\n+/;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    if (headingRe.test(ext)) {
+      ext = ext.replace(headingRe, '');
+      changed = true;
+    }
+    if (titleOnlyRe.test(ext)) {
+      ext = ext.replace(titleOnlyRe, '');
+      changed = true;
+    }
+    ext = ext.replace(/^\s+/, '');
+  }
+
+  // Trim baseProse back to the last sentence terminator so we don't append
+  // after "feeling the d" or similar mid-word cuts.
+  let cleanedBase = base.replace(/\s+$/, '');
+  const lastTerminator = Math.max(
+    cleanedBase.lastIndexOf('.'),
+    cleanedBase.lastIndexOf('!'),
+    cleanedBase.lastIndexOf('?'),
+    cleanedBase.lastIndexOf('"'),
+    cleanedBase.lastIndexOf('\u201D'),
+  );
+  // Only trim if what comes after the terminator doesn't look like a
+  // complete sentence already (e.g. keep endings like "home." untouched).
+  if (lastTerminator > 0 && lastTerminator < cleanedBase.length - 1) {
+    const after = cleanedBase.slice(lastTerminator + 1).trim();
+    // If after the terminator we only have a short dangling fragment
+    // (no more sentence terminators), strip it.
+    if (after && !/[.!?"\u201D]/.test(after)) {
+      cleanedBase = cleanedBase.slice(0, lastTerminator + 1).replace(/\s+$/, '');
+    }
+  }
+
+  // If the extension's first paragraph appears near the end of cleanedBase,
+  // treat it as a duplicate restart and drop it.
+  const firstPara = ext.split(/\n{2,}/)[0]?.trim() || '';
+  if (firstPara.length >= 20) {
+    const needle = firstPara.slice(0, Math.min(120, firstPara.length)).toLowerCase();
+    const hay = cleanedBase.slice(-4000).toLowerCase();
+    if (needle && hay.includes(needle)) {
+      const rest = ext.split(/\n{2,}/).slice(1).join('\n\n').trimStart();
+      ext = rest;
+    }
+  }
+
+  return { cleanedBase, cleanedExtension: ext.trim() };
+}
+
 /** Standalone + button for inserting direction tags — handles mobile touch properly */
 function DirectionInsertButton({ editHighlight, scenes, onOpen }: {
   editHighlight: { start: number; end: number };
@@ -459,6 +533,12 @@ export function ChapterView({ chapter }: Props) {
     const framingPrefix = chapterFraming.trim()
       ? `=== MANDATORY AUTHOR DIRECTION ===\nThe author has provided specific instructions. These OVERRIDE the chapter premise if they conflict. You MUST follow these directions:\n${chapterFraming.trim()}\n=== END AUTHOR DIRECTION ===\n\n`
       : '';
+    // Give the model the actual tail of the draft so it continues from there
+    // instead of reinventing the chapter header and rehashing earlier beats.
+    const draftTail = (chapter.prose || '').slice(-6000);
+    const currentDraftBlock = draftTail
+      ? `\n\n=== CURRENT DRAFT (the chapter so far — your continuation MUST flow directly from the final sentence below) ===\n${draftTail}\n=== END CURRENT DRAFT ===\n`
+      : '';
     const prompt = framingPrefix + buildGenerationPrompt({
       project,
       chapter,
@@ -468,9 +548,9 @@ export function ChapterView({ chapter }: Props) {
       writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
       generationType: 'full-chapter' as GenerationType,
       previousChapterProse: prevChapter?.prose,
-    }) + (isChildrensBookType
+    }) + currentDraftBlock + (isChildrensBookType
       ? `\n\nAdd ${effectiveWordTarget} more words (2-3 sentences) that continue this picture-book page. Keep the same simple vocabulary, cadence, and tone. Do not add a chapter heading. Do not write more than is natural for a single spread.`
-      : `\n\nContinue this chapter from the exact ending of the current draft. Add approximately ${wordTarget} more words. Do not restart scenes or repeat existing content. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`);
+      : `\n\nContinue the CURRENT DRAFT above. Pick up exactly where the final sentence ends. DO NOT output any chapter heading, title, scene label, or restart sentence. DO NOT repeat any content from the current draft. Add approximately ${wordTarget} more words. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`);
 
     let extension = '';
     await generateStream(
@@ -495,10 +575,14 @@ export function ChapterView({ chapter }: Props) {
         useGenerationStore.getState().setPhase('finalizing');
         const latest = useStore.getState().chapters.find((c) => c.id === chapter.id);
         const baseProse = latest?.prose ?? chapter.prose;
-        const trimmed = extension.trim();
-        if (trimmed) {
-          const joiner = baseProse.endsWith('\n') ? '\n' : '\n\n';
-          const extendedProse = `${baseProse}${joiner}${trimmed}`;
+        const rawExtension = extension.trim();
+        if (rawExtension) {
+          const { cleanedBase, cleanedExtension } = cleanExtendMerge(baseProse, rawExtension);
+          const joiner = cleanedBase.endsWith('\n') ? '\n' : '\n\n';
+          const extendedProse = cleanedExtension
+            ? `${cleanedBase}${joiner}${cleanedExtension}`
+            : cleanedBase;
+          const trimmed = cleanedExtension;
           updateChapter(chapter.id, {
             prose: extendedProse,
             status: 'human-edited',
