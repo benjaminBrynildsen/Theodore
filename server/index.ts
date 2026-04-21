@@ -37,6 +37,7 @@ import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './
 import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail, getUserJourneys } from './journey.js';
 import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
 import { attachActiveCharacterRoutes } from './active-character.js';
+import { parseBookText } from './book-parser.js';
 
 // Keep the process alive when a rogue async error escapes a handler. Without
 // these, a single failed fetch or bad JSON body crashes the whole server and
@@ -2974,6 +2975,119 @@ app.post('/api/import/extract', (req, res) => {
       });
     } catch (e: any) {
       console.error('[import] unexpected error', e);
+      res.status(500).json({ error: 'server-error', message: 'Something went wrong on our side — try again.' });
+    }
+  });
+});
+
+// ========== Direct book import: upload → structured project + chapters ==========
+// Parallel to /api/import/extract, but instead of feeding the Imagine chat
+// this endpoint creates a fully-formed project with chapters populated from
+// the uploaded book — no AI generation, no chat. Chapters land as
+// `status: 'human-edited'` so the UI doesn't offer to generate over them.
+// Intended path for customers importing a finished manuscript to narrate.
+app.post('/api/import/as-project', (req, res) => {
+  importUpload.single('file')(req, res, async (err: any) => {
+    try {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          res.status(400).json({ error: 'too-large-upload', message: `File exceeds ${Math.round(MAX_IMPORT_UPLOAD_BYTES / 1024 / 1024)} MB limit.` });
+          return;
+        }
+        res.status(400).json({ error: 'upload-failed', message: err.message || 'Upload failed.' });
+        return;
+      }
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) {
+        res.status(400).json({ error: 'no-file', message: 'No file uploaded.' });
+        return;
+      }
+
+      const fileName = file.originalname || 'upload';
+      const ext = fileExtension(fileName);
+      if (!IMPORT_ACCEPTED_EXTENSIONS.has(ext) && ext !== '.txt' && ext !== '.md' && ext !== '.markdown') {
+        res.status(400).json({
+          error: 'unsupported-format',
+          message: `We can't read ${ext || 'this file type'} yet. Try .pdf, .docx, or a plain-text export.`,
+        });
+        return;
+      }
+
+      let rawText: string;
+      try {
+        rawText = await extractTextFromFile(fileName, file.buffer);
+      } catch (parseErr: any) {
+        console.error('[import-project] parse failed', { fileName, err: parseErr?.message });
+        res.status(400).json({
+          error: 'parse-failed',
+          message: `We couldn't read "${fileName}". Try exporting it as a text file and uploading that instead.`,
+        });
+        return;
+      }
+
+      if (!rawText || rawText.trim().length < 50) {
+        res.status(400).json({
+          error: 'empty',
+          message: `That file had no readable text. If it's a scan or image-only PDF, we can't OCR it yet — try a text version.`,
+        });
+        return;
+      }
+
+      const parsed = parseBookText(rawText, fileName);
+      if (!parsed.chapters.length) {
+        res.status(400).json({
+          error: 'no-chapters',
+          message: `We couldn't find any readable chapters in that file.`,
+        });
+        return;
+      }
+
+      // Create the project. Book subtype defaults to 'novel' — user can
+      // change it later in project settings if they imported short stories
+      // or something else. We skip narrativeControls (defaults apply).
+      const [project] = await db.insert(projects).values(buildProjectInsert({
+        title: parsed.title || 'Imported Book',
+        type: 'book',
+        subtype: 'novel',
+        targetLength: 'medium',
+        assistanceLevel: 3,
+      }, auth.user.id)).returning();
+
+      // Create chapters sequentially. We build them as `human-edited` with
+      // full prose + scenes so the UI treats them as the user's own work
+      // and never tries to auto-generate drafts over them.
+      const createdChapters = [];
+      for (let i = 0; i < parsed.chapters.length; i++) {
+        const ch = parsed.chapters[i];
+        const [row] = await db.insert(chapters).values(buildChapterInsert({
+          number: i + 1,
+          title: ch.title,
+          prose: ch.prose,
+          status: 'human-edited',
+          timelinePosition: i + 1,
+          scenes: ch.scenes,
+          premise: {
+            purpose: '',
+            changes: '',
+            characters: [],
+            emotionalBeat: '',
+            setupPayoff: [],
+            constraints: [],
+          },
+        }, project.id)).returning();
+        createdChapters.push(row);
+      }
+
+      res.json({
+        project,
+        chapters: createdChapters,
+        chapterCount: createdChapters.length,
+      });
+    } catch (e: any) {
+      console.error('[import-project] unexpected error', e);
       res.status(500).json({ error: 'server-error', message: 'Something went wrong on our side — try again.' });
     }
   });

@@ -8,7 +8,7 @@ export function Home() {
   const [showChatCreation, setShowChatCreation] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importedMessage, setImportedMessage] = useState<string | undefined>(undefined);
-  const { projects, chapters, setActiveProject, setCurrentView } = useStore();
+  const { projects, chapters, setActiveProject, setCurrentView, loadProjects, loadChapters } = useStore();
 
   const sortedProjects = useMemo(() => {
     let openedMap: Record<string, string> = {};
@@ -150,6 +150,13 @@ export function Home() {
             setImportedMessage(text);
             setShowImport(false);
             setShowChatCreation(true);
+          }}
+          onCreatedProject={async (projectId) => {
+            setShowImport(false);
+            await loadProjects();
+            await loadChapters(projectId);
+            setActiveProject(projectId);
+            setCurrentView('project');
           }}
         />
       )}

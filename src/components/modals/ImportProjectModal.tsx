@@ -36,9 +36,18 @@ type Status =
   | { kind: 'unsupported'; ext: string }
   | { kind: 'too-large'; size: number; fileName: string; text: string }
   | { kind: 'too-small' }
-  | { kind: 'ready'; fileName: string; text: string; size: number; words: number; truncated?: boolean; originalBytes?: number };
+  | { kind: 'importing'; fileName: string }
+  | { kind: 'ready'; fileName: string; text: string; size: number; words: number; file?: File; truncated?: boolean; originalBytes?: number };
 
-export function ImportProjectModal({ onClose, onImported }: { onClose: () => void; onImported: (text: string) => void }) {
+export function ImportProjectModal({
+  onClose,
+  onImported,
+  onCreatedProject,
+}: {
+  onClose: () => void;
+  onImported: (text: string) => void;
+  onCreatedProject?: (projectId: string) => void;
+}) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [dragOver, setDragOver] = useState(false);
   const [synopsisText, setSynopsisText] = useState('');
@@ -72,6 +81,7 @@ export function ImportProjectModal({ onClose, onImported }: { onClose: () => voi
         text,
         size: file.size,
         words,
+        file,
         truncated: !!data?.truncated,
         originalBytes: typeof data?.extractedBytes === 'number' ? data.extractedBytes : undefined,
       });
@@ -119,8 +129,40 @@ export function ImportProjectModal({ onClose, onImported }: { onClose: () => voi
     }
 
     const words = text.split(/\s+/).filter(Boolean).length;
-    setStatus({ kind: 'ready', fileName: file.name, text, size: file.size, words });
+    setStatus({ kind: 'ready', fileName: file.name, text, size: file.size, words, file });
   }, [extractOnServer]);
+
+  const handleDirectImport = useCallback(async (file: File) => {
+    if (!onCreatedProject) return;
+    setStatus({ kind: 'importing', fileName: file.name });
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const resp = await fetch('/api/import/as-project', { method: 'POST', body: form });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        setStatus({
+          kind: 'extract-error',
+          message: typeof data?.message === 'string'
+            ? data.message
+            : `We couldn't create a project from ${file.name}. Try again, or use the chat option below.`,
+        });
+        return;
+      }
+      const projectId = typeof data?.project?.id === 'string' ? data.project.id : null;
+      if (!projectId) {
+        setStatus({ kind: 'extract-error', message: `Import completed but the server didn't return a project ID.` });
+        return;
+      }
+      try { localStorage.removeItem(CHAT_DRAFT_STORAGE_KEY); } catch {}
+      onCreatedProject(projectId);
+    } catch {
+      setStatus({
+        kind: 'extract-error',
+        message: `We couldn't reach the server. Check your connection and try again.`,
+      });
+    }
+  }, [onCreatedProject]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -175,6 +217,14 @@ export function ImportProjectModal({ onClose, onImported }: { onClose: () => voi
               <Loader2 size={32} className="mx-auto mb-3 text-text-tertiary animate-spin" />
               <p className="text-sm font-medium">Reading {status.fileName}…</p>
               <p className="text-xs text-text-tertiary mt-1">Pulling the text out so we can shape it up together.</p>
+            </div>
+          )}
+
+          {status.kind === 'importing' && (
+            <div className="py-12 text-center">
+              <Loader2 size={32} className="mx-auto mb-3 text-text-tertiary animate-spin" />
+              <p className="text-sm font-medium">Creating project from {status.fileName}…</p>
+              <p className="text-xs text-text-tertiary mt-1">Detecting chapters, cleaning up formatting, preparing for narration.</p>
             </div>
           )}
 
@@ -324,24 +374,56 @@ export function ImportProjectModal({ onClose, onImported }: { onClose: () => voi
                   </span>
                 </div>
               )}
-              <p className="text-xs text-text-secondary mt-4 leading-relaxed">
-                Theodore will read this as your opening message in the Imagine chat, then suggest a direction and ask about any gaps.
-              </p>
-              <div className="flex justify-end gap-2 mt-4">
-                <button
-                  onClick={() => setStatus({ kind: 'idle' })}
-                  className="px-4 py-2 rounded-xl text-xs hover:bg-black/5 transition-colors"
-                >
-                  Pick a different file
-                </button>
-                <button
-                  onClick={handleConfirm}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-black text-white rounded-xl text-xs hover:bg-black/90 transition-colors"
-                >
-                  <Sparkles size={12} />
-                  Start chat
-                </button>
-              </div>
+              {status.file && onCreatedProject ? (
+                <>
+                  <p className="text-xs text-text-secondary mt-4 leading-relaxed">
+                    Already finished? Import it straight into a project — Theodore will detect chapters, clean up the formatting, and open it ready to narrate. Or start a chat to shape it further.
+                  </p>
+                  <div className="flex flex-wrap justify-end gap-2 mt-4">
+                    <button
+                      onClick={() => setStatus({ kind: 'idle' })}
+                      className="px-4 py-2 rounded-xl text-xs hover:bg-black/5 transition-colors"
+                    >
+                      Pick a different file
+                    </button>
+                    <button
+                      onClick={handleConfirm}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs border border-black/10 hover:bg-black/5 transition-colors"
+                    >
+                      <Sparkles size={12} />
+                      Refine in chat
+                    </button>
+                    <button
+                      onClick={() => status.file && handleDirectImport(status.file)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-black text-white rounded-xl text-xs hover:bg-black/90 transition-colors"
+                    >
+                      <FileText size={12} />
+                      Import as project
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-text-secondary mt-4 leading-relaxed">
+                    Theodore will read this as your opening message in the Imagine chat, then suggest a direction and ask about any gaps.
+                  </p>
+                  <div className="flex justify-end gap-2 mt-4">
+                    <button
+                      onClick={() => setStatus({ kind: 'idle' })}
+                      className="px-4 py-2 rounded-xl text-xs hover:bg-black/5 transition-colors"
+                    >
+                      Pick a different file
+                    </button>
+                    <button
+                      onClick={handleConfirm}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-black text-white rounded-xl text-xs hover:bg-black/90 transition-colors"
+                    >
+                      <Sparkles size={12} />
+                      Start chat
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
