@@ -2347,11 +2347,8 @@ app.post('/api/tts/generate', async (req, res) => {
 // generation feels like before signing up.
 app.post('/api/tts/generate/guest', async (req, res) => {
   try {
-    const { chapterId, prose, narratorVoice, model, provider, speed, sceneSFX, chapterNumber, chapterTitle } = req.body;
+    const { chapterId, prose, sceneSFX, chapterNumber, chapterTitle } = req.body;
     if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
-    if ((provider || 'openai') !== 'openai') {
-      return res.status(403).json({ error: 'Guest audio sample is only available with OpenAI TTS.' });
-    }
     if (typeof prose !== 'string' || prose.length > 20000) {
       return res.status(400).json({ error: 'Guest audio sample is limited to 20,000 characters.' });
     }
@@ -2360,14 +2357,19 @@ app.post('/api/tts/generate/guest', async (req, res) => {
     // 1 free guest TTS per IP per day. The same helper that auth/generate use.
     if (!takeRateLimitToken(res, 'tts.guest', ip, 1, 24 * 60 * 60 * 1000)) return;
 
-    void logGuestEvent(req, { ip, event: 'tts', action: 'generate-audio', model: model || 'openai-gpt-4o-mini-tts' });
+    // Guests always get Grok / Leo regardless of what the client sends.
+    // Mirrors the free-user branch on the authed endpoint (line 2281-2290):
+    // cheapest provider, consistent default voice, no ElevenLabs spend on
+    // anonymous traffic. Client selections are ignored here.
+    void logGuestEvent(req, { ip, event: 'tts', action: 'generate-audio', model: 'grok-tts-1' });
 
     const jobId = `tts-guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const spec: TTSJobSpec = {
-      chapterId, prose, narratorVoice,
-      model: model || 'openai-gpt-4o-mini-tts',
-      provider: 'openai',
-      speed: speed || 1.0,
+      chapterId, prose,
+      narratorVoice: 'grok:leo',
+      model: 'grok-tts-1',
+      provider: 'grok',
+      speed: 1.0,
       multiVoice: false,
       sceneSFX: sceneSFX || [],
       chapterNumber, chapterTitle,

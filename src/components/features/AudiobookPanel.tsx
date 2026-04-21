@@ -947,7 +947,7 @@ export function AudiobookPanel() {
         characterVoices: effectiveCharacterVoices,
         characterDescriptions: effectiveCharacterDescriptions,
         model: ttsModel,
-        provider: isGuest ? 'openai' : ttsProvider,
+        provider: isGuest ? 'grok' : ttsProvider,
         speed: (ttsProvider === 'openai' || ttsProvider === 'fish' || ttsProvider === 'grok') ? 1.0 : speed,
         multiVoice: effectiveMultiVoice,
         sceneSFX: sceneSFXData,
@@ -1020,7 +1020,7 @@ export function AudiobookPanel() {
       const effectiveCharacterVoices = ttsProvider === 'elevenlabs' ? charVoiceMap : {};
       const effectiveCharacterDescriptions = ttsProvider === 'elevenlabs' ? charDescriptions : {};
       const versionSuffix = `-v${Date.now()}`;
-      const provider = isGuest ? 'openai' : ttsProvider;
+      const provider = isGuest ? 'grok' : ttsProvider;
 
       const updatedChapters = useStore.getState().chapters;
       const updatedChapter = updatedChapters.find(c => c.id === chapterId) || chapter;
