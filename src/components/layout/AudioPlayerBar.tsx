@@ -301,11 +301,6 @@ export function AudioPlayerBar() {
     : planTier === 'free'
       ? `theodore_audio_listened_${user.id}`
       : null;
-  const audioCapTriggered = useRef(false);
-  useEffect(() => {
-    audioCapTriggered.current = false;
-  }, [user?.id, planTier]);
-
   useEffect(() => {
     if (!isCappedTier || !audioCapKey) return;
     const audio = audioRef.current;
@@ -316,15 +311,16 @@ export function AudioPlayerBar() {
     const onSeeked = () => { lastTime = audio.currentTime; };
 
     const onTimeUpdate = () => {
-      if (audioCapTriggered.current) return;
       const now = audio.currentTime;
       const delta = now - lastTime;
       lastTime = now;
       if (delta <= 0 || delta > 2) return;
-      const listened = Number(localStorage.getItem(audioCapKey) || '0') + delta;
+      const prev = Number(localStorage.getItem(audioCapKey) || '0');
+      const listened = prev + delta;
       localStorage.setItem(audioCapKey, String(listened));
-      if (listened >= AUDIO_CAP_SECONDS && !audioCapTriggered.current) {
-        audioCapTriggered.current = true;
+      // Fire only on the crossing so we don't spam the modal every tick
+      // after the cap has already been hit.
+      if (listened >= AUDIO_CAP_SECONDS && prev < AUDIO_CAP_SECONDS) {
         if (!audio.paused) audio.pause();
         setPlaying(false);
         jTrack('audio_cap_hit', { seconds: Math.round(listened), guest: !user });
