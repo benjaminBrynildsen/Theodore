@@ -73,7 +73,7 @@ export function AudioCapPill() {
           onClick={upgrade}
           className="text-xs text-white/90 hover:text-white font-medium whitespace-nowrap"
         >
-          I want to listen to your book · <span className="text-emerald-300">Upgrade</span>
+          I want to listen to my book · <span className="text-emerald-300">Upgrade</span>
         </button>
         <button
           onClick={dismiss}
