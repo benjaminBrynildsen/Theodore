@@ -230,6 +230,36 @@ export default function App() {
     setCurrentUserId(userId);
     hydrateCreditsFromUser(user || null);
     if (userId) {
+      // Migrate guest audio-cap counter onto the user's key so signup can't
+      // reset an already-spent preview.
+      try {
+        const guestListened = Number(localStorage.getItem('theodore_audio_listened_guest') || '0');
+        if (guestListened > 0) {
+          const userKey = `theodore_audio_listened_${userId}`;
+          const existing = Number(localStorage.getItem(userKey) || '0');
+          localStorage.setItem(userKey, String(Math.max(existing, guestListened)));
+          localStorage.removeItem('theodore_audio_listened_guest');
+        }
+      } catch {}
+
+      // Resume Stripe checkout if the guest clicked Upgrade on the cap modal
+      // before signing up. Keyed intent survives the auth redirect round-trip.
+      try {
+        const raw = localStorage.getItem('theodore_pending_checkout');
+        if (raw) {
+          const intent = JSON.parse(raw);
+          // 30-minute freshness window — drop anything older.
+          if (intent?.tier && (!intent.at || Date.now() - intent.at < 30 * 60 * 1000)) {
+            localStorage.removeItem('theodore_pending_checkout');
+            api.billingCheckout({ tier: intent.tier, reason: intent.reason })
+              .then((checkout) => { if (checkout?.url) window.location.href = checkout.url; })
+              .catch((err) => console.warn('[pending-checkout] failed', err));
+          } else {
+            localStorage.removeItem('theodore_pending_checkout');
+          }
+        }
+      } catch {}
+
       // Migrate guest data: if we have local projects that aren't on the server yet, push them
       const migrateGuestData = async () => {
         const localProjects = useStore.getState().projects;
@@ -382,10 +412,9 @@ export default function App() {
   // Guard against stale persisted view/project ids that can produce a blank center pane.
   useEffect(() => {
     if ((currentView === 'project' || currentView === 'chapter') && !hasActiveProject) {
-      console.warn('[nav-home-guard] forced home — activeProjectId=', activeProjectId, 'projects=', projects.length, 'user=', user?.id);
       setCurrentView('home');
     }
-  }, [currentView, hasActiveProject, setCurrentView, activeProjectId, projects.length, user?.id]);
+  }, [currentView, hasActiveProject, setCurrentView]);
 
   useEffect(() => {
     if (currentView === 'home' || !hasActiveProject) {
@@ -554,6 +583,10 @@ export default function App() {
               />
             </Suspense>
           )}
+          <Suspense fallback={null}>
+            <UpgradeModal />
+          </Suspense>
+          <AudioCapPill />
         </div>
       );
     }

@@ -9,7 +9,6 @@ import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
 import * as pixel from '../../lib/pixel';
 import { track as jTrack } from '../../lib/journey';
-import { GuestSignupModal } from '../credits/GuestSignupModal';
 
 /** Draggable progress bar — works with mouse and touch */
 function ProgressScrubber({ progressPct, onSeek }: { progressPct: number; onSeek: (fraction: number) => void }) {
@@ -286,58 +285,33 @@ export function AudioPlayerBar() {
     };
   }, []);
 
-  // Guest audio gate — after 10 seconds of playback, show signup modal.
-  // Audio keeps playing underneath. Only triggers once per session.
-  const [showAudioSignupModal, setShowAudioSignupModal] = useState(false);
-  const audioGateTriggered = useRef(false);
-  const audioPlaybackTime = useRef(0);
   const user = useAuthStore((s) => s.user);
   const planTier = useCreditsStore((s) => s.plan.tier);
 
-  useEffect(() => {
-    if (user || audioGateTriggered.current) return; // signed in or already triggered
-    if (!playing) return;
-
-    const interval = setInterval(() => {
-      audioPlaybackTime.current += 1;
-      if (audioPlaybackTime.current >= 10 && !audioGateTriggered.current) {
-        audioGateTriggered.current = true;
-        clearInterval(interval);
-        pixel.trackCustom('GuestAudioSignupModalShown');
-        jTrack('guest_audio_signup_modal_shown');
-        setShowAudioSignupModal(true);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [playing, user]);
-
-  // ── Free-tier audio cap (signed-in, plan=free): 60s lifetime listening ──
-  // Persisted per-account in localStorage so it survives reloads. Paid users
-  // bypass entirely. Uses audio.timeupdate deltas so the count matches actual
-  // playback seconds (not wall-clock), which was drifting ~10s late before.
+  // ── 60s audio preview cap (guests + signed-in free) ──
+  // Persisted in localStorage so it survives reloads. Paid users bypass.
+  // Guests accumulate under a shared 'guest' key; the counter migrates onto
+  // the user's key at signup (see App.tsx) so creating an account can't reset
+  // it. Uses audio.timeupdate deltas (not wall-clock) so the count tracks
+  // actual playback seconds.
   const AUDIO_CAP_SECONDS = 60;
-  const audioCapKey = user ? `theodore_audio_listened_${user.id}` : null;
+  const isCappedTier = !user || planTier === 'free';
+  const audioCapKey = !user
+    ? 'theodore_audio_listened_guest'
+    : planTier === 'free'
+      ? `theodore_audio_listened_${user.id}`
+      : null;
   const audioCapTriggered = useRef(false);
   useEffect(() => {
     audioCapTriggered.current = false;
   }, [user?.id, planTier]);
 
   useEffect(() => {
-    console.log('[audio-cap] effect run', { hasUser: !!user, planTier, audioCapKey, hasAudioEl: !!audioRef.current });
-    if (!user || planTier !== 'free' || !audioCapKey) {
-      console.log('[audio-cap] not attaching — user/plan/key gate failed');
-      return;
-    }
+    if (!isCappedTier || !audioCapKey) return;
     const audio = audioRef.current;
-    if (!audio) {
-      console.log('[audio-cap] audio element not ready');
-      return;
-    }
-    console.log('[audio-cap] attached listeners; current localStorage counter=', Number(localStorage.getItem(audioCapKey) || '0'));
+    if (!audio) return;
 
     let lastTime = audio.currentTime;
-    let tickCount = 0;
     const onPlayReset = () => { lastTime = audio.currentTime; };
     const onSeeked = () => { lastTime = audio.currentTime; };
 
@@ -349,14 +323,11 @@ export function AudioPlayerBar() {
       if (delta <= 0 || delta > 2) return;
       const listened = Number(localStorage.getItem(audioCapKey) || '0') + delta;
       localStorage.setItem(audioCapKey, String(listened));
-      tickCount++;
-      if (tickCount % 20 === 0) console.log('[audio-cap] listened=', listened.toFixed(1), 'currentTime=', now.toFixed(1));
       if (listened >= AUDIO_CAP_SECONDS && !audioCapTriggered.current) {
-        console.log('[audio-cap] CAP HIT at', listened.toFixed(1), 'seconds');
         audioCapTriggered.current = true;
         if (!audio.paused) audio.pause();
         setPlaying(false);
-        jTrack('audio_cap_hit', { seconds: Math.round(listened) });
+        jTrack('audio_cap_hit', { seconds: Math.round(listened), guest: !user });
         pixel.trackCustom('AudioCapHit');
         useCreditsStore.getState().setShowUpgradeModal(true, 'audio_cap');
         window.dispatchEvent(new CustomEvent('theodore:audioCapHit'));
@@ -371,7 +342,7 @@ export function AudioPlayerBar() {
       audio.removeEventListener('play', onPlayReset);
       audio.removeEventListener('seeked', onSeeked);
     };
-  }, [user?.id, planTier, audioCapKey, setPlaying]);
+  }, [user?.id, planTier, audioCapKey, isCappedTier, setPlaying]);
 
   // Media Session API — lock screen controls & metadata.
   // The artwork URL MUST be absolute — relative paths don't work for the OS
@@ -428,13 +399,14 @@ export function AudioPlayerBar() {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
-  // Free users capped at 60s lifetime audio. Reads latest state from stores
-  // so it's safe to call from closure-captured handlers.
+  // Free-tier preview cap (guests + signed-in free). Reads latest state from
+  // stores so it's safe to call from closure-captured handlers.
   const isAudioCappedNow = () => {
     const u = useAuthStore.getState().user;
     const tier = useCreditsStore.getState().plan.tier;
-    if (!u || tier !== 'free') return false;
-    const listened = Number(localStorage.getItem(`theodore_audio_listened_${u.id}`) || '0');
+    if (u && tier !== 'free') return false;
+    const key = u ? `theodore_audio_listened_${u.id}` : 'theodore_audio_listened_guest';
+    const listened = Number(localStorage.getItem(key) || '0');
     return listened >= AUDIO_CAP_SECONDS;
   };
 
@@ -956,13 +928,6 @@ export function AudioPlayerBar() {
           </button>
         </div>
       </div>
-      {showAudioSignupModal && (
-        <GuestSignupModal
-          variant="audio"
-          onSignUp={() => setShowAudioSignupModal(false)}
-          onDismiss={() => setShowAudioSignupModal(false)}
-        />
-      )}
     </div>
   );
 }

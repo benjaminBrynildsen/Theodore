@@ -1,32 +1,58 @@
-import { useMemo, useState } from 'react';
-import { X, Check, Sparkles, BookOpen, Headphones } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { X, Check, Sparkles, BookOpen, Headphones, Mail, Lock } from 'lucide-react';
 import { useCreditsStore } from '../../store/credits';
+import { useAuthStore } from '../../store/auth';
 import { PLAN_DETAILS, TIER_PRICES_USD, type PlanTier } from '../../types/credits';
 import { cn } from '../../lib/utils';
 import { api } from '../../lib/api';
+import * as pixel from '../../lib/pixel';
+import { track as jTrack } from '../../lib/journey';
 import {
   detectDisplayCurrency,
   formatDisplayPrice,
   isNonUsdDisplay,
 } from '../../lib/currency';
 
+const GOOGLE_CLIENT_ID = '296594825511-3m0g5t2l0ombm3j8cdc5ncqe673obg4d.apps.googleusercontent.com';
+
 export function UpgradeModal() {
   const { showUpgradeModal, setShowUpgradeModal, plan, upgradeReason } = useCreditsStore();
+  const user = useAuthStore((s) => s.user);
   const [busyTier, setBusyTier] = useState<PlanTier | null>(null);
   const [error, setError] = useState('');
+  const [showAllPlans, setShowAllPlans] = useState(false);
   const displayCurrency = useMemo(() => detectDisplayCurrency(), []);
   const showUsdDisclaimer = isNonUsdDisplay(displayCurrency);
   const isAudioCap = upgradeReason === 'audio_cap';
+  const isGuestAudioCap = isAudioCap && !user;
   const priceFor = (tier: PlanTier): string => {
     if (tier === 'free') return PLAN_DETAILS.free.price;
     const usd = TIER_PRICES_USD[tier as 'writer' | 'author' | 'studio' | 'publisher'];
     return `${formatDisplayPrice(usd, displayCurrency)}`;
   };
 
+  useEffect(() => {
+    if (showUpgradeModal) setShowAllPlans(false);
+  }, [showUpgradeModal]);
+
   if (!showUpgradeModal) return null;
 
   const handleUpgrade = async (tier: PlanTier) => {
     if (tier !== 'writer' && tier !== 'author' && tier !== 'studio' && tier !== 'publisher') return;
+    // Guests choosing a paid tier from the expanded picker — defer checkout
+    // until signup completes. Post-auth hook in App.tsx resumes into Stripe.
+    if (!user) {
+      try {
+        localStorage.setItem('theodore_pending_checkout', JSON.stringify({
+          tier,
+          reason: isAudioCap ? 'audio_cap' : undefined,
+          at: Date.now(),
+        }));
+      } catch {}
+      setShowUpgradeModal(false);
+      window.dispatchEvent(new CustomEvent('theodore:showAuth'));
+      return;
+    }
     setBusyTier(tier);
     setError('');
     try {
@@ -85,9 +111,9 @@ export function UpgradeModal() {
                   <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
                     <Headphones size={22} className="text-white/80" />
                   </div>
-                  <h2 className="text-xl font-serif font-semibold text-white">That's your preview</h2>
+                  <h2 className="text-xl font-serif font-semibold text-white">Like what you heard?</h2>
                   <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
-                    Keep listening — unlock unlimited audio with any paid plan.
+                    Finish this chapter and ~29 more. Writer · $10/mo, 7 days free.
                   </p>
                   <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/20 text-xs text-emerald-300">
                     <Sparkles size={11} /> 7 days free · cancel anytime
@@ -110,7 +136,26 @@ export function UpgradeModal() {
               )}
             </div>
 
-            {/* Tier cards */}
+            {/* Guest + audio-cap: inline signup + direct-to-Stripe Writer trial.
+                Collapses 3 view-switches (modal → auth page → redirect) into
+                one continuous flow. Tier grid is hidden until "See all plans". */}
+            {isGuestAudioCap && !showAllPlans && (
+              <GuestCapInline
+                isAudioCap={isAudioCap}
+                onSeeAllPlans={() => setShowAllPlans(true)}
+                onError={setError}
+              />
+            )}
+
+            {error && (
+              <div className="mt-3 text-xs rounded-xl border border-red-400/30 bg-red-500/10 text-red-300 px-3 py-2">
+                {error}
+              </div>
+            )}
+
+            {/* Tier cards — hidden for guest audio-cap unless they expand */}
+            {(!isGuestAudioCap || showAllPlans) && (
+            <>
             <div className="space-y-3">
               {tiers.map(({ tier, icon: Icon, recommended }) => {
                 const details = PLAN_DETAILS[tier];
@@ -216,11 +261,7 @@ export function UpgradeModal() {
             >
               Need more? See Publisher plan ({priceFor('publisher')}/mo) →
             </button>
-
-            {error && (
-              <div className="mt-3 text-xs rounded-xl border border-red-400/30 bg-red-500/10 text-red-300 px-3 py-2">
-                {error}
-              </div>
+            </>
             )}
 
             {/* Stripe notice */}
@@ -237,6 +278,194 @@ export function UpgradeModal() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Guest inline signup for the audio cap ───────────────────────────────
+// Collapses "sign up → redirect → Stripe" into one continuous flow inside
+// the cap modal. Google is the primary path (2 clicks). Email is progressive
+// disclosure. After auth completes, we call billingCheckout directly so the
+// session cookie is already present when Stripe fires.
+function GuestCapInline({
+  isAudioCap,
+  onSeeAllPlans,
+  onError,
+}: {
+  isAudioCap: boolean;
+  onSeeAllPlans: () => void;
+  onError: (msg: string) => void;
+}) {
+  const { register, login, googleLogin } = useAuthStore();
+  const [mode, setMode] = useState<'register' | 'login'>('register');
+  const [showEmail, setShowEmail] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [googleReady, setGoogleReady] = useState(false);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    jTrack('audio_cap_inline_shown');
+    pixel.trackCustom('AudioCapInlineShown');
+  }, []);
+
+  const continueToStripe = async () => {
+    const checkout = await api.billingCheckout({ tier: 'writer', reason: isAudioCap ? 'audio_cap' : undefined });
+    if (!checkout?.url) throw new Error('Stripe checkout URL was not returned.');
+    jTrack('audio_cap_checkout_redirect');
+    window.location.href = checkout.url;
+  };
+
+  // Load Google GSI script lazily
+  useEffect(() => {
+    if ((window as any).google?.accounts?.id) { setGoogleReady(true); return; }
+    if (document.getElementById('google-gsi-script')) {
+      const check = setInterval(() => {
+        if ((window as any).google?.accounts?.id) { setGoogleReady(true); clearInterval(check); }
+      }, 100);
+      setTimeout(() => clearInterval(check), 5000);
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = 'google-gsi-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => setGoogleReady(true);
+    document.head.appendChild(script);
+  }, []);
+
+  useEffect(() => {
+    if (!googleReady || !googleBtnRef.current) return;
+    const google = (window as any).google;
+    if (!google?.accounts?.id) return;
+    const cb = async (response: any) => {
+      setBusy(true);
+      onError('');
+      try {
+        await googleLogin(response.credential);
+        jTrack('audio_cap_signup_google');
+        pixel.trackCustom('AudioCapSignupGoogle');
+        await continueToStripe();
+      } catch (err: any) {
+        onError(err?.message || 'Google sign-in failed.');
+        setBusy(false);
+      }
+    };
+    googleBtnRef.current.innerHTML = '';
+    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: cb });
+    google.accounts.id.renderButton(googleBtnRef.current, {
+      theme: 'filled_black', size: 'large', width: googleBtnRef.current.offsetWidth || 300,
+      text: 'continue_with', shape: 'pill',
+    });
+  }, [googleReady, googleLogin]);
+
+  const submitEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    if (mode === 'register' && password.length < 8) {
+      onError('Password must be at least 8 characters.');
+      return;
+    }
+    setBusy(true);
+    onError('');
+    try {
+      if (mode === 'register') {
+        await register(email.trim(), password, name.trim() || undefined);
+        jTrack('audio_cap_signup_email');
+        pixel.trackCustom('AudioCapSignupEmail');
+      } else {
+        await login(email.trim(), password);
+        jTrack('audio_cap_login_email');
+      }
+      await continueToStripe();
+    } catch (err: any) {
+      const msg = String(err?.message || 'Something went wrong.');
+      onError(
+        msg.toLowerCase().includes('invalid email or password') ? 'Incorrect email or password.' :
+        msg.toLowerCase().includes('already exists') ? 'Account exists — try signing in instead.' :
+        msg
+      );
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Google primary */}
+      <div ref={googleBtnRef} className="w-full flex justify-center" />
+
+      {/* Email progressive disclosure */}
+      {!showEmail ? (
+        <button
+          onClick={() => setShowEmail(true)}
+          disabled={busy}
+          className="w-full py-2.5 rounded-full text-sm font-medium text-white/80 border border-white/15 hover:bg-white/[0.06] transition-all disabled:opacity-40"
+        >
+          Continue with email
+        </button>
+      ) : (
+        <form onSubmit={submitEmail} className="space-y-2.5 animate-fade-in">
+          {mode === 'register' && (
+            <input
+              type="text"
+              placeholder="Name (optional)"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={busy}
+              className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.04] text-sm text-white placeholder-white/40 outline-none focus:border-white/25 transition-all disabled:opacity-50"
+            />
+          )}
+          <div className="relative">
+            <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" />
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoFocus
+              autoComplete="email"
+              disabled={busy}
+              className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-white/10 bg-white/[0.04] text-sm text-white placeholder-white/40 outline-none focus:border-white/25 transition-all disabled:opacity-50"
+            />
+          </div>
+          <div className="relative">
+            <Lock size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" />
+            <input
+              type="password"
+              placeholder={mode === 'register' ? 'Password (8+ chars)' : 'Password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
+              disabled={busy}
+              className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-white/10 bg-white/[0.04] text-sm text-white placeholder-white/40 outline-none focus:border-white/25 transition-all disabled:opacity-50"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={busy || !email.trim() || !password}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white text-[#16162a] hover:bg-white/90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {busy ? 'Redirecting…' : mode === 'register' ? 'Start 7-day trial · Writer' : 'Sign in & continue'}
+          </button>
+          <div className="text-center text-xs text-white/40">
+            {mode === 'register' ? (
+              <>Already have an account? <button type="button" onClick={() => setMode('login')} className="text-white/70 hover:text-white underline">Sign in</button></>
+            ) : (
+              <>No account? <button type="button" onClick={() => setMode('register')} className="text-white/70 hover:text-white underline">Create one</button></>
+            )}
+          </div>
+        </form>
+      )}
+
+      {/* See all plans */}
+      <button
+        onClick={onSeeAllPlans}
+        className="w-full text-center text-xs text-white/35 hover:text-white/70 transition-colors pt-1"
+      >
+        See all plans →
+      </button>
     </div>
   );
 }

@@ -8,9 +8,12 @@ import { track as jTrack } from '../../lib/journey';
 const DISMISS_KEY_PREFIX = 'theodore_audio_cap_pill_dismissed_';
 const AUDIO_CAP_SECONDS = 60;
 
+function storageKey(userId: string | undefined | null) {
+  return userId ? `theodore_audio_listened_${userId}` : 'theodore_audio_listened_guest';
+}
+
 function isCapped(userId: string | undefined | null) {
-  if (!userId) return false;
-  const listened = Number(localStorage.getItem(`theodore_audio_listened_${userId}`) || '0');
+  const listened = Number(localStorage.getItem(storageKey(userId)) || '0');
   return listened >= AUDIO_CAP_SECONDS;
 }
 
@@ -23,17 +26,19 @@ export function AudioCapPill() {
 
   // Only show on chapter/project views — not on home or settings.
   const onChapterView = currentView === 'chapter' || currentView === 'project';
+  // Pill applies to guests and signed-in free tier. Paid users bypass.
+  const isCappedTier = !user || planTier === 'free';
+  const dismissKey = DISMISS_KEY_PREFIX + (user?.id || 'guest');
 
   useEffect(() => {
-    if (!user || planTier !== 'free' || !onChapterView) {
+    if (!isCappedTier || !onChapterView) {
       setVisible(false);
       return;
     }
-    const dismissKey = DISMISS_KEY_PREFIX + user.id;
     const dismissed = localStorage.getItem(dismissKey) === '1';
     const compute = () => {
       if (dismissed) return false;
-      return isCapped(user.id);
+      return isCapped(user?.id);
     };
     setVisible(compute());
 
@@ -42,12 +47,12 @@ export function AudioCapPill() {
     };
     window.addEventListener('theodore:audioCapHit', onCap);
     return () => window.removeEventListener('theodore:audioCapHit', onCap);
-  }, [user, planTier, onChapterView]);
+  }, [user?.id, planTier, onChapterView, isCappedTier, dismissKey]);
 
-  if (!visible || !user) return null;
+  if (!visible) return null;
 
   const dismiss = () => {
-    localStorage.setItem(DISMISS_KEY_PREFIX + user.id, '1');
+    localStorage.setItem(dismissKey, '1');
     setVisible(false);
     jTrack('audio_cap_pill_dismissed');
   };
