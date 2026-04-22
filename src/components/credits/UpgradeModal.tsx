@@ -32,8 +32,23 @@ export function UpgradeModal() {
   };
 
   useEffect(() => {
-    if (showUpgradeModal) setShowAllPlans(false);
+    if (showUpgradeModal) {
+      setShowAllPlans(false);
+      setBusyTier(null);
+      setError('');
+    }
   }, [showUpgradeModal]);
+
+  // Reset stuck "Redirecting..." state when the browser restores this page
+  // from bfcache after a back-nav from Stripe. Without this the CTA stays
+  // disabled and the user can't retry checkout.
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setBusyTier(null);
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
 
   if (!showUpgradeModal) return null;
 
@@ -309,6 +324,15 @@ function GuestCapInline({
   useEffect(() => {
     jTrack('audio_cap_inline_shown');
     pixel.trackCustom('AudioCapInlineShown');
+  }, []);
+
+  // bfcache restore from Stripe back-nav — clear the stuck "Redirecting…" state
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setBusy(false);
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
   }, []);
 
   const continueToStripe = async () => {
