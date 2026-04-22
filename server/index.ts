@@ -1727,6 +1727,54 @@ app.post('/api/generate/stream', async (req, res) => {
   }
 });
 
+// Mint a short-lived xAI ephemeral token for the mobile app's Grok Voice
+// Agent session. Mobile connects directly to wss://api.x.ai/v1/realtime
+// using this token; the permanent XAI_API_KEY never leaves the server.
+app.post('/api/voice/session', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+
+    const apiKey = process.env.XAI_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: 'XAI_API_KEY not configured' });
+
+    if (auth.user.creditsRemaining <= 0) {
+      return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
+    }
+
+    const upstream = await fetch('https://api.x.ai/v1/realtime/client_secrets', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ expires_after: { seconds: 300 } }),
+    });
+
+    if (!upstream.ok) {
+      const errText = await upstream.text().catch(() => upstream.statusText);
+      console.error('[voice/session] xAI mint failed', upstream.status, errText);
+      return res.status(502).json({ error: 'Could not mint voice session token' });
+    }
+
+    const payload: any = await upstream.json();
+    const token: string | undefined = payload?.value || payload?.client_secret || payload?.token;
+    const expiresAt: string | undefined = payload?.expires_at || payload?.expiresAt;
+    if (!token) {
+      console.error('[voice/session] xAI response missing token', payload);
+      return res.status(502).json({ error: 'Voice token missing from upstream response' });
+    }
+
+    return res.json({
+      token,
+      expiresAt: expiresAt || new Date(Date.now() + 300_000).toISOString(),
+    });
+  } catch (e: any) {
+    console.error('[voice/session] error', e);
+    respondInternalError(res, 'api', e);
+  }
+});
+
 app.get('/api/users/:id/credits', async (req, res) => {
   try {
     const auth = await requireAuth(req, res);
