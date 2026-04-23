@@ -1064,7 +1064,19 @@ ${childrensRule}`,
       // mismatched/off-model characters (e.g. a chess-protagonist story
       // drawing one page as a fox). With this block populated, every page
       // gets the same character anchor.
-      const seededCharacterVisuals = isChildrens
+
+      // Race fix: wait for any in-flight derive so aiCanonDraft has the
+      // visualDescription fields by the time we read it. Without this, fast
+      // clicks reached createProject while derive was still streaming, and
+      // we fell back to empty characterVisuals.
+      if (pendingDeriveRef.current) {
+        try {
+          const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
+          await Promise.race([pendingDeriveRef.current, timeout]);
+        } catch { /* non-fatal */ }
+      }
+
+      let seededCharacterVisuals = isChildrens
         ? aiCanonDraft.characters
             .filter((c) => c.visualDescription && c.visualDescription.trim().length > 0)
             .slice(0, 8) // keep the prompt bounded even for ensemble casts
@@ -1073,6 +1085,39 @@ ${childrensRule}`,
               description: c.visualDescription!.trim(),
             }))
         : [];
+
+      // Backup extraction: if canon is still empty (user hit Create before
+      // derive fired, or the quick-outline fast-path bypassed derive entirely)
+      // do a small targeted Haiku call to pull characters + visuals from the
+      // chapter premises we already have. This is only ~1s and only runs
+      // when the primary seeding yielded nothing.
+      if (isChildrens && seededCharacterVisuals.length === 0 && finalSettings.chapters.length > 0) {
+        try {
+          const chaptersBlock = finalSettings.chapters
+            .map((ch) => `Page ${ch.number}: ${ch.title} — ${ch.premise}`)
+            .join('\n');
+          const extractResult = await generate({
+            userId,
+            action: 'plan-project',
+            model: 'claude-haiku-4-5',
+            temperature: 0.6,
+            maxTokens: 700,
+            prompt: `You are extracting character visual descriptions for a children's picture book titled "${finalSettings.title}".\n\nPage outlines:\n${chaptersBlock}\n\nIdentify the 1-4 main characters. For each, return an illustration-ready visual description (age, skin tone, hair, eyes, build, specific outfit). These will be used by an image model to keep characters consistent across pages.\n\nRules:\n- Characters are HUMAN unless the outline explicitly names an animal character. Do NOT invent animal characters.\n- Each description is one sentence.\n- Return ONLY valid JSON, no markdown fences:\n{"characters":[{"name":"...","visualDescription":"..."},...]}`,
+          });
+          const match = (extractResult.text || '').match(/\{[\s\S]*\}/);
+          if (match) {
+            const parsed = JSON.parse(match[0]) as { characters?: Array<{ name?: string; visualDescription?: string }> };
+            if (Array.isArray(parsed.characters)) {
+              seededCharacterVisuals = parsed.characters
+                .filter((c) => c?.name && c?.visualDescription && c.visualDescription.trim().length > 0)
+                .slice(0, 4)
+                .map((c) => ({ name: c.name!.trim(), description: c.visualDescription!.trim() }));
+            }
+          }
+        } catch (e) {
+          console.warn('[Creation] Backup visuals extraction failed (non-fatal):', e);
+        }
+      }
 
       const baseChildrensSettings = finalSettings.childrensBookSettings || {
         ageRange: '3-5' as const,

@@ -468,6 +468,21 @@ export function buildChildrensHeroPrompt(input: {
   return parts.join('. ');
 }
 
+// Default humans unless the scene clearly references an animal character.
+// Grok's "children's book" prior pulls strongly toward anthropomorphic
+// woodland animals, so when the project has no characterVisuals anchor we
+// err on the side of "draw humans" — which handles named-character stories
+// (Elias, Marcus, Vera) that wouldn't trigger a lexical human cue word.
+// Users with genuinely-animal stories can still fill in characterVisuals
+// with their animal characters' descriptions to override this.
+function detectHumanCharacterHint(prose?: string, notes?: string, title?: string): string | null {
+  const text = `${notes || ''} ${prose || ''} ${title || ''}`.toLowerCase();
+  if (!text.trim()) return null;
+  const animalCues = /\b(fox|rabbit|bunny|bear|mouse|squirrel|owl|badger|wolf|cat|dog|puppy|kitten|deer|fawn|otter|hedgehog|sheep|lamb|turtle|frog|duck|goose|bird|penguin|elephant|lion|tiger|monkey|dinosaur|dragon|unicorn)\b/;
+  if (animalCues.test(text)) return null;
+  return 'Render all characters as humans (children or adults appropriate to the scene), with realistic proportions and kid-friendly styling. Do NOT draw anthropomorphic animals or replace people with woodland creatures.';
+}
+
 export function buildChildrensPagePrompt(page: {
   title: string;
   prose: string;
@@ -491,6 +506,16 @@ export function buildChildrensPagePrompt(page: {
       .map(cv => `${cv.name}: ${cv.description}`)
       .join('; ');
     parts.push(`Characters (draw exactly as described): ${charDescs}`);
+  } else {
+    // Safety net: with no explicit anchors, Grok's "children's book" prior
+    // pulls strongly toward anthropomorphic woodland animals (foxes, rabbits,
+    // deer, badgers) even for human-centered stories. When the prose clearly
+    // references a human character but the project has no characterVisuals
+    // configured, explicitly tell the model to render humans.
+    const humanHint = detectHumanCharacterHint(page.prose, page.illustrationNotes, page.title);
+    if (humanHint) {
+      parts.push(`Characters are HUMAN (not anthropomorphic animals). ${humanHint}`);
+    }
   }
 
   // 3. Scene content — illustration notes or prose
