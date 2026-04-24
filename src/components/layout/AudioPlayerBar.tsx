@@ -3,11 +3,9 @@ import { Play, Pause, SkipBack, SkipForward, Loader2, X, Volume2, VolumeX, Headp
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
 import { useAuthStore } from '../../store/auth';
-import { useCreditsStore } from '../../store/credits';
 import { useGenerationStore } from '../../store/generation';
 import { api } from '../../lib/api';
 import { cn } from '../../lib/utils';
-import * as pixel from '../../lib/pixel';
 import { track as jTrack } from '../../lib/journey';
 
 /** Draggable progress bar — works with mouse and touch */
@@ -292,61 +290,6 @@ export function AudioPlayerBar() {
     };
   }, []);
 
-  const user = useAuthStore((s) => s.user);
-  const planTier = useCreditsStore((s) => s.plan.tier);
-
-  // ── 60s audio preview cap (guests + signed-in free) ──
-  // Persisted in localStorage so it survives reloads. Paid users bypass.
-  // Guests accumulate under a shared 'guest' key; the counter migrates onto
-  // the user's key at signup (see App.tsx) so creating an account can't reset
-  // it. Uses audio.timeupdate deltas (not wall-clock) so the count tracks
-  // actual playback seconds.
-  const AUDIO_CAP_SECONDS = 60;
-  const isCappedTier = !user || planTier === 'free';
-  const audioCapKey = !user
-    ? 'theodore_audio_listened_guest'
-    : planTier === 'free'
-      ? `theodore_audio_listened_${user.id}`
-      : null;
-  useEffect(() => {
-    if (!isCappedTier || !audioCapKey) return;
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    let lastTime = audio.currentTime;
-    const onPlayReset = () => { lastTime = audio.currentTime; };
-    const onSeeked = () => { lastTime = audio.currentTime; };
-
-    const onTimeUpdate = () => {
-      const now = audio.currentTime;
-      const delta = now - lastTime;
-      lastTime = now;
-      if (delta <= 0 || delta > 2) return;
-      const prev = Number(localStorage.getItem(audioCapKey) || '0');
-      const listened = prev + delta;
-      localStorage.setItem(audioCapKey, String(listened));
-      // Fire only on the crossing so we don't spam the modal every tick
-      // after the cap has already been hit.
-      if (listened >= AUDIO_CAP_SECONDS && prev < AUDIO_CAP_SECONDS) {
-        if (!audio.paused) audio.pause();
-        setPlaying(false);
-        jTrack('audio_cap_hit', { seconds: Math.round(listened), guest: !user });
-        pixel.trackCustom('AudioCapHit');
-        useCreditsStore.getState().setShowUpgradeModal(true, 'audio_cap');
-        window.dispatchEvent(new CustomEvent('theodore:audioCapHit'));
-      }
-    };
-
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.addEventListener('play', onPlayReset);
-    audio.addEventListener('seeked', onSeeked);
-    return () => {
-      audio.removeEventListener('timeupdate', onTimeUpdate);
-      audio.removeEventListener('play', onPlayReset);
-      audio.removeEventListener('seeked', onSeeked);
-    };
-  }, [user?.id, planTier, audioCapKey, isCappedTier, setPlaying]);
-
   // Media Session API — lock screen controls & metadata.
   // The artwork URL MUST be absolute — relative paths don't work for the OS
   // lock screen / car display since they fetch outside the browser context.
@@ -452,35 +395,11 @@ export function AudioPlayerBar() {
     };
   }, []);
 
-  // Free-tier preview cap (guests + signed-in free). Reads latest state from
-  // stores so it's safe to call from closure-captured handlers.
-  const isAudioCappedNow = () => {
-    const u = useAuthStore.getState().user;
-    const tier = useCreditsStore.getState().plan.tier;
-    if (u && tier !== 'free') return false;
-    const key = u ? `theodore_audio_listened_${u.id}` : 'theodore_audio_listened_guest';
-    const listened = Number(localStorage.getItem(key) || '0');
-    return listened >= AUDIO_CAP_SECONDS;
-  };
-
-  const openAudioCapModal = (source: string) => {
-    useCreditsStore.getState().setShowUpgradeModal(true, 'audio_cap');
-    window.dispatchEvent(new CustomEvent('theodore:audioCapHit'));
-    jTrack('audio_cap_block', { source });
-  };
-
   // Handle play/pause toggle from MobilePlayer (preserves user gesture for iOS)
   useEffect(() => {
     const handler = () => {
       const audio = audioRef.current;
       if (!audio) return;
-
-      // Free-tier cap: if they've already used their 60s preview, block play
-      // and surface the upgrade modal instead of resuming.
-      if (audio.paused && isAudioCappedNow()) {
-        openAudioCapModal('toggle_play_post_cap');
-        return;
-      }
 
       // If there's a pending play URL (from iOS autoplay block), load it now
       if (pendingPlayRef.current) {
@@ -525,13 +444,6 @@ export function AudioPlayerBar() {
   // ========== Generate & play ==========
 
   const generateAndPlay = useCallback(async (chapterId: string) => {
-    // Free-tier preview cap: block new generations once the 60s budget is
-    // spent. Existing cached audio still plays (handled in the toggle path).
-    if (isAudioCappedNow()) {
-      openAudioCapModal('generate_attempt_post_cap');
-      return;
-    }
-
     // Read latest chapter state from store (not stale closure)
     const freshChapters = useStore.getState().chapters;
     let chapter = freshChapters.find(c => c.id === chapterId);

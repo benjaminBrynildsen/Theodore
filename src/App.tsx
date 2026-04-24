@@ -12,7 +12,6 @@ import { useCreditsStore } from './store/credits';
 import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
 import { CookieConsent } from './components/layout/CookieConsent';
-import { AudioCapPill } from './components/credits/AudioCapPill';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
@@ -230,18 +229,6 @@ export default function App() {
     setCurrentUserId(userId);
     hydrateCreditsFromUser(user || null);
     if (userId) {
-      // Migrate guest audio-cap counter onto the user's key so signup can't
-      // reset an already-spent preview.
-      try {
-        const guestListened = Number(localStorage.getItem('theodore_audio_listened_guest') || '0');
-        if (guestListened > 0) {
-          const userKey = `theodore_audio_listened_${userId}`;
-          const existing = Number(localStorage.getItem(userKey) || '0');
-          localStorage.setItem(userKey, String(Math.max(existing, guestListened)));
-          localStorage.removeItem('theodore_audio_listened_guest');
-        }
-      } catch {}
-
       // Resume Stripe checkout if the guest clicked Upgrade on the cap modal
       // before signing up. Keyed intent survives the auth redirect round-trip.
       try {
@@ -586,7 +573,6 @@ export default function App() {
           <Suspense fallback={null}>
             <UpgradeModal />
           </Suspense>
-          <AudioCapPill />
         </div>
       );
     }
@@ -692,7 +678,6 @@ export default function App() {
         <UpgradeModal />
         <ImpactPanel />
       </Suspense>
-      <AudioCapPill />
       {showReadingMode && (
         <Suspense fallback={<ViewLoader label="Loading reading mode..." />}>
           <ReadingMode onClose={() => setShowReadingMode(false)} />

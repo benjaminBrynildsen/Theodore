@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { db } from './db.js';
 import { sessions, users } from './schema.js';
+import { FREE_TIER_CREDITS, FREE_TIER_RESET_INTERVAL_MS } from './billing.js';
 
 const SESSION_COOKIE = 'theodore_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -84,6 +85,7 @@ export function toSafeUser(user: DbUser) {
     plan: normalizedPlan,
     creditsRemaining: user.creditsRemaining,
     creditsTotal: user.creditsTotal,
+    lastCreditResetAt: user.lastCreditResetAt,
     stripeCustomerId: user.stripeCustomerId,
     stripeSubscriptionId: user.stripeSubscriptionId,
     stripeSubscriptionStatus: user.stripeSubscriptionStatus,
@@ -94,6 +96,26 @@ export function toSafeUser(user: DbUser) {
     updatedAt: user.updatedAt,
     emailVerifiedAt: user.emailVerifiedAt,
   };
+}
+
+// Free users get FREE_TIER_CREDITS refreshed on a rolling 30-day window, no
+// rollover. The check is lazy (runs on each auth resolve) — no cron needed.
+// First time this runs for any pre-existing user (lastCreditResetAt=null) we
+// always grant, so legacy 100-credit accounts pick up the new 1000 allowance
+// on their next request without needing a one-time backfill.
+async function maybeResetFreeCredits(user: DbUser): Promise<DbUser> {
+  if (user.plan !== 'free' && user.plan !== 'byok') return user;
+  const now = new Date();
+  const last = user.lastCreditResetAt;
+  const shouldReset = !last || (now.getTime() - last.getTime()) >= FREE_TIER_RESET_INTERVAL_MS;
+  if (!shouldReset) return user;
+  await db.update(users).set({
+    creditsRemaining: FREE_TIER_CREDITS,
+    creditsTotal: FREE_TIER_CREDITS,
+    lastCreditResetAt: now,
+    updatedAt: now,
+  }).where(eq(users.id, user.id));
+  return { ...user, creditsRemaining: FREE_TIER_CREDITS, creditsTotal: FREE_TIER_CREDITS, lastCreditResetAt: now, updatedAt: now };
 }
 
 export async function createSession(userId: string, req: Request, res: Response): Promise<string> {
@@ -139,11 +161,12 @@ async function resolveAuthContext(req: Request): Promise<AuthContext | null> {
     return null;
   }
 
-  const [user] = await db.select().from(users).where(eq(users.id, session.userId));
-  if (!user) {
+  const [rawUser] = await db.select().from(users).where(eq(users.id, session.userId));
+  if (!rawUser) {
     await db.delete(sessions).where(eq(sessions.id, session.id));
     return null;
   }
+  const user = await maybeResetFreeCredits(rawUser);
 
   void db.update(sessions).set({ lastUsedAt: new Date() }).where(eq(sessions.id, session.id));
   return { user, session };

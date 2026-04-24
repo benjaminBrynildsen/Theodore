@@ -856,6 +856,7 @@ app.post('/api/auth/register', async (req, res) => {
         plan: 'free',
         creditsRemaining: FREE_TIER_CREDITS,
         creditsTotal: FREE_TIER_CREDITS,
+        lastCreditResetAt: now,
       }).returning();
       user = inserted;
     } else {
@@ -927,6 +928,7 @@ app.post('/api/auth/google', async (req, res) => {
         plan: 'free',
         creditsRemaining: FREE_TIER_CREDITS,
         creditsTotal: FREE_TIER_CREDITS,
+        lastCreditResetAt: now,
       }).returning();
       user = inserted;
       trackRegistration(req as any);
@@ -2348,20 +2350,21 @@ app.post('/api/tts/generate', async (req, res) => {
     const [user] = await db.select().from(users).where(eq(users.id, auth.user.id));
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Free users always get Grok/Leo — it's the cheapest provider Theodore
-    // supports and is the default preview voice for the 60-second free cap.
+    // Free users always get Grok/Leo — cheapest provider Theodore supports.
     // Whatever the client asked for (ElevenLabs premium, OpenAI budget, etc.)
     // is ignored until they upgrade. This keeps ElevenLabs spend to paying
-    // users only.
+    // users only; free users still get a full audiobook within their
+    // monthly credit allowance.
     const isFreeUser = !user.planTier || user.planTier === 'free';
     if (isFreeUser) {
       provider = 'grok';
       narratorVoice = 'grok:leo';
     }
 
-    // First audio gen for a free user is on the house — the playback-side 60s
-    // cap is the real economic gate. Subsequent generations charge credits
-    // (Grok is cheap, so this rarely matters).
+    // First audio gen for a free user is on the house so they can hear the
+    // product before it debits their monthly allowance. Subsequent generations
+    // charge against the 1000-credit monthly pool (Grok is cheap enough that
+    // this buys several chapters before they run out).
     let isFreeAudioSample = false;
     if (isFreeUser) {
       const existingAudioTxns = await db.select({ id: creditTransactions.id })

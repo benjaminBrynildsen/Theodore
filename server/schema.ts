@@ -11,8 +11,9 @@ export const users = pgTable('users', {
   name: text('name'),
   avatarUrl: text('avatar_url'),
   plan: text('plan').notNull().default('free'), // free, writer, author, studio
-  creditsRemaining: integer('credits_remaining').notNull().default(100),
-  creditsTotal: integer('credits_total').notNull().default(100),
+  creditsRemaining: integer('credits_remaining').notNull().default(1000),
+  creditsTotal: integer('credits_total').notNull().default(1000),
+  lastCreditResetAt: timestamp('last_credit_reset_at'),
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
   stripeSubscriptionStatus: text('stripe_subscription_status').default('inactive'),

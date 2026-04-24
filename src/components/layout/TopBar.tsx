@@ -4,7 +4,6 @@ import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { useAuthStore } from '../../store/auth';
-import { CreditsBadge } from '../credits/CreditsBadge';
 import { ValidationBadge } from '../validation/ValidationBadge';
 import { cn } from '../../lib/utils';
 
@@ -225,8 +224,8 @@ export function TopBar() {
         <LogOut size={18} />
       </button>
 
-      {/* Credits Badge — hidden on mobile */}
-      <div className="hidden sm:block"><CreditsBadge /></div>
+      {/* Credits Badge moved to SettingsView only — kept out of primary nav so
+          users focus on writing, not usage tracking (ChatGPT-style framing) */}
 
       {/* Validation and AI Ready badges removed per Ben's request */}
       
