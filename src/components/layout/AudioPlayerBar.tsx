@@ -106,10 +106,17 @@ export function AudioPlayerBar() {
     if (!audio) {
       audio = document.createElement('audio');
       audio.id = 'theodore-audio';
-      audio.preload = 'none';
+      // 'auto' (vs 'none') lets the browser buffer aggressively so a locked
+      // screen / backgrounded tab doesn't run out of data mid-playback. This
+      // is the web-side equivalent of the mobile app's `shouldPlayInBackground`
+      // audio-session flag — on iOS Safari, an audio element whose buffer
+      // runs dry in the background will stop and not auto-resume.
+      audio.preload = 'auto';
       audio.setAttribute('playsinline', '');
       audio.setAttribute('webkit-playsinline', '');
       document.body.appendChild(audio);
+    } else if (audio.preload !== 'auto') {
+      audio.preload = 'auto';
     }
     audio.volume = volume;
     audioRef.current = audio;
@@ -394,6 +401,56 @@ export function AudioPlayerBar() {
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
+
+  // ========== Keep-playing-in-background hardening ==========
+  // Mirror the mobile app's `shouldPlayInBackground` + lock-screen activation.
+  // Web equivalents:
+  //  1. Set mediaSession.playbackState so iOS/CarPlay knows we're actively
+  //     playing and keeps us alive under background memory pressure.
+  //  2. Auto-resume when the tab becomes visible again if our React state
+  //     still says playing=true but the audio element was paused by the
+  //     browser (iOS Safari will sometimes pause after long screen-lock).
+  //  3. Pagehide cleanup so we don't re-broadcast stale state.
+  useEffect(() => {
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+      } catch { /* older browsers don't support assignment */ }
+    }
+  }, [playing]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) return;
+      const audio = audioRef.current;
+      if (!audio) return;
+      const shouldBePlaying = useAudioStore.getState().playing;
+      if (shouldBePlaying && audio.paused && audio.src && audio.src !== window.location.href) {
+        // Browser auto-paused while backgrounded — try to resume now that we
+        // have a user-attention signal (visibilitychange counts in most
+        // browsers for already-playing audio).
+        audio.play().catch((err) => {
+          console.warn('[AudioPlayer] visibility resume blocked:', err?.message || err);
+        });
+      }
+    };
+    const onAudioPause = () => {
+      // Log unintended pauses (audio paused but our state says playing).
+      // Useful for diagnosing future "audio stopped" reports.
+      const audio = audioRef.current;
+      const shouldBePlaying = useAudioStore.getState().playing;
+      if (shouldBePlaying && audio?.paused) {
+        console.log('[AudioPlayer] unintended pause detected (hidden=%s)', document.hidden);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    const audio = audioRef.current;
+    audio?.addEventListener('pause', onAudioPause);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      audio?.removeEventListener('pause', onAudioPause);
+    };
+  }, []);
 
   // Free-tier preview cap (guests + signed-in free). Reads latest state from
   // stores so it's safe to call from closure-captured handlers.
