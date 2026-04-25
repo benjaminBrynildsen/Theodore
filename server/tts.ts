@@ -1248,6 +1248,81 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     };
   }
 
+  // ── Grok (xAI) multi-voice path: per-segment TTS with character voices ──
+  // Mobile-only entry point. Web client never sends multiVoice=true (UI gated
+  // behind MULTI_VOICE_ENABLED=false), so this branch is unreachable from web
+  // and the original single-voice Grok path below handles every web request.
+  // Mirrors the ElevenLabs multi-voice flow but routes each segment through
+  // callGrokTTS with the segment's assigned voice.
+  if (
+    (req.provider || '').toLowerCase() === 'grok' &&
+    req.multiVoice === true &&
+    req.knownCharacters &&
+    req.knownCharacters.length > 0
+  ) {
+    const announcement = req.chapterNumber
+      ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'grok')
+      : '';
+    let proseBody = req.prose;
+    if (req.chapterNumber) {
+      proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
+    }
+    // Parse before stripping — parseDialogue needs the [Name] tags to attribute
+    // speakers reliably. The announcement is plain narration, so prepend it.
+    const proseWithAnnouncement = announcement + proseBody;
+    let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters);
+    segments = applyVoiceMap(segments, voiceMap);
+
+    // Defensive: any voice that isn't grok:* gets coerced to the narrator.
+    // Phase-1 voice assignment only ever writes grok:* IDs, but a stale or
+    // mismatched entry from elsewhere shouldn't ever land at xAI's API.
+    const narratorGrok = voiceMap.narrator.startsWith('grok:')
+      ? voiceMap.narrator
+      : 'grok:leo';
+    segments = segments.map((s) => ({
+      ...s,
+      voice: s.voice && s.voice.startsWith('grok:') ? s.voice : narratorGrok,
+    }));
+
+    const merged = mergeConsecutiveSegments(segments);
+    const speechSegs = merged.filter(
+      (s) => s.type !== 'sfx' && s.text.replace(/\[[^\]]+\]/g, '').trim().length > 0,
+    );
+    ttsLog(
+      `Grok multi-voice: ${speechSegs.length} segments, voices=${[...new Set(speechSegs.map((s) => s.voice))].join(',')}`,
+    );
+
+    // Generate every segment in parallel. If any one fails, fail the whole
+    // chapter — partial audio would silently drop a speaker mid-scene.
+    let completed = 0;
+    const audioBuffers = await Promise.all(
+      speechSegs.map(async (seg) => {
+        // Strip remaining bracket tags from the text Grok actually speaks.
+        // Direction tags ([whispering] etc.) and any speaker tags that
+        // survived parseDialogue must not be read aloud.
+        const speakable = seg.text.replace(/\[[^\]]+\]/g, '').trim();
+        const buf = await callGrokTTS(speakable, seg.voice);
+        completed++;
+        req.onProgress?.(Math.round((completed / speechSegs.length) * 100));
+        return buf;
+      }),
+    );
+
+    const combined = Buffer.concat(audioBuffers);
+    const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
+    const filename = `ch-${hash}.mp3`;
+    const filepath = path.join(AUDIO_DIR, filename);
+    fs.writeFileSync(filepath, combined);
+    const durationEstimate = await measureMp3Duration(filepath, req.prose.length);
+    const creditsUsed = Math.max(10, Math.ceil(req.prose.length / 1000) * 6);
+    return {
+      audioUrl: `/uploads/audio/${filename}`,
+      durationEstimate,
+      segments: speechSegs.length,
+      creditsUsed,
+    };
+  }
+
   // ── Grok (xAI) path: single-voice, budget pricing ──
   // xAI allows 15K chars per request — we chunk much smaller for parallelism
   // and to match the pacing/boundary logic we already use for OpenAI.
