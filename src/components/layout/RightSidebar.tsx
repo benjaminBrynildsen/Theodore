@@ -13,14 +13,18 @@ import type { Chapter } from '../../types';
 
 type SidebarTab = 'playing' | 'controls' | 'audio' | 'cover' | 'export';
 
-function cleanSnippet(text: string, fallback: string) {
-  const normalized = text.replace(/\s+/g, ' ').trim();
+// Both helpers accept undefined/null because callers pass optional premise
+// fields (premise?.purpose, premise?.emotionalBeat ?? premise?.changes) and
+// last-paragraph access that can return undefined for old or empty chapters.
+// Without coercion the .replace() crashes the whole sidebar render.
+function cleanSnippet(text: string | null | undefined, fallback: string) {
+  const normalized = (text ?? '').replace(/\s+/g, ' ').trim();
   if (!normalized) return fallback;
   return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
 }
 
-function firstSentence(text: string, fallback: string) {
-  const normalized = text.replace(/\s+/g, ' ').trim();
+function firstSentence(text: string | null | undefined, fallback: string) {
+  const normalized = (text ?? '').replace(/\s+/g, ' ').trim();
   if (!normalized) return fallback;
   const match = normalized.match(/.+?[.!?](?:\s|$)/);
   const sentence = (match?.[0] || normalized).trim();
