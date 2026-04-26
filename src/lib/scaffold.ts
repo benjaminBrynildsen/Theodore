@@ -50,13 +50,18 @@ export function buildScaffoldPrompt(
   const nc = project.narrativeControls;
   if (nc) {
     if (nc.genreEmphasis?.length) sections.push(`Genres: ${nc.genreEmphasis.join(', ')}`);
-    sections.push(`Pacing: ${nc.pacing}`);
-    sections.push(`Focus: ${nc.focusMix.character}% character, ${nc.focusMix.plot}% plot, ${nc.focusMix.world}% world`);
+    if (nc.pacing) sections.push(`Pacing: ${nc.pacing}`);
+    const fm = nc.focusMix;
+    if (fm) {
+      sections.push(`Focus: ${fm.character ?? 40}% character, ${fm.plot ?? 40}% plot, ${fm.world ?? 20}% world`);
+    }
     const tone = nc.toneMood;
-    if (tone.lightDark > 60) sections.push('Tone: dark, tense');
-    else if (tone.lightDark < 40) sections.push('Tone: light, warm');
-    if (tone.hopefulGrim > 60) sections.push('Outlook: grim');
-    else if (tone.hopefulGrim < 40) sections.push('Outlook: hopeful');
+    if (tone) {
+      if ((tone.lightDark ?? 50) > 60) sections.push('Tone: dark, tense');
+      else if ((tone.lightDark ?? 50) < 40) sections.push('Tone: light, warm');
+      if ((tone.hopefulGrim ?? 50) > 60) sections.push('Outlook: grim');
+      else if ((tone.hopefulGrim ?? 50) < 40) sections.push('Outlook: hopeful');
+    }
   }
 
   // Canon context (brief)

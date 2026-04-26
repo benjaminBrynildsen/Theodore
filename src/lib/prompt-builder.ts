@@ -332,14 +332,14 @@ function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
       if (ch.age) lines.push(`Age: ${ch.age}`);
       if (ch.role) lines.push(`Role: ${ch.role}`);
       if (ch.occupation) lines.push(`Occupation: ${ch.occupation}`);
-      if (ch.personality.traits.length) lines.push(`Traits: ${ch.personality.traits.join(', ')}`);
-      if (ch.personality.speechPattern) lines.push(`Speech pattern: ${ch.personality.speechPattern}`);
-      if (ch.appearance.physical) lines.push(`Appearance: ${ch.appearance.physical}`);
-      if (ch.storyState.currentLocation) lines.push(`Current location: ${ch.storyState.currentLocation}`);
-      if (ch.storyState.emotionalState) lines.push(`Emotional state: ${ch.storyState.emotionalState}`);
-      if (!ch.storyState.alive) lines.push('⚠ STATUS: DEAD');
+      if (ch.personality?.traits?.length) lines.push(`Traits: ${ch.personality.traits.join(', ')}`);
+      if (ch.personality?.speechPattern) lines.push(`Speech pattern: ${ch.personality.speechPattern}`);
+      if (ch.appearance?.physical) lines.push(`Appearance: ${ch.appearance.physical}`);
+      if (ch.storyState?.currentLocation) lines.push(`Current location: ${ch.storyState.currentLocation}`);
+      if (ch.storyState?.emotionalState) lines.push(`Emotional state: ${ch.storyState.emotionalState}`);
+      if (ch.storyState && ch.storyState.alive === false) lines.push('⚠ STATUS: DEAD');
       // Include relevant relationships (only to other characters in this chapter)
-      const relevantRels = ch.relationships.filter(r => chapterCharNames.has(r.characterName.toLowerCase()));
+      const relevantRels = (ch.relationships || []).filter(r => chapterCharNames.has((r.characterName || '').toLowerCase()));
       if (relevantRels.length > 0) {
         lines.push('Key relationships:');
         for (const r of relevantRels) {
@@ -354,8 +354,8 @@ function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
   if (hasRelevantContent && secondaryChars.length > 0) {
     sections.push('\n## Also Referenced');
     for (const c of secondaryChars) {
-      const rel = c.character.relationships.find(r => primaryIds.has(r.characterId));
-      sections.push(`- ${c.name} (${c.character.role}): ${rel?.dynamic || c.description || 'mentioned'}`);
+      const rel = (c.character.relationships || []).find(r => primaryIds.has(r.characterId));
+      sections.push(`- ${c.name} (${c.character.role || 'unknown'}): ${rel?.dynamic || c.description || 'mentioned'}`);
     }
   }
 
@@ -368,15 +368,15 @@ function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
       const lines = [`### ${l.name}`];
       if (l.description) lines.push(l.description);
       if (loc.locationType) lines.push(`Type: ${loc.locationType}`);
-      if (loc.currentState.atmosphere) lines.push(`Atmosphere: ${loc.currentState.atmosphere}`);
-      if (loc.currentState.condition) lines.push(`Condition: ${loc.currentState.condition}`);
-      if (loc.currentState.sensoryDetails) {
+      if (loc.currentState?.atmosphere) lines.push(`Atmosphere: ${loc.currentState.atmosphere}`);
+      if (loc.currentState?.condition) lines.push(`Condition: ${loc.currentState.condition}`);
+      if (loc.currentState?.sensoryDetails) {
         const sd = loc.currentState.sensoryDetails;
         const sensory = [sd.sights, sd.sounds, sd.smells, sd.textures].filter(Boolean);
         if (sensory.length > 0) lines.push(`Sensory: ${sensory.join('; ')}`);
       }
-      if (loc.storyRelevance.accessRules) lines.push(`Access: ${loc.storyRelevance.accessRules}`);
-      if (loc.storyRelevance.dangerLevel) lines.push(`Danger level: ${loc.storyRelevance.dangerLevel}`);
+      if (loc.storyRelevance?.accessRules) lines.push(`Access: ${loc.storyRelevance.accessRules}`);
+      if (loc.storyRelevance?.dangerLevel) lines.push(`Danger level: ${loc.storyRelevance.dangerLevel}`);
       sections.push(lines.join('\n'));
     }
   }
