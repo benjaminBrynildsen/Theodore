@@ -149,18 +149,28 @@ function setupAutoTracking() {
     }
   });
 
-  // Intercept fetch to catch 502/503/504 responses
+  // Intercept fetch to catch 502/503/504 responses + raw network failures.
+  // We always capture the URL so the journey log is actually diagnosable —
+  // 'Failed to fetch' on its own is useless without knowing which endpoint
+  // tripped.
   const origFetch = window.fetch;
   window.fetch = async function (...args) {
+    const requestUrl = typeof args[0] === 'string'
+      ? args[0]
+      : (args[0] as URL | undefined)?.toString?.() || (args[0] as Request | undefined)?.url || '';
     try {
       const res = await origFetch.apply(this, args);
       if (res.status >= 500) {
-        const url = typeof args[0] === 'string' ? args[0] : (args[0] as Request)?.url || '';
-        track('error', { type: `HTTP ${res.status}`, url: url.slice(0, 80) });
+        track('error', { type: `HTTP ${res.status}`, url: requestUrl.slice(0, 120) });
       }
       return res;
     } catch (err: any) {
-      track('error', { type: 'network', message: (err?.message || 'fetch failed').slice(0, 100) });
+      track('error', {
+        type: 'network',
+        message: (err?.message || 'fetch failed').slice(0, 100),
+        url: requestUrl.slice(0, 120),
+        offline: typeof navigator !== 'undefined' && navigator.onLine === false,
+      });
       throw err;
     }
   };
