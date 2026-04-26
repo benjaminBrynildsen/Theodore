@@ -130,6 +130,7 @@ export interface TTSRequest {
   speed?: number; // 0.5 – 2.0
   multiVoice?: boolean; // if false, use narrator for everything
   characterDescriptions?: Record<string, string>; // characterName → personality/speech description
+  characterAliases?: Record<string, string[]>; // canonical name → list of accepted aliases (firstName, nicknames, titled forms). Used by attributeSpeaker to disambiguate same-firstName casts and absorb model name drift.
   narratorStyle?: string; // e.g. "dramatic audiobook narrator"
   sceneSFX?: SceneSFXInput[]; // scene-level SFX (background ambience, intro/outro sounds)
   chapterNumber?: number;   // prepend "Chapter N: Title" announcement
@@ -791,7 +792,7 @@ function pushNarrationWithSFX(segments: TTSSegment[], text: string) {
  * Identifies quoted speech and attempts to attribute speakers
  * by looking for "said Character" / "Character said" patterns nearby.
  */
-export function parseDialogue(prose: string, knownCharacters: string[]): TTSSegment[] {
+export function parseDialogue(prose: string, knownCharacters: string[], characterAliases?: Record<string, string[]>): TTSSegment[] {
   const segments: TTSSegment[] = [];
   const dialogueRegex = /[\u201C"]((?:[^\u201D"\\]|\\.)*)[\u201D"]/g;
 
@@ -831,7 +832,7 @@ export function parseDialogue(prose: string, knownCharacters: string[]): TTSSegm
     }
     // Use tagged speaker if available, otherwise fall back to heuristic
     const taggedSpeaker = taggedSpeakers.get(match.index);
-    const speaker = taggedSpeaker || attributeSpeaker(prose, match.index, match[0].length, knownCharacters);
+    const speaker = taggedSpeaker || attributeSpeaker(prose, match.index, match[0].length, knownCharacters, characterAliases);
     const tone = detectTone(prose, match.index, match[0].length);
 
     segments.push({
@@ -858,29 +859,102 @@ export function parseDialogue(prose: string, knownCharacters: string[]): TTSSegm
   return segments;
 }
 
-function attributeSpeaker(prose: string, matchStart: number, matchLength: number, characters: string[]): string | null {
+const ATTRIB_VERBS = '(said|asked|replied|whispered|shouted|murmured|exclaimed|muttered|called|yelled|hissed|sighed|growled|snapped|laughed|cried|screamed|demanded)';
+
+// Escape a string for safe inclusion in a regex (alias text comes from user
+// data and may contain dots, parens, etc. — esp. titles like "Mr. Moreno").
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function attributeSpeaker(
+  prose: string,
+  matchStart: number,
+  matchLength: number,
+  characters: string[],
+  aliasesByCanon?: Record<string, string[]>,
+): string | null {
   if (characters.length === 0) return null;
 
   const windowBefore = prose.slice(Math.max(0, matchStart - 120), matchStart);
   const windowAfter = prose.slice(matchStart + matchLength, matchStart + matchLength + 120);
   const window = windowBefore + ' ' + windowAfter;
 
-  const sorted = [...characters].sort((a, b) => b.length - a.length);
+  // Build the set of (canonName, alias) pairs to test. Always include the
+  // canon name's first name as a baseline. Aliases beat firstName since
+  // they're explicitly curated; longer aliases beat shorter (so "Chef
+  // Moreno" wins over plain "Moreno" if both are aliases).
+  type Candidate = { canon: string; token: string };
+  const candidates: Candidate[] = [];
+  for (const canon of characters) {
+    const seen = new Set<string>();
+    const aliases = aliasesByCanon?.[canon] || [];
+    for (const a of aliases) {
+      const t = (a || '').trim();
+      if (!t || seen.has(t.toLowerCase())) continue;
+      seen.add(t.toLowerCase());
+      candidates.push({ canon, token: t });
+    }
+    const firstName = canon.split(' ')[0];
+    if (firstName && !seen.has(firstName.toLowerCase())) {
+      candidates.push({ canon, token: firstName });
+    }
+    if (!seen.has(canon.toLowerCase())) {
+      candidates.push({ canon, token: canon });
+    }
+  }
+  // Disambiguation: if multiple canons share an alias token (e.g. two "Luca"s),
+  // mark that token as ambiguous. Ambiguous tokens skip strict attribution and
+  // can only resolve via a longer/distinct alias for one of the canons.
+  const tokenOwners = new Map<string, Set<string>>();
+  for (const { canon, token } of candidates) {
+    const key = token.toLowerCase();
+    if (!tokenOwners.has(key)) tokenOwners.set(key, new Set());
+    tokenOwners.get(key)!.add(canon);
+  }
+  // Sort longest-first so disambiguating forms (e.g. "Chef Moreno") win over
+  // bare ambiguous first names.
+  candidates.sort((a, b) => b.token.length - a.token.length);
 
-  for (const name of sorted) {
-    const nameParts = name.split(' ');
-    const firstName = nameParts[0];
-
+  for (const { canon, token } of candidates) {
+    if ((tokenOwners.get(token.toLowerCase())?.size || 0) > 1) continue; // ambiguous
+    const tokRe = escapeRegex(token);
     const patterns = [
-      new RegExp(`${firstName}\\s+(said|asked|replied|whispered|shouted|murmured|exclaimed|muttered|called|yelled|hissed|sighed|growled|snapped|laughed|cried|screamed|demanded)`, 'i'),
-      new RegExp(`(said|asked|replied|whispered|shouted|murmured|exclaimed|muttered|called|yelled|hissed|sighed|growled|snapped|laughed|cried|screamed|demanded)\\s+${firstName}`, 'i'),
-      new RegExp(`${firstName}\\s*[',]`, 'i'),
+      new RegExp(`${tokRe}\\s+${ATTRIB_VERBS}`, 'i'),
+      new RegExp(`${ATTRIB_VERBS}\\s+${tokRe}`, 'i'),
+      new RegExp(`${tokRe}\\s*[',]`, 'i'),
     ];
-
     for (const pattern of patterns) {
-      if (pattern.test(window)) {
-        return name;
-      }
+      if (pattern.test(window)) return canon;
+    }
+  }
+
+  // Fuzzy fallback: models occasionally drift canon names ("Luca Moreno" →
+  // "Lucien Moreau"). If the strict pass found nothing, try matching by
+  // 3-char prefix on first names — strict enough to avoid collisions in
+  // typical 2-4 character casts, loose enough to catch realistic drift.
+  // Only fires for canons whose firstName prefix is unique across the cast.
+  const prefixOwners = new Map<string, Set<string>>();
+  for (const canon of characters) {
+    const fn = canon.split(' ')[0];
+    if (!fn || fn.length < 3) continue;
+    const p = fn.slice(0, 3).toLowerCase();
+    if (!prefixOwners.has(p)) prefixOwners.set(p, new Set());
+    prefixOwners.get(p)!.add(canon);
+  }
+  for (const canon of [...characters].sort((a, b) => b.length - a.length)) {
+    const firstName = canon.split(' ')[0];
+    if (!firstName || firstName.length < 3) continue;
+    const prefix = firstName.slice(0, 3);
+    if ((prefixOwners.get(prefix.toLowerCase())?.size || 0) > 1) continue; // ambiguous prefix
+    const pre = escapeRegex(prefix);
+    const fuzzyPatterns = [
+      new RegExp(`\\b${pre}[a-z]+\\s+${ATTRIB_VERBS}`, 'i'),
+      new RegExp(`${ATTRIB_VERBS}\\s+${pre}[a-z]+`, 'i'),
+      new RegExp(`\\b${pre}[a-z]+\\s*[',]`, 'i'),
+    ];
+    for (const pattern of fuzzyPatterns) {
+      if (pattern.test(window)) return canon;
     }
   }
 
@@ -1271,7 +1345,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     // Parse before stripping — parseDialogue needs the [Name] tags to attribute
     // speakers reliably. The announcement is plain narration, so prepend it.
     const proseWithAnnouncement = announcement + proseBody;
-    let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters);
+    let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases);
     segments = applyVoiceMap(segments, voiceMap);
 
     // Defensive: any voice that isn't grok:* gets coerced to the narrator.
@@ -1569,7 +1643,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   // Parse prose into segments (narration, dialogue, sfx markers)
   let segments: TTSSegment[];
   if (req.multiVoice && req.knownCharacters && req.knownCharacters.length > 0) {
-    segments = parseDialogue(proseWithAnnouncement, req.knownCharacters);
+    segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases);
     segments = applyVoiceMap(segments, voiceMap);
   } else {
     // Single-voice mode: parse for SFX markers only, force narrator voice on everything

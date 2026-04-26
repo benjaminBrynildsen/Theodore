@@ -2110,6 +2110,7 @@ interface TTSJobSpec {
   prose: string;
   narratorVoice?: string;
   characterVoices?: Record<string, string>;
+  characterAliases?: Record<string, string[]>; // canonName → aliases used in prose
   characterDescriptions?: Record<string, string>;
   narratorStyle?: string;
   model?: string;
@@ -2193,6 +2194,7 @@ async function runTTSJob(jobId: string) {
       characters: (spec.characterVoices || {}) as Record<string, ElevenLabsVoice>,
     };
     const knownCharacters = Object.keys(spec.characterVoices || {});
+    const characterAliases = spec.characterAliases || {};
     console.log(`[TTS] Running job ${jobId} (attempt ${row.attempts + 1}) for ${spec.chapterId}`);
     await updatePersistedJob(jobId, { status: 'processing', attempts: row.attempts + 1, error: null });
 
@@ -2205,6 +2207,7 @@ async function runTTSJob(jobId: string) {
       speed: spec.speed || 1.0,
       multiVoice: spec.multiVoice ?? false,
       knownCharacters,
+      characterAliases,
       characterDescriptions: spec.characterDescriptions || {},
       narratorStyle: spec.narratorStyle || undefined,
       sceneSFX: spec.sceneSFX || [],
@@ -2344,7 +2347,7 @@ app.post('/api/tts/generate', async (req, res) => {
     if (!auth) return res.status(401).json({ error: 'Not authenticated' });
 
     let { narratorVoice, provider } = req.body;
-    const { chapterId, prose, characterVoices, characterDescriptions, narratorStyle, model, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle } = req.body;
+    const { chapterId, prose, characterVoices, characterAliases, characterDescriptions, narratorStyle, model, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle } = req.body;
     if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
 
     // Credit check
@@ -2396,7 +2399,7 @@ app.post('/api/tts/generate', async (req, res) => {
 
     const jobId = `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const spec: TTSJobSpec = {
-      chapterId, prose, narratorVoice, characterVoices, characterDescriptions, narratorStyle,
+      chapterId, prose, narratorVoice, characterVoices, characterAliases, characterDescriptions, narratorStyle,
       model, provider, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle,
       isFreeAudioSample,
     };
