@@ -37,11 +37,14 @@ For each candidate, determine:
 
 IMPORTANT RULES:
 - Common English words that happen to be capitalized (e.g. "Think", "Forecast", "Storm", "Inside", "Nothing") are ALWAYS "none"
+- Single-word interjections, replies, or commands ripped from dialogue ("Thanks", "Walk", "Understood", "Wait", "Stop", "Run", "Listen", "Sure") are ALWAYS "none". These are dialogue fragments that appeared at the start of a sentence inside quotes — never canon entities.
+- Phrases starting with "Only", "Just", "Maybe", "Even", "Still", followed by a name (e.g. "Only Damien") are "none" — the real entity is just the name, which will appear separately if it's worth keeping.
 - Sentence fragments like "Move-In The" or "Looking Back" are "none"
 - Time references (months, days, seasons) are "none"
 - Generic descriptors ("The Old Man", "The Storm") are "none" unless they are clearly used as a proper name/title
 - County/city/region names (e.g. "Willoughby County") are "location", not "character"
 - Be precise: only real named entities from the narrative should survive
+- ALIAS DETECTION (CRITICAL): If two candidates clearly refer to the same person — typically a shorter form and a longer form (e.g. "Chef Laurent" vs "Chef Mireille Laurent", "Jon" vs "Jonathan Reed", "Doc" vs "Dr. Halvorsen") — emit ONLY the longer/more complete one as a "character", and put the shorter form in its "aliases" array. Do NOT emit both as separate characters.
 
 Respond with ONLY valid JSON (no markdown fences, no explanation):
 {
@@ -96,6 +99,11 @@ Classify each candidate and detect any character aliases. Respond with JSON only
       prompt,
       systemPrompt: SYSTEM_PROMPT,
       action: 'refine-entities',
+      // Opus on this filter — Sonnet was letting through dialogue snippets
+      // ("Thanks", "Walk", "Understood") and same-person duplicates as new
+      // canon entries. The cost is one call per chapter post-gen so it's
+      // bounded; quality of the canon list compounds across the project.
+      model: 'claude-opus-4-6',
       temperature: 0.1,
       maxTokens: 1500,
       projectId: options?.projectId,
