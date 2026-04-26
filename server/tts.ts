@@ -131,6 +131,7 @@ export interface TTSRequest {
   multiVoice?: boolean; // if false, use narrator for everything
   characterDescriptions?: Record<string, string>; // characterName → personality/speech description
   characterAliases?: Record<string, string[]>; // canonical name → list of accepted aliases (firstName, nicknames, titled forms). Used by attributeSpeaker to disambiguate same-firstName casts and absorb model name drift.
+  characterGenders?: Record<string, string>; // canonical name → 'male' | 'female' (or empty). Used by attributeSpeaker to resolve "he said"/"she said" pronouns when no name is in the attribution window — falls back to nearest named mention of matching gender anywhere in the chapter.
   narratorStyle?: string; // e.g. "dramatic audiobook narrator"
   sceneSFX?: SceneSFXInput[]; // scene-level SFX (background ambience, intro/outro sounds)
   chapterNumber?: number;   // prepend "Chapter N: Title" announcement
@@ -792,9 +793,20 @@ function pushNarrationWithSFX(segments: TTSSegment[], text: string) {
  * Identifies quoted speech and attempts to attribute speakers
  * by looking for "said Character" / "Character said" patterns nearby.
  */
-export function parseDialogue(prose: string, knownCharacters: string[], characterAliases?: Record<string, string[]>): TTSSegment[] {
+export function parseDialogue(
+  prose: string,
+  knownCharacters: string[],
+  characterAliases?: Record<string, string[]>,
+  characterGenders?: Record<string, string>,
+): TTSSegment[] {
   const segments: TTSSegment[] = [];
   const dialogueRegex = /[\u201C"]((?:[^\u201D"\\]|\\.)*)[\u201D"]/g;
+  // Pre-index every named mention of every known character (canon name +
+  // firstName + aliases) across the full prose. attributeSpeaker uses this
+  // to resolve "he/she said" pronouns by finding the closest gender-matching
+  // mention — works even when the character is named only later in the
+  // chapter (i.e. early dialogue is pronoun-only and the reveal comes later).
+  const mentionIndex = buildMentionIndex(prose, knownCharacters, characterAliases);
 
   // First pass: build a map of dialogue positions → tagged speaker from [Name] patterns
   // Pattern: [CharacterName] followed by optional whitespace then opening quote
@@ -832,7 +844,7 @@ export function parseDialogue(prose: string, knownCharacters: string[], characte
     }
     // Use tagged speaker if available, otherwise fall back to heuristic
     const taggedSpeaker = taggedSpeakers.get(match.index);
-    const speaker = taggedSpeaker || attributeSpeaker(prose, match.index, match[0].length, knownCharacters, characterAliases);
+    const speaker = taggedSpeaker || attributeSpeaker(prose, match.index, match[0].length, knownCharacters, characterAliases, mentionIndex, characterGenders);
     const tone = detectTone(prose, match.index, match[0].length);
 
     segments.push({
@@ -867,12 +879,64 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// Index every named mention of every canon character across the prose.
+// Returns canon → sorted list of byte positions. Used by the pronoun
+// fallback in attributeSpeaker so "she said" can be resolved to the
+// nearest named female across the whole chapter (incl. when the name
+// appears only later than the dialogue line).
+type MentionIndex = Map<string, number[]>;
+
+function buildMentionIndex(
+  prose: string,
+  characters: string[],
+  aliasesByCanon?: Record<string, string[]>,
+): MentionIndex {
+  const index: MentionIndex = new Map();
+  for (const canon of characters) {
+    const tokens = new Set<string>();
+    tokens.add(canon);
+    const firstName = canon.split(' ')[0];
+    if (firstName) tokens.add(firstName);
+    for (const a of aliasesByCanon?.[canon] || []) {
+      const t = (a || '').trim();
+      if (t) tokens.add(t);
+    }
+    const positions: number[] = [];
+    for (const token of tokens) {
+      if (token.length < 2) continue;
+      const re = new RegExp(`\\b${escapeRegex(token)}\\b`, 'gi');
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(prose)) !== null) {
+        positions.push(m.index);
+      }
+    }
+    if (positions.length > 0) {
+      positions.sort((a, b) => a - b);
+      index.set(canon, positions);
+    }
+  }
+  return index;
+}
+
+function detectPronounGender(window: string): 'male' | 'female' | null {
+  // Look for the pronoun-said pattern in either order. We require the verb
+  // to be present so generic mentions of "he" / "she" elsewhere in the
+  // window don't trigger this fallback (which would over-attribute).
+  if (new RegExp(`\\bshe\\s+${ATTRIB_VERBS}`, 'i').test(window)) return 'female';
+  if (new RegExp(`\\bhe\\s+${ATTRIB_VERBS}`, 'i').test(window)) return 'male';
+  if (new RegExp(`${ATTRIB_VERBS}\\s+she\\b`, 'i').test(window)) return 'female';
+  if (new RegExp(`${ATTRIB_VERBS}\\s+he\\b`, 'i').test(window)) return 'male';
+  return null;
+}
+
 function attributeSpeaker(
   prose: string,
   matchStart: number,
   matchLength: number,
   characters: string[],
   aliasesByCanon?: Record<string, string[]>,
+  mentionIndex?: MentionIndex,
+  gendersByCanon?: Record<string, string>,
 ): string | null {
   if (characters.length === 0) return null;
 
@@ -955,6 +1019,29 @@ function attributeSpeaker(
     ];
     for (const pattern of fuzzyPatterns) {
       if (pattern.test(window)) return canon;
+    }
+  }
+
+  // Pronoun fallback: dialogue tagged "he said" / "she said" with no name
+  // in the local window. Resolve to the nearest gender-matching named
+  // mention anywhere in the chapter — works whether the name appears
+  // before this line (most common) or only later (e.g. mystery reveal,
+  // POV character whose name lands at end of chapter).
+  if (mentionIndex && gendersByCanon) {
+    const pronounGender = detectPronounGender(window);
+    if (pronounGender) {
+      let best: { canon: string; dist: number } | null = null;
+      for (const canon of characters) {
+        const g = (gendersByCanon[canon] || '').toLowerCase();
+        if (g !== pronounGender) continue;
+        const positions = mentionIndex.get(canon);
+        if (!positions || positions.length === 0) continue;
+        for (const pos of positions) {
+          const dist = Math.abs(pos - matchStart);
+          if (!best || dist < best.dist) best = { canon, dist };
+        }
+      }
+      if (best) return best.canon;
     }
   }
 
@@ -1345,7 +1432,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     // Parse before stripping — parseDialogue needs the [Name] tags to attribute
     // speakers reliably. The announcement is plain narration, so prepend it.
     const proseWithAnnouncement = announcement + proseBody;
-    let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases);
+    let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases, req.characterGenders);
     segments = applyVoiceMap(segments, voiceMap);
 
     // Defensive: any voice that isn't grok:* gets coerced to the narrator.
@@ -1398,8 +1485,12 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const unattribLine = unattributedSnippets.length > 0
       ? `\nunattributed:\n - ${unattributedSnippets.join('\n - ')}`
       : '';
+    const genderCount = Object.values(req.characterGenders || {}).filter(
+      (g) => typeof g === 'string' && g.trim().length > 0,
+    ).length;
     const diagnostic =
       `branch=grok-multivoice known=${req.knownCharacters.length} ` +
+      `genders=${genderCount} ` +
       `segs=${speechSegs.length} ` +
       `voices=${JSON.stringify(voiceCounts)} ` +
       `speakers=${JSON.stringify(speakerCounts)}` +
@@ -1668,7 +1759,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   // Parse prose into segments (narration, dialogue, sfx markers)
   let segments: TTSSegment[];
   if (req.multiVoice && req.knownCharacters && req.knownCharacters.length > 0) {
-    segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases);
+    segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases, req.characterGenders);
     segments = applyVoiceMap(segments, voiceMap);
   } else {
     // Single-voice mode: parse for SFX markers only, force narrator voice on everything
