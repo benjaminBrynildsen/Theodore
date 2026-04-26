@@ -1374,11 +1374,36 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       const key = s.speaker || `(${s.type})`;
       speakerCounts[key] = (speakerCounts[key] || 0) + 1;
     }
+    // Pull short context windows for unattributed dialogue (the segments that
+    // fell back to narrator). These reveal whether the prose used a drifted
+    // name ("Lucien said") that the alias matcher missed, or whether the line
+    // is genuinely tagless ("Yes." with no nearby attribution).
+    const unattributedSnippets: string[] = [];
+    const SNIP_BUDGET = 5;
+    for (const s of speechSegs) {
+      if (unattributedSnippets.length >= SNIP_BUDGET) break;
+      if (s.type !== 'dialogue' || s.speaker) continue;
+      const text = s.text.replace(/\[[^\]]+\]/g, '').trim();
+      if (!text) continue;
+      const idx = req.prose.indexOf(text.slice(0, Math.min(40, text.length)));
+      let context = '';
+      if (idx >= 0) {
+        const start = Math.max(0, idx - 60);
+        const end = Math.min(req.prose.length, idx + text.length + 60);
+        context = req.prose.slice(start, end).replace(/\s+/g, ' ').trim();
+      }
+      const dialoguePreview = text.length > 50 ? `${text.slice(0, 50)}…` : text;
+      unattributedSnippets.push(context ? `«${dialoguePreview}» ctx: …${context}…` : `«${dialoguePreview}»`);
+    }
+    const unattribLine = unattributedSnippets.length > 0
+      ? `\nunattributed:\n - ${unattributedSnippets.join('\n - ')}`
+      : '';
     const diagnostic =
       `branch=grok-multivoice known=${req.knownCharacters.length} ` +
       `segs=${speechSegs.length} ` +
       `voices=${JSON.stringify(voiceCounts)} ` +
-      `speakers=${JSON.stringify(speakerCounts)}`;
+      `speakers=${JSON.stringify(speakerCounts)}` +
+      unattribLine;
     ttsLog(`Grok multi-voice: ${diagnostic}`);
 
     // Generate every segment in parallel. If any one fails, fail the whole
