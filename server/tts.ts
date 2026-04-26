@@ -141,6 +141,7 @@ export interface TTSResult {
   durationEstimate: number; // seconds
   segments: number;
   creditsUsed: number;
+  diagnostic?: string; // optional debug info surfaced to client (multi-voice path)
 }
 
 // ========== Constants ==========
@@ -1288,9 +1289,23 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     const speechSegs = merged.filter(
       (s) => s.type !== 'sfx' && s.text.replace(/\[[^\]]+\]/g, '').trim().length > 0,
     );
-    ttsLog(
-      `Grok multi-voice: ${speechSegs.length} segments, voices=${[...new Set(speechSegs.map((s) => s.voice))].join(',')}`,
-    );
+    // Build per-voice segment count for diagnostics. Helps catch the
+    // "all narrator" symptom (parseDialogue couldn't attribute speakers).
+    const voiceCounts: Record<string, number> = {};
+    for (const s of speechSegs) {
+      voiceCounts[s.voice] = (voiceCounts[s.voice] || 0) + 1;
+    }
+    const speakerCounts: Record<string, number> = {};
+    for (const s of speechSegs) {
+      const key = s.speaker || `(${s.type})`;
+      speakerCounts[key] = (speakerCounts[key] || 0) + 1;
+    }
+    const diagnostic =
+      `branch=grok-multivoice known=${req.knownCharacters.length} ` +
+      `segs=${speechSegs.length} ` +
+      `voices=${JSON.stringify(voiceCounts)} ` +
+      `speakers=${JSON.stringify(speakerCounts)}`;
+    ttsLog(`Grok multi-voice: ${diagnostic}`);
 
     // Generate every segment in parallel. If any one fails, fail the whole
     // chapter — partial audio would silently drop a speaker mid-scene.
@@ -1320,6 +1335,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
       durationEstimate,
       segments: speechSegs.length,
       creditsUsed,
+      diagnostic,
     };
   }
 

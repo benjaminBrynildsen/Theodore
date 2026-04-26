@@ -2292,6 +2292,7 @@ async function runTTSJob(jobId: string) {
         segments: result.segments,
         creditsUsed: actualCreditsUsed,
         creditsRemaining,
+        diagnostic: result.diagnostic,
       },
       error: null,
     });
