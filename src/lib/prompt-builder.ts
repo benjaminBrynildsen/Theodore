@@ -191,7 +191,26 @@ TRANSITIONS: Cut between scenes at the point of highest tension or sharpest iron
 // ========== Narrative Controls → Tone Instructions ==========
 
 function buildToneInstructions(project: Project): string {
-  const nc = project.narrativeControls;
+  // Older projects (pre-narrativeControls migration) and projects created via
+  // partial flows may arrive without one or more sub-objects. Default each
+  // missing field to its centered/balanced value so we never crash and the
+  // model still gets a sensible signal.
+  const ncRaw = project.narrativeControls || ({} as any);
+  const nc = {
+    toneMood: {
+      lightDark: ncRaw.toneMood?.lightDark ?? 50,
+      hopefulGrim: ncRaw.toneMood?.hopefulGrim ?? 50,
+      whimsicalSerious: ncRaw.toneMood?.whimsicalSerious ?? 50,
+    },
+    pacing: ncRaw.pacing ?? 'balanced',
+    dialogueWeight: ncRaw.dialogueWeight ?? 'balanced',
+    focusMix: {
+      character: ncRaw.focusMix?.character ?? 40,
+      plot: ncRaw.focusMix?.plot ?? 40,
+      world: ncRaw.focusMix?.world ?? 20,
+    },
+    genreEmphasis: Array.isArray(ncRaw.genreEmphasis) ? ncRaw.genreEmphasis : [],
+  };
   const lines: string[] = [];
 
   // Tone mood (0 = left, 100 = right)

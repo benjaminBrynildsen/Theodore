@@ -58,9 +58,11 @@ function buildAnalysisPrompt(input: AnalyzeSceneInput): string {
   if (nextSceneStartEmotion) lines.push(`Next scene starts with: ${nextSceneStartEmotion}`);
 
   if (narrativeControls) {
-    const { toneMood } = narrativeControls;
-    lines.push(`Project tone: light/dark=${toneMood.lightDark}/100, hopeful/grim=${toneMood.hopefulGrim}/100, whimsical/serious=${toneMood.whimsicalSerious}/100`);
-    lines.push(`Pacing: ${narrativeControls.pacing}, Dialogue weight: ${narrativeControls.dialogueWeight}`);
+    const tm = narrativeControls.toneMood;
+    if (tm) {
+      lines.push(`Project tone: light/dark=${tm.lightDark ?? 50}/100, hopeful/grim=${tm.hopefulGrim ?? 50}/100, whimsical/serious=${tm.whimsicalSerious ?? 50}/100`);
+    }
+    lines.push(`Pacing: ${narrativeControls.pacing ?? 'balanced'}, Dialogue weight: ${narrativeControls.dialogueWeight ?? 'balanced'}`);
   }
 
   lines.push('');
