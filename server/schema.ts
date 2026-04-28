@@ -265,6 +265,27 @@ export const ttsJobs = pgTable('tts_jobs', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ========== Generation Jobs (mobile background-resilient text/image gen) ==========
+// Mirrors the tts_jobs pattern so a phone backgrounding mid-generation doesn't
+// kill the work. `kind` discriminates ('prose' | 'image' | …); `partial` is a
+// throttled snapshot of in-progress text so the client can show live word
+// counts even after re-attaching to a job in flight.
+export const genJobs = pgTable('gen_jobs', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(), // 'prose' for now; 'image' later
+  status: text('status').notNull().default('pending'),
+  progress: integer('progress').notNull().default(0),
+  spec: jsonb('spec').$type<Record<string, any>>().notNull(),
+  partial: text('partial'), // best-effort live snapshot for resume UX
+  result: jsonb('result').$type<Record<string, any>>(),
+  error: text('error'),
+  userId: text('user_id'),
+  chapterId: text('chapter_id'), // denormalized so we can look up by chapter
+  attempts: integer('attempts').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),

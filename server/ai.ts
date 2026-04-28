@@ -1,6 +1,24 @@
 // AI Generation Service — handles Anthropic + OpenAI calls with streaming
 import type { Request, Response } from 'express';
 
+// A `TextSink` is anywhere we can deliver streaming text deltas. Two flavors:
+//   - Express `Response`: writes SSE frames the live `/api/generate/stream`
+//     endpoint sends to web clients.
+//   - Plain `(text: string) => void` callback: used by the background job
+//     runner so it can accumulate text + persist a partial snapshot to the DB
+//     while the phone is suspended. Decoupling the writer from `res` is what
+//     lets the job runner reuse the existing streaming providers without
+//     faking an Express response object.
+export type TextSink = Response | ((text: string) => void);
+
+function emitText(sink: TextSink, text: string) {
+  if (typeof sink === 'function') {
+    sink(text);
+  } else {
+    sink.write(`data: ${JSON.stringify({ type: 'text', text })}\n\n`);
+  }
+}
+
 // ========== Provider Interfaces ==========
 
 interface GenerateRequest {
@@ -91,7 +109,7 @@ async function callAnthropic(req: GenerateRequest): Promise<GenerateResult> {
 
 // ========== Anthropic Streaming ==========
 
-async function streamAnthropic(req: GenerateRequest, res: Response): Promise<{ inputTokens: number; outputTokens: number; model: string }> {
+async function streamAnthropic(req: GenerateRequest, sink: TextSink): Promise<{ inputTokens: number; outputTokens: number; model: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
@@ -145,7 +163,7 @@ async function streamAnthropic(req: GenerateRequest, res: Response): Promise<{ i
       try {
         const event = JSON.parse(data);
         if (event.type === 'content_block_delta' && event.delta?.text) {
-          res.write(`data: ${JSON.stringify({ type: 'text', text: event.delta.text })}\n\n`);
+          emitText(sink, event.delta.text);
         } else if (event.type === 'message_delta' && event.usage) {
           outputTokens = event.usage.output_tokens || outputTokens;
         } else if (event.type === 'message_start' && event.message?.usage) {
@@ -206,7 +224,7 @@ async function callOpenAI(req: GenerateRequest): Promise<GenerateResult> {
 
 // ========== OpenAI Streaming ==========
 
-async function streamOpenAI(req: GenerateRequest, res: Response): Promise<{ inputTokens: number; outputTokens: number; model: string }> {
+async function streamOpenAI(req: GenerateRequest, sink: TextSink): Promise<{ inputTokens: number; outputTokens: number; model: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OPENAI_API_KEY not configured');
 
@@ -262,7 +280,7 @@ async function streamOpenAI(req: GenerateRequest, res: Response): Promise<{ inpu
         const event = JSON.parse(data);
         const delta = event.choices?.[0]?.delta?.content;
         if (delta) {
-          res.write(`data: ${JSON.stringify({ type: 'text', text: delta })}\n\n`);
+          emitText(sink, delta);
         }
         if (event.usage) {
           inputTokens = event.usage.prompt_tokens || inputTokens;
@@ -313,19 +331,19 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
   }
 }
 
-export async function generateStream(req: GenerateRequest, res: Response): Promise<{ inputTokens: number; outputTokens: number; model: string; creditsUsed: number }> {
+export async function generateStream(req: GenerateRequest, sink: TextSink): Promise<{ inputTokens: number; outputTokens: number; model: string; creditsUsed: number }> {
   const model = normalizeRequestedModel(req.model);
 
   let result;
   if (model.startsWith('claude') || model.startsWith('anthropic')) {
     try {
-      result = await streamAnthropic({ ...req, model }, res);
+      result = await streamAnthropic({ ...req, model }, sink);
     } catch (e: any) {
       console.error(`[AI] Anthropic stream failed (${e.message}), falling back to OpenAI`);
-      result = await streamOpenAI({ ...req, model: 'gpt-4.1' }, res);
+      result = await streamOpenAI({ ...req, model: 'gpt-4.1' }, sink);
     }
   } else {
-    result = await streamOpenAI({ ...req, model }, res);
+    result = await streamOpenAI({ ...req, model }, sink);
   }
 
   return {

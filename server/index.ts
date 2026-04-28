@@ -6,7 +6,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { db, pool } from './db.js';
-import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents, ttsJobs as ttsJobsTable } from './schema.js';
+import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents, ttsJobs as ttsJobsTable, genJobs as genJobsTable } from './schema.js';
 import crypto from 'crypto';
 import {
   clearAllUserSessions,
@@ -23,7 +23,7 @@ import {
   toSafeUser,
   verifyPassword,
 } from './auth.js';
-import { generate, generateStream } from './ai.js';
+import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
@@ -2481,6 +2481,325 @@ app.get('/api/tts/job/:jobId', async (req, res) => {
   }
 });
 
+// ============================================================================
+// Generation Jobs (text/prose) — same pattern as TTS jobs above.
+// Mobile clients submit chapter-prose generation as a job so they survive iOS
+// suspending the app: the streaming HTTP socket on the old endpoint dies the
+// moment the phone backgrounds; here the work lives in the server process and
+// the client polls. The web app keeps using /api/generate/stream for the live
+// word-by-word UX.
+// ============================================================================
+
+interface ProseJobSpec {
+  prompt: string;
+  systemPrompt?: string;
+  model?: string;
+  maxTokens?: number;
+  temperature?: number;
+  projectId?: string;
+  chapterId?: string;
+  action?: string;
+}
+
+const liveGenProgress = new Map<string, number>();
+const liveGenPartial = new Map<string, string>();
+const activeGenJobIds = new Set<string>();
+
+async function createPersistedGenJob(job: { id: string; kind: 'prose'; spec: ProseJobSpec; userId: string; chapterId?: string }) {
+  await db.insert(genJobsTable).values({
+    id: job.id,
+    kind: job.kind,
+    status: 'pending',
+    progress: 0,
+    spec: job.spec,
+    userId: job.userId,
+    chapterId: job.chapterId || null,
+  });
+}
+
+async function updatePersistedGenJob(id: string, patch: Partial<{ status: 'pending' | 'processing' | 'complete' | 'error'; progress: number; partial: string; result: any; error: string | null; attempts: number }>) {
+  const values: Record<string, any> = { updatedAt: new Date() };
+  if (patch.status !== undefined) values.status = patch.status;
+  if (patch.progress !== undefined) values.progress = patch.progress;
+  if (patch.partial !== undefined) values.partial = patch.partial;
+  if (patch.result !== undefined) values.result = patch.result;
+  if (patch.error !== undefined) values.error = patch.error;
+  if (patch.attempts !== undefined) values.attempts = patch.attempts;
+  await db.update(genJobsTable).set(values).where(eq(genJobsTable.id, id));
+}
+
+async function getPersistedGenJob(id: string) {
+  const [row] = await db.select().from(genJobsTable).where(eq(genJobsTable.id, id));
+  return row;
+}
+
+// Atomically claim a stalled job. Same idea as the TTS variant: only one
+// instance picks up a given job after a heartbeat gap. PG handles the race
+// because `status IN ('pending','processing') AND updated_at < cutoff` is
+// evaluated atomically inside the UPDATE.
+async function claimPersistedGenJob(id: string): Promise<boolean> {
+  const cutoff = new Date(Date.now() - STALE_HEARTBEAT_SECONDS * 1000);
+  const claimed = await db
+    .update(genJobsTable)
+    .set({ status: 'processing', updatedAt: new Date() })
+    .where(
+      and(
+        eq(genJobsTable.id, id),
+        or(eq(genJobsTable.status, 'pending'), eq(genJobsTable.status, 'processing')),
+        sql`${genJobsTable.updatedAt} < ${cutoff}`,
+      ),
+    )
+    .returning({ id: genJobsTable.id });
+  return claimed.length > 0;
+}
+
+const MAX_GEN_ATTEMPTS = 3;
+
+async function runProseJob(jobId: string) {
+  const row = await getPersistedGenJob(jobId);
+  if (!row) return;
+  if (row.attempts >= MAX_GEN_ATTEMPTS) {
+    await updatePersistedGenJob(jobId, {
+      status: 'error',
+      error: `Generation failed after ${MAX_GEN_ATTEMPTS} attempts`,
+    });
+    return;
+  }
+  const spec = row.spec as unknown as ProseJobSpec;
+  activeGenJobIds.add(jobId);
+
+  // Heartbeat keeps `updatedAt` fresh so the resume sweep doesn't claim a
+  // job that's actively running on this instance.
+  const heartbeat = setInterval(() => {
+    void db.update(genJobsTable).set({ updatedAt: new Date() }).where(eq(genJobsTable.id, jobId)).catch(() => {});
+  }, 10_000);
+
+  // Throttled DB writes for partial text. We accumulate in memory each chunk
+  // and flush to DB at most every 1.5s so the table doesn't get hammered.
+  let accumulated = '';
+  let lastFlushAt = 0;
+  let lastFlushedLen = 0;
+  const flushPartialIfDue = () => {
+    const now = Date.now();
+    if (now - lastFlushAt < 1500 && accumulated.length - lastFlushedLen < 800) return;
+    lastFlushAt = now;
+    lastFlushedLen = accumulated.length;
+    liveGenPartial.set(jobId, accumulated);
+    void db.update(genJobsTable)
+      .set({ partial: accumulated, updatedAt: new Date() })
+      .where(eq(genJobsTable.id, jobId))
+      .catch(() => {});
+  };
+
+  try {
+    console.log(`[Gen] Running prose job ${jobId} (attempt ${row.attempts + 1})`);
+    await updatePersistedGenJob(jobId, { status: 'processing', attempts: row.attempts + 1, error: null });
+
+    const startTime = Date.now();
+    const expectedMs = Math.max(15_000, ((spec.maxTokens || 4096) / 25) * 1000);
+
+    const result = await generateStream(
+      {
+        prompt: spec.prompt,
+        systemPrompt: spec.systemPrompt,
+        model: spec.model,
+        maxTokens: spec.maxTokens,
+        temperature: spec.temperature,
+        userId: row.userId || '',
+        projectId: spec.projectId,
+        chapterId: spec.chapterId,
+        action: spec.action || 'generate-chapter-prose',
+      },
+      (text) => {
+        accumulated += text;
+        // Lightweight progress: word count vs. target tokens (rough — 1 word
+        // ≈ 1.3 tokens, so target words ≈ maxTokens / 1.3). Capped at 95
+        // until generation actually finishes so the bar never pre-celebrates.
+        const wordsSeen = accumulated.trim() ? accumulated.trim().split(/\s+/).length : 0;
+        const targetWords = Math.max(1, Math.round((spec.maxTokens || 4096) / 1.3));
+        const wordPct = Math.min(95, (wordsSeen / targetWords) * 100);
+        const elapsedPct = Math.min(90, ((Date.now() - startTime) / expectedMs) * 90);
+        const pct = Math.max(wordPct, elapsedPct);
+        liveGenProgress.set(jobId, pct);
+        flushPartialIfDue();
+      },
+    );
+
+    if (!accumulated.trim()) {
+      throw new Error('Empty response from generator');
+    }
+
+    // Credit accounting — same shape as the streaming path. Don't double-bill
+    // and don't deduct on failure (the catch block doesn't touch credits).
+    const isFreeChat = spec.action === 'plan-project';
+    const effectiveCredits = isFreeChat ? 0 : result.creditsUsed;
+
+    if (row.userId) {
+      await db.insert(creditTransactions).values({
+        userId: row.userId,
+        action: spec.action || 'generate-stream',
+        creditsUsed: effectiveCredits,
+        model: result.model,
+        chapterId: spec.chapterId,
+        metadata: {
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+          projectId: spec.projectId,
+          jobId,
+        },
+      });
+
+      if (effectiveCredits > 0) {
+        await db.update(users).set({
+          creditsRemaining: sql`GREATEST(0, ${users.creditsRemaining} - ${effectiveCredits})`,
+          updatedAt: new Date(),
+        }).where(eq(users.id, row.userId));
+      }
+    }
+
+    const [userRow] = row.userId
+      ? await db.select({ credits: users.creditsRemaining }).from(users).where(eq(users.id, row.userId))
+      : [];
+    const creditsRemaining = userRow?.credits ?? null;
+
+    await updatePersistedGenJob(jobId, {
+      status: 'complete',
+      progress: 100,
+      partial: accumulated,
+      result: {
+        text: accumulated,
+        model: result.model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        creditsUsed: effectiveCredits,
+        creditsRemaining,
+      },
+      error: null,
+    });
+    console.log(`[Gen] Prose job ${jobId}: Complete (${accumulated.length} chars, ${result.outputTokens} tokens)`);
+  } catch (e: any) {
+    console.error(`[Gen] Prose job ${jobId}: Failed —`, e.message);
+    // Save accumulated partial so the user could at least recover what we got.
+    await updatePersistedGenJob(jobId, {
+      status: 'error',
+      error: e.message || 'Generation failed',
+      partial: accumulated || undefined,
+    });
+  } finally {
+    clearInterval(heartbeat);
+    liveGenProgress.delete(jobId);
+    liveGenPartial.delete(jobId);
+    activeGenJobIds.delete(jobId);
+  }
+}
+
+async function resumeInterruptedProseJobs() {
+  try {
+    const cutoffHeartbeat = new Date(Date.now() - STALE_HEARTBEAT_SECONDS * 1000);
+    const cutoffAge = new Date(Date.now() - RESUME_WINDOW_MINUTES * 60 * 1000);
+    const rows = await db.select().from(genJobsTable).where(
+      and(
+        eq(genJobsTable.kind, 'prose'),
+        or(eq(genJobsTable.status, 'pending'), eq(genJobsTable.status, 'processing')),
+        sql`${genJobsTable.updatedAt} < ${cutoffHeartbeat}`,
+        sql`${genJobsTable.createdAt} > ${cutoffAge}`,
+      ),
+    );
+    if (rows.length === 0) return;
+    console.log(`[Gen] Resuming ${rows.length} interrupted prose job(s)`);
+    for (const row of rows) {
+      const claimed = await claimPersistedGenJob(row.id);
+      if (!claimed) continue;
+      void runProseJob(row.id).catch((err) => console.error(`[Gen] Resume of ${row.id} failed:`, err));
+    }
+  } catch (e: any) {
+    console.error('[Gen] resumeInterruptedProseJobs failed:', e?.message);
+  }
+}
+
+// Periodic sweep mirrors the TTS one — picks up jobs orphaned by SIGKILL or
+// crashed peers in multi-instance deploys.
+setInterval(() => { void resumeInterruptedProseJobs(); }, 60_000);
+
+// Submit a new prose generation job. Mobile-only entry point.
+app.post('/api/generate/job', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const { prompt, systemPrompt, model, maxTokens, temperature, projectId, chapterId, action } = req.body;
+
+    if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
+
+    const user = auth.user;
+    const isFreeChat = action === 'plan-project';
+    if (!isFreeChat && user.creditsRemaining <= 0) {
+      return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
+    }
+
+    // DB-side concurrency check: reject if this user already has a live prose
+    // job. Catches mobile resubmits where the in-memory `activeGenerationUsers`
+    // map missed because the prior job is running on a peer instance.
+    const skipLockGen = ['plan-project'].includes(action);
+    if (!skipLockGen) {
+      const recentCutoff = new Date(Date.now() - RESUME_WINDOW_MINUTES * 60 * 1000);
+      const [existing] = await db.select({ id: genJobsTable.id })
+        .from(genJobsTable)
+        .where(
+          and(
+            eq(genJobsTable.userId, user.id),
+            eq(genJobsTable.kind, 'prose'),
+            or(eq(genJobsTable.status, 'pending'), eq(genJobsTable.status, 'processing')),
+            sql`${genJobsTable.createdAt} > ${recentCutoff}`,
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        return res.status(409).json({ error: 'Generation already in progress for this account.', jobId: existing.id });
+      }
+    }
+
+    const jobId = `gen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const spec: ProseJobSpec = { prompt, systemPrompt, model, maxTokens, temperature, projectId, chapterId, action };
+    await createPersistedGenJob({ id: jobId, kind: 'prose', spec, userId: user.id, chapterId });
+
+    res.json({ jobId, status: 'pending' });
+
+    void runProseJob(jobId).catch((err) => console.error(`[Gen] runProseJob(${jobId}) crashed:`, err));
+  } catch (e: any) {
+    console.error('[Gen] /generate/job error:', e?.message);
+    respondInternalError(res, 'api', e);
+  }
+});
+
+// Poll endpoint. Keep responses tight — clients hit this every ~1.5s. Auth
+// check is only "is the requester the same user that owns the job"; we don't
+// need fresh user fetches every poll.
+app.get('/api/generate/job/:jobId', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const job = await getPersistedGenJob(req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (job.userId && job.userId !== auth.user.id) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    if (job.status === 'complete') {
+      return res.json({ status: 'complete', kind: job.kind, ...((job.result as any) || {}) });
+    }
+    if (job.status === 'error') {
+      return res.json({ status: 'error', kind: job.kind, error: job.error || 'Generation failed', partial: job.partial || undefined });
+    }
+    // In-flight: prefer in-memory snapshots if this instance is the one running.
+    const pct = liveGenProgress.get(req.params.jobId) ?? job.progress ?? 0;
+    const partial = liveGenPartial.get(req.params.jobId) ?? job.partial ?? '';
+    return res.json({ status: job.status, kind: job.kind, progress: pct, partial: partial || undefined });
+  } catch (e: any) {
+    console.error('[Gen] /generate/job/:id error:', e?.message);
+    respondInternalError(res, 'api', e);
+  }
+});
+
 // ========== Audio Generation History ==========
 
 // Get all audio generations for a project
@@ -3768,6 +4087,24 @@ async function ensureAdditiveSchema() {
        updated_at timestamp NOT NULL DEFAULT NOW()
      )`,
     `CREATE INDEX IF NOT EXISTS tts_jobs_status_updated_idx ON tts_jobs(status, updated_at)`,
+    `CREATE TABLE IF NOT EXISTS gen_jobs (
+       id text PRIMARY KEY,
+       kind text NOT NULL,
+       status text NOT NULL DEFAULT 'pending',
+       progress integer NOT NULL DEFAULT 0,
+       spec jsonb NOT NULL,
+       partial text,
+       result jsonb,
+       error text,
+       user_id text,
+       chapter_id text,
+       attempts integer NOT NULL DEFAULT 0,
+       created_at timestamp NOT NULL DEFAULT NOW(),
+       updated_at timestamp NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS gen_jobs_status_updated_idx ON gen_jobs(status, updated_at)`,
+    `CREATE INDEX IF NOT EXISTS gen_jobs_user_active_idx ON gen_jobs(user_id, status) WHERE status IN ('pending','processing')`,
+    `CREATE INDEX IF NOT EXISTS gen_jobs_chapter_idx ON gen_jobs(chapter_id)`,
   ];
   for (const sql of statements) {
     try {
@@ -3795,6 +4132,7 @@ ensureAdditiveSchema().finally(() => {
   // the server starts serving immediately; resumed jobs stream progress back
   // to polling clients the same way fresh ones do.
   void resumeInterruptedJobs();
+  void resumeInterruptedProseJobs();
 
   // Graceful shutdown: when Render deploys a new version it sends SIGTERM.
   // Without a handler the process dies instantly and any in-flight request
@@ -3813,6 +4151,17 @@ ensureAdditiveSchema().finally(() => {
         void db.update(ttsJobsTable)
           .set({ status: 'pending', updatedAt: stalePast })
           .where(eq(ttsJobsTable.id, id))
+          .catch(() => {});
+      }
+    }
+    if (activeGenJobIds.size > 0) {
+      const stalePast = new Date(Date.now() - (STALE_HEARTBEAT_SECONDS + 5) * 1000);
+      const ids = Array.from(activeGenJobIds);
+      console.log(`[shutdown] releasing ${ids.length} active prose job(s) for resume`);
+      for (const id of ids) {
+        void db.update(genJobsTable)
+          .set({ status: 'pending', updatedAt: stalePast })
+          .where(eq(genJobsTable.id, id))
           .catch(() => {});
       }
     }
