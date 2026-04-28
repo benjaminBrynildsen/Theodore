@@ -6,7 +6,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { db, pool } from './db.js';
-import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents, ttsJobs as ttsJobsTable, genJobs as genJobsTable } from './schema.js';
+import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents, ttsJobs as ttsJobsTable, genJobs as genJobsTable, contentReports, userBlocks, pushTokens } from './schema.js';
 import crypto from 'crypto';
 import {
   clearAllUserSessions,
@@ -3894,8 +3894,23 @@ app.get('/api/public/projects', async (req, res) => {
     const limit = Math.max(1, Math.min(60, Number(req.query.limit) || 24));
     const offset = Math.max(0, Number(req.query.offset) || 0);
 
+    // If the request is authenticated, hide projects authored by users the
+    // viewer has blocked. Unauth requests skip this — they have no identity
+    // to filter against. Auth is OPTIONAL here, not required.
+    const auth = await getAuth(req).catch(() => null);
+    let blockedAuthorIds: string[] = [];
+    if (auth?.user) {
+      const blocks = await db.select({ blockedUserId: userBlocks.blockedUserId })
+        .from(userBlocks)
+        .where(eq(userBlocks.blockerId, auth.user.id));
+      blockedAuthorIds = blocks.map(b => b.blockedUserId);
+    }
+
     const conditions: any[] = [eq(projects.isPublic, true)];
     if (typeFilter) conditions.push(eq(projects.type, typeFilter));
+    if (blockedAuthorIds.length > 0) {
+      conditions.push(sql`${projects.userId} NOT IN (${sql.join(blockedAuthorIds.map(id => sql`${id}`), sql`, `)})`);
+    }
     if (q) {
       const pattern = `%${q.replace(/[%_]/g, '\\$&')}%`;
       conditions.push(or(
@@ -3988,6 +4003,16 @@ app.get('/api/public/book/:slug', async (req, res) => {
     const { slug } = req.params;
     const [project] = await db.select().from(projects).where(and(eq(projects.slug, slug), eq(projects.isPublic, true))).limit(1);
     if (!project) return res.status(404).json({ error: 'Book not found' });
+    // Hide blocked authors' content from the viewer if signed in. We return
+    // 404 (not 403) so the existence of the block isn't leaked.
+    const auth = await getAuth(req).catch(() => null);
+    if (auth?.user) {
+      const [blk] = await db.select({ blockedUserId: userBlocks.blockedUserId })
+        .from(userBlocks)
+        .where(and(eq(userBlocks.blockerId, auth.user.id), eq(userBlocks.blockedUserId, project.userId)))
+        .limit(1);
+      if (blk) return res.status(404).json({ error: 'Book not found' });
+    }
 
     const cfg = (project.shareConfig || {}) as any;
     const chapterRows = await db.select().from(chapters).where(eq(chapters.projectId, project.id));
@@ -4165,6 +4190,145 @@ app.get('/api/projects/:id/share-status', async (req, res) => {
   }
 });
 
+// ========== Marketplace Moderation (Apple Guideline 1.2) ==========
+// Report public content. Auth optional — guests can report too, since the
+// review surface itself is public. Rate limit / abuse handling lives in the
+// admin moderation workflow, not at write time.
+app.post('/api/public/projects/:slug/report', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const auth = await getAuth(req).catch(() => null);
+    const body = (req.body || {}) as { reason?: string; details?: string; chapterId?: string };
+    const reason = String(body.reason || '').slice(0, 60).trim();
+    if (!reason) return res.status(400).json({ error: 'reason required' });
+    const details = String(body.details || '').slice(0, 1000);
+    const chapterId = typeof body.chapterId === 'string' ? body.chapterId.slice(0, 200) : null;
+
+    const [project] = await db.select({ id: projects.id, isPublic: projects.isPublic })
+      .from(projects).where(eq(projects.slug, slug)).limit(1);
+    if (!project) return res.status(404).json({ error: 'Book not found' });
+
+    await db.insert(contentReports).values({
+      id: randomUUID(),
+      reporterId: auth?.user?.id || null,
+      projectSlug: slug,
+      projectId: project.id,
+      chapterId,
+      reason,
+      details,
+      status: 'pending',
+    });
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[public/report]', e);
+    res.status(500).json({ error: 'Failed to record report' });
+  }
+});
+
+// Block the author of a public project. Auth required — blocking is
+// per-viewer state. Idempotent: re-blocking is a no-op.
+app.post('/api/public/projects/:slug/block-author', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const { slug } = req.params;
+    const [project] = await db.select({ userId: projects.userId, isPublic: projects.isPublic })
+      .from(projects).where(eq(projects.slug, slug)).limit(1);
+    if (!project) return res.status(404).json({ error: 'Book not found' });
+    if (project.userId === auth.user.id) {
+      return res.status(400).json({ error: 'Cannot block yourself' });
+    }
+    await db.insert(userBlocks).values({
+      blockerId: auth.user.id,
+      blockedUserId: project.userId,
+    }).onConflictDoNothing();
+    res.json({ ok: true, blockedUserId: project.userId });
+  } catch (e: any) {
+    console.error('[blocks/create]', e);
+    res.status(500).json({ error: 'Failed to block' });
+  }
+});
+
+// List the viewer's blocks, joined with display names/avatars from users.
+app.get('/api/users/me/blocks', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const rows = await db.select({
+      blockedUserId: userBlocks.blockedUserId,
+      createdAt: userBlocks.createdAt,
+      name: users.name,
+      avatarUrl: users.avatarUrl,
+    })
+      .from(userBlocks)
+      .leftJoin(users, eq(users.id, userBlocks.blockedUserId))
+      .where(eq(userBlocks.blockerId, auth.user.id))
+      .orderBy(desc(userBlocks.createdAt));
+    res.json({ blocks: rows });
+  } catch (e: any) {
+    console.error('[blocks/list]', e);
+    res.status(500).json({ error: 'Failed to load blocks' });
+  }
+});
+
+app.delete('/api/users/me/blocks/:blockedUserId', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const { blockedUserId } = req.params;
+    await db.delete(userBlocks)
+      .where(and(
+        eq(userBlocks.blockerId, auth.user.id),
+        eq(userBlocks.blockedUserId, blockedUserId),
+      ));
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[blocks/delete]', e);
+    res.status(500).json({ error: 'Failed to unblock' });
+  }
+});
+
+// ========== Push Tokens ==========
+// Mobile clients PUT this on launch after permission is granted. We upsert
+// by token (PK), reassigning userId on every call so a shared device that
+// switches accounts doesn't keep notifying the previous user.
+app.put('/api/users/me/push-token', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const { token, platform } = req.body || {};
+    if (typeof token !== 'string' || !token.trim()) {
+      return res.status(400).json({ error: 'token required' });
+    }
+    const plat = typeof platform === 'string' && platform.length <= 16 ? platform : 'ios';
+    await db
+      .insert(pushTokens)
+      .values({ token, userId: auth.user.id, platform: plat })
+      .onConflictDoUpdate({
+        target: pushTokens.token,
+        set: { userId: auth.user.id, platform: plat, lastSeenAt: new Date() },
+      });
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[push-token/put]', e);
+    res.status(500).json({ error: 'Failed to register push token' });
+  }
+});
+
+app.delete('/api/users/me/push-token', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const token = (req.body?.token || req.query?.token) as string | undefined;
+    if (!token) return res.status(400).json({ error: 'token required' });
+    await db.delete(pushTokens).where(eq(pushTokens.token, token));
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[push-token/delete]', e);
+    res.status(500).json({ error: 'Failed to remove push token' });
+  }
+});
+
 const distPath = path.resolve(process.cwd(), 'dist');
 // Log pageviews BEFORE the static handler so we capture HTML navigations
 // (bundled assets are skipped inside the middleware via /assets/ prefix).
@@ -4230,6 +4394,38 @@ async function ensureAdditiveSchema() {
     `CREATE INDEX IF NOT EXISTS gen_jobs_status_updated_idx ON gen_jobs(status, updated_at)`,
     `CREATE INDEX IF NOT EXISTS gen_jobs_user_active_idx ON gen_jobs(user_id, status) WHERE status IN ('pending','processing')`,
     `CREATE INDEX IF NOT EXISTS gen_jobs_chapter_idx ON gen_jobs(chapter_id)`,
+    // Marketplace moderation (Apple Guideline 1.2). Reports collect abuse
+    // signals; blocks let users hide an author's content from their feed.
+    `CREATE TABLE IF NOT EXISTS content_reports (
+       id text PRIMARY KEY,
+       reporter_id text,
+       project_slug text NOT NULL,
+       project_id text,
+       chapter_id text,
+       reason text NOT NULL,
+       details text DEFAULT '',
+       status text NOT NULL DEFAULT 'pending',
+       created_at timestamp NOT NULL DEFAULT NOW(),
+       resolved_at timestamp
+     )`,
+    `CREATE INDEX IF NOT EXISTS content_reports_status_idx ON content_reports(status, created_at)`,
+    `CREATE INDEX IF NOT EXISTS content_reports_slug_idx ON content_reports(project_slug)`,
+    `CREATE TABLE IF NOT EXISTS user_blocks (
+       blocker_id text NOT NULL,
+       blocked_user_id text NOT NULL,
+       created_at timestamp NOT NULL DEFAULT NOW(),
+       PRIMARY KEY (blocker_id, blocked_user_id)
+     )`,
+    `CREATE INDEX IF NOT EXISTS user_blocks_blocker_idx ON user_blocks(blocker_id)`,
+    `CREATE INDEX IF NOT EXISTS user_blocks_blocked_idx ON user_blocks(blocked_user_id)`,
+    `CREATE TABLE IF NOT EXISTS push_tokens (
+       token text PRIMARY KEY,
+       user_id text NOT NULL,
+       platform text NOT NULL DEFAULT 'ios',
+       created_at timestamp NOT NULL DEFAULT NOW(),
+       last_seen_at timestamp NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS push_tokens_user_idx ON push_tokens(user_id)`,
   ];
   for (const sql of statements) {
     try {

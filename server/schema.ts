@@ -362,3 +362,39 @@ export const validationOverrides = pgTable('validation_overrides', {
   overriddenBy: text('overridden_by').notNull(), // user id
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+
+// ========== Marketplace Moderation (Apple Guideline 1.2) ==========
+// Reports are created by any signed-in user against a public project.
+// Status starts 'pending'; admin manual-resolves with 'dismissed' or 'removed'.
+export const contentReports = pgTable('content_reports', {
+  id: text('id').primaryKey(),
+  reporterId: text('reporter_id'),
+  projectSlug: text('project_slug').notNull(),
+  projectId: text('project_id'),
+  chapterId: text('chapter_id'),
+  reason: text('reason').notNull(),
+  details: text('details').default(''),
+  status: text('status').notNull().default('pending'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  resolvedAt: timestamp('resolved_at'),
+});
+
+// One row per (blocker, blocked) pair. Blocked authors' projects are filtered
+// out of the Discover feed and detail endpoints for the blocker.
+export const userBlocks = pgTable('user_blocks', {
+  blockerId: text('blocker_id').notNull(),
+  blockedUserId: text('blocked_user_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ========== Push Tokens ==========
+// Mobile devices register Expo push tokens here. A user can have multiple
+// devices (phone + tablet); we key by token to keep duplicates out.
+export const pushTokens = pgTable('push_tokens', {
+  token: text('token').primaryKey(),
+  userId: text('user_id').notNull(),
+  platform: text('platform').notNull().default('ios'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastSeenAt: timestamp('last_seen_at').defaultNow().notNull(),
+});
