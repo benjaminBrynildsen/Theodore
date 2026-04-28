@@ -321,6 +321,22 @@ export const outreachEmails = pgTable('outreach_emails', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ========== Outreach Templates ==========
+// Reusable cold-email templates. The tagSlug auto-gets merged into a
+// recipient's `tags` array when a template is sent — that's how we
+// answer "how is template X performing?" later (filter pipeline by tag,
+// or hit /api/admin/outreach/templates/stats for per-template rates).
+export const outreachTemplates = pgTable('outreach_templates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  subject: text('subject').notNull(),
+  bodyHtml: text('body_html').notNull(),
+  tagSlug: text('tag_slug').notNull().unique(), // e.g., 'intro-v1'
+  description: text('description'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // ========== Outreach Opens ==========
 // Every pixel hit. is_bot rows are kept (not deleted) so we can audit the
 // filter; the admin UI counts only is_bot=false.

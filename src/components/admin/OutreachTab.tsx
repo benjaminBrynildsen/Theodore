@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Mail, Send, Eye, ChevronRight, Plus, Trash2, ExternalLink, Search, X } from 'lucide-react';
+import { Mail, Send, Eye, ChevronRight, Plus, Trash2, ExternalLink, Search, X, FileText, Edit2, Tag } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const API = '/api/admin';
@@ -67,6 +67,29 @@ interface OverallStats {
   recipients_positive: number;
 }
 
+interface Template {
+  id: string;
+  name: string;
+  subject: string;
+  bodyHtml: string;
+  tagSlug: string;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface TemplateStat {
+  id: string;
+  name: string;
+  tag_slug: string;
+  subject: string;
+  recipients_total: number;
+  sent_count: number;
+  recipients_opened: number;
+  recipients_replied: number;
+  recipients_positive: number;
+}
+
 const STATUS_ORDER: Status[] = ['todo', 'queued', 'sent', 'opened', 'replied', 'positive', 'negative', 'paused', 'bounced'];
 
 const STATUS_LABELS: Record<Status, string> = {
@@ -114,27 +137,32 @@ async function jpost<T>(path: string, body: any, method: 'POST' | 'PATCH' | 'DEL
 }
 
 export function OutreachTab() {
-  const [mode, setMode] = useState<'pipeline' | 'compose' | 'timeline'>('pipeline');
+  const [mode, setMode] = useState<'pipeline' | 'compose' | 'templates'>('pipeline');
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [stats, setStats] = useState<OverallStats | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all');
+  const [tagFilter, setTagFilter] = useState<string>('all');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openTimelineFor, setOpenTimelineFor] = useState<Recipient | null>(null);
   const [composeFor, setComposeFor] = useState<Recipient | null>(null);
+  const [composePresetTemplateId, setComposePresetTemplateId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [r, s] = await Promise.all([
+      const [r, s, t] = await Promise.all([
         jget<{ recipients: Recipient[] }>('/outreach/recipients'),
         jget<{ stats: OverallStats }>('/outreach/stats'),
+        jget<{ templates: Template[] }>('/outreach/templates'),
       ]);
       setRecipients(r.recipients);
       setStats(s.stats);
+      setTemplates(t.templates);
     } catch (e: any) {
       setError(e.message || 'Failed to load');
     }
@@ -143,17 +171,27 @@ export function OutreachTab() {
 
   useEffect(() => { load(); }, []);
 
+  // All distinct tags currently in use (for the filter dropdown).
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of recipients) {
+      for (const tag of r.tags || []) set.add(tag);
+    }
+    return Array.from(set).sort();
+  }, [recipients]);
+
   const filtered = useMemo(() => {
     return recipients.filter((r) => {
       if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+      if (tagFilter !== 'all' && !(r.tags || []).includes(tagFilter)) return false;
       if (search) {
         const q = search.toLowerCase();
-        const hay = `${r.email} ${r.name || ''} ${r.company || ''} ${r.platform || ''}`.toLowerCase();
+        const hay = `${r.email} ${r.name || ''} ${r.company || ''} ${r.platform || ''} ${(r.tags || []).join(' ')}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [recipients, search, statusFilter]);
+  }, [recipients, search, statusFilter, tagFilter]);
 
   const grouped = useMemo(() => {
     const m = new Map<Status, Recipient[]>();
@@ -195,16 +233,16 @@ export function OutreachTab() {
       {/* Mode toggle + actions */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="glass-pill rounded-full p-1 flex">
-          {(['pipeline', 'compose'] as const).map((m) => (
+          {(['pipeline', 'compose', 'templates'] as const).map((m) => (
             <button
               key={m}
-              onClick={() => { setMode(m); setComposeFor(null); }}
+              onClick={() => { setMode(m); setComposeFor(null); setComposePresetTemplateId(null); }}
               className={cn(
                 'px-3 py-1 text-xs font-medium rounded-full transition-colors',
                 mode === m ? 'bg-text-primary text-white' : 'text-text-secondary hover:text-text-primary',
               )}
             >
-              {m === 'pipeline' ? 'Pipeline' : 'Compose'}
+              {m === 'pipeline' ? 'Pipeline' : m === 'compose' ? 'Compose' : 'Templates'}
             </button>
           ))}
         </div>
@@ -241,6 +279,18 @@ export function OutreachTab() {
               <option key={s} value={s}>{STATUS_LABELS[s]}</option>
             ))}
           </select>
+          {allTags.length > 0 && (
+            <select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              className="glass-pill rounded-full px-3 py-1 text-xs bg-transparent"
+            >
+              <option value="all">All tags</option>
+              {allTags.map((t) => (
+                <option key={t} value={t}>#{t}</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
@@ -280,9 +330,19 @@ export function OutreachTab() {
       {mode === 'compose' && (
         <ComposeView
           recipients={recipients}
+          templates={templates}
           presetRecipient={composeFor}
-          onSent={() => { setComposeFor(null); load(); setMode('pipeline'); }}
-          onCancel={() => { setComposeFor(null); setMode('pipeline'); }}
+          presetTemplateId={composePresetTemplateId}
+          onSent={() => { setComposeFor(null); setComposePresetTemplateId(null); load(); setMode('pipeline'); }}
+          onCancel={() => { setComposeFor(null); setComposePresetTemplateId(null); setMode('pipeline'); }}
+        />
+      )}
+
+      {mode === 'templates' && (
+        <TemplatesView
+          templates={templates}
+          onChange={load}
+          onCompose={(t) => { setComposePresetTemplateId(t.id); setMode('compose'); }}
         />
       )}
 
@@ -344,14 +404,21 @@ function PipelineRow({
             <span className="text-[10px] text-text-tertiary uppercase">{r.platform}</span>
           )}
         </div>
-        <div className="text-xs text-text-tertiary truncate">
-          {r.email}
-          {r.company && ` · ${r.company}`}
+        <div className="text-xs text-text-tertiary truncate flex items-center gap-2">
+          <span className="truncate">
+            {r.email}
+            {r.company && ` · ${r.company}`}
+          </span>
           {r.channelUrl && (
-            <a href={r.channelUrl} target="_blank" rel="noreferrer" className="ml-2 inline-flex items-center gap-1 text-text-secondary hover:underline">
-              <ExternalLink size={10} /> link
+            <a href={r.channelUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-text-secondary hover:underline">
+              <ExternalLink size={10} />
             </a>
           )}
+          {(r.tags || []).map((tag) => (
+            <span key={tag} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[10px] font-medium">
+              <Tag size={9} /> {tag}
+            </span>
+          ))}
         </div>
       </div>
       <div className="hidden sm:flex items-center gap-3 text-xs text-text-tertiary">
@@ -428,22 +495,45 @@ function AddRecipientModal({ onClose, onAdded }: { onClose: () => void; onAdded:
 
 function ComposeView({
   recipients,
+  templates,
   presetRecipient,
+  presetTemplateId,
   onSent,
   onCancel,
 }: {
   recipients: Recipient[];
+  templates: Template[];
   presetRecipient: Recipient | null;
+  presetTemplateId: string | null;
   onSent: () => void;
   onCancel: () => void;
 }) {
   const [recipientId, setRecipientId] = useState(presetRecipient?.id || '');
+  const [templateId, setTemplateId] = useState<string>(presetTemplateId || '');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const recipient = recipients.find((r) => r.id === recipientId) || null;
+
+  // When a template is picked, prefill subject + body. Once typed-over, the
+  // user's edits are preserved unless they pick a different template.
+  const applyTemplate = (id: string) => {
+    setTemplateId(id);
+    if (!id) return;
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    setSubject(t.subject);
+    setBody(htmlToPlainText(t.bodyHtml));
+  };
+
+  // If preset template was passed in (clicked "Use template" from Templates view),
+  // apply it once on mount.
+  useEffect(() => {
+    if (presetTemplateId) applyTemplate(presetTemplateId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const send = async () => {
     if (!recipientId || !subject.trim() || !body.trim()) {
@@ -454,7 +544,12 @@ function ComposeView({
     setErr(null);
     try {
       const html = plaintextToHtml(body, recipient);
-      await jpost('/outreach/send', { recipientId, subject, bodyHtml: html });
+      await jpost('/outreach/send', {
+        recipientId,
+        subject,
+        bodyHtml: html,
+        templateId: templateId || undefined,
+      });
       onSent();
     } catch (e: any) {
       setErr(e.message || 'Send failed');
@@ -487,6 +582,29 @@ function ComposeView({
           ))}
         </select>
       </div>
+
+      {templates.length > 0 && (
+        <div>
+          <label className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">
+            Template (optional — auto-tags recipient)
+          </label>
+          <select
+            value={templateId}
+            onChange={(e) => applyTemplate(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm mt-1"
+          >
+            <option value="">— no template —</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} · #{t.tagSlug}
+              </option>
+            ))}
+          </select>
+          <div className="text-[11px] text-text-tertiary mt-1">
+            Variables: <code>{'{{name}}'}</code> · <code>{'{{firstName}}'}</code> · <code>{'{{company}}'}</code> · <code>{'{{platform}}'}</code> — substituted at send.
+          </div>
+        </div>
+      )}
 
       <div>
         <label className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">Subject</label>
@@ -532,6 +650,24 @@ function ComposeView({
   );
 }
 
+function htmlToPlainText(html: string): string {
+  // Reverse of plaintextToHtml — best-effort. Strips tags but preserves
+  // paragraph breaks. Good enough for a template editor.
+  return html
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function plaintextToHtml(text: string, _recipient: Recipient | null): string {
   const escaped = text
     .replace(/&/g, '&amp;')
@@ -547,6 +683,234 @@ function plaintextToHtml(text: string, _recipient: Recipient | null): string {
     .map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`)
     .join('\n');
   return `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#222;">${paragraphs}</body></html>`;
+}
+
+function TemplatesView({
+  templates,
+  onChange,
+  onCompose,
+}: {
+  templates: Template[];
+  onChange: () => void;
+  onCompose: (t: Template) => void;
+}) {
+  const [stats, setStats] = useState<TemplateStat[]>([]);
+  const [editing, setEditing] = useState<Template | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const loadStats = async () => {
+    try {
+      const data = await jget<{ templates: TemplateStat[] }>('/outreach/templates/stats');
+      setStats(data.templates);
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  };
+
+  useEffect(() => { loadStats(); }, [templates.length]);
+
+  const remove = async (id: string) => {
+    if (!confirm('Delete this template? Existing recipients keep their tag.')) return;
+    try {
+      await jpost(`/outreach/templates/${id}`, {}, 'DELETE');
+      onChange();
+    } catch (e: any) { setErr(e.message); }
+  };
+
+  return (
+    <div className="space-y-3">
+      {err && <div className="glass-pill rounded-xl p-3 text-sm text-error">{err}</div>}
+      <div className="flex justify-between items-center">
+        <h3 className="text-sm font-serif font-semibold">Templates</h3>
+        <button
+          onClick={() => setCreating(true)}
+          className="glass-pill rounded-full px-3 py-1 text-xs font-medium text-text-secondary hover:text-text-primary inline-flex items-center gap-1"
+        >
+          <Plus size={12} /> New template
+        </button>
+      </div>
+
+      {templates.length === 0 && (
+        <div className="glass-pill rounded-2xl p-6 text-sm text-text-tertiary text-center">
+          No templates yet. Create one to start tagging outreach by template.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {templates.map((t) => {
+          const s = stats.find((x) => x.id === t.id);
+          const openRate = s && s.sent_count > 0
+            ? Math.round((s.recipients_opened / s.recipients_total) * 100)
+            : 0;
+          return (
+            <div key={t.id} className="glass-pill rounded-2xl p-4 flex flex-col gap-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-text-primary">{t.name}</div>
+                  <div className="text-[11px] text-text-tertiary">
+                    Tag: <span className="font-mono">#{t.tagSlug}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => onCompose(t)} className="text-text-tertiary hover:text-text-primary p-1" title="Use in compose">
+                    <Send size={13} />
+                  </button>
+                  <button onClick={() => setEditing(t)} className="text-text-tertiary hover:text-text-primary p-1" title="Edit">
+                    <Edit2 size={13} />
+                  </button>
+                  <button onClick={() => remove(t.id)} className="text-text-tertiary hover:text-rose-600 p-1" title="Delete">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+              <div className="text-xs text-text-secondary line-clamp-2">{t.subject}</div>
+              {s && (
+                <div className="grid grid-cols-4 gap-2 mt-1 text-[11px]">
+                  <TStat label="Recipients" value={s.recipients_total} />
+                  <TStat label="Sent" value={s.sent_count} />
+                  <TStat label="Opened" value={`${s.recipients_opened} (${openRate}%)`} />
+                  <TStat label="Replied" value={s.recipients_replied} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {(creating || editing) && (
+        <TemplateEditor
+          template={editing}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={() => { setCreating(false); setEditing(null); onChange(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function TStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-black/[0.03] rounded px-2 py-1">
+      <div className="text-[9px] uppercase tracking-wider text-text-tertiary">{label}</div>
+      <div className="text-xs font-semibold text-text-primary tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function TemplateEditor({
+  template,
+  onClose,
+  onSaved,
+}: {
+  template: Template | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(template?.name || '');
+  const [subject, setSubject] = useState(template?.subject || '');
+  const [body, setBody] = useState(template ? htmlToPlainText(template.bodyHtml) : '');
+  const [tagSlug, setTagSlug] = useState(template?.tagSlug || '');
+  const [description, setDescription] = useState(template?.description || '');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!name.trim() || !subject.trim() || !body.trim()) {
+      setErr('Name, subject, and body are required.');
+      return;
+    }
+    setSaving(true);
+    setErr(null);
+    try {
+      const bodyHtml = plaintextToHtml(body, null);
+      const payload = { name, subject, bodyHtml, tagSlug: tagSlug || undefined, description };
+      if (template) {
+        await jpost(`/outreach/templates/${template.id}`, payload, 'PATCH');
+      } else {
+        await jpost('/outreach/templates', payload);
+      }
+      onSaved();
+    } catch (e: any) {
+      setErr(e.message || 'Failed');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-black/5 px-5 py-3 flex items-center justify-between">
+          <h3 className="text-base font-serif font-semibold inline-flex items-center gap-2">
+            <FileText size={16} /> {template ? 'Edit template' : 'New template'}
+          </h3>
+          <button onClick={onClose}><X size={16} className="text-text-tertiary" /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">Name</label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Tech YouTube — intro v1"
+              className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm mt-1"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">
+              Tag slug {!template && '(auto-generated from name if blank)'}
+            </label>
+            <input
+              value={tagSlug}
+              onChange={(e) => setTagSlug(e.target.value)}
+              placeholder="intro-v1"
+              className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm mt-1 font-mono"
+            />
+            <div className="text-[11px] text-text-tertiary mt-1">
+              Recipients sent this template auto-get tagged with <span className="font-mono">#{tagSlug || 'auto'}</span>.
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">Subject</label>
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Theodore for {{company}} — partnership idea"
+              className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm mt-1"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">
+              Body (variables: {'{{name}}'}, {'{{firstName}}'}, {'{{company}}'}, {'{{platform}}'})
+            </label>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={14}
+              placeholder={`Hi {{firstName}},\n\nLove what you're doing at {{company}}…\n\nBen`}
+              className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm mt-1 font-mono"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-medium text-text-tertiary uppercase tracking-wider">Description (internal note)</label>
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What's this template for?"
+              className="w-full px-3 py-2 rounded-lg border border-black/10 text-sm mt-1"
+            />
+          </div>
+          {err && <div className="text-xs text-error">{err}</div>}
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm border border-black/10">Cancel</button>
+            <button onClick={submit} disabled={saving} className="px-4 py-2 rounded-lg text-sm bg-text-primary text-white disabled:opacity-50">
+              {saving ? 'Saving…' : template ? 'Save' : 'Create'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function TimelineModal({

@@ -39,7 +39,7 @@ import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail, get
 import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
 import { attachActiveCharacterRoutes } from './active-character.js';
 import { parseBookText } from './book-parser.js';
-import { pixelHandler, listRecipients, createRecipient, updateRecipient, deleteRecipient, recipientTimeline, sendEmail as sendOutreachEmail, outreachStats } from './outreach.js';
+import { pixelHandler, listRecipients, createRecipient, updateRecipient, deleteRecipient, recipientTimeline, sendEmail as sendOutreachEmail, outreachStats, listTemplates, createTemplate, updateTemplate, deleteTemplate, templateStats } from './outreach.js';
 
 // Keep the process alive when a rogue async error escapes a handler. Without
 // these, a single failed fetch or bad JSON body crashes the whole server and
@@ -3115,6 +3115,11 @@ app.delete('/api/admin/outreach/recipients/:id', deleteRecipient);
 app.get('/api/admin/outreach/recipients/:id/timeline', recipientTimeline);
 app.post('/api/admin/outreach/send', sendOutreachEmail);
 app.get('/api/admin/outreach/stats', outreachStats);
+app.get('/api/admin/outreach/templates', listTemplates);
+app.post('/api/admin/outreach/templates', createTemplate);
+app.patch('/api/admin/outreach/templates/:id', updateTemplate);
+app.delete('/api/admin/outreach/templates/:id', deleteTemplate);
+app.get('/api/admin/outreach/templates/stats', templateStats);
 
 // Grok image reference-input diagnostic. Hits xAI's /v1/images/generations
 // four times with the same project's hero shot + prompt, varying ONLY the

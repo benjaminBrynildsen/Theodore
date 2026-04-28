@@ -15,7 +15,7 @@
 import type { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { db } from './db.js';
-import { outreachRecipients, outreachEmails, outreachOpens } from './schema.js';
+import { outreachRecipients, outreachEmails, outreachOpens, outreachTemplates } from './schema.js';
 import { sql, eq, desc, and } from 'drizzle-orm';
 import { requireAdmin } from './admin.js';
 import nodemailer from 'nodemailer';
@@ -356,18 +356,57 @@ function htmlToText(html: string): string {
     .trim();
 }
 
+// Substitute {{name}}, {{company}}, {{platform}}, {{firstName}} in any string.
+// Missing fields fall back to a sensible default (recipient.email or empty).
+function substituteVars(s: string, recipient: typeof outreachRecipients.$inferSelect): string {
+  const firstName = (recipient.name || '').split(/\s+/)[0] || '';
+  const map: Record<string, string> = {
+    name: recipient.name || firstName || 'there',
+    firstName: firstName || 'there',
+    company: recipient.company || '',
+    platform: recipient.platform || '',
+    email: recipient.email || '',
+  };
+  return s.replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, key) => {
+    if (key in map) return map[key];
+    return _m; // leave unknown variables alone
+  });
+}
+
 export async function sendEmail(req: Request, res: Response) {
   if (!(await requireAdmin(req, res))) return;
   try {
     const body = req.body || {};
     const recipientId = String(body.recipientId || '').trim();
-    const subject = String(body.subject || '').trim();
-    const bodyHtml = String(body.bodyHtml || '').trim();
-    if (!recipientId || !subject || !bodyHtml) {
-      return res.status(400).json({ error: 'recipientId, subject, bodyHtml required' });
+    const templateId = body.templateId ? String(body.templateId) : null;
+    let subject = String(body.subject || '').trim();
+    let bodyHtml = String(body.bodyHtml || '').trim();
+    if (!recipientId) {
+      return res.status(400).json({ error: 'recipientId required' });
     }
     const [recipient] = await db.select().from(outreachRecipients).where(eq(outreachRecipients.id, recipientId));
     if (!recipient) return res.status(404).json({ error: 'Recipient not found' });
+
+    // If a templateId is supplied, the template's subject + body are used as
+    // a base — explicit subject/bodyHtml in the request body still override
+    // (so the user can tweak before sending). The tagSlug is always merged.
+    let template: typeof outreachTemplates.$inferSelect | null = null;
+    if (templateId) {
+      const [t] = await db.select().from(outreachTemplates).where(eq(outreachTemplates.id, templateId));
+      if (!t) return res.status(404).json({ error: 'Template not found' });
+      template = t;
+      if (!subject) subject = t.subject;
+      if (!bodyHtml) bodyHtml = t.bodyHtml;
+    }
+
+    if (!subject || !bodyHtml) {
+      return res.status(400).json({ error: 'subject and bodyHtml required (or pass templateId)' });
+    }
+
+    // Variable substitution happens AFTER the template merge so any variables
+    // in either the template or the user-edited body get resolved together.
+    subject = substituteVars(subject, recipient);
+    bodyHtml = substituteVars(bodyHtml, recipient);
 
     // Allocate the email row first so we have its UUID for the pixel.
     const emailId = randomUUID();
@@ -413,14 +452,25 @@ export async function sendEmail(req: Request, res: Response) {
       .set({ threadId: messageId })
       .where(eq(outreachEmails.id, emailId));
 
-    // Bump recipient status to 'sent' (don't downgrade if already past).
+    // Merge the template's tagSlug onto the recipient (idempotent — set
+    // semantics) so we can later filter pipeline / compute per-template stats.
+    const recipientPatch: Record<string, any> = { updatedAt: new Date() };
+    if (template?.tagSlug) {
+      const existingTags = Array.isArray(recipient.tags) ? recipient.tags : [];
+      if (!existingTags.includes(template.tagSlug)) {
+        recipientPatch.tags = [...existingTags, template.tagSlug];
+      }
+    }
     if (recipient.status === 'todo' || recipient.status === 'queued') {
+      recipientPatch.status = 'sent';
+    }
+    if (Object.keys(recipientPatch).length > 1) {
       await db.update(outreachRecipients)
-        .set({ status: 'sent', updatedAt: new Date() })
+        .set(recipientPatch)
         .where(eq(outreachRecipients.id, recipientId));
     }
 
-    res.json({ emailId, messageId, pixelUrl: buildPixelUrl(emailId) });
+    res.json({ emailId, messageId, pixelUrl: buildPixelUrl(emailId), templateApplied: template?.tagSlug || null });
   } catch (e: any) {
     console.error('[outreach] sendEmail error:', e);
     res.status(500).json({ error: e.message || 'Send failed' });
@@ -445,5 +495,131 @@ export async function outreachStats(req: Request, res: Response) {
     res.json({ stats: row });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load stats' });
+  }
+}
+
+// ========== Templates: CRUD ==========
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+export async function listTemplates(req: Request, res: Response) {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const rows = await db.select().from(outreachTemplates).orderBy(desc(outreachTemplates.updatedAt));
+    res.json({ templates: rows });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load templates' });
+  }
+}
+
+export async function createTemplate(req: Request, res: Response) {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const body = req.body || {};
+    const name = String(body.name || '').trim();
+    const subject = String(body.subject || '').trim();
+    const bodyHtml = String(body.bodyHtml || '').trim();
+    let tagSlug = String(body.tagSlug || '').trim();
+    if (!name || !subject || !bodyHtml) {
+      return res.status(400).json({ error: 'name, subject, bodyHtml required' });
+    }
+    if (!tagSlug) tagSlug = slugify(name);
+    else tagSlug = slugify(tagSlug);
+    if (!tagSlug) return res.status(400).json({ error: 'tagSlug must be non-empty after normalization' });
+
+    const id = randomUUID();
+    await db.insert(outreachTemplates).values({
+      id,
+      name,
+      subject,
+      bodyHtml,
+      tagSlug,
+      description: body.description || null,
+    });
+    const [row] = await db.select().from(outreachTemplates).where(eq(outreachTemplates.id, id));
+    res.json({ template: row });
+  } catch (e: any) {
+    // Likely duplicate tagSlug.
+    res.status(500).json({ error: e.message || 'Failed to create template' });
+  }
+}
+
+export async function updateTemplate(req: Request, res: Response) {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const id = String(req.params.id);
+    const body = req.body || {};
+    const patch: Record<string, any> = { updatedAt: new Date() };
+    for (const key of ['name', 'subject', 'bodyHtml', 'description'] as const) {
+      if (key in body) patch[key] = body[key];
+    }
+    if ('tagSlug' in body && body.tagSlug) patch.tagSlug = slugify(String(body.tagSlug));
+    await db.update(outreachTemplates).set(patch).where(eq(outreachTemplates.id, id));
+    const [row] = await db.select().from(outreachTemplates).where(eq(outreachTemplates.id, id));
+    res.json({ template: row });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update template' });
+  }
+}
+
+export async function deleteTemplate(req: Request, res: Response) {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const id = String(req.params.id);
+    await db.delete(outreachTemplates).where(eq(outreachTemplates.id, id));
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to delete template' });
+  }
+}
+
+// ========== Templates: per-template stats ==========
+// "Sent" = count of outreach_emails whose recipient currently carries the
+// template's tagSlug. "Opened" / "Replied" follow the same join, then count
+// distinct recipients in each end-state.
+export async function templateStats(req: Request, res: Response) {
+  if (!(await requireAdmin(req, res))) return;
+  try {
+    const stats = await db.execute(sql<any>`
+      with tagged as (
+        select t.id as template_id, t.name, t.tag_slug, r.id as recipient_id, r.status
+        from outreach_templates t
+        join outreach_recipients r on r.tags ? t.tag_slug
+      ),
+      sends as (
+        select t.tag_slug, count(*)::int as sent_count
+        from outreach_templates t
+        join outreach_recipients r on r.tags ? t.tag_slug
+        join outreach_emails e on e.recipient_id = r.id
+        group by t.tag_slug
+      ),
+      opens as (
+        select t.tag_slug, count(distinct r.id)::int as recipients_opened
+        from outreach_templates t
+        join outreach_recipients r on r.tags ? t.tag_slug
+        join outreach_emails e on e.recipient_id = r.id
+        join outreach_opens o on o.email_id = e.id
+        where o.is_bot = false
+        group by t.tag_slug
+      )
+      select
+        t.id, t.name, t.tag_slug, t.subject, t.created_at, t.updated_at,
+        coalesce((select count(distinct recipient_id)::int from tagged where template_id = t.id), 0) as recipients_total,
+        coalesce((select sent_count from sends where tag_slug = t.tag_slug), 0) as sent_count,
+        coalesce((select recipients_opened from opens where tag_slug = t.tag_slug), 0) as recipients_opened,
+        coalesce((select count(distinct recipient_id)::int from tagged where template_id = t.id and status = 'replied'), 0) as recipients_replied,
+        coalesce((select count(distinct recipient_id)::int from tagged where template_id = t.id and status = 'positive'), 0) as recipients_positive
+      from outreach_templates t
+      order by t.updated_at desc
+    `);
+    res.json({ templates: (stats as any).rows || stats });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load template stats' });
   }
 }
