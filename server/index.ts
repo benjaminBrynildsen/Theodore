@@ -3857,6 +3857,112 @@ function collectAudioForChapter(
   return { segments, totalDuration };
 }
 
+// Public: list of published projects for the marketplace/Discover surface.
+// Returns slug + display metadata + lightweight stats. No auth required.
+// Query params:
+//   q       — case-insensitive substring search across title + author name
+//   sort    — `recent` (default, by publishedAt desc) | `popular` (by listens desc)
+//   type    — filter by project type (e.g. `book`, `childrens`)
+//   limit   — page size (default 24, max 60)
+//   offset  — pagination cursor
+app.get('/api/public/projects', async (req, res) => {
+  try {
+    const sort = (req.query.sort === 'popular' ? 'popular' : 'recent') as 'recent' | 'popular';
+    const typeFilter = typeof req.query.type === 'string' && req.query.type.trim()
+      ? req.query.type.trim()
+      : null;
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const limit = Math.max(1, Math.min(60, Number(req.query.limit) || 24));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+
+    const conditions: any[] = [eq(projects.isPublic, true)];
+    if (typeFilter) conditions.push(eq(projects.type, typeFilter));
+    if (q) {
+      const pattern = `%${q.replace(/[%_]/g, '\\$&')}%`;
+      conditions.push(or(
+        sql`lower(${projects.title}) LIKE lower(${pattern})`,
+        sql`lower(coalesce(${projects.shareConfig}->>'authorDisplayName', '')) LIKE lower(${pattern})`,
+      ));
+    }
+
+    const orderBy = sort === 'popular'
+      ? [desc(projects.listens), desc(projects.publishedAt)]
+      : [desc(projects.publishedAt)];
+
+    const rows = await db.select().from(projects)
+      .where(and(...conditions))
+      .orderBy(...orderBy)
+      .limit(limit)
+      .offset(offset);
+
+    if (rows.length === 0) {
+      return res.json({ projects: [], hasMore: false });
+    }
+
+    // Aggregate chapter counts + audio existence in two batched queries instead
+    // of N+1. Drizzle's groupBy keeps this cheap even at thousands of projects.
+    const projectIds = rows.map(r => r.id);
+    const chapterCounts = await db
+      .select({
+        projectId: chapters.projectId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(chapters)
+      .where(sql`${chapters.projectId} IN (${sql.join(projectIds.map(id => sql`${id}`), sql`, `)})`)
+      .groupBy(chapters.projectId);
+    const countMap = new Map(chapterCounts.map(c => [c.projectId, c.count]));
+
+    // Map chapter -> project for the candidate set, then ask audio_generations
+    // which chapters (full or scene-level) have rows. One indexed query each.
+    const projectChapterRows = await db
+      .select({ id: chapters.id, projectId: chapters.projectId })
+      .from(chapters)
+      .where(sql`${chapters.projectId} IN (${sql.join(projectIds.map(id => sql`${id}`), sql`, `)})`);
+    const chapterToProject = new Map(projectChapterRows.map(c => [c.id, c.projectId]));
+    const candidateChapterIds = projectChapterRows.map(c => c.id);
+
+    const audioByProject = new Set<string>();
+    if (candidateChapterIds.length > 0) {
+      // Full-chapter audio: audioGenerations.chapterId === chapter.id
+      const fullAudio = await db
+        .selectDistinct({ chapterId: audioGenerations.chapterId })
+        .from(audioGenerations)
+        .where(sql`${audioGenerations.chapterId} IN (${sql.join(candidateChapterIds.map(id => sql`${id}`), sql`, `)})`);
+      for (const a of fullAudio) {
+        const projId = chapterToProject.get(a.chapterId);
+        if (projId) audioByProject.add(projId);
+      }
+      // Scene-level audio: audioGenerations.chapterId LIKE `${chapter.id}-scene-%`
+      const sceneAudio = await db
+        .selectDistinct({ chapterId: audioGenerations.chapterId })
+        .from(audioGenerations)
+        .where(or(
+          ...candidateChapterIds.map(id => sql`${audioGenerations.chapterId} LIKE ${id + '-scene-%'}`),
+        ));
+      for (const a of sceneAudio) {
+        const prefix = (a.chapterId || '').split('-scene-')[0];
+        const projId = chapterToProject.get(prefix);
+        if (projId) audioByProject.add(projId);
+      }
+    }
+
+    const items = rows.map(p => ({
+      ...publicProjectPayload(p),
+      chapterCount: countMap.get(p.id) ?? 0,
+      listens: p.listens || 0,
+      hasAudio: audioByProject.has(p.id),
+    }));
+
+    res.json({
+      projects: items,
+      hasMore: rows.length === limit,
+    });
+  } catch (e: any) {
+    console.error('[public/projects]', e);
+    res.status(500).json({ error: 'Failed to load projects' });
+  }
+});
+
 // Public: book metadata + chapter list
 app.get('/api/public/book/:slug', async (req, res) => {
   try {
