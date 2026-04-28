@@ -3,6 +3,7 @@ dist
 .env
 uploads/
 pricing/
+.local/
 
 # Remotion promo videos
 remotion/

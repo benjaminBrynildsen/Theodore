@@ -286,6 +286,56 @@ export const genJobs = pgTable('gen_jobs', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ========== Outreach Recipients ==========
+// People we're sending cold outreach to (creators, partners, press).
+// Status drives a kanban-style pipeline view in the admin Outreach tab.
+export const outreachRecipients = pgTable('outreach_recipients', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  name: text('name'),
+  company: text('company'),
+  platform: text('platform'), // 'youtube', 'x', 'podcast', 'newsletter', etc.
+  channelUrl: text('channel_url'),
+  status: text('status').notNull().default('todo'), // todo, queued, sent, opened, replied, positive, negative, paused, bounced
+  notes: text('notes'),
+  tags: jsonb('tags').$type<string[]>().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ========== Outreach Emails ==========
+// One row per send. The id doubles as the tracking-pixel UUID, so a pixel
+// hit at /t/{id}.gif resolves directly to the email row.
+export const outreachEmails = pgTable('outreach_emails', {
+  id: text('id').primaryKey(),
+  recipientId: text('recipient_id').notNull().references(() => outreachRecipients.id, { onDelete: 'cascade' }),
+  subject: text('subject').notNull(),
+  bodyHtml: text('body_html').notNull(),
+  bodyText: text('body_text'),
+  threadId: text('thread_id'),       // Gmail Message-ID for in-thread replies
+  fromAddress: text('from_address').notNull(),
+  toAddress: text('to_address').notNull(),
+  status: text('status').notNull().default('sent'), // sent, bounced, failed
+  errorMessage: text('error_message'),
+  sentAt: timestamp('sent_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ========== Outreach Opens ==========
+// Every pixel hit. is_bot rows are kept (not deleted) so we can audit the
+// filter; the admin UI counts only is_bot=false.
+export const outreachOpens = pgTable('outreach_opens', {
+  id: serial('id').primaryKey(),
+  emailId: text('email_id').notNull().references(() => outreachEmails.id, { onDelete: 'cascade' }),
+  ip: text('ip'),
+  userAgent: text('user_agent'),
+  country: text('country'),
+  isBot: boolean('is_bot').notNull().default(false),
+  botReason: text('bot_reason'),
+  msSinceSend: integer('ms_since_send'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),

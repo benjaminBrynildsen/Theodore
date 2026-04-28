@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { CREATORS } from '../../data/creators';
+import { OutreachTab } from './OutreachTab';
 
 const API = '/api/admin';
 
@@ -196,7 +197,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach';
 
 interface JourneySession {
   session_id: string;
@@ -402,6 +403,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'journey', label: 'Journey', icon: TrendingUp },
     { id: 'creators', label: 'Creators', icon: Film },
+    { id: 'outreach', label: 'Outreach', icon: Mail },
     { id: 'grok-probe', label: 'Grok Probe', icon: Image },
   ];
 
@@ -1328,6 +1330,9 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
         {/* ========== Creators ========== */}
         {view === 'creators' && <CreatorsPanel />}
+
+        {/* ========== Outreach ========== */}
+        {view === 'outreach' && <OutreachTab />}
 
         {/* ========== Grok image-reference probe ========== */}
         {view === 'grok-probe' && <GrokProbePanel />}

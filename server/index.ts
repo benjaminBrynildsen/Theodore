@@ -39,6 +39,7 @@ import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail, get
 import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
 import { attachActiveCharacterRoutes } from './active-character.js';
 import { parseBookText } from './book-parser.js';
+import { pixelHandler, listRecipients, createRecipient, updateRecipient, deleteRecipient, recipientTimeline, sendEmail as sendOutreachEmail, outreachStats } from './outreach.js';
 
 // Keep the process alive when a rogue async error escapes a handler. Without
 // these, a single failed fetch or bad JSON body crashes the whole server and
@@ -3101,6 +3102,19 @@ app.get('/api/admin/stats/daily', getDailyStats);
 app.get('/api/admin/traffic', getTrafficStats);
 app.get('/api/admin/journeys', getJourneys);
 app.get('/api/admin/journeys/:sessionId', getJourneyDetail);
+
+// ========== Outreach (open tracking + creator pipeline) ==========
+// Pixel route — intentionally public, served on track.theodore.tools
+// (custom domain → same Render service). Works on any host so testing
+// from theodore.tools/t/<id>.gif also works.
+app.get('/t/:uuid.gif', pixelHandler);
+app.get('/api/admin/outreach/recipients', listRecipients);
+app.post('/api/admin/outreach/recipients', createRecipient);
+app.patch('/api/admin/outreach/recipients/:id', updateRecipient);
+app.delete('/api/admin/outreach/recipients/:id', deleteRecipient);
+app.get('/api/admin/outreach/recipients/:id/timeline', recipientTimeline);
+app.post('/api/admin/outreach/send', sendOutreachEmail);
+app.get('/api/admin/outreach/stats', outreachStats);
 
 // Grok image reference-input diagnostic. Hits xAI's /v1/images/generations
 // four times with the same project's hero shot + prompt, varying ONLY the
