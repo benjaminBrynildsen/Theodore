@@ -19,6 +19,42 @@ function emitText(sink: TextSink, text: string) {
   }
 }
 
+// LLM streams occasionally stall mid-response — the upstream connection stays
+// open but no chunks arrive. fetch() has no per-chunk idle timeout, so a
+// naive `await reader.read()` hangs forever. Without this watchdog the prose
+// job runner would heartbeat-mask a dead stream indefinitely (the bug we hit
+// at "301 / 2500 words"). 60s of zero bytes is already way past Anthropic's
+// normal cadence (chunks arrive every few hundred ms), so it's a safe cutoff.
+const STREAM_IDLE_TIMEOUT_MS = 60_000;
+
+class StreamIdleTimeoutError extends Error {
+  constructor() {
+    super(`LLM stream idle for ${Math.round(STREAM_IDLE_TIMEOUT_MS / 1000)}s — aborted`);
+    this.name = 'StreamIdleTimeoutError';
+  }
+}
+
+// Wrap a ReadableStream reader so that if no chunk arrives for IDLE_TIMEOUT_MS,
+// we abort and throw. The caller passes its AbortController so abort()
+// propagates into the underlying fetch (which closes the socket).
+async function readWithIdleTimeout<T>(
+  reader: ReadableStreamDefaultReader<T>,
+  controller: AbortController,
+): Promise<ReadableStreamReadResult<T>> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const idle = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      try { controller.abort(); } catch {}
+      reject(new StreamIdleTimeoutError());
+    }, STREAM_IDLE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([reader.read(), idle]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // ========== Provider Interfaces ==========
 
 interface GenerateRequest {
@@ -116,6 +152,7 @@ async function streamAnthropic(req: GenerateRequest, sink: TextSink): Promise<{ 
   const model = req.model || 'claude-sonnet-4-6';
   const maxTokens = req.maxTokens || 4096;
 
+  const controller = new AbortController();
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -131,6 +168,7 @@ async function streamAnthropic(req: GenerateRequest, sink: TextSink): Promise<{ 
       system: req.systemPrompt || 'You are Theodore, an expert fiction writer and story architect.',
       messages: [{ role: 'user', content: req.prompt }],
     }),
+    signal: controller.signal,
   });
 
   if (!response.ok) {
@@ -147,30 +185,36 @@ async function streamAnthropic(req: GenerateRequest, sink: TextSink): Promise<{ 
   if (!reader) throw new Error('No response body');
 
   let buffer = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await readWithIdleTimeout(reader, controller);
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6);
-      if (data === '[DONE]') continue;
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') continue;
 
-      try {
-        const event = JSON.parse(data);
-        if (event.type === 'content_block_delta' && event.delta?.text) {
-          emitText(sink, event.delta.text);
-        } else if (event.type === 'message_delta' && event.usage) {
-          outputTokens = event.usage.output_tokens || outputTokens;
-        } else if (event.type === 'message_start' && event.message?.usage) {
-          inputTokens = event.message.usage.input_tokens || 0;
-        }
-      } catch {}
+        try {
+          const event = JSON.parse(data);
+          if (event.type === 'content_block_delta' && event.delta?.text) {
+            emitText(sink, event.delta.text);
+          } else if (event.type === 'message_delta' && event.usage) {
+            outputTokens = event.usage.output_tokens || outputTokens;
+          } else if (event.type === 'message_start' && event.message?.usage) {
+            inputTokens = event.message.usage.input_tokens || 0;
+          }
+        } catch {}
+      }
     }
+  } finally {
+    // Best-effort cleanup — if we threw mid-read, releasing the lock lets the
+    // underlying socket actually close once we abort.
+    try { reader.releaseLock(); } catch {}
   }
 
   return { inputTokens, outputTokens, model };
@@ -231,6 +275,7 @@ async function streamOpenAI(req: GenerateRequest, sink: TextSink): Promise<{ inp
   const model = req.model || 'gpt-4.1';
   const maxTokens = req.maxTokens || 4096;
 
+  const controller = new AbortController();
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -248,6 +293,7 @@ async function streamOpenAI(req: GenerateRequest, sink: TextSink): Promise<{ inp
         { role: 'user', content: req.prompt },
       ],
     }),
+    signal: controller.signal,
   });
 
   if (!response.ok) {
@@ -263,31 +309,35 @@ async function streamOpenAI(req: GenerateRequest, sink: TextSink): Promise<{ inp
   if (!reader) throw new Error('No response body');
 
   let buffer = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await readWithIdleTimeout(reader, controller);
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
 
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6);
-      if (data === '[DONE]') continue;
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') continue;
 
-      try {
-        const event = JSON.parse(data);
-        const delta = event.choices?.[0]?.delta?.content;
-        if (delta) {
-          emitText(sink, delta);
-        }
-        if (event.usage) {
-          inputTokens = event.usage.prompt_tokens || inputTokens;
-          outputTokens = event.usage.completion_tokens || outputTokens;
-        }
-      } catch {}
+        try {
+          const event = JSON.parse(data);
+          const delta = event.choices?.[0]?.delta?.content;
+          if (delta) {
+            emitText(sink, delta);
+          }
+          if (event.usage) {
+            inputTokens = event.usage.prompt_tokens || inputTokens;
+            outputTokens = event.usage.completion_tokens || outputTokens;
+          }
+        } catch {}
+      }
     }
+  } finally {
+    try { reader.releaseLock(); } catch {}
   }
 
   return { inputTokens, outputTokens, model };
