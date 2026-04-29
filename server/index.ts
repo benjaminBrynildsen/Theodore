@@ -40,6 +40,7 @@ import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYL
 import { attachActiveCharacterRoutes } from './active-character.js';
 import { parseBookText } from './book-parser.js';
 import { pixelHandler, listRecipients, createRecipient, updateRecipient, deleteRecipient, recipientTimeline, sendEmail as sendOutreachEmail, outreachStats, listTemplates, createTemplate, updateTemplate, deleteTemplate, templateStats } from './outreach.js';
+import { startInboxPoller, listReplies, recipientReplies, markReplyRead, pollNow as pollInboxNow, unreadReplyCount } from './inbox.js';
 
 // Keep the process alive when a rogue async error escapes a handler. Without
 // these, a single failed fetch or bad JSON body crashes the whole server and
@@ -3120,6 +3121,11 @@ app.post('/api/admin/outreach/templates', createTemplate);
 app.patch('/api/admin/outreach/templates/:id', updateTemplate);
 app.delete('/api/admin/outreach/templates/:id', deleteTemplate);
 app.get('/api/admin/outreach/templates/stats', templateStats);
+app.get('/api/admin/outreach/replies', listReplies);
+app.get('/api/admin/outreach/replies/unread', unreadReplyCount);
+app.get('/api/admin/outreach/recipients/:id/replies', recipientReplies);
+app.patch('/api/admin/outreach/replies/:id', express.json(), markReplyRead);
+app.post('/api/admin/outreach/inbox/poll', pollInboxNow);
 
 // Grok image reference-input diagnostic. Hits xAI's /v1/images/generations
 // four times with the same project's hero shot + prompt, varying ONLY the
@@ -4454,6 +4460,10 @@ ensureAdditiveSchema().finally(() => {
   // to polling clients the same way fresh ones do.
   void resumeInterruptedJobs();
   void resumeInterruptedProseJobs();
+
+  // Start the IMAP reply poller. No-op if IMAP creds aren't set, so dev
+  // boxes without env config don't crash.
+  startInboxPoller();
 
   // Graceful shutdown: when Render deploys a new version it sends SIGTERM.
   // Without a handler the process dies instantly and any in-flight request

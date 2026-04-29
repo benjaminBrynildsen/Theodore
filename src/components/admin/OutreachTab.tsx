@@ -46,6 +46,22 @@ interface OutreachEmail {
   toAddress: string;
 }
 
+interface OutreachReply {
+  id: string;
+  recipientId: string | null;
+  emailId: string | null;
+  fromAddress: string | null;
+  fromName: string | null;
+  subject: string | null;
+  snippet: string | null;
+  bodyText: string | null;
+  bodyHtml: string | null;
+  isRead: boolean;
+  receivedAt: string | null;
+  createdAt: string;
+  recipient?: Recipient | null;
+}
+
 interface OpenEvent {
   id: number;
   email_id: string;
@@ -140,6 +156,8 @@ export function OutreachTab() {
   const [mode, setMode] = useState<'pipeline' | 'compose' | 'templates'>('pipeline');
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [stats, setStats] = useState<OverallStats | null>(null);
+  const [unreadReplies, setUnreadReplies] = useState<number>(0);
+  const [polling, setPolling] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all');
@@ -155,14 +173,16 @@ export function OutreachTab() {
     setLoading(true);
     setError(null);
     try {
-      const [r, s, t] = await Promise.all([
+      const [r, s, t, u] = await Promise.all([
         jget<{ recipients: Recipient[] }>('/outreach/recipients'),
         jget<{ stats: OverallStats }>('/outreach/stats'),
         jget<{ templates: Template[] }>('/outreach/templates'),
+        jget<{ unread: number }>('/outreach/replies/unread').catch(() => ({ unread: 0 })),
       ]);
       setRecipients(r.recipients);
       setStats(s.stats);
       setTemplates(t.templates);
+      setUnreadReplies(u.unread || 0);
     } catch (e: any) {
       setError(e.message || 'Failed to load');
     }
@@ -257,6 +277,25 @@ export function OutreachTab() {
           className="glass-pill rounded-full px-3 py-1 text-xs font-medium text-text-secondary hover:text-text-primary"
         >
           {loading ? 'Loading…' : 'Refresh'}
+        </button>
+        <button
+          onClick={async () => {
+            setPolling(true);
+            try {
+              const r = await jpost<{ scanned: number; matched: number; inserted: number }>('/outreach/inbox/poll', {});
+              await load();
+              if (r.inserted > 0) setError(null);
+              else setError(`Inbox checked — ${r.scanned} unseen, ${r.inserted} new replies`);
+            } catch (e: any) { setError(e.message); }
+            setPolling(false);
+          }}
+          className="glass-pill rounded-full px-3 py-1 text-xs font-medium text-text-secondary hover:text-text-primary inline-flex items-center gap-1"
+          title="Poll Gmail INBOX for new replies"
+        >
+          <Mail size={11} /> {polling ? 'Polling…' : 'Check inbox'}
+          {unreadReplies > 0 && (
+            <span className="ml-1 px-1.5 rounded-full bg-purple-600 text-white text-[10px] font-semibold">{unreadReplies}</span>
+          )}
         </button>
         <div className="ml-auto flex items-center gap-2">
           <div className="glass-pill rounded-full px-3 py-1 flex items-center gap-2">
@@ -925,6 +964,7 @@ function TimelineModal({
   onDelete: (r: Recipient) => void;
 }) {
   const [data, setData] = useState<{ recipient: Recipient; emails: OutreachEmail[]; opens: OpenEvent[] } | null>(null);
+  const [replies, setReplies] = useState<OutreachReply[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -933,6 +973,9 @@ function TimelineModal({
     )
       .then(setData)
       .catch((e) => setErr(e.message));
+    jget<{ replies: OutreachReply[] }>(`/outreach/recipients/${recipient.id}/replies`)
+      .then((r) => setReplies(r.replies))
+      .catch(() => {/* replies may not exist yet — silent */});
   }, [recipient.id]);
 
   const opensByEmail = useMemo(() => {
@@ -967,6 +1010,33 @@ function TimelineModal({
         <div className="p-5 space-y-4">
           {err && <div className="text-xs text-error">{err}</div>}
           {!data && !err && <div className="text-sm text-text-tertiary">Loading…</div>}
+
+          {replies.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-purple-700">
+                Replies ({replies.length})
+              </div>
+              {replies.map((r) => (
+                <div key={r.id} className="border border-purple-200 bg-purple-50/40 rounded-xl p-4">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div className="text-sm font-semibold truncate">
+                      {r.subject || '(no subject)'}
+                    </div>
+                    <div className="text-[11px] text-text-tertiary shrink-0">
+                      {r.receivedAt ? new Date(r.receivedAt).toLocaleString() : ''}
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-text-tertiary mb-2">
+                    From {r.fromName ? `${r.fromName} <${r.fromAddress}>` : r.fromAddress}
+                  </div>
+                  <div className="text-xs text-text-secondary whitespace-pre-wrap">
+                    {r.bodyText || r.snippet || '(empty body)'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {data && data.emails.length === 0 && (
             <div className="text-sm text-text-tertiary">No emails sent yet.</div>
           )}

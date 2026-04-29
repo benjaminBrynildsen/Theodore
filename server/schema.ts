@@ -337,6 +337,30 @@ export const outreachTemplates = pgTable('outreach_templates', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ========== Outreach Replies ==========
+// Inbound replies pulled from Ben's Gmail INBOX via IMAP (server/inbox.ts).
+// Match path 1: From: matches a recipient.email → recipientId set.
+// Match path 2: In-Reply-To / References match outreach_emails.threadId →
+// emailId set, recipientId resolved from that email row.
+// gmailMessageId (RFC2822 Message-ID header) is the dedup key — re-running the
+// poller never inserts the same reply twice.
+export const outreachReplies = pgTable('outreach_replies', {
+  id: text('id').primaryKey(),
+  recipientId: text('recipient_id').references(() => outreachRecipients.id, { onDelete: 'cascade' }),
+  emailId: text('email_id').references(() => outreachEmails.id, { onDelete: 'set null' }),
+  gmailMessageId: text('gmail_message_id').unique(),
+  gmailUid: integer('gmail_uid'),
+  fromAddress: text('from_address'),
+  fromName: text('from_name'),
+  subject: text('subject'),
+  snippet: text('snippet'),       // first ~280 chars of plaintext body
+  bodyText: text('body_text'),
+  bodyHtml: text('body_html'),
+  isRead: boolean('is_read').notNull().default(false),
+  receivedAt: timestamp('received_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ========== Outreach Opens ==========
 // Every pixel hit. is_bot rows are kept (not deleted) so we can audit the
 // filter; the admin UI counts only is_bot=false.
