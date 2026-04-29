@@ -23,6 +23,40 @@ function debounceSave(key: string, fn: () => Promise<void>, ms = 500) {
   debounceTimers[key] = setTimeout(() => { fn().catch(console.error); }, ms);
 }
 
+// Wrap localStorage so a QuotaExceededError (iOS 5MB cap) doesn't crash the
+// app. On overflow we drop the persisted store entirely — better to re-fetch
+// from the server than to crash. Caller is zustand persist; it will re-write
+// (smaller, partialized) state on the next mutation.
+function safeLocalStorage(): Storage {
+  return {
+    getItem: (key) => {
+      try { return localStorage.getItem(key); } catch { return null; }
+    },
+    setItem: (key, value) => {
+      try {
+        localStorage.setItem(key, value);
+      } catch (err) {
+        // Likely QuotaExceededError. Wipe both Theodore stores so the next
+        // write has clean room, then retry once. If that still fails, swallow
+        // — losing the cache is the lesser evil vs a crashed app.
+        try {
+          localStorage.removeItem('theodore-app-store');
+          localStorage.removeItem('theodore-canon-store');
+          localStorage.setItem(key, value);
+        } catch (err2) {
+          console.warn('[store] localStorage quota exceeded, persistence disabled this session', err2);
+        }
+      }
+    },
+    removeItem: (key) => {
+      try { localStorage.removeItem(key); } catch {}
+    },
+    get length() { try { return localStorage.length; } catch { return 0; } },
+    key: (i) => { try { return localStorage.key(i); } catch { return null; } },
+    clear: () => { try { localStorage.clear(); } catch {} },
+  };
+}
+
 function normalizeEntityName(value: string): string {
   return sanitizeEntityName(value)
     .replace(/\s+/g, ' ')
@@ -851,15 +885,20 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   setMobilePanel: (panel) => set({ mobilePanel: panel }),
 }), {
   name: 'theodore-app-store',
-  storage: createJSONStorage(() => localStorage),
+  storage: createJSONStorage(() => safeLocalStorage()),
+  // Chapters + canonEntries are NOT persisted — they're heavy (prose, scenes,
+  // SFX, voice tags, editChatHistory) and on iOS Safari (5MB cap) they push
+  // the serialized state past the quota. The server is source of truth and
+  // App.tsx auto-fetches both via loadChapters/loadEntries when the active
+  // project changes, so a cold reload reflows in seconds.
+  // Incident: 2026-04-28 — iPhone user hit "The quota has been exceeded"
+  // after DB growth (multi-voice, scene SFX) bloated chapter payloads.
   partialize: (state) => ({
     projects: state.projects,
-    chapters: state.chapters,
     currentUserId: state.currentUserId,
     activeProjectId: state.activeProjectId,
     activeChapterId: state.activeChapterId,
     currentView: state.currentView,
-    canonEntries: state.canonEntries,
   }),
   onRehydrateStorage: () => (state) => {
     // Sanitize chapters on rehydration — filter out corrupted scenes

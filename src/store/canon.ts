@@ -11,6 +11,37 @@ function debounceSave(key: string, fn: () => Promise<void>, ms = 500) {
   debounceTimers[key] = setTimeout(() => { fn().catch(console.error); }, ms);
 }
 
+// See store/index.ts for rationale — iOS Safari has a 5MB localStorage cap and
+// canon entries (character backstories, world systems, jsonb data) push past it
+// after the 2026-04-28 schema growth. On QuotaExceededError, drop both Theodore
+// stores and retry once; swallow the second failure rather than crash.
+function safeLocalStorage(): Storage {
+  return {
+    getItem: (key) => {
+      try { return localStorage.getItem(key); } catch { return null; }
+    },
+    setItem: (key, value) => {
+      try {
+        localStorage.setItem(key, value);
+      } catch {
+        try {
+          localStorage.removeItem('theodore-app-store');
+          localStorage.removeItem('theodore-canon-store');
+          localStorage.setItem(key, value);
+        } catch (err2) {
+          console.warn('[canon] localStorage quota exceeded, persistence disabled this session', err2);
+        }
+      }
+    },
+    removeItem: (key) => {
+      try { localStorage.removeItem(key); } catch {}
+    },
+    get length() { try { return localStorage.length; } catch { return 0; } },
+    key: (i) => { try { return localStorage.key(i); } catch { return null; } },
+    clear: () => { try { localStorage.clear(); } catch {} },
+  };
+}
+
 // Map DB canon entry (flat data JSONB) to frontend canon entry (typed sub-objects)
 function fromDb(row: any): AnyCanonEntry {
   const base = {
@@ -255,9 +286,12 @@ export const useCanonStore = create<CanonState>()(persist((set, get) => ({
   },
 }), {
   name: 'theodore-canon-store',
-  storage: createJSONStorage(() => localStorage),
+  storage: createJSONStorage(() => safeLocalStorage()),
+  // Entries are NOT persisted — heavy jsonb (character backstories, world
+  // systems, locations) blew through iOS Safari's 5MB cap on 2026-04-28.
+  // App.tsx auto-calls loadEntries on active project change, so the round-trip
+  // to the server replaces the cache cleanly.
   partialize: (state) => ({
-    entries: state.entries,
     activeEntryId: state.activeEntryId,
     editingEntryId: state.editingEntryId,
   }),
