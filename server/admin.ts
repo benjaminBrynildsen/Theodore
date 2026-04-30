@@ -843,6 +843,70 @@ export async function verifyUploads(req: Request, res: Response) {
   }
 }
 
+// ========== User Cover Health ==========
+// Per-user breakdown: how many of their projects still have a valid cover
+// vs. dropped to placeholder after the disk-cleanup incident. A "valid" cover
+// is anything that resolves: a data: URI, an external URL, or a file we
+// still have on disk.
+export async function userCoverHealth(_req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(_req, res);
+    if (!admin) return;
+
+    const uploadsRoot = path.resolve(process.cwd(), 'uploads');
+    const urlWorks = (url: string | null): boolean => {
+      if (!url) return false;
+      if (url.startsWith('data:')) return true;
+      if (url.startsWith('http://') || url.startsWith('https://')) return true;
+      if (url.startsWith('/uploads/')) {
+        const m = url.match(/^\/uploads\/(.+)$/);
+        if (!m) return false;
+        return fs.existsSync(path.join(uploadsRoot, m[1]));
+      }
+      return false;
+    };
+
+    const rows = await db
+      .select({
+        userId: projects.userId,
+        coverUrl: projects.coverUrl,
+        userEmail: users.email,
+        userName: users.name,
+      })
+      .from(projects)
+      .leftJoin(users, eq(users.id, projects.userId));
+
+    const byUser = new Map<string, { userId: string; email: string | null; name: string | null; total: number; withCover: number; nullCover: number }>();
+    for (const r of rows) {
+      const key = r.userId;
+      let entry = byUser.get(key);
+      if (!entry) {
+        entry = { userId: key, email: r.userEmail, name: r.userName, total: 0, withCover: 0, nullCover: 0 };
+        byUser.set(key, entry);
+      }
+      entry.total += 1;
+      if (urlWorks(r.coverUrl)) entry.withCover += 1;
+      else entry.nullCover += 1;
+    }
+
+    const breakdown = Array.from(byUser.values()).sort((a, b) => b.total - a.total);
+    const totals = breakdown.reduce(
+      (acc, u) => ({
+        users: acc.users + 1,
+        projects: acc.projects + u.total,
+        withCover: acc.withCover + u.withCover,
+        nullCover: acc.nullCover + u.nullCover,
+      }),
+      { users: 0, projects: 0, withCover: 0, nullCover: 0 },
+    );
+
+    res.json({ totals, breakdown });
+  } catch (e: any) {
+    console.error('[Admin] userCoverHealth error:', e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
+  }
+}
+
 // ========== Backfill Broken Images ==========
 // Repairs DB rows whose imageUrl points to a now-missing file (collateral
 // damage from the 2026-04-30 cleanupDisk bug that wiped /uploads/generated/).
@@ -1112,7 +1176,34 @@ export async function cleanupDisk(req: Request, res: Response) {
 
     let deleted = 0;
     let bytesFreed = 0;
+    let manifestPath: string | null = null;
     if (!dryRun) {
+      // Always write a deletion manifest to disk BEFORE unlinking, in a
+      // location the cleanup itself never scans. If something goes wrong we
+      // have a permanent record of every path we removed.
+      const manifestDir = path.join(uploadsRoot, '.cleanup-manifests');
+      if (!fs.existsSync(manifestDir)) fs.mkdirSync(manifestDir, { recursive: true });
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      manifestPath = path.join(manifestDir, `${ts}.json`);
+      try {
+        fs.writeFileSync(manifestPath, JSON.stringify({
+          timestamp: new Date().toISOString(),
+          dropInactive,
+          categories: Array.from(cats),
+          targets: targets.map((t) => ({
+            path: t.path.replace(uploadsRoot, ''),
+            size: t.size,
+            basename: path.basename(t.path),
+          })),
+        }, null, 2));
+      } catch (e: any) {
+        // If we can't write the manifest, refuse to delete. ENOSPC is the
+        // exact reason this endpoint exists; failing safe is the right call.
+        return res.status(500).json({
+          error: 'Could not write deletion manifest — refusing to delete without an audit trail',
+          detail: e?.message,
+        });
+      }
       for (const t of targets) {
         try {
           fs.unlinkSync(t.path);
@@ -1125,6 +1216,7 @@ export async function cleanupDisk(req: Request, res: Response) {
     res.json({
       dryRun,
       dropInactive,
+      manifestPath,
       report,
       totals: {
         candidatesToDelete: targets.length,
