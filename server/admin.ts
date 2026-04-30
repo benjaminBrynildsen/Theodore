@@ -2,9 +2,10 @@
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { db } from './db.js';
-import { users, projects, chapters, creditTransactions, audioGenerations, guestEvents } from './schema.js';
-import { sql, eq, desc, count, sum, gt, and } from 'drizzle-orm';
+import { users, projects, chapters, creditTransactions, audioGenerations, guestEvents, pushTokens } from './schema.js';
+import { sql, eq, desc, count, sum, gt, and, inArray } from 'drizzle-orm';
 import { getAuth } from './auth.js';
+import { sendPushToTokens } from './push.js';
 
 // Must match the hashing in server/index.ts so the admin's own IP
 // resolves to the same prefix shown in the guest activity feed.
@@ -676,5 +677,86 @@ export async function getDailyStats(req: Request, res: Response) {
   } catch (e: any) {
     console.error('[Admin] daily stats error:', e);
     res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// ========== Push Notifications ==========
+// Lists every registered Expo push token joined with its owner so the admin
+// UI can show "who would actually receive this." Sorted newest-active first.
+export async function listPushTokens(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const rows = await db
+      .select({
+        token: pushTokens.token,
+        platform: pushTokens.platform,
+        createdAt: pushTokens.createdAt,
+        lastSeenAt: pushTokens.lastSeenAt,
+        userId: pushTokens.userId,
+        email: users.email,
+        name: users.name,
+        plan: users.plan,
+      })
+      .from(pushTokens)
+      .leftJoin(users, eq(users.id, pushTokens.userId))
+      .orderBy(desc(pushTokens.lastSeenAt));
+
+    res.json({ tokens: rows, total: rows.length });
+  } catch (e: any) {
+    console.error('[Admin] list push tokens error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Composes and dispatches a push from the admin UI. Body shape:
+//   { title, body, data?, target: { all?: true } | { userIds: string[] } | { tokens: string[] } }
+// Returns full ticket details so the UI can render per-device success/failure.
+export async function sendAdminPush(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const { title, body, data, target } = req.body || {};
+    if (typeof title !== 'string' || !title.trim()) {
+      return res.status(400).json({ error: 'title is required' });
+    }
+    if (typeof body !== 'string' || !body.trim()) {
+      return res.status(400).json({ error: 'body is required' });
+    }
+    if (!target || typeof target !== 'object') {
+      return res.status(400).json({ error: 'target is required' });
+    }
+
+    let tokens: string[] = [];
+    if (target.all === true) {
+      const rows = await db.select({ token: pushTokens.token }).from(pushTokens);
+      tokens = rows.map((r) => r.token);
+    } else if (Array.isArray(target.userIds) && target.userIds.length > 0) {
+      const rows = await db
+        .select({ token: pushTokens.token })
+        .from(pushTokens)
+        .where(inArray(pushTokens.userId, target.userIds));
+      tokens = rows.map((r) => r.token);
+    } else if (Array.isArray(target.tokens) && target.tokens.length > 0) {
+      tokens = target.tokens.filter((t: unknown) => typeof t === 'string' && t.length > 0);
+    } else {
+      return res.status(400).json({ error: 'target must specify all, userIds, or tokens' });
+    }
+
+    if (tokens.length === 0) {
+      return res.json({ sent: 0, pruned: 0, tickets: [], note: 'No matching tokens.' });
+    }
+
+    const result = await sendPushToTokens(tokens, {
+      title: title.trim(),
+      body: body.trim(),
+      data: data && typeof data === 'object' ? data : undefined,
+    });
+    res.json(result);
+  } catch (e: any) {
+    console.error('[Admin] send push error:', e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
   }
 }
