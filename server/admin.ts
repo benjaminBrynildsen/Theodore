@@ -843,6 +843,149 @@ export async function verifyUploads(req: Request, res: Response) {
   }
 }
 
+// ========== Backfill Broken Images ==========
+// Repairs DB rows whose imageUrl points to a now-missing file (collateral
+// damage from the 2026-04-30 cleanupDisk bug that wiped /uploads/generated/).
+// Strategy:
+//   - project.coverUrl missing  → replace with first surviving chapter image
+//                                  in that project; null out if none survive.
+//   - chapter.imageUrl missing  → replace with project.coverUrl (if valid),
+//                                  else first sibling chapter image, else null.
+//   - canon.imageUrl missing    → null out (no sensible substitute).
+// Always returns the full change plan; only writes when dryRun=false.
+export async function backfillBrokenImages(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const dryRun = req.body?.dryRun !== false;
+
+    const uploadsRoot = path.resolve(process.cwd(), "uploads");
+    const onDisk = (url: string | null): boolean => {
+      if (!url) return false;
+      const m = url.match(/^\/uploads\/(.+)$/);
+      if (!m) return false;
+      return fs.existsSync(path.join(uploadsRoot, m[1]));
+    };
+    // A URL "works" if it's a data: URI, an external https URL, or a file we still have.
+    const urlWorks = (url: string | null): boolean => {
+      if (!url) return false;
+      if (url.startsWith('data:')) return true;
+      if (url.startsWith('http://') || url.startsWith('https://')) return true;
+      if (url.startsWith('/uploads/')) return onDisk(url);
+      return false;
+    };
+
+    type Change = { table: string; id: string; oldUrl: string | null; newUrl: string | null; reason: string };
+    const changes: Change[] = [];
+
+    // Pull everything once so we can pick fallbacks without re-querying per row.
+    const allProjects = await db
+      .select({ id: projects.id, title: projects.title, coverUrl: projects.coverUrl })
+      .from(projects);
+    const allChapters = await db
+      .select({ id: chapters.id, projectId: chapters.projectId, imageUrl: chapters.imageUrl })
+      .from(chapters);
+    const allCanon = await db
+      .select({ id: canonEntries.id, imageUrl: canonEntries.imageUrl })
+      .from(canonEntries);
+
+    // Index chapters by project for fallback lookups
+    const chaptersByProject = new Map<string, { id: string; imageUrl: string | null }[]>();
+    for (const c of allChapters) {
+      const arr = chaptersByProject.get(c.projectId) || [];
+      arr.push({ id: c.id, imageUrl: c.imageUrl });
+      chaptersByProject.set(c.projectId, arr);
+    }
+
+    // 1) Project covers
+    for (const p of allProjects) {
+      if (!p.coverUrl) continue;
+      if (urlWorks(p.coverUrl)) continue;
+      // Look for any chapter in this project with a working image
+      const siblings = chaptersByProject.get(p.id) || [];
+      const fallback = siblings.find((c) => urlWorks(c.imageUrl))?.imageUrl ?? null;
+      changes.push({
+        table: 'projects',
+        id: p.id,
+        oldUrl: p.coverUrl,
+        newUrl: fallback,
+        reason: fallback ? `recovered from chapter image in same project` : `no surviving image in project — set null (placeholder)`,
+      });
+    }
+
+    // 2) Chapter images
+    for (const c of allChapters) {
+      if (!c.imageUrl) continue;
+      if (urlWorks(c.imageUrl)) continue;
+      // Try project cover, then a sibling chapter image
+      const proj = allProjects.find((p) => p.id === c.projectId);
+      const projCover = proj?.coverUrl;
+      let fallback: string | null = null;
+      if (urlWorks(projCover)) fallback = projCover ?? null;
+      else {
+        const siblings = chaptersByProject.get(c.projectId) || [];
+        fallback = siblings.find((s) => s.id !== c.id && urlWorks(s.imageUrl))?.imageUrl ?? null;
+      }
+      changes.push({
+        table: 'chapters',
+        id: c.id,
+        oldUrl: c.imageUrl,
+        newUrl: fallback,
+        reason: fallback ? `recovered from project cover or sibling chapter` : `no surviving image — set null (placeholder)`,
+      });
+    }
+
+    // 3) Canon images — null out (per-entity images, no useful fallback)
+    for (const e of allCanon) {
+      if (!e.imageUrl) continue;
+      if (urlWorks(e.imageUrl)) continue;
+      changes.push({
+        table: 'canon_entries',
+        id: e.id,
+        oldUrl: e.imageUrl,
+        newUrl: null,
+        reason: 'canon image missing — set null (placeholder)',
+      });
+    }
+
+    let written = 0;
+    if (!dryRun) {
+      for (const ch of changes) {
+        try {
+          if (ch.table === 'projects') {
+            await db.update(projects).set({ coverUrl: ch.newUrl }).where(eq(projects.id, ch.id));
+          } else if (ch.table === 'chapters') {
+            await db.update(chapters).set({ imageUrl: ch.newUrl }).where(eq(chapters.id, ch.id));
+          } else if (ch.table === 'canon_entries') {
+            await db.update(canonEntries).set({ imageUrl: ch.newUrl }).where(eq(canonEntries.id, ch.id));
+          }
+          written += 1;
+        } catch (e: any) {
+          console.error('[backfill] update failed for', ch.table, ch.id, e?.message || e);
+        }
+      }
+    }
+
+    const summary = {
+      projects: changes.filter((c) => c.table === 'projects').length,
+      chapters: changes.filter((c) => c.table === 'chapters').length,
+      canon: changes.filter((c) => c.table === 'canon_entries').length,
+      recovered: changes.filter((c) => c.newUrl !== null).length,
+      nulled: changes.filter((c) => c.newUrl === null).length,
+    };
+
+    res.json({
+      dryRun,
+      summary,
+      written,
+      changes: dryRun ? changes : changes.slice(0, 50), // full plan in dry run; sample on execute (response size)
+    });
+  } catch (e: any) {
+    console.error('[Admin] backfillBrokenImages error:', e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
+  }
+}
+
 // ========== Disk Cleanup ==========
 // Removes orphaned/scratch files from the persistent uploads directory so the
 // Render disk does not fill up. Triggered manually after monitoring shows
