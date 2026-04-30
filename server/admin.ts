@@ -775,6 +775,13 @@ export async function cleanupDisk(req: Request, res: Response) {
 
     const dryRun = req.body?.dryRun !== false; // default to dry-run for safety
     const dropInactive = req.body?.dropInactive === true; // also remove inactive audio versions
+    // categories: scope cleanup to a subset of dirs. Default = all three.
+    // Use this for phased rollout: start with ['generated'] (zero risk), then
+    // add ['covers'], then ['audio'] after each phase confirms safe.
+    const requestedCats: string[] = Array.isArray(req.body?.categories)
+      ? req.body.categories
+      : ['audio', 'covers', 'generated'];
+    const cats = new Set(requestedCats.filter((c) => ['audio', 'covers', 'generated'].includes(c)));
     const uploadsRoot = path.resolve(process.cwd(), "uploads");
 
     const report: Record<string, { scanned: number; toDelete: number; bytes: number; sample: string[] }> = {};
@@ -820,13 +827,13 @@ export async function cleanupDisk(req: Request, res: Response) {
       if (base) coverKeep.add(base);
     }
 
-    const audioFiles = walk(path.join(uploadsRoot, "audio"));
-    const coverFiles = walk(path.join(uploadsRoot, "covers"));
-    const generatedFiles = walk(path.join(uploadsRoot, "generated")); // grok-debug scratch — always safe to drop
+    const audioFiles = cats.has('audio') ? walk(path.join(uploadsRoot, "audio")) : [];
+    const coverFiles = cats.has('covers') ? walk(path.join(uploadsRoot, "covers")) : [];
+    const generatedFiles = cats.has('generated') ? walk(path.join(uploadsRoot, "generated")) : []; // grok-debug scratch — always safe to drop
 
-    report.audio = { scanned: audioFiles.length, toDelete: 0, bytes: 0, sample: [] };
-    report.covers = { scanned: coverFiles.length, toDelete: 0, bytes: 0, sample: [] };
-    report.generated = { scanned: generatedFiles.length, toDelete: 0, bytes: 0, sample: [] };
+    if (cats.has('audio')) report.audio = { scanned: audioFiles.length, toDelete: 0, bytes: 0, sample: [] };
+    if (cats.has('covers')) report.covers = { scanned: coverFiles.length, toDelete: 0, bytes: 0, sample: [] };
+    if (cats.has('generated')) report.generated = { scanned: generatedFiles.length, toDelete: 0, bytes: 0, sample: [] };
 
     const targets: { path: string; size: number }[] = [];
 
