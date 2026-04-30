@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { db } from './db.js';
-import { users, projects, chapters, creditTransactions, audioGenerations, guestEvents, pushTokens } from './schema.js';
+import { users, projects, chapters, canonEntries, creditTransactions, audioGenerations, guestEvents, pushTokens } from './schema.js';
 import { sql, eq, desc, count, sum, gt, and, inArray } from 'drizzle-orm';
 import { getAuth } from './auth.js';
 import { sendPushToTokens } from './push.js';
@@ -776,13 +776,12 @@ export async function verifyUploads(req: Request, res: Response) {
     const uploadsRoot = path.resolve(process.cwd(), "uploads");
     const fileExists = (relUrl: string | null): boolean => {
       if (!relUrl) return false;
-      const base = path.basename(relUrl);
-      const dir = relUrl.includes('/audio/') ? 'audio'
-        : relUrl.includes('/covers/') ? 'covers'
-        : null;
-      if (!dir || !base) return false;
-      return fs.existsSync(path.join(uploadsRoot, dir, base));
+      // /uploads/audio/foo.mp3 → audio/foo.mp3 (preserve subdir so we look in the right place)
+      const m = relUrl.match(/\/uploads\/(.+)$/);
+      if (!m) return false;
+      return fs.existsSync(path.join(uploadsRoot, m[1]));
     };
+    const isOurDisk = (url: string | null) => !!url && url.startsWith('/uploads/');
 
     const audioRows = await db
       .select({
@@ -802,20 +801,30 @@ export async function verifyUploads(req: Request, res: Response) {
       else audioMissing.push({ id: r.id, url: r.url, isActive: r.isActive, chapterId: r.chapterId, version: r.version, userId: r.userId });
     }
 
+    // Helper: scan a list of {id, url, ...} rows and split into present/missing/external.
+    const scan = <T extends { url: string | null }>(rows: T[]) => {
+      const missing: T[] = [];
+      let present = 0;
+      let externalOrNull = 0;
+      for (const r of rows) {
+        if (!isOurDisk(r.url)) { externalOrNull += 1; continue; }
+        if (fileExists(r.url)) present += 1;
+        else missing.push(r);
+      }
+      return { totalRows: rows.length, present, externalOrNull, missing: missing.length, missingSample: missing.slice(0, 20) };
+    };
+
     const projectRows = await db
-      .select({ id: projects.id, title: projects.title, coverUrl: projects.coverUrl, userId: projects.userId })
+      .select({ id: projects.id, title: projects.title, url: projects.coverUrl, userId: projects.userId })
       .from(projects);
 
-    const coversMissing: any[] = [];
-    let coversPresent = 0;
-    let coversNullOrExternal = 0;
-    for (const r of projectRows) {
-      if (!r.coverUrl) { coversNullOrExternal += 1; continue; }
-      // External / data: URLs aren't on our disk
-      if (!r.coverUrl.startsWith('/uploads/')) { coversNullOrExternal += 1; continue; }
-      if (fileExists(r.coverUrl)) coversPresent += 1;
-      else coversMissing.push({ id: r.id, title: r.title, coverUrl: r.coverUrl, userId: r.userId });
-    }
+    const chapterRows = await db
+      .select({ id: chapters.id, projectId: chapters.projectId, url: chapters.imageUrl })
+      .from(chapters);
+
+    const canonRows = await db
+      .select({ id: canonEntries.id, projectId: canonEntries.projectId, name: canonEntries.name, type: canonEntries.type, url: canonEntries.imageUrl })
+      .from(canonEntries);
 
     res.json({
       audio: {
@@ -824,13 +833,9 @@ export async function verifyUploads(req: Request, res: Response) {
         missing: audioMissing.length,
         missingSample: audioMissing.slice(0, 20),
       },
-      covers: {
-        totalRows: projectRows.length,
-        present: coversPresent,
-        nullOrExternal: coversNullOrExternal,
-        missing: coversMissing.length,
-        missingSample: coversMissing.slice(0, 20),
-      },
+      projectCovers: scan(projectRows),
+      chapterImages: scan(chapterRows),
+      canonImages: scan(canonRows),
     });
   } catch (e: any) {
     console.error("[Admin] verifyUploads error:", e);
@@ -895,11 +900,19 @@ export async function cleanupDisk(req: Request, res: Response) {
       else audioInactive.add(base);
     }
 
-    const projectRows = await db.select({ url: projects.coverUrl }).from(projects);
-    const coverKeep = new Set<string>();
-    for (const r of projectRows) {
-      const base = path.basename(r.url || "");
-      if (base) coverKeep.add(base);
+    // Image keep-set: union of every URL in projects.coverUrl,
+    // chapters.imageUrl, canonEntries.imageUrl. Files in BOTH /uploads/covers/
+    // and /uploads/generated/ may be referenced from any of these — the
+    // generated dir was historically wrongly assumed to be debug-only.
+    const projectRowsForKeep = await db.select({ url: projects.coverUrl }).from(projects);
+    const chapterRowsForKeep = await db.select({ url: chapters.imageUrl }).from(chapters);
+    const canonRowsForKeep = await db.select({ url: canonEntries.imageUrl }).from(canonEntries);
+    const imageKeep = new Set<string>();
+    for (const rows of [projectRowsForKeep, chapterRowsForKeep, canonRowsForKeep]) {
+      for (const r of rows) {
+        const base = path.basename(r.url || "");
+        if (base) imageKeep.add(base);
+      }
     }
 
     const audioFiles = cats.has('audio') ? walk(path.join(uploadsRoot, "audio")) : [];
@@ -933,17 +946,25 @@ export async function cleanupDisk(req: Request, res: Response) {
         const st = fs.statSync(f.path);
         if (Date.now() - st.mtimeMs < 60 * 60 * 1000) continue;
       } catch { continue; }
-      if (!coverKeep.has(base)) {
+      if (!imageKeep.has(base)) {
         targets.push(f);
         recordTarget("covers", f.path, f.size);
       }
     }
 
     for (const f of generatedFiles) {
-      // /generated/ is always safe — written only by the grok-image-ref-test
-      // debug endpoint and never referenced in DB.
-      targets.push(f);
-      recordTarget("generated", f.path, f.size);
+      // /generated/ holds production cover/chapter/canon images, NOT debug
+      // scratch — image-gen.ts writes here. Must consult imageKeep, never
+      // delete unconditionally. (We learned this the hard way; see git log.)
+      const base = path.basename(f.path);
+      try {
+        const st = fs.statSync(f.path);
+        if (Date.now() - st.mtimeMs < 60 * 60 * 1000) continue;
+      } catch { continue; }
+      if (!imageKeep.has(base)) {
+        targets.push(f);
+        recordTarget("generated", f.path, f.size);
+      }
     }
 
     let deleted = 0;
