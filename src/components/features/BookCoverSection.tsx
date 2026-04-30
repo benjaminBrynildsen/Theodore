@@ -1,9 +1,13 @@
 import { useState, useRef, useCallback } from 'react';
-import { ImageIcon, Loader2, ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import { ImageIcon, Loader2, ChevronLeft, ChevronRight, Check, Upload } from 'lucide-react';
 import { useStore } from '../../store';
 import { useGenerationStore } from '../../store/generation';
 import { generateCover } from '../../lib/cover-gen-ai';
 import { cn } from '../../lib/utils';
+
+// Server caps cover uploads at 5 MB (see server/index.ts /api/upload/cover)
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const ACCEPTED_UPLOAD_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 const COVER_STYLES = [
   { id: 'illustrated', label: 'Illustrated' },
@@ -43,6 +47,7 @@ export function BookCoverSection({ projectId }: Props) {
   const project = getActiveProject();
   const [style, setStyle] = useState('illustrated');
   const [generating, setGenerating] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<CoverOption[]>(() => loadCoverHistory(projectId));
   const [activeIndex, setActiveIndex] = useState(() => {
@@ -52,6 +57,7 @@ export function BookCoverSection({ projectId }: Props) {
     return keptIdx >= 0 ? keptIdx : Math.max(0, history.length - 1);
   });
   const carouselRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleGenerate = useCallback(async () => {
     if (!project || generating) return;
@@ -102,6 +108,57 @@ export function BookCoverSection({ projectId }: Props) {
   const keepCover = (url: string) => {
     updateProject(projectId, { coverUrl: url });
   };
+
+  const handleUploadFile = useCallback(async (file: File | null | undefined) => {
+    if (!file || uploading) return;
+    setError(null);
+
+    if (!ACCEPTED_UPLOAD_TYPES.includes(file.type)) {
+      setError('Please choose a PNG, JPG, or WEBP image.');
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError(`Image is too large. Max ${(MAX_UPLOAD_BYTES / 1024 / 1024).toFixed(0)} MB.`);
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('read failed'));
+        reader.onerror = () => reject(new Error('read failed'));
+        reader.readAsDataURL(file);
+      });
+
+      const res = await fetch('/api/upload/cover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ image: dataUrl, projectId }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as any));
+        throw new Error(body?.error || `Upload failed (${res.status})`);
+      }
+      const { coverUrl } = await res.json();
+      if (!coverUrl) throw new Error('Upload returned no URL');
+
+      const newOption: CoverOption = { url: coverUrl, style: 'upload' };
+      setOptions(prev => {
+        const next = [...prev, newOption];
+        setActiveIndex(next.length - 1);
+        saveCoverHistory(projectId, next);
+        return next;
+      });
+      updateProject(projectId, { coverUrl });
+    } catch (e: any) {
+      setError(e?.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }, [projectId, uploading, updateProject]);
 
   if (!project) return null;
 
@@ -224,12 +281,12 @@ export function BookCoverSection({ projectId }: Props) {
       {/* Generate button */}
       <button
         onClick={handleGenerate}
-        disabled={generating}
+        disabled={generating || uploading}
         className={cn(
           'w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-all',
           generating
             ? 'bg-purple-50 text-purple-700'
-            : 'bg-text-primary text-text-inverse hover:shadow-md'
+            : 'bg-text-primary text-text-inverse hover:shadow-md disabled:opacity-60'
         )}
       >
         {generating ? (
@@ -238,6 +295,29 @@ export function BookCoverSection({ projectId }: Props) {
           <><ImageIcon size={14} /> {hasOptions ? 'Generate Another' : 'Generate Cover'}</>
         )}
       </button>
+
+      {/* Upload your own */}
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading || generating}
+        className={cn(
+          'mt-2 w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-all',
+          'bg-black/[0.04] hover:bg-black/[0.07] text-text-primary disabled:opacity-60'
+        )}
+      >
+        {uploading ? (
+          <><Loader2 size={14} className="animate-spin" /> Uploading…</>
+        ) : (
+          <><Upload size={14} /> Upload your own</>
+        )}
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        onChange={e => handleUploadFile(e.target.files?.[0])}
+        className="hidden"
+      />
 
       {error && (
         <div className="mt-2 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>
