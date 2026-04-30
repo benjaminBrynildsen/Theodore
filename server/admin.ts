@@ -763,6 +763,81 @@ export async function sendAdminPush(req: Request, res: Response) {
   }
 }
 
+// ========== Disk Verification ==========
+// Cross-checks every DB-referenced file against the filesystem. If any audio
+// or cover row points to a missing file, that's evidence of accidental data
+// loss. Use this after running cleanupDisk to confirm nothing user-facing
+// was wrongly removed.
+export async function verifyUploads(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const uploadsRoot = path.resolve(process.cwd(), "uploads");
+    const fileExists = (relUrl: string | null): boolean => {
+      if (!relUrl) return false;
+      const base = path.basename(relUrl);
+      const dir = relUrl.includes('/audio/') ? 'audio'
+        : relUrl.includes('/covers/') ? 'covers'
+        : null;
+      if (!dir || !base) return false;
+      return fs.existsSync(path.join(uploadsRoot, dir, base));
+    };
+
+    const audioRows = await db
+      .select({
+        id: audioGenerations.id,
+        url: audioGenerations.audioUrl,
+        isActive: audioGenerations.isActive,
+        chapterId: audioGenerations.chapterId,
+        version: audioGenerations.version,
+        userId: audioGenerations.userId,
+      })
+      .from(audioGenerations);
+
+    const audioMissing: any[] = [];
+    let audioPresent = 0;
+    for (const r of audioRows) {
+      if (fileExists(r.url)) audioPresent += 1;
+      else audioMissing.push({ id: r.id, url: r.url, isActive: r.isActive, chapterId: r.chapterId, version: r.version, userId: r.userId });
+    }
+
+    const projectRows = await db
+      .select({ id: projects.id, title: projects.title, coverUrl: projects.coverUrl, userId: projects.userId })
+      .from(projects);
+
+    const coversMissing: any[] = [];
+    let coversPresent = 0;
+    let coversNullOrExternal = 0;
+    for (const r of projectRows) {
+      if (!r.coverUrl) { coversNullOrExternal += 1; continue; }
+      // External / data: URLs aren't on our disk
+      if (!r.coverUrl.startsWith('/uploads/')) { coversNullOrExternal += 1; continue; }
+      if (fileExists(r.coverUrl)) coversPresent += 1;
+      else coversMissing.push({ id: r.id, title: r.title, coverUrl: r.coverUrl, userId: r.userId });
+    }
+
+    res.json({
+      audio: {
+        totalRows: audioRows.length,
+        present: audioPresent,
+        missing: audioMissing.length,
+        missingSample: audioMissing.slice(0, 20),
+      },
+      covers: {
+        totalRows: projectRows.length,
+        present: coversPresent,
+        nullOrExternal: coversNullOrExternal,
+        missing: coversMissing.length,
+        missingSample: coversMissing.slice(0, 20),
+      },
+    });
+  } catch (e: any) {
+    console.error("[Admin] verifyUploads error:", e);
+    res.status(500).json({ error: e?.message || "Internal server error" });
+  }
+}
+
 // ========== Disk Cleanup ==========
 // Removes orphaned/scratch files from the persistent uploads directory so the
 // Render disk does not fill up. Triggered manually after monitoring shows
