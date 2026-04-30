@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import { Image, Sparkles, Loader2, RotateCcw, Download } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Image, Sparkles, Loader2, RotateCcw, Download, Upload, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useStore } from '../../store';
+
+const MAX_UPLOAD_BYTES = 12 * 1024 * 1024; // 12 MB
 
 type CoverView = 'front' | 'back' | 'spine' | 'full';
 
@@ -44,6 +46,10 @@ export function AICoverDesigner() {
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [uploadedCover, setUploadedCover] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const trim = TRIM_SIZES[trimSize];
   const spineWidth = calculateSpine(pageCount);
@@ -60,6 +66,34 @@ export function AICoverDesigner() {
     }, 3000);
   };
 
+  const handleCoverFile = (file: File | null | undefined) => {
+    setUploadError(null);
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Please choose an image file (PNG, JPG, or WEBP).');
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError(`Image is too large. Max ${(MAX_UPLOAD_BYTES / 1024 / 1024).toFixed(0)} MB.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setUploadedCover(reader.result);
+        setGenerated(true);
+      }
+    };
+    reader.onerror = () => setUploadError('Could not read that file. Try another image.');
+    reader.readAsDataURL(file);
+  };
+
+  const clearUploadedCover = () => {
+    setUploadedCover(null);
+    setUploadError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const coverAspect = trim.h / trim.w;
   const downloadCoverPackage = () => {
     const payload = [
@@ -71,6 +105,7 @@ export function AICoverDesigner() {
       `Spine Width (in): ${spineWidth.toFixed(3)}`,
       `Style: ${style.label}`,
       `View: ${view}`,
+      `Front cover source: ${uploadedCover ? 'User upload' : 'AI-generated'}`,
       '',
       'Prompt Direction:',
       prompt || '(none)',
@@ -181,12 +216,64 @@ export function AICoverDesigner() {
             >
               {generating ? (
                 <><Loader2 size={16} className="animate-spin" /> Generating...</>
-              ) : generated ? (
+              ) : generated && !uploadedCover ? (
                 <><RotateCcw size={16} /> Regenerate</>
               ) : (
-                <><Sparkles size={16} /> Generate Cover</>
+                <><Sparkles size={16} /> {uploadedCover ? 'Generate AI cover instead' : 'Generate Cover'}</>
               )}
             </button>
+
+            {/* Upload your own */}
+            {uploadedCover ? (
+              <div className="rounded-xl border border-black/10 p-2.5 flex items-center gap-3">
+                <img
+                  src={uploadedCover}
+                  alt="Uploaded cover"
+                  className="w-10 h-14 object-cover rounded-md flex-shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium truncate">Custom cover uploaded</div>
+                  <div className="text-[11px] text-text-tertiary">Replaces the front artwork</div>
+                </div>
+                <button
+                  onClick={clearUploadedCover}
+                  className="p-1.5 rounded-lg hover:bg-black/[0.05] transition-colors flex-shrink-0"
+                  aria-label="Remove uploaded cover"
+                >
+                  <X size={14} className="text-text-tertiary" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  handleCoverFile(e.dataTransfer.files?.[0]);
+                }}
+                className={cn(
+                  'w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-colors',
+                  dragOver
+                    ? 'bg-black/[0.06] ring-1 ring-black/15'
+                    : 'bg-black/[0.04] hover:bg-black/[0.06] text-text-primary'
+                )}
+              >
+                <Image size={16} className="text-text-secondary" />
+                Upload your own
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={e => handleCoverFile(e.target.files?.[0])}
+              className="hidden"
+            />
+            {uploadError && (
+              <div className="text-[11px] text-red-600">{uploadError}</div>
+            )}
 
             {generated && (
               <button
@@ -247,15 +334,25 @@ export function AICoverDesigner() {
                   </div>
                   {/* Front */}
                   <div
-                    className={cn('relative flex flex-col items-center justify-center p-6', style.bg)}
-                    style={{ width: 200, height: 200 * coverAspect }}
+                    className={cn('relative flex flex-col items-center justify-center p-6 overflow-hidden', !uploadedCover && style.bg)}
+                    style={{
+                      width: 200,
+                      height: 200 * coverAspect,
+                      backgroundImage: uploadedCover ? `url(${uploadedCover})` : undefined,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }}
                   >
-                    <div className={cn('text-lg font-serif font-bold text-center leading-tight', isLight ? 'text-gray-900' : 'text-white')}>
-                      {title}
-                    </div>
-                    <div className={cn('text-[10px] mt-3 tracking-widest uppercase', isLight ? 'text-gray-600' : 'text-white/60')}>
-                      {author}
-                    </div>
+                    {!uploadedCover && (
+                      <>
+                        <div className={cn('text-lg font-serif font-bold text-center leading-tight', isLight ? 'text-gray-900' : 'text-white')}>
+                          {title}
+                        </div>
+                        <div className={cn('text-[10px] mt-3 tracking-widest uppercase', isLight ? 'text-gray-600' : 'text-white/60')}>
+                          {author}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               ) : view === 'spine' ? (
@@ -270,23 +367,31 @@ export function AICoverDesigner() {
               ) : (
                 /* Front or Back */
                 <div
-                  className={cn('relative flex flex-col items-center justify-center shadow-2xl rounded-sm', style.bg)}
-                  style={{ width: 260, height: 260 * coverAspect }}
+                  className={cn('relative flex flex-col items-center justify-center shadow-2xl rounded-sm overflow-hidden', !(view === 'front' && uploadedCover) && style.bg)}
+                  style={{
+                    width: 260,
+                    height: 260 * coverAspect,
+                    backgroundImage: view === 'front' && uploadedCover ? `url(${uploadedCover})` : undefined,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }}
                 >
                   {view === 'front' ? (
-                    <>
-                      <div className={cn('text-xl font-serif font-bold text-center leading-tight px-6', isLight ? 'text-gray-900' : 'text-white')}>
-                        {title}
-                      </div>
-                      <div className={cn('text-xs mt-4 tracking-widest uppercase', isLight ? 'text-gray-600' : 'text-white/60')}>
-                        {author}
-                      </div>
-                      {!generated && (
-                        <div className={cn('absolute inset-0 flex items-center justify-center', isLight ? 'bg-white/40' : 'bg-black/40')}>
-                          <span className="text-xs text-white/80 glass-pill px-3 py-1">Generate to see AI artwork</span>
+                    uploadedCover ? null : (
+                      <>
+                        <div className={cn('text-xl font-serif font-bold text-center leading-tight px-6', isLight ? 'text-gray-900' : 'text-white')}>
+                          {title}
                         </div>
-                      )}
-                    </>
+                        <div className={cn('text-xs mt-4 tracking-widest uppercase', isLight ? 'text-gray-600' : 'text-white/60')}>
+                          {author}
+                        </div>
+                        {!generated && (
+                          <div className={cn('absolute inset-0 flex items-center justify-center', isLight ? 'bg-white/40' : 'bg-black/40')}>
+                            <span className="text-xs text-white/80 glass-pill px-3 py-1">Generate to see AI artwork</span>
+                          </div>
+                        )}
+                      </>
+                    )
                   ) : (
                     <div className={cn('px-8 text-center', isLight ? 'text-gray-700' : 'text-white/80')}>
                       <p className="text-[10px] leading-relaxed">
