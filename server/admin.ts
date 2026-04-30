@@ -1,6 +1,8 @@
 // Admin API — dashboard endpoints for platform analytics
 import type { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { db } from './db.js';
 import { users, projects, chapters, creditTransactions, audioGenerations, guestEvents, pushTokens } from './schema.js';
 import { sql, eq, desc, count, sum, gt, and, inArray } from 'drizzle-orm';
@@ -760,3 +762,134 @@ export async function sendAdminPush(req: Request, res: Response) {
     res.status(500).json({ error: e?.message || 'Internal server error' });
   }
 }
+
+// ========== Disk Cleanup ==========
+// Removes orphaned/scratch files from the persistent uploads directory so the
+// Render disk does not fill up. Triggered manually after monitoring shows
+// usage approaching the disk cap. ENOSPC errors on /api/upload/cover or TTS
+// writes are the canary that this needs to run.
+export async function cleanupDisk(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const dryRun = req.body?.dryRun !== false; // default to dry-run for safety
+    const dropInactive = req.body?.dropInactive === true; // also remove inactive audio versions
+    const uploadsRoot = path.resolve(process.cwd(), "uploads");
+
+    const report: Record<string, { scanned: number; toDelete: number; bytes: number; sample: string[] }> = {};
+    const recordTarget = (key: string, fp: string, size: number) => {
+      const r = (report[key] ||= { scanned: 0, toDelete: 0, bytes: 0, sample: [] });
+      r.toDelete += 1;
+      r.bytes += size;
+      if (r.sample.length < 5) r.sample.push(fp.replace(uploadsRoot, ""));
+    };
+
+    const walk = (dir: string): { path: string; size: number }[] => {
+      const out: { path: string; size: number }[] = [];
+      try {
+        for (const f of fs.readdirSync(dir)) {
+          const fp = path.join(dir, f);
+          const st = fs.statSync(fp);
+          if (st.isDirectory()) out.push(...walk(fp));
+          else out.push({ path: fp, size: st.size });
+        }
+      } catch {}
+      return out;
+    };
+
+    // Build the keep-set from DB. Filenames in DB are stored as URLs like
+    // /uploads/audio/{...}.mp3 — we key off the basename so any path-prefix
+    // change still matches.
+    const audioRows = await db
+      .select({ url: audioGenerations.audioUrl, isActive: audioGenerations.isActive })
+      .from(audioGenerations);
+    const audioKeep = new Set<string>();
+    const audioInactive = new Set<string>();
+    for (const r of audioRows) {
+      const base = path.basename(r.url || "");
+      if (!base) continue;
+      if (r.isActive || !dropInactive) audioKeep.add(base);
+      else audioInactive.add(base);
+    }
+
+    const projectRows = await db.select({ url: projects.coverUrl }).from(projects);
+    const coverKeep = new Set<string>();
+    for (const r of projectRows) {
+      const base = path.basename(r.url || "");
+      if (base) coverKeep.add(base);
+    }
+
+    const audioFiles = walk(path.join(uploadsRoot, "audio"));
+    const coverFiles = walk(path.join(uploadsRoot, "covers"));
+    const generatedFiles = walk(path.join(uploadsRoot, "generated")); // grok-debug scratch — always safe to drop
+
+    report.audio = { scanned: audioFiles.length, toDelete: 0, bytes: 0, sample: [] };
+    report.covers = { scanned: coverFiles.length, toDelete: 0, bytes: 0, sample: [] };
+    report.generated = { scanned: generatedFiles.length, toDelete: 0, bytes: 0, sample: [] };
+
+    const targets: { path: string; size: number }[] = [];
+
+    for (const f of audioFiles) {
+      const base = path.basename(f.path);
+      // Skip files modified within the last hour to avoid races with in-flight TTS writes.
+      try {
+        const st = fs.statSync(f.path);
+        if (Date.now() - st.mtimeMs < 60 * 60 * 1000) continue;
+      } catch { continue; }
+      const orphan = !audioKeep.has(base) && !audioInactive.has(base);
+      const inactive = dropInactive && audioInactive.has(base);
+      if (orphan || inactive) {
+        targets.push(f);
+        recordTarget("audio", f.path, f.size);
+      }
+    }
+
+    for (const f of coverFiles) {
+      const base = path.basename(f.path);
+      try {
+        const st = fs.statSync(f.path);
+        if (Date.now() - st.mtimeMs < 60 * 60 * 1000) continue;
+      } catch { continue; }
+      if (!coverKeep.has(base)) {
+        targets.push(f);
+        recordTarget("covers", f.path, f.size);
+      }
+    }
+
+    for (const f of generatedFiles) {
+      // /generated/ is always safe — written only by the grok-image-ref-test
+      // debug endpoint and never referenced in DB.
+      targets.push(f);
+      recordTarget("generated", f.path, f.size);
+    }
+
+    let deleted = 0;
+    let bytesFreed = 0;
+    if (!dryRun) {
+      for (const t of targets) {
+        try {
+          fs.unlinkSync(t.path);
+          deleted += 1;
+          bytesFreed += t.size;
+        } catch {}
+      }
+    }
+
+    res.json({
+      dryRun,
+      dropInactive,
+      report,
+      totals: {
+        candidatesToDelete: targets.length,
+        candidateBytes: targets.reduce((a, b) => a + b.size, 0),
+        deleted,
+        bytesFreed,
+      },
+    });
+  } catch (e: any) {
+    console.error("[Admin] cleanupDisk error:", e);
+    res.status(500).json({ error: e?.message || "Internal server error" });
+  }
+}
+
