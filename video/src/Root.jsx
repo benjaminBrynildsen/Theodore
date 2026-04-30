@@ -2,6 +2,7 @@ import { Composition } from 'remotion';
 import { GermaniaPromo } from './GermaniaPromo';
 import { TheodorePromo } from './TheodorePromo';
 import { TheodorePromoV2 } from './TheodorePromoV2';
+import { TheodorePromoV3 } from './TheodorePromoV3';
 
 export const RemotionRoot = () => {
   return (
@@ -33,6 +34,14 @@ export const RemotionRoot = () => {
         id="TheodorePromoV2"
         component={TheodorePromoV2}
         durationInFrames={270}
+        fps={30}
+        width={1080}
+        height={1080}
+      />
+      <Composition
+        id="TheodorePromoV3"
+        component={TheodorePromoV3}
+        durationInFrames={540}
         fps={30}
         width={1080}
         height={1080}
