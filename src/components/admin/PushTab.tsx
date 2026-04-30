@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, Send, RefreshCw, Smartphone, CheckCircle2, AlertCircle, Users as UsersIcon } from 'lucide-react';
+import { Bell, Send, RefreshCw, Smartphone, CheckCircle2, AlertCircle, Users as UsersIcon, Home, Compass, Settings, BookOpen, Headphones, Sparkles, Wand2, FileText } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const API = '/api/admin';
@@ -23,6 +23,99 @@ interface SendResult {
 }
 
 type TargetMode = 'all' | 'users' | 'tokens';
+
+interface Preset {
+  id: string;
+  label: string;
+  description: string;
+  icon: typeof Bell;
+  needsId?: 'project' | 'chapter';
+  title: string;
+  body: string;
+  data: Record<string, any>;
+}
+
+// Each preset's `data.path` is what gets passed to expo-router on tap. Cards
+// flagged needsId leave a `{projectId}` or `{chapterId}` placeholder that you
+// swap in by hand before sending.
+const PRESETS: Preset[] = [
+  {
+    id: 'open-app',
+    label: 'Open app',
+    description: 'Lands on home tab',
+    icon: Home,
+    title: 'Theodore',
+    body: 'Pop in for a minute — your stories are waiting.',
+    data: { path: '/' },
+  },
+  {
+    id: 'open-discover',
+    label: 'Open Discover',
+    description: 'Lands on Discover tab',
+    icon: Compass,
+    title: 'New stories on Theodore',
+    body: 'Browse what other writers are publishing today.',
+    data: { path: '/discover' },
+  },
+  {
+    id: 'open-settings',
+    label: 'Open Settings',
+    description: 'Lands on Settings tab',
+    icon: Settings,
+    title: 'A note about your account',
+    body: 'Check your settings — quick update inside.',
+    data: { path: '/settings' },
+  },
+  {
+    id: 'open-project',
+    label: 'Open project',
+    description: 'Needs projectId',
+    icon: BookOpen,
+    needsId: 'project',
+    title: 'Pick up where you left off',
+    body: 'Your story is one tap away.',
+    data: { path: '/project/{projectId}' },
+  },
+  {
+    id: 'open-studio',
+    label: 'Open Audio Studio',
+    description: 'Needs projectId',
+    icon: Headphones,
+    needsId: 'project',
+    title: 'Your audiobook is ready',
+    body: 'Tap to listen — full chapter rendered.',
+    data: { path: '/project/{projectId}/studio' },
+  },
+  {
+    id: 'open-chapter',
+    label: 'Open chapter',
+    description: 'Needs projectId + chapterId',
+    icon: FileText,
+    needsId: 'chapter',
+    title: 'A new chapter is ready',
+    body: 'Theodore just finished writing — see what happened next.',
+    data: { path: '/project/{projectId}/chapter/{chapterId}' },
+  },
+  {
+    id: 'open-reading',
+    label: 'Open reading view',
+    description: 'Needs chapterId',
+    icon: Sparkles,
+    needsId: 'chapter',
+    title: 'Ready to read',
+    body: 'Your latest chapter is queued up.',
+    data: { path: '/reading/{chapterId}' },
+  },
+  {
+    id: 'reengagement',
+    label: 'Re-engagement',
+    description: 'No deeplink — opens app',
+    icon: Wand2,
+    title: 'Theodore misses you',
+    body: 'Your characters need their author. Two minutes is all it takes.',
+    data: {},
+  },
+];
 
 function formatRelative(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -155,6 +248,45 @@ export function PushTab() {
         >
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
         </button>
+      </div>
+
+      {/* Presets */}
+      <div className="rounded-xl border border-black/10 bg-white p-4 space-y-3">
+        <div className="flex items-baseline gap-2">
+          <div className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Presets</div>
+          <div className="text-[11px] text-text-tertiary">Click a card to fill the form. <code className="bg-black/5 px-1 rounded">data.path</code> is the route a tap navigates to.</div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {PRESETS.map((p) => {
+            const Icon = p.icon;
+            return (
+              <button
+                key={p.id}
+                onClick={() => {
+                  setTitle(p.title);
+                  setBody(p.body);
+                  setDataJson(Object.keys(p.data).length ? JSON.stringify(p.data, null, 2) : '');
+                  setError(null);
+                }}
+                className="text-left rounded-lg border border-black/10 hover:border-text-primary/40 hover:bg-black/[0.02] transition-colors p-3 group"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <Icon size={14} className="text-text-secondary" />
+                  <span className="text-sm font-medium text-text-primary">{p.label}</span>
+                  {p.needsId && (
+                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">needs id</span>
+                  )}
+                </div>
+                <div className="text-[11px] text-text-tertiary mb-1.5">{p.description}</div>
+                <div className="text-[11px] text-text-secondary line-clamp-1"><span className="font-medium">{p.title}</span></div>
+                <div className="text-[11px] text-text-tertiary line-clamp-2">{p.body}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="text-[11px] text-text-tertiary">
+          Tap routing requires mobile build with the notification handler (lib/push.ts &middot; <code className="bg-black/5 px-1 rounded">attachNotificationTapHandler</code>). Older builds will just open the app.
+        </div>
       </div>
 
       {/* Compose */}
