@@ -12,6 +12,7 @@ import { useCreditsStore } from './store/credits';
 import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
 import { CookieConsent } from './components/layout/CookieConsent';
+import { PendingNoticeModal } from './components/PendingNoticeModal';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
@@ -678,6 +679,7 @@ export default function App() {
         <UpgradeModal />
         <ImpactPanel />
       </Suspense>
+      <PendingNoticeModal />
       {showReadingMode && (
         <Suspense fallback={<ViewLoader label="Loading reading mode..." />}>
           <ReadingMode onClose={() => setShowReadingMode(false)} />

@@ -57,6 +57,7 @@ export const api = {
   // ========== Users ==========
   getMe: () => request<any>('/users/me'),
   updateMe: (data: any) => request<any>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
+  dismissNotice: () => request<{ ok: boolean }>('/users/me/dismiss-notice', { method: 'POST' }),
 
   // ========== Projects ==========
   listProjects: (_userId?: string) => request<any[]>('/projects'),

@@ -20,6 +20,14 @@ export interface AuthUser {
   createdAt?: string;
   updatedAt?: string;
   emailVerifiedAt?: string | null;
+  // One-shot admin notice surfaced via /api/auth/me. Cleared via dismissNotice.
+  pendingNotice?: {
+    title: string;
+    body: string;
+    ctaText?: string;
+    ctaPath?: string;
+    setAt?: string;
+  } | null;
 }
 
 interface AuthState {
