@@ -1,4 +1,5 @@
 node_modules
 dist
 .env
-video/out/
+video/out/*
+!video/out/theodore-v3.mp4
