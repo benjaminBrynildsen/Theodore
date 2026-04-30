@@ -843,6 +843,49 @@ export async function verifyUploads(req: Request, res: Response) {
   }
 }
 
+// ========== Pending Notice (in-app announcement) ==========
+// Stashes a one-shot notice into users.settings.pendingNotice. Mobile/web
+// clients read it via /api/auth/me, render a modal on next bootstrap, and
+// call POST /api/users/me/dismiss-notice when the user taps OK.
+export async function setPendingNotice(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const { userIds, notice } = req.body || {};
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ error: 'userIds[] required' });
+    }
+    if (!notice || typeof notice.title !== 'string' || typeof notice.body !== 'string') {
+      return res.status(400).json({ error: 'notice { title, body, ctaText?, ctaPath? } required' });
+    }
+    const noticeRow = {
+      title: String(notice.title).slice(0, 200),
+      body: String(notice.body).slice(0, 1000),
+      ctaText: notice.ctaText ? String(notice.ctaText).slice(0, 60) : undefined,
+      ctaPath: notice.ctaPath ? String(notice.ctaPath).slice(0, 200) : undefined,
+      setAt: new Date().toISOString(),
+    };
+
+    let updated = 0;
+    const failed: string[] = [];
+    for (const uid of userIds) {
+      try {
+        const [u] = await db.select({ settings: users.settings }).from(users).where(eq(users.id, uid));
+        if (!u) { failed.push(uid); continue; }
+        const newSettings = { ...(u.settings as Record<string, any> || {}), pendingNotice: noticeRow };
+        await db.update(users).set({ settings: newSettings }).where(eq(users.id, uid));
+        updated += 1;
+      } catch (e) {
+        failed.push(uid);
+      }
+    }
+    res.json({ updated, failed, notice: noticeRow });
+  } catch (e: any) {
+    console.error('[Admin] setPendingNotice error:', e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
+  }
+}
+
 // ========== User Cover Health ==========
 // Per-user breakdown: how many of their projects still have a valid cover
 // vs. dropped to placeholder after the disk-cleanup incident. A "valid" cover

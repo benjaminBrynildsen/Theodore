@@ -95,6 +95,11 @@ export function toSafeUser(user: DbUser) {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     emailVerifiedAt: user.emailVerifiedAt,
+    // One-shot in-app notice. Admin sets this via /api/admin/set-pending-notice
+    // and the mobile/web client clears it via /api/users/me/dismiss-notice.
+    pendingNotice: ((user.settings as any)?.pendingNotice as
+      | { title: string; body: string; ctaText?: string; ctaPath?: string; setAt?: string }
+      | undefined) ?? null,
   };
 }
 

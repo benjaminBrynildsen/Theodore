@@ -27,7 +27,7 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice } from './admin.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
@@ -3109,6 +3109,7 @@ app.post('/api/admin/cleanup-disk', cleanupDisk);
 app.get('/api/admin/verify-uploads', verifyUploads);
 app.post('/api/admin/backfill-broken-images', backfillBrokenImages);
 app.get('/api/admin/user-cover-health', userCoverHealth);
+app.post('/api/admin/set-pending-notice', setPendingNotice);
 
 // ========== Outreach (open tracking + creator pipeline) ==========
 // Pixel route — intentionally public, served on track.theodore.tools
@@ -4324,6 +4325,23 @@ app.put('/api/users/me/push-token', async (req, res) => {
   } catch (e: any) {
     console.error('[push-token/put]', e);
     res.status(500).json({ error: 'Failed to register push token' });
+  }
+});
+
+// Clear the in-app pending notice once the user has acknowledged it. Idempotent.
+app.post('/api/users/me/dismiss-notice', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const cur = (auth.user.settings as Record<string, any>) || {};
+    if (cur.pendingNotice) {
+      const { pendingNotice: _drop, ...rest } = cur;
+      await db.update(users).set({ settings: rest }).where(eq(users.id, auth.user.id));
+    }
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[users/me/dismiss-notice]', e);
+    res.status(500).json({ error: 'Failed to dismiss notice' });
   }
 });
 
