@@ -27,6 +27,8 @@ import type { Request, Response, Router } from 'express';
 import express from 'express';
 import multer from 'multer';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { callGrokTTS } from './tts';
 
 const XAI_BASE_URL = 'https://api.x.ai/v1';
@@ -238,7 +240,7 @@ interface OutlineRequest {
 export async function generateActiveCharacterOutline(r: OutlineRequest): Promise<OutlineScene[]> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
-  const sceneCount = Math.min(Math.max(r.targetScenes ?? 4, 3), 5);
+  const sceneCount = Math.min(Math.max(r.targetScenes ?? 5, 4), 6);
 
   const sys = `You are an audiobook director planning an Active Character chapter. The listener voices "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''} in real time — they speak as ${r.characterName} at the end of each scene, and that line is canon.
 
@@ -684,6 +686,197 @@ async function streamContinueChapterWithAudio(
 }
 
 // ============================================================================
+// Scene-by-scene Active Character player
+// ----------------------------------------------------------------------------
+// New flow (replaces the in-prose Open Beat triggers for v1.1+):
+//   1. Ara delivers a calm pre-roll: "This is an active-character experience.
+//      You are X. Enjoy."
+//   2. Leo narrates ONE scene of prose.
+//   3. Ara frames the moment in 1-2 sentences: "[setup]. What do you say?"
+//      She does NOT script the line — the user invents it.
+//   4. User speaks → transcribed.
+//   5. The next scene is generated conditioned on the user's line. Its TTS
+//      OPENS with a brief recap that re-stages the last beat and weaves the
+//      user's spoken words in as the active character's dialogue, then
+//      continues into new prose. Listener hears it as one continuous flow.
+//   6. Repeat until the final scene, which closes the chapter without a
+//      coach prompt.
+//
+// All endpoints are stateless. The mobile client holds session state
+// (outline, prior scenes, user lines) and passes it back per call.
+// ============================================================================
+
+const PLAYER_AUDIO_DIR = path.join(process.cwd(), 'uploads', 'audio');
+function ensurePlayerAudioDir() {
+  if (!fs.existsSync(PLAYER_AUDIO_DIR)) fs.mkdirSync(PLAYER_AUDIO_DIR, { recursive: true });
+}
+
+/** Render text to MP3 with a single Grok TTS call and persist to /uploads/audio.
+ *  Returns relative URL + a char-based duration estimate (Grok 24kHz/128kbps
+ *  averages ~14 chars/sec when speaking at default pace). Long scene prose
+ *  (~3000-4000 chars) fits inside Grok's 14,500-char per-request cap. */
+async function renderActiveCharacterTTS(text: string, voiceId: string, keyHint: string): Promise<{
+  audioUrl: string;
+  durationEstimate: number;
+}> {
+  ensurePlayerAudioDir();
+  const buf = await callGrokTTS(text, voiceId);
+  const hash = crypto.createHash('md5').update(`${keyHint}:${Date.now()}:${Math.random()}`).digest('hex').slice(0, 12);
+  const filename = `acp-${hash}.mp3`;
+  fs.writeFileSync(path.join(PLAYER_AUDIO_DIR, filename), buf);
+  // Empirical Grok TTS pace: ~14 chars/sec. Used for client-side scrubber bounds
+  // until a real measurer is available. Add a 0.5s pad so the queue manager
+  // doesn't cut off the tail by mistake.
+  const durationEstimate = Math.max(1, Math.ceil(text.length / 14) + 0.5);
+  return { audioUrl: `/uploads/audio/${filename}`, durationEstimate };
+}
+
+interface PlayerSceneRequest {
+  chapterTitle: string;
+  chapterNumber?: number;
+  outline: Array<{ intent: string; beatIntent: string }>;
+  sceneIndex: number;
+  priorScenesProse: string[];
+  lastUserLine?: string;
+  characterName: string;
+  characterArchetype?: string;
+  characterRegister?: string;
+  projectTitle?: string;
+}
+
+/** Generate one scene of prose for the player. The shape is intentionally
+ *  different from chapter generation: short scenes (~400-600 words), explicit
+ *  hand-off moment at the end, optional bridge passage at the start. */
+async function generateActiveCharacterScene(r: PlayerSceneRequest): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
+
+  const isFirst = r.sceneIndex === 0;
+  const isLast = r.sceneIndex === r.outline.length - 1;
+  const sceneSpec = r.outline[r.sceneIndex];
+  if (!sceneSpec) throw new Error(`No outline entry for sceneIndex ${r.sceneIndex}`);
+
+  const introNote = isFirst
+    ? `Open with a single line spoken aloud: "Chapter${r.chapterNumber ? ` ${r.chapterNumber}` : ''}${r.chapterTitle ? `: ${r.chapterTitle}` : ''}." Then a soft transition into the scene.`
+    : '';
+
+  const bridgeNote = !isFirst && r.lastUserLine?.trim()
+    ? `BRIDGE PASSAGE — open with 1-2 sentences that re-stage the last beat: a short physical/emotional anchor (someone breathes, the room shifts, a glance), then quote ${r.characterName}'s line as dialogue exactly: "${r.lastUserLine.replace(/"/g, '\\"').trim()}". After the dialogue tag, continue into the new scene's events. The bridge should make the listener feel that what they said is now woven into the story. Do NOT label it "bridge" or refer to scenes/numbers in-prose.`
+    : '';
+
+  const handoffNote = isLast
+    ? `This is the final scene. Bring the chapter to a resolution. Do NOT end on an open beat — close it cleanly. ${r.characterName} can speak inside this scene as part of resolution.`
+    : `End the scene at a moment where ${r.characterName} would naturally speak (someone asks them a question, the antagonist waits, a silence after a revelation). Do NOT write ${r.characterName}'s line — leave that hand-off open. The last line should set up the silence the listener fills.`;
+
+  const sys = `You are Theodore drafting one scene of an Active Character audiobook.
+
+The listener voices "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''}${r.characterRegister ? ` — register: ${r.characterRegister}` : ''}. They will speak as ${r.characterName} at the end of this scene if it's not the final one.
+
+Hard rules:
+- 400-600 words. Tight, vivid, audiobook-friendly prose. No internal monologue from ${r.characterName} unless absolutely necessary.
+- Third-person past tense. Sensory details. Concrete actions.
+- Do NOT include scene headings, numbers, or markdown.
+- Do NOT use placeholder bracket text like [Character speaks].
+${introNote ? `- ${introNote}\n` : ''}${bridgeNote ? `- ${bridgeNote}\n` : ''}- ${handoffNote}
+
+Output ONLY the prose. No commentary, no labels.`;
+
+  const priorRecap = r.priorScenesProse.length
+    ? `Story so far (prior scenes — for continuity, do NOT repeat verbatim):\n\n${r.priorScenesProse.join('\n\n').slice(-3500)}\n\n`
+    : '';
+
+  const userMsg = `${priorRecap}This scene's intent (the guardrail — bend it however the user's last line steered things, but the scene must hit this beat):
+${sceneSpec.intent}
+
+${!isLast ? `Hand-off setup for end of scene: ${sceneSpec.beatIntent}` : ''}
+
+Write scene ${r.sceneIndex + 1} of ${r.outline.length} now.`;
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1400,
+      temperature: 0.75,
+      system: sys,
+      messages: [{ role: 'user', content: userMsg }],
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`generate-scene ${resp.status}: ${body.slice(0, 300)}`);
+  }
+
+  const json = (await resp.json()) as any;
+  const prose = (json?.content?.[0]?.text || '').trim();
+  if (!prose) throw new Error('generate-scene returned empty prose');
+  return prose;
+}
+
+/** Generate Ara's brief end-of-scene framing. Sets the situation in 1-2
+ *  sentences and invites the user to speak. Never scripts the line. */
+async function generateCoachLine(r: {
+  characterName: string;
+  sceneIntent: string;
+  beatIntent: string;
+  sceneJustEndedTail: string; // last ~600 chars of scene prose so coach knows the moment
+}): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
+
+  const sys = `You are the Director — a calm, warm voice that sets up moments in an Active Character audiobook for the listener.
+
+Your output will be read aloud by Ara, a soft female voice. The listener voices "${r.characterName}". You frame the moment in 1-2 short sentences and invite them to speak.
+
+HARD RULES:
+- Maximum two sentences. Total under 25 words.
+- DO NOT suggest what to say. Never quote or paraphrase a possible line.
+- DO NOT recap plot. The listener just heard the scene.
+- Just frame the moment ("They wait." "The silence stretches." "His eyes are on you.") and end with a soft cue: "What do you say?" or similar.
+- Calm, quiet tone. Like a stage manager whispering a cue.
+- Output ONLY the spoken text. No labels, no markdown.`;
+
+  const userMsg = `Scene just ended on this beat: ${r.beatIntent}
+
+Last lines of the scene (for context only):
+${r.sceneJustEndedTail.slice(-600)}
+
+Write the Director's cue now.`;
+
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 80,
+      temperature: 0.6,
+      system: sys,
+      messages: [{ role: 'user', content: userMsg }],
+    }),
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`coach-line ${resp.status}: ${body.slice(0, 200)}`);
+  }
+
+  const json = (await resp.json()) as any;
+  const line = (json?.content?.[0]?.text || '').trim();
+  if (!line) throw new Error('coach-line returned empty');
+  return line;
+}
+
+// ============================================================================
 // Route registration — called from server/index.ts via attach()
 // ============================================================================
 
@@ -857,6 +1050,78 @@ export function attachActiveCharacterRoutes(app: Router, requireAuth: RequireAut
     } catch (e: any) {
       ac('outline failed', e?.message || e);
       res.status(500).json({ error: e?.message || 'outline failed' });
+    }
+  });
+
+  // ====================================================================
+  // Scene-by-scene player endpoints (v1.1+ Active Character experience)
+  // ====================================================================
+
+  // ----- Pre-roll: Ara welcomes the listener and names the character -----
+  app.post('/api/active-character/play/intro', express.json({ limit: '16kb' }), async (req: Request, res: Response) => {
+    try {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+      const characterName = String((req.body || {}).characterName || '').trim();
+      if (!characterName) return res.status(400).json({ error: 'characterName required' });
+
+      // Static, calm pre-roll. Same wording every time so the listener learns
+      // the cadence — Ara's tone (warm, quiet) carries the welcome, not new
+      // copy each time.
+      const text = `This is an active-character experience. You are ${characterName}. Enjoy.`;
+      const rendered = await renderActiveCharacterTTS(text, 'ara', `intro:${characterName}`);
+      ac('play/intro ok', { characterName, durationEstimate: rendered.durationEstimate });
+      res.json({ text, ...rendered });
+    } catch (e: any) {
+      ac('play/intro failed', e?.message || e);
+      res.status(500).json({ error: e?.message || 'play/intro failed' });
+    }
+  });
+
+  // ----- Generate one scene's prose + render it as Leo audio -----
+  app.post('/api/active-character/play/scene', express.json({ limit: '512kb' }), async (req: Request, res: Response) => {
+    try {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+      const body = req.body as PlayerSceneRequest;
+      if (!body?.outline?.length || !body?.characterName || typeof body.sceneIndex !== 'number') {
+        return res.status(400).json({ error: 'outline, sceneIndex, and characterName required' });
+      }
+      if (body.sceneIndex < 0 || body.sceneIndex >= body.outline.length) {
+        return res.status(400).json({ error: `sceneIndex out of range (outline has ${body.outline.length} scenes)` });
+      }
+
+      const prose = await generateActiveCharacterScene(body);
+      const rendered = await renderActiveCharacterTTS(prose, 'leo', `scene:${body.sceneIndex}:${body.characterName}`);
+      ac('play/scene ok', { sceneIndex: body.sceneIndex, chars: prose.length, durationEstimate: rendered.durationEstimate });
+      res.json({ prose, ...rendered, sceneIndex: body.sceneIndex, isFinalScene: body.sceneIndex === body.outline.length - 1 });
+    } catch (e: any) {
+      ac('play/scene failed', e?.message || e);
+      res.status(500).json({ error: e?.message || 'play/scene failed' });
+    }
+  });
+
+  // ----- Generate Ara's end-of-scene framing + render her audio -----
+  app.post('/api/active-character/play/coach', express.json({ limit: '128kb' }), async (req: Request, res: Response) => {
+    try {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+      const body = req.body || {};
+      const characterName = String(body.characterName || '').trim();
+      const sceneIntent = String(body.sceneIntent || '').trim();
+      const beatIntent = String(body.beatIntent || '').trim();
+      const sceneJustEndedTail = String(body.sceneJustEndedTail || '').trim();
+      if (!characterName || !beatIntent) {
+        return res.status(400).json({ error: 'characterName and beatIntent required' });
+      }
+
+      const text = await generateCoachLine({ characterName, sceneIntent, beatIntent, sceneJustEndedTail });
+      const rendered = await renderActiveCharacterTTS(text, 'ara', `coach:${characterName}`);
+      ac('play/coach ok', { chars: text.length, durationEstimate: rendered.durationEstimate });
+      res.json({ text, ...rendered });
+    } catch (e: any) {
+      ac('play/coach failed', e?.message || e);
+      res.status(500).json({ error: e?.message || 'play/coach failed' });
     }
   });
 }
