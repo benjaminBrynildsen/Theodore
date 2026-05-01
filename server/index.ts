@@ -4363,6 +4363,13 @@ const distPath = path.resolve(process.cwd(), 'dist');
 // Log pageviews BEFORE the static handler so we capture HTML navigations
 // (bundled assets are skipped inside the middleware via /assets/ prefix).
 app.use(pageViewMiddleware);
+// Serve /privacy and /terms as standalone HTML so SPA load isn't required
+// for crawlers / the App Store reviewer / link previews.
+app.get(['/privacy', '/privacy.html'], (_req, res) => {
+  const f = path.join(distPath, 'privacy.html');
+  if (fs.existsSync(f)) res.sendFile(f);
+  else res.status(404).send('Privacy policy missing — rebuild the frontend.');
+});
 app.use(express.static(distPath));
 app.get('/{*splat}', (_req, res) => {
   const indexFile = path.join(distPath, 'index.html');
