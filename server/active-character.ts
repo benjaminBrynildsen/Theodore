@@ -934,37 +934,62 @@ function buildScenePrompts(r: PlayerSceneRequest): { system: string; user: strin
   const isFirst = r.sceneIndex === 0;
   const isLast = r.sceneIndex === r.outline.length - 1;
   const sceneSpec = r.outline[r.sceneIndex];
-
-  const introNote = isFirst
-    ? `Open with a single line spoken aloud: "Chapter${r.chapterNumber ? ` ${r.chapterNumber}` : ''}${r.chapterTitle ? `: ${r.chapterTitle}` : ''}." Then a soft transition into the scene.`
-    : '';
-
-  const bridgeNote = !isFirst && r.lastUserLine?.trim()
-    ? `BRIDGE PASSAGE — open with 1-2 sentences that re-stage the last beat: a short physical/emotional anchor (someone breathes, the room shifts, a glance), then quote ${r.characterName}'s line as dialogue exactly. The line they spoke was: ${r.lastUserLine.trim()}. After the dialogue tag, continue into the new scene's events. The bridge should make the listener feel that what they said is now woven into the story. Do NOT label it "bridge" or refer to scenes/numbers in-prose.`
-    : '';
+  const userLine = !isFirst ? (r.lastUserLine || '').trim() : '';
 
   const handoffNote = isLast
     ? `This is the final scene. Bring the chapter to a resolution. Do NOT end on an open beat — close it cleanly. ${r.characterName} can speak inside this scene as part of resolution.`
     : `End the scene at a moment where ${r.characterName} would naturally speak (someone asks them a question, the antagonist waits, a silence after a revelation). Do NOT write ${r.characterName}'s line — leave that hand-off open. The last line should set up the silence the listener fills.`;
 
+  // System: stable rules only. Anything that varies per call (recap, user
+  // line, intent) goes in the user message so it lands with full attention.
   const system = `You are Theodore drafting one scene of an Active Character audiobook.
 
-The listener voices "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''}${r.characterRegister ? ` — register: ${r.characterRegister}` : ''}. They will speak as ${r.characterName} at the end of this scene if it's not the final one.
+The listener voices "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''}${r.characterRegister ? ` — register: ${r.characterRegister}` : ''}. They speak as ${r.characterName} at the end of each non-final scene; that line is canon and you weave it into the next scene's opening dialogue.
 
-Hard rules:
-- 400-600 words. Tight, vivid, audiobook-friendly prose. No internal monologue from ${r.characterName} unless absolutely necessary.
-- Third-person past tense. Sensory details. Concrete actions.
-- Do NOT include scene headings, numbers, or markdown.
-- Do NOT use placeholder bracket text like [Character speaks].
-${introNote ? `- ${introNote}\n` : ''}${bridgeNote ? `- ${bridgeNote}\n` : ''}- ${handoffNote}
+Voice + format:
+- 400-600 words. Audiobook-friendly prose: vivid, sensory, concrete actions. Third-person past tense.
+- No scene headings, numbers, markdown, or bracket-placeholders like [Character speaks].
+- Output ONLY the prose. No commentary, no labels.
 
-Output ONLY the prose. No commentary, no labels.`;
+End-of-scene rule:
+${handoffNote}`;
 
   const priorRecap = r.priorScenesProse.length
-    ? `Story so far (prior scenes — for continuity, do NOT repeat verbatim):\n\n${r.priorScenesProse.join('\n\n').slice(-3500)}\n\n`
+    ? `Story so far (prior scenes — for your continuity reference; do NOT repeat verbatim):\n\n${r.priorScenesProse.join('\n\n').slice(-3500)}\n\n`
     : '';
 
-  const user = `${priorRecap}This scene's intent (the guardrail — bend it however the user's last line steered things, but the scene must hit this beat):
+  const introBlock = isFirst
+    ? `\nOPEN WITH a single line spoken aloud: "Chapter${r.chapterNumber ? ` ${r.chapterNumber}` : ''}${r.chapterTitle ? `: ${r.chapterTitle}` : ''}." Then transition softly into the scene.\n`
+    : '';
+
+  // BRIDGE — the most important instruction in the whole feature. Hoisted to
+  // the top of the user message with a numbered procedure so the model
+  // can't bury it. Includes an example so Haiku doesn't paraphrase the line.
+  const bridgeBlock = !isFirst && userLine
+    ? `\n=== BRIDGE FROM PREVIOUS SCENE ===
+
+The listener — voicing ${r.characterName} — just spoke this exact line at the end of the previous scene:
+
+"${userLine}"
+
+Your scene MUST open with a bridge passage that does these three things, in this order:
+
+  1) ONE short sentence physically grounds the moment (a breath, a beat of silence, a glance, the room settling).
+  2) ${r.characterName} speaks the line above, EXACTLY as written, in dialogue form. Use quotation marks. Attribute it: e.g., \`"${userLine}" ${r.characterName} said.\` or \`"${userLine}" he/she said.\` Do not paraphrase, summarize, or improve their words. Quote them verbatim.
+  3) ONE short reaction line — how someone present responds (a tilt of the head, a long pause, a counter-question).
+
+After those three, continue into the new scene's events.
+
+This bridge is the heart of the experience. The listener needs to hear their words come back in the narrator's voice as part of the story. Do not skip it. Do not soften it. Quote them exactly.
+
+=== END BRIDGE ===
+`
+    : !isFirst
+      ? `\nThe listener stayed silent at the end of the previous scene. Open the new scene from the beat of silence — describe what the silence does in the room, then move forward without putting words in ${r.characterName}'s mouth.\n`
+      : '';
+
+  const user = `${priorRecap}${bridgeBlock}${introBlock}
+This scene's intent (the guardrail — bend it however the listener's line steered things, but the scene must hit this beat):
 ${sceneSpec.intent}
 
 ${!isLast ? `Hand-off setup for end of scene: ${sceneSpec.beatIntent}` : ''}
