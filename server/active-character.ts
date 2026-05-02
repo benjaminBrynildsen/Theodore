@@ -168,6 +168,7 @@ async function streamAnthropicLLM(
 ): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
+  const controller = new AbortController();
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -183,6 +184,7 @@ async function streamAnthropicLLM(
       system: req.system,
       messages: [{ role: 'user', content: req.user }],
     }),
+    signal: controller.signal,
   });
   if (!resp.ok || !resp.body) {
     const body = await resp.text().catch(() => '');
@@ -192,10 +194,27 @@ async function streamAnthropicLLM(
   const decoder = new TextDecoder();
   let buf = '';
   let full = '';
+  // Per-chunk idle timeout. If 60s pass with zero bytes from Anthropic,
+  // abort the connection and surface an error so the caller can fall back
+  // to non-streaming via callLLM. Without this, a stalled upstream would
+  // hang the whole /play/scene-stream request indefinitely.
+  const IDLE_MS = 60_000;
   while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const idle = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        try { controller.abort(); } catch {}
+        reject(new Error(`anthropic-stream idle ${IDLE_MS / 1000}s — aborted`));
+      }, IDLE_MS);
+    });
+    let result: ReadableStreamReadResult<Uint8Array>;
+    try {
+      result = await Promise.race([reader.read(), idle]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+    if (result.done) break;
+    buf += decoder.decode(result.value, { stream: true });
     const lines = buf.split('\n');
     buf = lines.pop() ?? '';
     for (const line of lines) {
@@ -1294,24 +1313,47 @@ export function attachActiveCharacterRoutes(app: Router, requireAuth: RequireAut
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
+      // Some proxies (incl. Render's load balancer) buffer responses unless
+      // told not to — without this, the SSE chunks pile up and arrive in
+      // a single flush after the request completes, killing the streaming
+      // win entirely.
+      res.setHeader('X-Accel-Buffering', 'no');
       res.flushHeaders?.();
+
+      // Heartbeat: SSE comment every 12s so Render / mobile don't think
+      // the connection is dead during the pre-first-token gap (Anthropic
+      // can take 3-5s to start streaming on cold load).
+      const heartbeat = setInterval(() => {
+        try { res.write(`: keepalive ${Date.now()}\n\n`); } catch {}
+      }, 12_000);
+
+      // If the client aborts (player teardown), stop generating.
+      const aborted = { v: false };
+      req.on('close', () => { aborted.v = true; });
 
       try {
         const full = await streamSceneWithAudio(body, 'leo', {
           onTextDelta: (delta) => {
+            if (aborted.v) return;
             res.write(`data: ${JSON.stringify({ type: 'text', delta })}\n\n`);
           },
           onAudioChunk: (chunk) => {
+            if (aborted.v) return;
             res.write(`data: ${JSON.stringify({ type: 'audio', index: chunk.index, audio: chunk.audio })}\n\n`);
           },
         });
-        res.write(`data: ${JSON.stringify({ type: 'done', prose: full, sceneIndex: body.sceneIndex, isFinalScene: body.sceneIndex === body.outline.length - 1 })}\n\n`);
-        ac('play/scene-stream ok', { sceneIndex: body.sceneIndex, chars: full.length });
+        if (!aborted.v) {
+          res.write(`data: ${JSON.stringify({ type: 'done', prose: full, sceneIndex: body.sceneIndex, isFinalScene: body.sceneIndex === body.outline.length - 1 })}\n\n`);
+        }
+        ac('play/scene-stream ok', { sceneIndex: body.sceneIndex, chars: full.length, aborted: aborted.v });
       } catch (err: any) {
         ac('play/scene-stream failed', err?.message || err);
-        res.write(`data: ${JSON.stringify({ type: 'error', error: err?.message || 'stream failed' })}\n\n`);
+        if (!aborted.v) {
+          res.write(`data: ${JSON.stringify({ type: 'error', error: err?.message || 'stream failed' })}\n\n`);
+        }
       } finally {
-        res.end();
+        clearInterval(heartbeat);
+        try { res.end(); } catch {}
       }
     } catch (e: any) {
       if (!res.headersSent) res.status(500).json({ error: e?.message || 'play/scene-stream outer failure' });
