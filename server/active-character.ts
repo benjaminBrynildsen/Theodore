@@ -51,6 +51,137 @@ function ac(tag: string, ...rest: unknown[]) {
 }
 
 // ============================================================================
+// Multi-provider LLM with fallback chain
+// ----------------------------------------------------------------------------
+// Tries Anthropic (Haiku), then OpenAI (gpt-4o-mini), then xAI (grok-2-latest).
+// Falls forward on any failure — billing errors, rate limits, network blips.
+// All four Active Character generation paths (outline, place-beats, scene,
+// coach) route through here so a single provider hiccup doesn't kill the
+// feature.
+// ============================================================================
+
+interface LLMRequest {
+  system: string;
+  user: string;
+  maxTokens: number;
+  temperature: number;
+  /** Provider preference order. Defaults to anthropic → openai → xai. */
+  preferredProvider?: 'anthropic' | 'openai' | 'xai';
+}
+
+async function callAnthropicLLM(req: LLMRequest): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: req.maxTokens,
+      temperature: req.temperature,
+      system: req.system,
+      messages: [{ role: 'user', content: req.user }],
+    }),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`anthropic ${resp.status}: ${body.slice(0, 300)}`);
+  }
+  const json = (await resp.json()) as any;
+  const text = json?.content?.[0]?.text;
+  if (!text) throw new Error('anthropic returned empty content');
+  return String(text).trim();
+}
+
+async function callOpenAILLM(req: LLMRequest): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY missing');
+  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      max_tokens: req.maxTokens,
+      temperature: req.temperature,
+      messages: [
+        { role: 'system', content: req.system },
+        { role: 'user', content: req.user },
+      ],
+    }),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`openai ${resp.status}: ${body.slice(0, 300)}`);
+  }
+  const json = (await resp.json()) as any;
+  const text = json?.choices?.[0]?.message?.content;
+  if (!text) throw new Error('openai returned empty content');
+  return String(text).trim();
+}
+
+async function callXAILLM(req: LLMRequest): Promise<string> {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) throw new Error('XAI_API_KEY missing');
+  const resp = await fetch(`${XAI_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: XAI_CHAT_MODEL,
+      max_tokens: req.maxTokens,
+      temperature: req.temperature,
+      messages: [
+        { role: 'system', content: req.system },
+        { role: 'user', content: req.user },
+      ],
+    }),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`xai ${resp.status}: ${body.slice(0, 300)}`);
+  }
+  const json = (await resp.json()) as any;
+  const text = json?.choices?.[0]?.message?.content;
+  if (!text) throw new Error('xai returned empty content');
+  return String(text).trim();
+}
+
+/** Try LLM providers in fallback order until one succeeds. Logs each
+ *  failure so we can see which provider tripped. Throws only if all fail. */
+async function callLLM(req: LLMRequest): Promise<string> {
+  const order = (() => {
+    const head = req.preferredProvider || 'anthropic';
+    const all = ['anthropic', 'openai', 'xai'] as const;
+    return [head, ...all.filter((p) => p !== head)] as Array<'anthropic' | 'openai' | 'xai'>;
+  })();
+
+  let lastErr: Error | null = null;
+  for (const provider of order) {
+    try {
+      const text =
+        provider === 'anthropic' ? await callAnthropicLLM(req) :
+        provider === 'openai' ? await callOpenAILLM(req) :
+        await callXAILLM(req);
+      if (provider !== order[0]) ac(`fell back to ${provider} after ${order.slice(0, order.indexOf(provider)).join(', ')} failed`);
+      return text;
+    } catch (e: any) {
+      lastErr = e;
+      ac(`${provider} failed`, e?.message || e);
+    }
+  }
+  throw new Error(`All LLM providers failed. Last error: ${lastErr?.message || 'unknown'}`);
+}
+
+// ============================================================================
 // STT — xAI Speech, fall back to OpenAI Whisper
 // ============================================================================
 
@@ -238,8 +369,6 @@ interface OutlineRequest {
 }
 
 export async function generateActiveCharacterOutline(r: OutlineRequest): Promise<OutlineScene[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
   const sceneCount = Math.min(Math.max(r.targetScenes ?? 5, 4), 6);
 
   const sys = `You are an audiobook director planning an Active Character chapter. The listener voices "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''} in real time — they speak as ${r.characterName} at the end of each scene, and that line is canon.
@@ -267,29 +396,12 @@ ${r.characterRegister ? `\n${r.characterName}'s register: ${r.characterRegister}
 
 Plan ${sceneCount} scenes for this chapter.`;
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 900,
-      temperature: 0.5,
-      system: sys,
-      messages: [{ role: 'user', content: user }],
-    }),
+  const raw = await callLLM({
+    system: sys,
+    user,
+    maxTokens: 900,
+    temperature: 0.5,
   });
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`generate-outline ${resp.status}: ${body.slice(0, 400)}`);
-  }
-
-  const json = (await resp.json()) as any;
-  const raw = json?.content?.[0]?.text ?? '';
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
 
   let parsed: any[] = [];
@@ -331,12 +443,8 @@ export async function placeBeatsWithGrok(r: PlaceBeatsRequest): Promise<Array<{
   intentHints: string[];
   stateMutationRules: string[];
 }>> {
-  // Anthropic Claude Haiku handles this structured-extraction task cheaply and
-  // reliably. Previously delegated to Grok (xAI) but their chat model names
-  // keep moving (grok-2-latest, grok-beta, grok-4) — the resulting 400s
-  // silently shipped 0 beats. Using Haiku removes that fragility.
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
+  // Routes through callLLM so a single provider outage doesn't kill beats.
+  // Default order: Anthropic Haiku → OpenAI gpt-4o-mini → xAI grok-2.
   const maxBeats = Math.min(Math.max(r.maxBeats ?? 3, 1), 5);
 
   const sys = `You are an audiobook director placing 2-${maxBeats} "Open Beats" in a chapter. At each beat, the listener voices "${r.activeCharacterName}" speaking a line of dialogue. The cueText is the dialogue-tag line that hands off to the character — the audiobook will play right up to the end of that tag and then pause for the listener's voice.
@@ -364,29 +472,7 @@ Rules:
 
   const user = `Chapter: ${r.chapterTitle}\n\nProse:\n${r.prose.slice(0, 8000)}`;
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 900,
-      temperature: 0.4,
-      system: sys,
-      messages: [{ role: 'user', content: user }],
-    }),
-  });
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`place-beats ${resp.status}: ${body.slice(0, 400)}`);
-  }
-
-  const json = (await resp.json()) as any;
-  const raw = json?.content?.[0]?.text ?? '';
+  const raw = await callLLM({ system: sys, user, maxTokens: 900, temperature: 0.4 });
   const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
 
   let parsed: any[] = [];
@@ -748,9 +834,6 @@ interface PlayerSceneRequest {
  *  different from chapter generation: short scenes (~400-600 words), explicit
  *  hand-off moment at the end, optional bridge passage at the start. */
 async function generateActiveCharacterScene(r: PlayerSceneRequest): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
-
   const isFirst = r.sceneIndex === 0;
   const isLast = r.sceneIndex === r.outline.length - 1;
   const sceneSpec = r.outline[r.sceneIndex];
@@ -792,29 +875,7 @@ ${!isLast ? `Hand-off setup for end of scene: ${sceneSpec.beatIntent}` : ''}
 
 Write scene ${r.sceneIndex + 1} of ${r.outline.length} now.`;
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1400,
-      temperature: 0.75,
-      system: sys,
-      messages: [{ role: 'user', content: userMsg }],
-    }),
-  });
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`generate-scene ${resp.status}: ${body.slice(0, 300)}`);
-  }
-
-  const json = (await resp.json()) as any;
-  const prose = (json?.content?.[0]?.text || '').trim();
+  const prose = await callLLM({ system: sys, user: userMsg, maxTokens: 1400, temperature: 0.75 });
   if (!prose) throw new Error('generate-scene returned empty prose');
   return prose;
 }
@@ -827,9 +888,6 @@ async function generateCoachLine(r: {
   beatIntent: string;
   sceneJustEndedTail: string; // last ~600 chars of scene prose so coach knows the moment
 }): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
-
   const sys = `You are the Director — a calm, warm voice that sets up moments in an Active Character audiobook for the listener.
 
 Your output will be read aloud by Ara, a soft female voice. The listener voices "${r.characterName}". You frame the moment in 1-2 short sentences and invite them to speak.
@@ -849,29 +907,7 @@ ${r.sceneJustEndedTail.slice(-600)}
 
 Write the Director's cue now.`;
 
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 80,
-      temperature: 0.6,
-      system: sys,
-      messages: [{ role: 'user', content: userMsg }],
-    }),
-  });
-
-  if (!resp.ok) {
-    const body = await resp.text().catch(() => '');
-    throw new Error(`coach-line ${resp.status}: ${body.slice(0, 200)}`);
-  }
-
-  const json = (await resp.json()) as any;
-  const line = (json?.content?.[0]?.text || '').trim();
+  const line = await callLLM({ system: sys, user: userMsg, maxTokens: 80, temperature: 0.6 });
   if (!line) throw new Error('coach-line returned empty');
   return line;
 }
