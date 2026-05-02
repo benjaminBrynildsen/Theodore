@@ -155,6 +155,69 @@ async function callXAILLM(req: LLMRequest): Promise<string> {
   return String(text).trim();
 }
 
+/** Streaming variant — Anthropic Haiku via SSE. Used by /play/scene-stream
+ *  so the client gets text deltas (and we can pipe to TTS sentence-by-sentence)
+ *  instead of waiting for the whole scene to finish before playback starts.
+ *  Falls back to non-streaming providers via callLLM only if Anthropic fails;
+ *  in that case the entire prose arrives at once and is sentence-chunked
+ *  before TTS, so the client experience is "first audio in ~10-15s" instead
+ *  of streaming's ~3-5s. */
+async function streamAnthropicLLM(
+  req: LLMRequest,
+  onDelta: (delta: string) => void,
+): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY missing');
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: req.maxTokens,
+      temperature: req.temperature,
+      stream: true,
+      system: req.system,
+      messages: [{ role: 'user', content: req.user }],
+    }),
+  });
+  if (!resp.ok || !resp.body) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`anthropic-stream ${resp.status}: ${body.slice(0, 300)}`);
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let full = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() ?? '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      try {
+        const evt = JSON.parse(payload);
+        if (evt.type === 'content_block_delta' && evt.delta?.text) {
+          const delta = String(evt.delta.text);
+          full += delta;
+          onDelta(delta);
+        }
+      } catch {
+        /* malformed line — keep going */
+      }
+    }
+  }
+  return full;
+}
+
 /** Try LLM providers in fallback order until one succeeds. Logs each
  *  failure so we can see which provider tripped. Throws only if all fail. */
 async function callLLM(req: LLMRequest): Promise<string> {
@@ -839,10 +902,19 @@ interface PlayerSceneRequest {
  *  different from chapter generation: short scenes (~400-600 words), explicit
  *  hand-off moment at the end, optional bridge passage at the start. */
 async function generateActiveCharacterScene(r: PlayerSceneRequest): Promise<string> {
+  if (!r.outline[r.sceneIndex]) throw new Error(`No outline entry for sceneIndex ${r.sceneIndex}`);
+  const { system, user } = buildScenePrompts(r);
+  const prose = await callLLM({ system, user, maxTokens: 1400, temperature: 0.75 });
+  if (!prose) throw new Error('generate-scene returned empty prose');
+  return prose;
+}
+
+/** Build the same system + user prompts generateActiveCharacterScene uses,
+ *  factored out so the streaming variant can reuse them. */
+function buildScenePrompts(r: PlayerSceneRequest): { system: string; user: string } {
   const isFirst = r.sceneIndex === 0;
   const isLast = r.sceneIndex === r.outline.length - 1;
   const sceneSpec = r.outline[r.sceneIndex];
-  if (!sceneSpec) throw new Error(`No outline entry for sceneIndex ${r.sceneIndex}`);
 
   const introNote = isFirst
     ? `Open with a single line spoken aloud: "Chapter${r.chapterNumber ? ` ${r.chapterNumber}` : ''}${r.chapterTitle ? `: ${r.chapterTitle}` : ''}." Then a soft transition into the scene.`
@@ -856,7 +928,7 @@ async function generateActiveCharacterScene(r: PlayerSceneRequest): Promise<stri
     ? `This is the final scene. Bring the chapter to a resolution. Do NOT end on an open beat — close it cleanly. ${r.characterName} can speak inside this scene as part of resolution.`
     : `End the scene at a moment where ${r.characterName} would naturally speak (someone asks them a question, the antagonist waits, a silence after a revelation). Do NOT write ${r.characterName}'s line — leave that hand-off open. The last line should set up the silence the listener fills.`;
 
-  const sys = `You are Theodore drafting one scene of an Active Character audiobook.
+  const system = `You are Theodore drafting one scene of an Active Character audiobook.
 
 The listener voices "${r.characterName}"${r.characterArchetype ? ` (${r.characterArchetype})` : ''}${r.characterRegister ? ` — register: ${r.characterRegister}` : ''}. They will speak as ${r.characterName} at the end of this scene if it's not the final one.
 
@@ -873,16 +945,78 @@ Output ONLY the prose. No commentary, no labels.`;
     ? `Story so far (prior scenes — for continuity, do NOT repeat verbatim):\n\n${r.priorScenesProse.join('\n\n').slice(-3500)}\n\n`
     : '';
 
-  const userMsg = `${priorRecap}This scene's intent (the guardrail — bend it however the user's last line steered things, but the scene must hit this beat):
+  const user = `${priorRecap}This scene's intent (the guardrail — bend it however the user's last line steered things, but the scene must hit this beat):
 ${sceneSpec.intent}
 
 ${!isLast ? `Hand-off setup for end of scene: ${sceneSpec.beatIntent}` : ''}
 
 Write scene ${r.sceneIndex + 1} of ${r.outline.length} now.`;
 
-  const prose = await callLLM({ system: sys, user: userMsg, maxTokens: 1400, temperature: 0.75 });
-  if (!prose) throw new Error('generate-scene returned empty prose');
-  return prose;
+  return { system, user };
+}
+
+interface SceneStreamHandlers {
+  onTextDelta: (delta: string) => void;
+  onAudioChunk: (c: { index: number; audio: string }) => void;
+}
+
+/** Stream Anthropic Haiku for scene prose, sentence-chunk it, fire Grok TTS
+ *  for each sentence in parallel, emit ordered audio chunks back. Listener
+ *  hears the first sentence in ~3-5s instead of waiting 30-60s for the
+ *  whole scene to render serially. */
+async function streamSceneWithAudio(
+  req: PlayerSceneRequest,
+  voiceId: string,
+  handlers: SceneStreamHandlers,
+): Promise<string> {
+  const { system, user } = buildScenePrompts(req);
+
+  let textBuf = '';
+  let chunkIndex = 0;
+  const inflight: Promise<void>[] = [];
+  const emitter = makeOrderedEmitter(handlers.onAudioChunk);
+
+  const enqueueTTS = (sentence: string) => {
+    const myIndex = chunkIndex++;
+    const p = ttsSentence(sentence, voiceId)
+      .then((audio) => emitter.add(myIndex, audio))
+      .catch((err) => {
+        console.warn('[play/scene-stream] tts chunk failed:', err?.message || err);
+        emitter.add(myIndex, '');
+      });
+    inflight.push(p);
+  };
+
+  let full = '';
+  try {
+    full = await streamAnthropicLLM(
+      { system, user, maxTokens: 1400, temperature: 0.75 },
+      (delta) => {
+        handlers.onTextDelta(delta);
+        textBuf += delta;
+        const { sentences, remainder } = extractSentences(textBuf);
+        for (const s of sentences) enqueueTTS(s);
+        textBuf = remainder;
+      },
+    );
+  } catch (e: any) {
+    // Anthropic streaming failed — fall back to non-streaming via callLLM.
+    // We still get the prose, just without the per-sentence latency win.
+    ac('scene-stream Anthropic failed, falling back to non-streaming', e?.message || e);
+    full = await callLLM({ system, user, maxTokens: 1400, temperature: 0.75 });
+    handlers.onTextDelta(full);
+    textBuf = full;
+    const { sentences, remainder } = extractSentences(textBuf);
+    for (const s of sentences) enqueueTTS(s);
+    textBuf = remainder;
+  }
+
+  // TTS any trailing fragment that didn't hit a sentence terminator.
+  const tail = textBuf.trim();
+  if (tail.length >= 8) enqueueTTS(tail);
+
+  await Promise.all(inflight);
+  return full;
 }
 
 /** Generate Ara's brief end-of-scene framing. Sets the situation in 1-2
@@ -1139,6 +1273,48 @@ export function attachActiveCharacterRoutes(app: Router, requireAuth: RequireAut
     } catch (e: any) {
       ac('play/scene failed', e?.message || e);
       res.status(500).json({ error: e?.message || 'play/scene failed' });
+    }
+  });
+
+  // ----- Streaming variant of /play/scene — text deltas + sentence-chunked
+  //       Grok TTS audio over SSE. First sound lands in ~3-5s; full scene
+  //       renders in ~30s but the listener hears it incrementally. -----
+  app.post('/api/active-character/play/scene-stream', express.json({ limit: '512kb' }), async (req: Request, res: Response) => {
+    try {
+      const auth = await requireAuth(req, res);
+      if (!auth) return;
+      const body = req.body as PlayerSceneRequest;
+      if (!body?.outline?.length || !body?.characterName || typeof body.sceneIndex !== 'number') {
+        return res.status(400).json({ error: 'outline, sceneIndex, and characterName required' });
+      }
+      if (body.sceneIndex < 0 || body.sceneIndex >= body.outline.length) {
+        return res.status(400).json({ error: `sceneIndex out of range (outline has ${body.outline.length} scenes)` });
+      }
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      try {
+        const full = await streamSceneWithAudio(body, 'leo', {
+          onTextDelta: (delta) => {
+            res.write(`data: ${JSON.stringify({ type: 'text', delta })}\n\n`);
+          },
+          onAudioChunk: (chunk) => {
+            res.write(`data: ${JSON.stringify({ type: 'audio', index: chunk.index, audio: chunk.audio })}\n\n`);
+          },
+        });
+        res.write(`data: ${JSON.stringify({ type: 'done', prose: full, sceneIndex: body.sceneIndex, isFinalScene: body.sceneIndex === body.outline.length - 1 })}\n\n`);
+        ac('play/scene-stream ok', { sceneIndex: body.sceneIndex, chars: full.length });
+      } catch (err: any) {
+        ac('play/scene-stream failed', err?.message || err);
+        res.write(`data: ${JSON.stringify({ type: 'error', error: err?.message || 'stream failed' })}\n\n`);
+      } finally {
+        res.end();
+      }
+    } catch (e: any) {
+      if (!res.headersSent) res.status(500).json({ error: e?.message || 'play/scene-stream outer failure' });
     }
   });
 
