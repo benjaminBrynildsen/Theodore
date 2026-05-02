@@ -798,23 +798,28 @@ function ensurePlayerAudioDir() {
 }
 
 /** Render text to MP3 with a single Grok TTS call and persist to /uploads/audio.
- *  Returns relative URL + a char-based duration estimate (Grok 24kHz/128kbps
- *  averages ~14 chars/sec when speaking at default pace). Long scene prose
- *  (~3000-4000 chars) fits inside Grok's 14,500-char per-request cap. */
-async function renderActiveCharacterTTS(text: string, voiceId: string, keyHint: string): Promise<{
+ *  Cached by content hash (voice+text), so deterministic strings (e.g. the
+ *  intro pre-roll for a given character) skip the TTS roundtrip entirely
+ *  on subsequent calls. Returns relative URL + char-based duration estimate
+ *  (Grok 24kHz/128kbps averages ~14 chars/sec at default pace). Long scene
+ *  prose (~3-4k chars) fits inside Grok's 14,500-char per-request cap. */
+async function renderActiveCharacterTTS(text: string, voiceId: string, _keyHint?: string): Promise<{
   audioUrl: string;
   durationEstimate: number;
+  cached: boolean;
 }> {
   ensurePlayerAudioDir();
-  const buf = await callGrokTTS(text, voiceId);
-  const hash = crypto.createHash('md5').update(`${keyHint}:${Date.now()}:${Math.random()}`).digest('hex').slice(0, 12);
-  const filename = `acp-${hash}.mp3`;
-  fs.writeFileSync(path.join(PLAYER_AUDIO_DIR, filename), buf);
-  // Empirical Grok TTS pace: ~14 chars/sec. Used for client-side scrubber bounds
-  // until a real measurer is available. Add a 0.5s pad so the queue manager
-  // doesn't cut off the tail by mistake.
+  const contentHash = crypto.createHash('md5').update(`${voiceId}:${text}`).digest('hex').slice(0, 16);
+  const filename = `acp-${contentHash}.mp3`;
+  const filepath = path.join(PLAYER_AUDIO_DIR, filename);
   const durationEstimate = Math.max(1, Math.ceil(text.length / 14) + 0.5);
-  return { audioUrl: `/uploads/audio/${filename}`, durationEstimate };
+
+  if (fs.existsSync(filepath)) {
+    return { audioUrl: `/uploads/audio/${filename}`, durationEstimate, cached: true };
+  }
+  const buf = await callGrokTTS(text, voiceId);
+  fs.writeFileSync(filepath, buf);
+  return { audioUrl: `/uploads/audio/${filename}`, durationEstimate, cached: false };
 }
 
 interface PlayerSceneRequest {
