@@ -923,7 +923,7 @@ interface PlayerSceneRequest {
 async function generateActiveCharacterScene(r: PlayerSceneRequest): Promise<string> {
   if (!r.outline[r.sceneIndex]) throw new Error(`No outline entry for sceneIndex ${r.sceneIndex}`);
   const { system, user } = buildScenePrompts(r);
-  const prose = await callLLM({ system, user, maxTokens: 1400, temperature: 0.75 });
+  const prose = await callLLM({ system, user, maxTokens: 1400, temperature: 0.55 });
   if (!prose) throw new Error('generate-scene returned empty prose');
   return prose;
 }
@@ -954,41 +954,79 @@ Voice + format:
 End-of-scene rule:
 ${handoffNote}`;
 
-  const priorRecap = r.priorScenesProse.length
-    ? `Story so far (prior scenes — for your continuity reference; do NOT repeat verbatim):\n\n${r.priorScenesProse.join('\n\n').slice(-3500)}\n\n`
+  // For continuity: if there are prior scenes, give the model the literal
+  // last ~500 chars of the most recent one. Without this, Haiku tends to
+  // hand-wave the previous moment and start the new scene somewhere else.
+  const lastScenePose = !isFirst && r.priorScenesProse.length > 0
+    ? r.priorScenesProse[r.priorScenesProse.length - 1]
+    : '';
+  // Find a clean break — last sentence boundary in the tail — so the
+  // setup block doesn't start mid-word.
+  const tailLen = 500;
+  let priorTail = lastScenePose.slice(-tailLen);
+  const firstSentenceEnd = priorTail.search(/[.!?]\s+/);
+  if (firstSentenceEnd > 0 && firstSentenceEnd < tailLen - 80) {
+    priorTail = priorTail.slice(firstSentenceEnd + 2);
+  }
+  priorTail = priorTail.trim();
+
+  // For older context (scenes before the immediately previous one) we keep
+  // a lower-attention summary so the model has the through-line without
+  // diluting focus from the bridge.
+  const olderRecap = !isFirst && r.priorScenesProse.length > 1
+    ? `Story so far (earlier scenes — your continuity reference, don't repeat):\n\n${r.priorScenesProse.slice(0, -1).join('\n\n').slice(-1800)}\n\n`
     : '';
 
   const introBlock = isFirst
     ? `\nOPEN WITH a single line spoken aloud: "Chapter${r.chapterNumber ? ` ${r.chapterNumber}` : ''}${r.chapterTitle ? `: ${r.chapterTitle}` : ''}." Then transition softly into the scene.\n`
     : '';
 
-  // BRIDGE — the most important instruction in the whole feature. Hoisted to
-  // the top of the user message with a numbered procedure so the model
-  // can't bury it. Includes an example so Haiku doesn't paraphrase the line.
+  // SETUP — gives Haiku the literal end of the previous scene so the new
+  // scene picks up RIGHT THERE instead of jumping time or location.
+  const setupBlock = !isFirst && priorTail
+    ? `\n=== WHERE THE STORY IS RIGHT NOW ===
+
+The previous scene ended with these exact lines:
+
+"""
+${priorTail}
+"""
+
+Your new scene MUST open AT THIS EXACT MOMENT. Same room. Same characters present. Same physical state (whoever was standing is still standing, whatever was just said still hangs in the air). Do not jump forward in time. Do not change location. Do not skip the beat the previous scene left hanging.
+=== END ===
+`
+    : '';
+
+  // BRIDGE — the most important instruction in the whole feature. The bridge
+  // depends on the SETUP block above so the model knows exactly which
+  // moment to ground in.
   const bridgeBlock = !isFirst && userLine
-    ? `\n=== BRIDGE FROM PREVIOUS SCENE ===
+    ? `\n=== BRIDGE — DO THIS FIRST IN YOUR SCENE ===
 
 The listener — voicing ${r.characterName} — just spoke this exact line at the end of the previous scene:
 
 "${userLine}"
 
-Your scene MUST open with a bridge passage that does these three things, in this order:
+Your scene MUST open with a 3-line bridge in this exact order before any new events:
 
-  1) ONE short sentence physically grounds the moment (a breath, a beat of silence, a glance, the room settling).
-  2) ${r.characterName} speaks the line above, EXACTLY as written, in dialogue form. Use quotation marks. Attribute it: e.g., \`"${userLine}" ${r.characterName} said.\` or \`"${userLine}" he/she said.\` Do not paraphrase, summarize, or improve their words. Quote them verbatim.
-  3) ONE short reaction line — how someone present responds (a tilt of the head, a long pause, a counter-question).
+  1) ONE sentence that holds the moment from the SETUP above. Reference the same room/people/silence — make the listener feel they're right back in that ending. (Not a recap of plot, an anchor in physical space.)
+  2) ${r.characterName} speaks the line above, EXACTLY as the listener said it, in dialogue form. Use quotation marks. Attribute it. Examples (pick the one that fits the moment):
+       "${userLine}" ${r.characterName} said.
+       "${userLine}" — ${r.characterName}'s voice was steady. (or shaking, or quiet, etc.)
+       ${r.characterName} took a breath. "${userLine}"
+     Do NOT paraphrase, summarize, soften, or "improve" the wording. Quote verbatim.
+  3) ONE sentence: how someone present reacts (a head tilt, a long beat of silence, a counter-question, a step closer).
 
-After those three, continue into the new scene's events.
+After those three sentences, continue forward into the new scene's events guided by the intent below.
 
-This bridge is the heart of the experience. The listener needs to hear their words come back in the narrator's voice as part of the story. Do not skip it. Do not soften it. Quote them exactly.
-
+This bridge is the entire point of the feature. Skipping it or paraphrasing the line breaks the contract with the listener.
 === END BRIDGE ===
 `
     : !isFirst
-      ? `\nThe listener stayed silent at the end of the previous scene. Open the new scene from the beat of silence — describe what the silence does in the room, then move forward without putting words in ${r.characterName}'s mouth.\n`
+      ? `\nThe listener stayed silent at the end of the previous scene. Open the new scene by holding the silence (a long pause, the room settling, someone waiting) — pick up at the EXACT moment the SETUP block describes, then move forward without putting words in ${r.characterName}'s mouth.\n`
       : '';
 
-  const user = `${priorRecap}${bridgeBlock}${introBlock}
+  const user = `${olderRecap}${setupBlock}${bridgeBlock}${introBlock}
 This scene's intent (the guardrail — bend it however the listener's line steered things, but the scene must hit this beat):
 ${sceneSpec.intent}
 
@@ -1033,8 +1071,12 @@ async function streamSceneWithAudio(
 
   let full = '';
   try {
+    // Lower temperature so Haiku follows the bridge procedure tightly. 0.75
+    // produced too much "creative interpretation" — paraphrasing the user's
+    // line, jumping past the bridge, restarting in a different setting.
+    // 0.55 keeps the prose vivid while making it harder to skip steps.
     full = await streamAnthropicLLM(
-      { system, user, maxTokens: 1400, temperature: 0.75 },
+      { system, user, maxTokens: 1400, temperature: 0.55 },
       (delta) => {
         handlers.onTextDelta(delta);
         textBuf += delta;
@@ -1047,7 +1089,7 @@ async function streamSceneWithAudio(
     // Anthropic streaming failed — fall back to non-streaming via callLLM.
     // We still get the prose, just without the per-sentence latency win.
     ac('scene-stream Anthropic failed, falling back to non-streaming', e?.message || e);
-    full = await callLLM({ system, user, maxTokens: 1400, temperature: 0.75 });
+    full = await callLLM({ system, user, maxTokens: 1400, temperature: 0.55 });
     handlers.onTextDelta(full);
     textBuf = full;
     const { sentences, remainder } = extractSentences(textBuf);
