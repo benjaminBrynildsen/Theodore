@@ -844,7 +844,7 @@ async function generateActiveCharacterScene(r: PlayerSceneRequest): Promise<stri
     : '';
 
   const bridgeNote = !isFirst && r.lastUserLine?.trim()
-    ? `BRIDGE PASSAGE — open with 1-2 sentences that re-stage the last beat: a short physical/emotional anchor (someone breathes, the room shifts, a glance), then quote ${r.characterName}'s line as dialogue exactly: "${r.lastUserLine.replace(/"/g, '\\"').trim()}". After the dialogue tag, continue into the new scene's events. The bridge should make the listener feel that what they said is now woven into the story. Do NOT label it "bridge" or refer to scenes/numbers in-prose.`
+    ? `BRIDGE PASSAGE — open with 1-2 sentences that re-stage the last beat: a short physical/emotional anchor (someone breathes, the room shifts, a glance), then quote ${r.characterName}'s line as dialogue exactly. The line they spoke was: ${r.lastUserLine.trim()}. After the dialogue tag, continue into the new scene's events. The bridge should make the listener feel that what they said is now woven into the story. Do NOT label it "bridge" or refer to scenes/numbers in-prose.`
     : '';
 
   const handoffNote = isLast
