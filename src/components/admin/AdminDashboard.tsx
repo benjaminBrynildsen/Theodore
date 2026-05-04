@@ -3,12 +3,13 @@ import {
   Users, CreditCard, TrendingUp, Activity, FileText,
   ChevronRight, ChevronDown, ArrowLeft, BarChart3, Zap, BookOpen,
   Headphones, Image, Music, Sparkles, RefreshCw, Globe,
-  Film, Upload, Trash2, CheckCircle2, Mail, ExternalLink, Volume2, Bell,
+  Film, Upload, Trash2, CheckCircle2, Mail, ExternalLink, Volume2, Bell, Apple,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { CREATORS } from '../../data/creators';
 import { OutreachTab } from './OutreachTab';
 import { PushTab } from './PushTab';
+import { LaunchTab } from './LaunchTab';
 
 const API = '/api/admin';
 
@@ -198,7 +199,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch';
 
 interface JourneySession {
   session_id: string;
@@ -406,6 +407,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'creators', label: 'Creators', icon: Film },
     { id: 'outreach', label: 'Outreach', icon: Mail },
     { id: 'push', label: 'Push', icon: Bell },
+    { id: 'launch', label: 'Launch', icon: Apple },
     { id: 'grok-probe', label: 'Grok Probe', icon: Image },
   ];
 
@@ -1338,6 +1340,8 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
         {/* ========== Push Notifications ========== */}
         {view === 'push' && <PushTab />}
+
+        {view === 'launch' && <LaunchTab />}
 
         {/* ========== Grok image-reference probe ========== */}
         {view === 'grok-probe' && <GrokProbePanel />}

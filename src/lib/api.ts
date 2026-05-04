@@ -58,6 +58,8 @@ export const api = {
   getMe: () => request<any>('/users/me'),
   updateMe: (data: any) => request<any>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }),
   dismissNotice: () => request<{ ok: boolean }>('/users/me/dismiss-notice', { method: 'POST' }),
+  iosLaunchNotify: () => request<{ ok: boolean; alreadyOptedIn?: boolean }>('/users/me/ios-launch-notify', { method: 'POST' }),
+  iosLaunchDismiss: () => request<{ ok: boolean }>('/users/me/ios-launch-dismiss', { method: 'POST' }),
 
   // ========== Projects ==========
   listProjects: (_userId?: string) => request<any[]>('/projects'),

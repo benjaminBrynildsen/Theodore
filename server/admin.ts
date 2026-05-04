@@ -1274,3 +1274,45 @@ export async function cleanupDisk(req: Request, res: Response) {
   }
 }
 
+// iOS launch waitlist — users who clicked "Notify me when it's live" on the
+// launch modal. Filters by settings.iosLaunchOptInAt being a non-empty string.
+export async function listIosLaunchOptIns(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const rows = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        plan: users.plan,
+        settings: users.settings,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(sql`${users.settings} ? 'iosLaunchOptInAt'`);
+
+    const optIns = rows
+      .map((r) => {
+        const optedAt = (r.settings as any)?.iosLaunchOptInAt as string | undefined;
+        return optedAt
+          ? {
+              id: r.id,
+              email: r.email,
+              name: r.name,
+              plan: r.plan,
+              optedInAt: optedAt,
+              createdAt: r.createdAt,
+            }
+          : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => (a.optedInAt < b.optedInAt ? 1 : -1));
+
+    res.json({ optIns, total: optIns.length });
+  } catch (e: any) {
+    console.error('[Admin] list ios launch opt-ins error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}

@@ -13,6 +13,7 @@ import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
 import { CookieConsent } from './components/layout/CookieConsent';
 import { PendingNoticeModal } from './components/PendingNoticeModal';
+import { IosLaunchModalGate } from './components/IosLaunchModalGate';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
@@ -170,6 +171,7 @@ export default function App() {
   const [guestModalDismissed, setGuestModalDismissed] = useState(false);
 
   const [showGoogleTest, setShowGoogleTest] = useState(false);
+  const [showIosTest, setShowIosTest] = useState(false);
   const [showCreators, setShowCreators] = useState(false);
   const [creatorSlug, setCreatorSlug] = useState<string | null>(null);
 
@@ -179,6 +181,7 @@ export default function App() {
     if (pathname === '/admin') setShowAdmin(true);
     if (pathname === '/animationtest') setShowAnimationTest(true);
     if (pathname === '/googletest') setShowGoogleTest(true);
+    if (pathname === '/iostest') setShowIosTest(true);
     if (pathname === '/creators' || pathname.startsWith('/creators/')) {
       setShowCreators(true);
       const m = pathname.match(/^\/creators\/([^/]+)\/?$/);
@@ -461,6 +464,16 @@ export default function App() {
     );
   }
 
+  // iOS launch modal test page (accessible without auth)
+  if (showIosTest) {
+    const IosLaunchTest = lazy(() => import('./components/views/IosLaunchTest').then(m => ({ default: m.IosLaunchTest })));
+    return (
+      <Suspense fallback={<ViewLoader label="Loading..." />}>
+        <IosLaunchTest />
+      </Suspense>
+    );
+  }
+
   if (!user) {
     if (showAuth) {
       return (
@@ -680,6 +693,7 @@ export default function App() {
         <ImpactPanel />
       </Suspense>
       <PendingNoticeModal />
+      <IosLaunchModalGate />
       {showReadingMode && (
         <Suspense fallback={<ViewLoader label="Loading reading mode..." />}>
           <ReadingMode onClose={() => setShowReadingMode(false)} />

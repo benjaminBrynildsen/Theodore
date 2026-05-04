@@ -100,6 +100,8 @@ export function toSafeUser(user: DbUser) {
     pendingNotice: ((user.settings as any)?.pendingNotice as
       | { title: string; body: string; ctaText?: string; ctaPath?: string; setAt?: string }
       | undefined) ?? null,
+    iosLaunchSeen: Boolean((user.settings as any)?.iosLaunchSeen),
+    iosLaunchOptInAt: ((user.settings as any)?.iosLaunchOptInAt as string | undefined) ?? null,
   };
 }
 
