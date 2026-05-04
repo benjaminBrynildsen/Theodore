@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Send, Mail, RefreshCw, AlertCircle, CheckCircle2, Save, Eye, Users as UsersIcon, Apple, FileText } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Send, Mail, RefreshCw, AlertCircle, CheckCircle2, Save, Eye, Users as UsersIcon, Apple, FileText, Smartphone, Monitor } from 'lucide-react';
 
 const API = '/api/admin';
 
@@ -145,23 +145,29 @@ function ComposeBlast() {
 
   return (
     <div className="space-y-4">
-      <Field label="Subject">
-        <input
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          placeholder="Theodore is live on iOS!"
-          className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
-        />
-      </Field>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <div className="space-y-4">
+          <Field label="Subject">
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Theodore is live on iOS!"
+              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
+            />
+          </Field>
 
-      <Field label="Body HTML — supports {{firstName}}, {{email}}, {{appUrl}}">
-        <textarea
-          value={bodyHtml}
-          onChange={(e) => setBodyHtml(e.target.value)}
-          rows={10}
-          className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm font-mono"
-        />
-      </Field>
+          <Field label="Body HTML — supports {{firstName}}, {{email}}, {{appUrl}}">
+            <textarea
+              value={bodyHtml}
+              onChange={(e) => setBodyHtml(e.target.value)}
+              rows={16}
+              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm font-mono"
+            />
+          </Field>
+        </div>
+
+        <PreviewPane subject={subject} bodyHtml={bodyHtml} />
+      </div>
 
       <Field label="Send to">
         <div className="flex flex-col sm:flex-row gap-2">
@@ -316,22 +322,32 @@ function TemplateEditor({ templateKey }: { templateKey: 'welcome' | 'audiobook-r
         {isDefault && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold">Default — not yet customized</span>}
       </div>
 
-      <Field label="Subject">
-        <input
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
-        />
-      </Field>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <div className="space-y-4">
+          <Field label="Subject">
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
+            />
+          </Field>
 
-      <Field label="Body HTML">
-        <textarea
-          value={bodyHtml}
-          onChange={(e) => setBodyHtml(e.target.value)}
-          rows={14}
-          className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm font-mono"
+          <Field label="Body HTML">
+            <textarea
+              value={bodyHtml}
+              onChange={(e) => setBodyHtml(e.target.value)}
+              rows={20}
+              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm font-mono"
+            />
+          </Field>
+        </div>
+
+        <PreviewPane
+          subject={subject}
+          bodyHtml={bodyHtml}
+          extraVars={templateKey === 'audiobook-ready' ? ['chapterTitle', 'deepLink'] : []}
         />
-      </Field>
+      </div>
 
       <div className="flex items-center justify-between">
         <div className="text-xs text-text-tertiary">
@@ -449,6 +465,161 @@ function History() {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Live preview ──
+// Mirrors server/email.ts wrapHtml() shell so what you see is what subscribers
+// see. Substitutes {{vars}} with sample values (the user can override them
+// inline below the preview). Renders in an iframe so the host page's CSS
+// can't leak into the rendered email.
+function EmailPreview({
+  subject,
+  bodyHtml,
+  variables,
+  device,
+}: {
+  subject: string;
+  bodyHtml: string;
+  variables: Record<string, string>;
+  device: 'desktop' | 'mobile';
+}) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const rendered = useMemo(() => {
+    const subbedSubject = substitute(subject, variables);
+    const subbedBody = substitute(bodyHtml, variables);
+    return wrapPreviewHtml({
+      subject: subbedSubject,
+      bodyHtml: subbedBody,
+      fromLine: 'Ben from Theodore <ben@theodore.tools>',
+    });
+  }, [subject, bodyHtml, variables]);
+
+  // Use srcdoc so CSP and same-origin issues don't trip us up.
+  return (
+    <div className={`mx-auto rounded-2xl bg-[#f7f6f1] border border-black/10 overflow-hidden ${device === 'mobile' ? 'max-w-[380px]' : 'max-w-full'}`}>
+      <div className="flex items-center justify-between gap-2 px-3 py-2 bg-white/60 border-b border-black/5 text-[11px] text-text-tertiary">
+        <div className="truncate">
+          <span className="text-text-primary font-semibold">{substitute(subject, variables) || '(no subject)'}</span>
+        </div>
+        <div className="shrink-0">Inbox preview</div>
+      </div>
+      <iframe
+        ref={iframeRef}
+        title="Email preview"
+        srcDoc={rendered}
+        className="w-full block"
+        style={{ height: device === 'mobile' ? '640px' : '720px', border: 0, background: '#f7f6f1' }}
+        sandbox=""
+      />
+    </div>
+  );
+}
+
+function substitute(s: string, vars: Record<string, string>): string {
+  return s.replace(/\{\{\s*(\w+)\s*\}\}/g, (m, key) => (key in vars ? vars[key] : m));
+}
+
+// Mirrors server/email.ts wrapHtml() — keep these visually consistent so the
+// admin preview matches what subscribers receive. If you tweak the server
+// shell, mirror the change here.
+function wrapPreviewHtml(opts: { subject: string; bodyHtml: string; fromLine: string }): string {
+  const safe = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  return `<!doctype html><html><head><meta charset="utf-8">
+<style>body{margin:0;padding:0;background:#f7f6f1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c1c1e;line-height:1.55;font-size:15px;}</style>
+</head><body>
+<div style="padding:18px 16px 8px;font-size:11px;color:#8a8a8e;max-width:592px;margin:0 auto;">
+  <div><span style="color:#48484a;">From:</span> ${safe(opts.fromLine)}</div>
+  <div><span style="color:#48484a;">Subject:</span> <span style="color:#1c1c1e;font-weight:600;">${safe(opts.subject)}</span></div>
+</div>
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f7f6f1;">
+  <tr><td align="center" style="padding:8px 16px 32px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="560" style="max-width:560px;background:#ffffff;border-radius:16px;border:1px solid rgba(0,0,0,0.06);overflow:hidden;">
+      <tr><td style="padding:28px 32px 8px 32px;">
+        <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:700;letter-spacing:-0.01em;color:#1c1c1e;">Theodore</div>
+      </td></tr>
+      <tr><td style="padding:8px 32px 32px 32px;font-size:15px;color:#1c1c1e;">
+        ${opts.bodyHtml}
+      </td></tr>
+    </table>
+    <div style="font-size:12px;color:#8a8a8e;padding:20px 16px 0 16px;max-width:560px;line-height:1.6;">
+      You're getting this because you signed up at <a href="https://theodore.tools" style="color:#8a8a8e;">theodore.tools</a>.<br>
+      <a href="#" style="color:#8a8a8e;">Unsubscribe from these emails</a>.
+    </div>
+  </td></tr>
+</table>
+</body></html>`;
+}
+
+// Sample variables shared by both compose + template editor previews so what
+// you see is realistic. Editable in the preview controls.
+const DEFAULT_PREVIEW_VARS = {
+  firstName: 'Alex',
+  email: 'alex@example.com',
+  appUrl: 'https://theodore.tools',
+  chapterTitle: 'Chapter 3 — The Glass Hour',
+  deepLink: 'https://theodore.tools/?project=demo',
+};
+
+function PreviewPane({
+  subject,
+  bodyHtml,
+  extraVars,
+}: {
+  subject: string;
+  bodyHtml: string;
+  extraVars?: string[];
+}) {
+  const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
+  const [vars, setVars] = useState<Record<string, string>>({ ...DEFAULT_PREVIEW_VARS });
+
+  // Keys to expose as user-editable inputs. Always includes firstName/email
+  // since every template uses them; extras come from the caller.
+  const editableKeys = useMemo(() => {
+    const base = ['firstName', 'email'];
+    return Array.from(new Set([...base, ...(extraVars || [])]));
+  }, [extraVars]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-[0.18em] font-semibold text-text-tertiary">Live preview</div>
+        <div className="flex items-center gap-1 rounded-lg bg-black/5 p-0.5">
+          <button
+            onClick={() => setDevice('desktop')}
+            className={`px-2 py-1 rounded-md text-xs font-semibold inline-flex items-center gap-1 ${device === 'desktop' ? 'bg-white text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}`}
+            title="Desktop preview"
+          >
+            <Monitor size={11} /> Desktop
+          </button>
+          <button
+            onClick={() => setDevice('mobile')}
+            className={`px-2 py-1 rounded-md text-xs font-semibold inline-flex items-center gap-1 ${device === 'mobile' ? 'bg-white text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}`}
+            title="Mobile preview"
+          >
+            <Smartphone size={11} /> Mobile
+          </button>
+        </div>
+      </div>
+
+      {/* Variable controls so the preview shows realistic data */}
+      <div className="flex flex-wrap gap-2 items-center text-[11px] text-text-tertiary">
+        <span>Variables:</span>
+        {editableKeys.map((k) => (
+          <label key={k} className="inline-flex items-center gap-1">
+            <span className="font-mono text-text-secondary">{`{{${k}}}`}</span>
+            <input
+              value={vars[k] ?? ''}
+              onChange={(e) => setVars((prev) => ({ ...prev, [k]: e.target.value }))}
+              className="w-32 px-1.5 py-0.5 rounded bg-white border border-black/10 text-text-primary"
+            />
+          </label>
+        ))}
+      </div>
+
+      <EmailPreview subject={subject} bodyHtml={bodyHtml} variables={vars} device={device} />
     </div>
   );
 }
