@@ -38,6 +38,7 @@ import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlan
 import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './meta-capi.js';
 import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail, getUserJourneys } from './journey.js';
 import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
+import { verifyAppleIdentityToken } from './apple-auth.js';
 import { attachActiveCharacterRoutes } from './active-character.js';
 import { parseBookText } from './book-parser.js';
 import { pixelHandler, listRecipients, createRecipient, updateRecipient, deleteRecipient, recipientTimeline, sendEmail as sendOutreachEmail, outreachStats, listTemplates, createTemplate, updateTemplate, deleteTemplate, templateStats } from './outreach.js';
@@ -996,6 +997,79 @@ app.get('/api/auth/google/mobile/bridge', (_req, res) => {
   window.location.replace(target);
 })();
 </script></body></html>`);
+});
+
+// Sign in with Apple — verify identity token (JWT signed by Apple), find/create
+// user by email, create session. Apple returns the user's full name only on
+// the first sign-in, so the client passes it explicitly when present.
+app.post('/api/auth/apple', async (req, res) => {
+  try {
+    const { identityToken, fullName } = req.body as {
+      identityToken?: string;
+      fullName?: string | null;
+    };
+    if (!identityToken) return res.status(400).json({ error: 'Missing identityToken.' });
+
+    const audience = process.env.APPLE_AUDIENCE || 'com.theodoreai.mobile';
+
+    let claims;
+    try {
+      claims = await verifyAppleIdentityToken(identityToken, audience);
+    } catch (e: any) {
+      console.warn('[auth.apple] verify failed:', e?.message || e);
+      return res.status(401).json({ error: 'Invalid Apple identity token.' });
+    }
+
+    const email = normalizeEmail(claims.email || '');
+    if (!email) return res.status(400).json({ error: 'No email in Apple token.' });
+
+    const cleanName = typeof fullName === 'string' ? fullName.trim() : '';
+    const now = new Date();
+
+    let user = await getUserByEmail(email);
+    let isNewUser = false;
+    if (!user) {
+      const [inserted] = await db.insert(users).values({
+        id: `user-${randomUUID()}`,
+        email,
+        passwordHash: null,
+        emailVerifiedAt: now,
+        name: cleanName || null,
+        avatarUrl: null,
+        plan: 'free',
+        creditsRemaining: FREE_TIER_CREDITS,
+        creditsTotal: FREE_TIER_CREDITS,
+        lastCreditResetAt: now,
+      }).returning();
+      user = inserted;
+      isNewUser = true;
+      trackRegistration(req as any);
+    } else {
+      const updates: any = { updatedAt: now };
+      if (!user.name && cleanName) updates.name = cleanName;
+      if (!user.emailVerifiedAt) updates.emailVerifiedAt = now;
+      const [updated] = await db.update(users).set(updates).where(eq(users.id, user.id)).returning();
+      user = updated;
+    }
+
+    const token = await createSession(user.id, req, res);
+    let guestClaim: Awaited<ReturnType<typeof claimGuestBackupForUser>> | null = null;
+    try {
+      guestClaim = await claimGuestBackupForUser(req, res, user.id);
+      if (guestClaim.claimed) {
+        console.log('[guest-claim] apple user=%s projects=%d chapters=%d canon=%d errors=%d', user.id, guestClaim.projects, guestClaim.chapters, guestClaim.canon, guestClaim.errors);
+      }
+    } catch (claimErr) {
+      console.error('[guest-claim] failed during apple auth', claimErr);
+    }
+    if (isNewUser) {
+      void sendWelcome({ id: user.id, email: user.email, name: user.name, settings: user.settings })
+        .catch((err) => console.warn('[email/welcome] apple send failed', err?.message || err));
+    }
+    res.json({ user: toSafeUser(user), token, guestClaim });
+  } catch (e: any) {
+    respondInternalError(res, 'auth.apple', e);
+  }
 });
 
 app.post('/api/auth/login', async (req, res) => {
