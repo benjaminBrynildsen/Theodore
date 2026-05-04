@@ -27,7 +27,7 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchOptIns } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients } from './admin.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
@@ -3110,7 +3110,7 @@ app.get('/api/admin/verify-uploads', verifyUploads);
 app.post('/api/admin/backfill-broken-images', backfillBrokenImages);
 app.get('/api/admin/user-cover-health', userCoverHealth);
 app.post('/api/admin/set-pending-notice', setPendingNotice);
-app.get('/api/admin/ios-launch-optins', listIosLaunchOptIns);
+app.get('/api/admin/ios-launch-recipients', listIosLaunchRecipients);
 
 // ========== Outreach (open tracking + creator pipeline) ==========
 // Pixel route — intentionally public, served on track.theodore.tools
@@ -4347,14 +4347,21 @@ app.post('/api/users/me/dismiss-notice', async (req, res) => {
 });
 
 // iOS launch announcement — opt in to be emailed when the iPhone app goes live.
-// Sets settings.iosLaunchOptInAt + iosLaunchSeen so the modal never reopens.
+// Sets settings.iosLaunchOptInAt + iosLaunchSeen + iosLaunchSeenAt so the modal
+// never reopens and admin can audit when each user first saw it.
 app.post('/api/users/me/ios-launch-notify', async (req, res) => {
   try {
     const auth = await getAuth(req);
     if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
     const cur = (auth.user.settings as Record<string, any>) || {};
     if (cur.iosLaunchOptInAt && cur.iosLaunchSeen) return res.json({ ok: true, alreadyOptedIn: true });
-    const next = { ...cur, iosLaunchOptInAt: cur.iosLaunchOptInAt ?? new Date().toISOString(), iosLaunchSeen: true };
+    const now = new Date().toISOString();
+    const next = {
+      ...cur,
+      iosLaunchOptInAt: cur.iosLaunchOptInAt ?? now,
+      iosLaunchSeen: true,
+      iosLaunchSeenAt: cur.iosLaunchSeenAt ?? now,
+    };
     await db.update(users).set({ settings: next, updatedAt: new Date() }).where(eq(users.id, auth.user.id));
     res.json({ ok: true });
   } catch (e: any) {
@@ -4370,7 +4377,10 @@ app.post('/api/users/me/ios-launch-dismiss', async (req, res) => {
     if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
     const cur = (auth.user.settings as Record<string, any>) || {};
     if (cur.iosLaunchSeen) return res.json({ ok: true });
-    await db.update(users).set({ settings: { ...cur, iosLaunchSeen: true }, updatedAt: new Date() }).where(eq(users.id, auth.user.id));
+    const now = new Date().toISOString();
+    await db.update(users)
+      .set({ settings: { ...cur, iosLaunchSeen: true, iosLaunchSeenAt: cur.iosLaunchSeenAt ?? now }, updatedAt: new Date() })
+      .where(eq(users.id, auth.user.id));
     res.json({ ok: true });
   } catch (e: any) {
     console.error('[users/me/ios-launch-dismiss]', e);

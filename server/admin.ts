@@ -1274,9 +1274,9 @@ export async function cleanupDisk(req: Request, res: Response) {
   }
 }
 
-// iOS launch waitlist — users who clicked "Notify me when it's live" on the
-// launch modal. Filters by settings.iosLaunchOptInAt being a non-empty string.
-export async function listIosLaunchOptIns(req: Request, res: Response) {
+// iOS launch recipients — every user who has been shown the modal, plus
+// whether they opted in. Sort newest-seen first.
+export async function listIosLaunchRecipients(req: Request, res: Response) {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
@@ -1289,30 +1289,47 @@ export async function listIosLaunchOptIns(req: Request, res: Response) {
         plan: users.plan,
         settings: users.settings,
         createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
       })
       .from(users)
-      .where(sql`${users.settings} ? 'iosLaunchOptInAt'`);
+      .where(sql`${users.settings} ? 'iosLaunchSeen' OR ${users.settings} ? 'iosLaunchOptInAt'`);
 
-    const optIns = rows
+    const recipients = rows
       .map((r) => {
-        const optedAt = (r.settings as any)?.iosLaunchOptInAt as string | undefined;
-        return optedAt
-          ? {
-              id: r.id,
-              email: r.email,
-              name: r.name,
-              plan: r.plan,
-              optedInAt: optedAt,
-              createdAt: r.createdAt,
-            }
-          : null;
+        const s = (r.settings as any) || {};
+        const optedInAt = (s.iosLaunchOptInAt as string | undefined) ?? null;
+        // Pre-tracking rows may have only iosLaunchSeen=true with no
+        // iosLaunchSeenAt — fall back to opt-in time, then to updatedAt.
+        const seenAt =
+          (s.iosLaunchSeenAt as string | undefined) ??
+          optedInAt ??
+          (r.updatedAt ? new Date(r.updatedAt).toISOString() : null);
+        return {
+          id: r.id,
+          email: r.email,
+          name: r.name,
+          plan: r.plan,
+          status: optedInAt ? ('opted-in' as const) : ('dismissed' as const),
+          seenAt,
+          optedInAt,
+          createdAt: r.createdAt,
+        };
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-      .sort((a, b) => (a.optedInAt < b.optedInAt ? 1 : -1));
+      .sort((a, b) => {
+        const ax = a.seenAt || '';
+        const bx = b.seenAt || '';
+        return ax < bx ? 1 : -1;
+      });
 
-    res.json({ optIns, total: optIns.length });
+    const optedInCount = recipients.filter((r) => r.status === 'opted-in').length;
+    res.json({
+      recipients,
+      total: recipients.length,
+      optedInCount,
+      dismissedCount: recipients.length - optedInCount,
+    });
   } catch (e: any) {
-    console.error('[Admin] list ios launch opt-ins error:', e);
+    console.error('[Admin] list ios launch recipients error:', e);
     res.status(500).json({ error: 'Internal server error' });
   }
 }
