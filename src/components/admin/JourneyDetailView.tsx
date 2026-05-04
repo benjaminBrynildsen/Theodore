@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import {
   ArrowLeft, MapPin, Clock, Activity, Sparkles, AlertTriangle,
   MousePointer2, Eye, X, LogIn, CreditCard, Headphones, Wand2, MessageSquare,
-  Layers, ArrowRight,
+  Layers, ArrowRight, ChevronRight, ChevronLeft, ChevronDown,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -164,39 +164,40 @@ function detectAbandonment(events: JourneyEvent[]): { afterIdx: number; gapMs: n
   return worst;
 }
 
-// Clean a payload for inline display — same trimming the old view did, lifted
-// out so the per-event row is readable. Keys we don't want to show get
-// dropped; long values get truncated.
-function cleanData(data: Record<string, unknown> | null | undefined): [string, string][] {
-  if (!data) return [];
-  const out: [string, string][] = [];
-  for (const [k, v] of Object.entries(data)) {
-    if (v === null || v === undefined) continue;
-    const s = String(v);
-    if (k === 'tag') continue;
-    if (k === 'url') {
-      try { const u = new URL(s); out.push(['from', u.pathname.slice(0, 30)]); }
-      catch { out.push([k, s.slice(0, 40)]); }
-    } else if (k === 'referrer') {
-      if (!s || s === 'null') continue;
-      try { out.push(['via', new URL(s).hostname]); }
-      catch { out.push(['via', s.slice(0, 30)]); }
-    } else if (k === 'prompt') {
-      out.push(['prompt', s.length > 60 ? s.slice(0, 60) + '…' : s]);
-    } else if (k === 'element') {
-      out.push(['clicked', s.length > 32 ? s.slice(0, 32) + '…' : s]);
-    } else if (k === 'time_on_page') {
-      const sec = parseInt(s);
-      out.push(['duration', sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`]);
-    } else if (k === 'depth_pct' || k === 'max_scroll') {
-      out.push([k === 'depth_pct' ? 'scroll' : 'max scroll', `${s}%`]);
-    } else if (k === 'seconds') {
-      out.push(['at', `${s}s`]);
-    } else {
-      out.push([k, s.length > 50 ? s.slice(0, 50) + '…' : s]);
+// Pick the most informative single line from an event's data — the "what"
+// behind the "did". This is what fills the card subtitle so the user sees
+// "clicked Sign Up" instead of just "Click".
+function primaryDescriptor(e: JourneyEvent): { label: string; value: string } | null {
+  const d = (e.data || {}) as Record<string, unknown>;
+  const get = (k: string): string | null => {
+    const v = d[k];
+    if (typeof v !== 'string') return null;
+    const s = v.trim();
+    return s ? s : null;
+  };
+  const elem = get('element');
+  if (elem) return { label: 'Clicked', value: elem.length > 80 ? elem.slice(0, 80) + '…' : elem };
+  const prompt = get('prompt');
+  if (prompt) return { label: 'Prompt', value: `"${prompt.length > 70 ? prompt.slice(0, 70) + '…' : prompt}"` };
+  const ch = get('chapter_id');
+  if (ch) return { label: 'Chapter', value: ch.length > 12 ? ch.slice(0, 12) + '…' : ch };
+  const src = get('source');
+  if (src) return { label: 'Source', value: src };
+  const state = get('state');
+  if (state) return { label: 'State', value: state.replace(/_/g, ' ') };
+  const variant = get('variant');
+  if (variant) return { label: 'Variant', value: variant };
+  const creator = get('creator');
+  if (creator) return { label: 'Creator', value: creator };
+  const slug = get('slug');
+  if (slug) return { label: 'Slug', value: slug };
+  // Fall back to first non-empty string field — better than nothing.
+  for (const [k, v] of Object.entries(d)) {
+    if (typeof v === 'string' && v.trim() && k !== 'tag' && k !== 'url' && k !== 'referrer') {
+      return { label: k, value: String(v).slice(0, 60) };
     }
   }
-  return out;
+  return null;
 }
 
 // ── Component ──
@@ -347,61 +348,193 @@ export function JourneyDetailView({
                 </div>
               </div>
 
-              <div className="divide-y divide-black/5">
-                {run.events.map((e, i) => {
-                  const cat = categorize(e.event);
-                  const meta = CATEGORY_META[cat];
-                  const Icon = eventIcon(e.event);
-                  const cleaned = cleanData(e.data || null);
-                  const ts = new Date(e.timestamp);
-                  const prevTs = i === 0 ? new Date(run.entered) : new Date(run.events[i - 1].timestamp);
-                  const gap = ts.getTime() - prevTs.getTime();
-                  const globalIdx = detail.events.indexOf(e);
-                  const isAbandonStart = abandonment !== null && globalIdx === abandonment.afterIdx;
-                  return (
-                    <div key={i}>
-                      <div className="flex items-start gap-3 px-4 py-2.5">
-                        <div className={cn('shrink-0 w-7 h-7 rounded-full flex items-center justify-center', meta.bg, meta.text)}>
-                          <Icon size={13} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline gap-2 flex-wrap">
-                            <span className={cn('text-sm font-medium', meta.text)}>{humanize(e.event)}</span>
-                            {gap > 5000 && i > 0 && (
-                              <span className="text-[10px] text-text-tertiary">+{formatGap(gap)} since last</span>
-                            )}
-                            {i === 0 && (
-                              <span className="text-[10px] text-text-tertiary">on entry</span>
-                            )}
-                          </div>
-                          {cleaned.length > 0 && (
-                            <div className="text-[11px] mt-1 flex flex-wrap gap-1">
-                              {cleaned.map(([k, v]) => (
-                                <span key={k} className="px-1.5 py-0.5 rounded bg-black/[0.04] text-text-tertiary truncate max-w-[280px]">
-                                  <span className="text-text-secondary">{k}:</span> <span className="text-text-primary">{v}</span>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-text-tertiary tabular-nums shrink-0 mt-1">
-                          {ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                        </div>
-                      </div>
-                      {isAbandonStart && abandonment && (
-                        <div className="px-4 py-2 bg-red-50/50 border-t border-red-100/60 flex items-center gap-2 text-[11px] text-red-700">
-                          <AlertTriangle size={12} />
-                          <span><strong>Long pause</strong> — {formatGap(abandonment.gapMs)} of inactivity. Possible drop-off here.</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              <SnakeGrid run={run} runEnteredMs={run.entered} allEvents={detail.events} abandonment={abandonment} />
             </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── Snake grid of event cards ──
+// Mobile: vertical stack with down-arrows. Desktop: 4-wide rows that
+// alternate direction (left-to-right, then right-to-left, then LTR…) so the
+// reader's eye follows a continuous path instead of jumping back to the left
+// at each wrap.
+const COLS_DESKTOP = 4;
+
+function SnakeGrid({
+  run,
+  runEnteredMs,
+  allEvents,
+  abandonment,
+}: {
+  run: { page: string; entered: number; events: JourneyEvent[] };
+  runEnteredMs: number;
+  allEvents: JourneyEvent[];
+  abandonment: { afterIdx: number; gapMs: number } | null;
+}) {
+  const events = run.events;
+  const rows = useMemo(() => {
+    const out: JourneyEvent[][] = [];
+    for (let i = 0; i < events.length; i += COLS_DESKTOP) out.push(events.slice(i, i + COLS_DESKTOP));
+    return out;
+  }, [events]);
+
+  return (
+    <div className="px-3 py-3">
+      {/* Mobile — single column with down-arrow between cards. */}
+      <div className="md:hidden flex flex-col gap-2">
+        {events.map((e, i) => {
+          const prevTs = i === 0 ? new Date(runEnteredMs) : new Date(events[i - 1].timestamp);
+          const gap = new Date(e.timestamp).getTime() - prevTs.getTime();
+          const globalIdx = allEvents.indexOf(e);
+          const isAbandonStart = abandonment !== null && globalIdx === abandonment.afterIdx;
+          return (
+            <Fragment key={i}>
+              <EventCard event={e} gapMs={gap} isFirstInRun={i === 0} />
+              {isAbandonStart && abandonment && (
+                <PauseBanner gapMs={abandonment.gapMs} />
+              )}
+              {i < events.length - 1 && (
+                <ChevronDown size={14} className="text-text-tertiary mx-auto" />
+              )}
+            </Fragment>
+          );
+        })}
+      </div>
+
+      {/* Desktop — snake of rows. */}
+      <div className="hidden md:flex flex-col gap-2">
+        {rows.map((row, rowIdx) => {
+          const reverse = rowIdx % 2 === 1;
+          const isLastRow = rowIdx === rows.length - 1;
+          // Down-arrow lives at the visual "end" of each row — same side the
+          // snake will resume from on the next row, since rows alternate.
+          const downArrowSide = reverse ? 'justify-start' : 'justify-end';
+          // Detect abandonment border within this row (rendered after the
+          // event whose globalIdx matches abandonment.afterIdx).
+          return (
+            <Fragment key={rowIdx}>
+              <div className={cn('flex items-stretch gap-2', reverse && 'flex-row-reverse')}>
+                {row.map((e, i) => {
+                  const globalI = rowIdx * COLS_DESKTOP + i;
+                  const prevTs = globalI === 0
+                    ? new Date(runEnteredMs)
+                    : new Date(events[globalI - 1].timestamp);
+                  const gap = new Date(e.timestamp).getTime() - prevTs.getTime();
+                  const isLastInRow = i === row.length - 1;
+                  return (
+                    <Fragment key={i}>
+                      <EventCard
+                        event={e}
+                        gapMs={gap}
+                        isFirstInRun={globalI === 0}
+                        className="flex-1 min-w-0 basis-0"
+                      />
+                      {!isLastInRow && (
+                        reverse
+                          ? <ChevronLeft size={14} className="self-center text-text-tertiary shrink-0" />
+                          : <ChevronRight size={14} className="self-center text-text-tertiary shrink-0" />
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </div>
+
+              {!isLastRow && (
+                <div className={cn('flex', downArrowSide, 'pr-3 pl-3')}>
+                  <ChevronDown size={14} className="text-text-tertiary" />
+                </div>
+              )}
+
+              {/* Abandonment banner if the worst long-pause starts in this row */}
+              {(() => {
+                if (!abandonment) return null;
+                const startIdx = rowIdx * COLS_DESKTOP;
+                const endIdx = startIdx + row.length - 1;
+                const inRow = abandonment.afterIdx >= startIdx && abandonment.afterIdx <= endIdx;
+                if (!inRow) return null;
+                // Only render once, after the row that contains the gap-start.
+                const eventInRow = events[abandonment.afterIdx - startIdx];
+                const globalEventIdx = allEvents.indexOf(eventInRow);
+                if (globalEventIdx !== abandonment.afterIdx) return null;
+                return <PauseBanner gapMs={abandonment.gapMs} />;
+              })()}
+            </Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function EventCard({
+  event,
+  gapMs,
+  isFirstInRun,
+  className,
+}: {
+  event: JourneyEvent;
+  gapMs: number;
+  isFirstInRun: boolean;
+  className?: string;
+}) {
+  const cat = categorize(event.event);
+  const meta = CATEGORY_META[cat];
+  const Icon = eventIcon(event.event);
+  const desc = primaryDescriptor(event);
+  const ts = new Date(event.timestamp);
+  return (
+    <div
+      className={cn(
+        'rounded-xl border border-black/5 bg-white pl-3 pr-2.5 py-2 flex flex-col min-w-0 hover:shadow-sm transition-shadow border-l-2',
+        // Colored left edge keyed to category. Tailwind classes only — we
+        // can't use template hsl() here without arbitrary values.
+        cat === 'conversion' && 'border-l-emerald-500',
+        cat === 'cta' && 'border-l-blue-500',
+        cat === 'audio' && 'border-l-purple-500',
+        cat === 'modal' && 'border-l-amber-500',
+        cat === 'error' && 'border-l-red-500',
+        cat === 'nav' && 'border-l-slate-400',
+        cat === 'default' && 'border-l-black/20',
+        className,
+      )}
+    >
+      <div className="flex items-start gap-1.5 mb-1">
+        <span className={cn('shrink-0 w-5 h-5 rounded-full flex items-center justify-center', meta.bg, meta.text)}>
+          <Icon size={11} />
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className={cn('text-[12px] font-semibold leading-tight truncate', meta.text)}>
+            {humanize(event.event)}
+          </div>
+        </div>
+      </div>
+      {desc && (
+        <div className="text-[11px] text-text-secondary leading-snug mb-1.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          <span className="text-text-tertiary">{desc.label}: </span>
+          <span className="text-text-primary">{desc.value}</span>
+        </div>
+      )}
+      <div className="mt-auto flex items-center justify-between gap-1 text-[10px] text-text-tertiary tabular-nums">
+        <span>{ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+        {isFirstInRun ? (
+          <span>on entry</span>
+        ) : gapMs > 5000 ? (
+          <span>+{formatGap(gapMs)}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PauseBanner({ gapMs }: { gapMs: number }) {
+  return (
+    <div className="my-1 mx-1 px-3 py-2 rounded-lg bg-red-50/70 border border-red-100 flex items-center gap-2 text-[11px] text-red-700">
+      <AlertTriangle size={12} />
+      <span><strong>Long pause</strong> — {formatGap(gapMs)} of inactivity. Possible drop-off here.</span>
     </div>
   );
 }
