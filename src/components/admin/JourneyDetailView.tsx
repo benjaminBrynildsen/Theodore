@@ -122,6 +122,19 @@ function formatDuration(seconds: number): string {
   return `${m}m ${s}s`;
 }
 
+// Listening duration — same shape as formatDuration but always shows a
+// minutes component once we hit a minute, so cards read consistently when
+// stacked next to each other.
+function formatListen(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `${s}s`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m ${sec}s`;
+  return `${m}m ${sec}s`;
+}
+
 // Group consecutive events that share the same page into one "page run". Each
 // run becomes a card. A new page = a new run, so back-and-forth navigation
 // produces multiple cards (which is what we want — the user really did re-
@@ -170,6 +183,22 @@ function detectAbandonment(events: JourneyEvent[]): { afterIdx: number; gapMs: n
     if (gap > 120_000 && (!worst || gap > worst.gapMs)) worst = { afterIdx: i - 1, gapMs: gap };
   }
   return worst;
+}
+
+// Pull a "listened for Xm Ys" summary off audio_paused / audio_play_ended
+// events. Returns null for everything else; render code uses it to decide
+// whether to show the prominent listen-duration block.
+function audioListenStats(e: JourneyEvent): { secondsListened: number; totalSec?: number; pct?: number; completed: boolean } | null {
+  const d = (e.data || {}) as Record<string, unknown>;
+  if (e.event !== 'audio_paused' && e.event !== 'audio_play_ended') return null;
+  const sl = typeof d.seconds_listened === 'number' ? d.seconds_listened : null;
+  if (sl === null || sl < 1) return null;
+  return {
+    secondsListened: sl,
+    totalSec: typeof d.total_duration_sec === 'number' ? d.total_duration_sec : undefined,
+    pct: typeof d.progress_pct === 'number' ? d.progress_pct : undefined,
+    completed: e.event === 'audio_play_ended',
+  };
 }
 
 // Pick the most informative single line from an event's data — the "what"
@@ -536,6 +565,7 @@ function EventCard({
   const Icon = eventIcon(event.event);
   const desc = primaryDescriptor(event);
   const entity = resolveEntity(event, context);
+  const listen = audioListenStats(event);
   const ts = new Date(event.timestamp);
   return (
     <div
@@ -563,6 +593,34 @@ function EventCard({
           </div>
         </div>
       </div>
+
+      {/* Listen duration — prominent block for audio_paused / audio_play_ended
+          so the admin can see at a glance how long they actually listened. */}
+      {listen && (
+        <div className="mb-1.5 p-2 rounded-lg bg-purple-50 border border-purple-100">
+          <div className="flex items-baseline gap-1.5">
+            <Headphones size={11} className="text-purple-600 shrink-0 self-center" />
+            <span className="text-[15px] font-bold text-purple-700 tabular-nums">{formatListen(listen.secondsListened)}</span>
+            {listen.completed && (
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-emerald-600">finished</span>
+            )}
+          </div>
+          {listen.totalSec ? (
+            <div className="text-[10px] text-text-tertiary mt-0.5">
+              of {formatListen(listen.totalSec)}
+              {typeof listen.pct === 'number' && ` · ${listen.pct}%`}
+            </div>
+          ) : null}
+          {typeof listen.pct === 'number' && listen.totalSec && (
+            <div className="mt-1.5 h-1 rounded-full bg-purple-100 overflow-hidden">
+              <div
+                className="h-full bg-purple-500"
+                style={{ width: `${Math.min(100, Math.max(0, listen.pct))}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Resolved entity (project/chapter) — book cover + title pulled from
           the event's chapter_id / project_id. Renders only when we matched. */}

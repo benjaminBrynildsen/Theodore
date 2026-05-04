@@ -261,32 +261,92 @@ export function AudioPlayerBar() {
       }
     };
 
-    // First-play tracking — fires once per chapter-playback session so we can
-    // finally distinguish users who actually listen from users who generate
-    // audio and navigate away before hearing any of it.
+    // First-play + listen-duration tracking. We accumulate real wall-clock
+    // time spent playing across pause/resume cycles so the journey timeline
+    // shows "listened 2m 14s" instead of just "play started". Fires:
+    //   - audio_play_started: once per chapter, on first play
+    //   - audio_paused:       on pause, with seconds_listened in this session
+    //   - audio_play_ended:   on end, with seconds_listened in this session
     const playStartedForChapter = { current: '' as string };
+    const playSegmentStartMs = { current: 0 };
+    const accumulatedListenSec = { current: 0 };
+
+    const flushListenSec = () => {
+      if (playSegmentStartMs.current > 0) {
+        accumulatedListenSec.current += (Date.now() - playSegmentStartMs.current) / 1000;
+        playSegmentStartMs.current = 0;
+      }
+    };
+
+    const resetListenTracking = () => {
+      flushListenSec();
+      accumulatedListenSec.current = 0;
+      playSegmentStartMs.current = 0;
+    };
+
     const onPlay = () => {
       const chId = useAudioStore.getState().currentChapterId || '';
-      if (chId && chId !== playStartedForChapter.current) {
+      // New chapter — reset accumulated listen time so we don't carry minutes
+      // from a previous chapter into this one's stats.
+      if (chId !== playStartedForChapter.current) {
+        resetListenTracking();
         playStartedForChapter.current = chId;
-        jTrack('audio_play_started', { chapter_id: chId });
+        if (chId) jTrack('audio_play_started', { chapter_id: chId });
+      }
+      playSegmentStartMs.current = Date.now();
+    };
+
+    const onPause = () => {
+      // Browsers also fire `pause` right before `ended`; the `ended` handler
+      // covers the end-of-audio case so we skip emitting an extra paused
+      // event in that scenario by checking `audio.ended`.
+      if (audio.ended) return;
+      flushListenSec();
+      const chId = playStartedForChapter.current;
+      if (chId && accumulatedListenSec.current >= 1) {
+        const totalDur = audio.duration && isFinite(audio.duration) ? audio.duration : null;
+        jTrack('audio_paused', {
+          chapter_id: chId,
+          seconds_listened: Math.round(accumulatedListenSec.current),
+          total_duration_sec: totalDur ? Math.round(totalDur) : undefined,
+          progress_pct: totalDur ? Math.round((accumulatedListenSec.current / totalDur) * 100) : undefined,
+          current_time_sec: Math.round(audio.currentTime + sceneStartOffsetRef.current),
+        });
+      }
+    };
+
+    const onPlayEndedTrack = () => {
+      flushListenSec();
+      const chId = playStartedForChapter.current;
+      if (chId && accumulatedListenSec.current >= 1) {
+        const totalDur = audio.duration && isFinite(audio.duration) ? audio.duration : null;
+        jTrack('audio_play_ended', {
+          chapter_id: chId,
+          seconds_listened: Math.round(accumulatedListenSec.current),
+          total_duration_sec: totalDur ? Math.round(totalDur) : undefined,
+          completed: true,
+        });
       }
     };
 
     audio.addEventListener('ended', onEnded);
+    audio.addEventListener('ended', onPlayEndedTrack);
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
     audio.addEventListener('durationchange', onDurationChange);
     audio.addEventListener('error', onError);
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
 
     return () => {
       audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('ended', onPlayEndedTrack);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('durationchange', onDurationChange);
       audio.removeEventListener('error', onError);
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
     };
   }, []);
 
