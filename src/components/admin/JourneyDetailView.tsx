@@ -1,8 +1,8 @@
-import { Fragment, useMemo } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import {
   ArrowLeft, MapPin, Clock, Activity, Sparkles, AlertTriangle,
   MousePointer2, Eye, X, LogIn, CreditCard, Headphones, Wand2, MessageSquare,
-  Layers, ArrowRight, ChevronRight, ChevronLeft, ChevronDown,
+  Layers, ArrowRight, ChevronRight, ChevronLeft, ChevronDown, BookOpen, User,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -11,6 +11,13 @@ export type JourneyEvent = {
   data?: Record<string, unknown> | null;
   page?: string | null;
   timestamp: string | Date;
+};
+
+export type JourneyContext = {
+  projects?: Record<string, { title: string; coverUrl: string | null; userId?: string }>;
+  chapters?: Record<string, { title: string; number?: number; projectId: string }>;
+  users?: Record<string, { email: string; name: string | null; plan: string }>;
+  primaryUserId?: string | null;
 };
 
 export type JourneyDetail = {
@@ -23,6 +30,7 @@ export type JourneyDetail = {
   durationSeconds: number;
   eventCount: number;
   events: JourneyEvent[];
+  context?: JourneyContext;
 };
 
 // ── Event categorization ──
@@ -200,6 +208,34 @@ function primaryDescriptor(e: JourneyEvent): { label: string; value: string } | 
   return null;
 }
 
+// Resolve the primary entity referenced by an event so the card can render
+// a thumbnail + title. Chapter > Project priority — chapters are more
+// specific so they win when both IDs appear.
+function resolveEntity(
+  e: JourneyEvent,
+  context: JourneyContext | undefined,
+): { kind: 'chapter' | 'project'; coverUrl: string | null; title: string; subtitle: string | null } | null {
+  if (!context) return null;
+  const d = (e.data || {}) as Record<string, unknown>;
+  const chapterId = (d.chapter_id || d.chapterId) as string | undefined;
+  if (chapterId && context.chapters?.[chapterId]) {
+    const ch = context.chapters[chapterId];
+    const parent = context.projects?.[ch.projectId];
+    return {
+      kind: 'chapter',
+      coverUrl: parent?.coverUrl || null,
+      title: ch.number ? `Ch. ${ch.number}: ${ch.title}` : ch.title,
+      subtitle: parent?.title || null,
+    };
+  }
+  const projectId = (d.project_id || d.projectId) as string | undefined;
+  if (projectId && context.projects?.[projectId]) {
+    const p = context.projects[projectId];
+    return { kind: 'project', coverUrl: p.coverUrl, title: p.title, subtitle: 'Project' };
+  }
+  return null;
+}
+
 // ── Component ──
 export function JourneyDetailView({
   detail,
@@ -245,6 +281,9 @@ export function JourneyDetailView({
       >
         <ArrowLeft size={14} /> {backLabel || 'Back'}
       </button>
+
+      {/* Session header — who this is + which book(s) they touched */}
+      <SessionHeader context={detail.context} />
 
       {/* Stat strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
@@ -348,7 +387,13 @@ export function JourneyDetailView({
                 </div>
               </div>
 
-              <SnakeGrid run={run} runEnteredMs={run.entered} allEvents={detail.events} abandonment={abandonment} />
+              <SnakeGrid
+                run={run}
+                runEnteredMs={run.entered}
+                allEvents={detail.events}
+                abandonment={abandonment}
+                context={detail.context}
+              />
             </div>
           );
         })}
@@ -369,11 +414,13 @@ function SnakeGrid({
   runEnteredMs,
   allEvents,
   abandonment,
+  context,
 }: {
   run: { page: string; entered: number; events: JourneyEvent[] };
   runEnteredMs: number;
   allEvents: JourneyEvent[];
   abandonment: { afterIdx: number; gapMs: number } | null;
+  context?: JourneyContext;
 }) {
   const events = run.events;
   const rows = useMemo(() => {
@@ -393,7 +440,7 @@ function SnakeGrid({
           const isAbandonStart = abandonment !== null && globalIdx === abandonment.afterIdx;
           return (
             <Fragment key={i}>
-              <EventCard event={e} gapMs={gap} isFirstInRun={i === 0} />
+              <EventCard event={e} gapMs={gap} isFirstInRun={i === 0} context={context} />
               {isAbandonStart && abandonment && (
                 <PauseBanner gapMs={abandonment.gapMs} />
               )}
@@ -432,6 +479,7 @@ function SnakeGrid({
                         gapMs={gap}
                         isFirstInRun={globalI === 0}
                         className="flex-1 min-w-0 basis-0"
+                        context={context}
                       />
                       {!isLastInRow && (
                         reverse
@@ -475,16 +523,19 @@ function EventCard({
   gapMs,
   isFirstInRun,
   className,
+  context,
 }: {
   event: JourneyEvent;
   gapMs: number;
   isFirstInRun: boolean;
   className?: string;
+  context?: JourneyContext;
 }) {
   const cat = categorize(event.event);
   const meta = CATEGORY_META[cat];
   const Icon = eventIcon(event.event);
   const desc = primaryDescriptor(event);
+  const entity = resolveEntity(event, context);
   const ts = new Date(event.timestamp);
   return (
     <div
@@ -512,8 +563,23 @@ function EventCard({
           </div>
         </div>
       </div>
+
+      {/* Resolved entity (project/chapter) — book cover + title pulled from
+          the event's chapter_id / project_id. Renders only when we matched. */}
+      {entity && (
+        <div className="flex items-center gap-2 mb-1.5 p-1.5 rounded-lg bg-black/[0.03]">
+          <BookCover url={entity.coverUrl} size={32} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-semibold text-text-primary leading-tight truncate">{entity.title}</div>
+            {entity.subtitle && (
+              <div className="text-[10px] text-text-tertiary truncate">{entity.subtitle}</div>
+            )}
+          </div>
+        </div>
+      )}
+
       {desc && (
-        <div className="text-[11px] text-text-secondary leading-snug mb-1.5" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+        <div className="text-[11px] text-text-secondary leading-snug mb-1.5 break-words" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
           <span className="text-text-tertiary">{desc.label}: </span>
           <span className="text-text-primary">{desc.value}</span>
         </div>
@@ -530,11 +596,86 @@ function EventCard({
   );
 }
 
+// Tiny book-cover thumbnail with a graceful fallback when no cover exists or
+// the image fails to load. The fallback is a styled placeholder card so the
+// card layout doesn't shift.
+function BookCover({ url, size = 32 }: { url: string | null; size?: number }) {
+  const [errored, setErrored] = useState(false);
+  const w = size;
+  const h = Math.round(size * 1.5);
+  if (!url || errored) {
+    return (
+      <div
+        className="shrink-0 rounded-md bg-gradient-to-br from-amber-100 via-rose-50 to-stone-100 border border-black/10 flex items-center justify-center"
+        style={{ width: w, height: h }}
+      >
+        <BookOpen size={Math.round(size * 0.4)} className="text-text-tertiary" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      onError={() => setErrored(true)}
+      className="shrink-0 rounded-md object-cover border border-black/10"
+      style={{ width: w, height: h }}
+      loading="lazy"
+    />
+  );
+}
+
 function PauseBanner({ gapMs }: { gapMs: number }) {
   return (
     <div className="my-1 mx-1 px-3 py-2 rounded-lg bg-red-50/70 border border-red-100 flex items-center gap-2 text-[11px] text-red-700">
       <AlertTriangle size={12} />
       <span><strong>Long pause</strong> — {formatGap(gapMs)} of inactivity. Possible drop-off here.</span>
+    </div>
+  );
+}
+
+// Top-of-page strip showing the identified user (if any) and the books
+// referenced anywhere in their session. Gives the admin a quick "who and
+// what" before diving into events.
+function SessionHeader({ context }: { context?: JourneyContext }) {
+  if (!context) return null;
+  const userId = context.primaryUserId || null;
+  const user = userId && context.users?.[userId] ? context.users[userId] : null;
+  const projectList = Object.entries(context.projects || {});
+  if (!user && projectList.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl border border-black/5 bg-white p-3 mb-3 flex items-center gap-3 flex-wrap">
+      {user && (
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-amber-100 to-rose-100 flex items-center justify-center">
+            <User size={14} className="text-text-primary" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-text-primary truncate">
+              {user.name || user.email}
+            </div>
+            <div className="text-[11px] text-text-tertiary truncate">
+              {user.email} · <span className="capitalize">{user.plan}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {projectList.length > 0 && (
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <span className="text-[10px] uppercase tracking-wider text-text-tertiary font-semibold">Touched</span>
+          {projectList.slice(0, 4).map(([id, p]) => (
+            <div key={id} className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/[0.04]">
+              <BookCover url={p.coverUrl} size={20} />
+              <span className="text-[11px] text-text-primary font-medium truncate max-w-[160px]">{p.title}</span>
+            </div>
+          ))}
+          {projectList.length > 4 && (
+            <span className="text-[11px] text-text-tertiary">+{projectList.length - 4} more</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

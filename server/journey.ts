@@ -5,8 +5,8 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { db } from './db.js';
-import { journeyEvents, projects, users } from './schema.js';
-import { desc, eq, sql, and } from 'drizzle-orm';
+import { journeyEvents, projects, chapters, users } from './schema.js';
+import { desc, eq, sql, and, inArray } from 'drizzle-orm';
 import { requireAdmin } from './admin.js';
 import { ensureGuestSessionId } from './guest-session.js';
 
@@ -406,7 +406,10 @@ export async function getUserJourneys(req: Request, res: Response) {
   }
 }
 
-// GET /api/admin/journeys/:sessionId — full event timeline for one session
+// GET /api/admin/journeys/:sessionId — full event timeline for one session.
+// Also resolves project/chapter/user IDs referenced in event payloads to
+// titles, covers, and account info so the admin UI can render thumbnails and
+// names instead of raw IDs.
 export async function getJourneyDetail(req: Request, res: Response) {
   try {
     const { sessionId } = req.params;
@@ -426,6 +429,73 @@ export async function getJourneyDetail(req: Request, res: Response) {
       (new Date(last.createdAt).getTime() - new Date(first.createdAt).getTime()) / 1000
     );
 
+    // ── Context lookup ──
+    // Walk every event's data payload, collect the IDs that appear so we can
+    // resolve them to display-friendly entities in one batch.
+    const projectIds = new Set<string>();
+    const chapterIds = new Set<string>();
+    const userIds = new Set<string>();
+    for (const e of events) {
+      const d = (e.data || {}) as Record<string, unknown>;
+      for (const [k, v] of Object.entries(d)) {
+        if (typeof v !== 'string' || !v) continue;
+        if (k === 'project_id' || k === 'projectId') projectIds.add(v);
+        else if (k === 'chapter_id' || k === 'chapterId') chapterIds.add(v);
+        else if (k === 'user_id' || k === 'userId') userIds.add(v);
+      }
+    }
+
+    // Batch resolve. All three tables are users-owned so we keep these
+    // queries cheap and parallel.
+    const [projectRows, chapterRows, userRows] = await Promise.all([
+      projectIds.size > 0
+        ? db.select({
+            id: projects.id, title: projects.title, coverUrl: projects.coverUrl, userId: projects.userId,
+          }).from(projects).where(inArray(projects.id, Array.from(projectIds)))
+        : Promise.resolve([] as { id: string; title: string; coverUrl: string | null; userId: string }[]),
+      chapterIds.size > 0
+        ? db.select({
+            id: chapters.id, title: chapters.title, number: chapters.number, projectId: chapters.projectId,
+          }).from(chapters).where(inArray(chapters.id, Array.from(chapterIds)))
+        : Promise.resolve([] as { id: string; title: string; number: number; projectId: string }[]),
+      userIds.size > 0
+        ? db.select({
+            id: users.id, email: users.email, name: users.name, plan: users.plan,
+          }).from(users).where(inArray(users.id, Array.from(userIds)))
+        : Promise.resolve([] as { id: string; email: string; name: string | null; plan: string }[]),
+    ]);
+
+    // For chapters whose parent project wasn't already resolved (the event
+    // referenced the chapter without referencing the project), fetch those
+    // parent projects too — we want chapter cards to show the book cover.
+    const missingProjectIds = chapterRows
+      .map((c) => c.projectId)
+      .filter((pid) => !projectRows.some((p) => p.id === pid));
+    const extraProjects = missingProjectIds.length > 0
+      ? await db.select({
+          id: projects.id, title: projects.title, coverUrl: projects.coverUrl, userId: projects.userId,
+        }).from(projects).where(inArray(projects.id, missingProjectIds))
+      : [];
+
+    const allProjects = [...projectRows, ...extraProjects];
+    const projectMap: Record<string, { title: string; coverUrl: string | null; userId: string }> = {};
+    for (const p of allProjects) projectMap[p.id] = { title: p.title, coverUrl: p.coverUrl, userId: p.userId };
+
+    const chapterMap: Record<string, { title: string; number: number; projectId: string }> = {};
+    for (const c of chapterRows) chapterMap[c.id] = { title: c.title, number: c.number, projectId: c.projectId };
+
+    const userMap: Record<string, { email: string; name: string | null; plan: string }> = {};
+    for (const u of userRows) userMap[u.id] = { email: u.email, name: u.name, plan: u.plan };
+
+    // Pull a "primary user" out — usually one user_id dominates the events.
+    // Show it in the session header so the admin can see whose journey this is.
+    const userIdCounts: Record<string, number> = {};
+    for (const e of events) {
+      const u = (e.data as any)?.user_id || (e.data as any)?.userId;
+      if (typeof u === 'string') userIdCounts[u] = (userIdCounts[u] || 0) + 1;
+    }
+    const primaryUserId = Object.entries(userIdCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
     res.json({
       sessionId,
       city: first.city,
@@ -441,6 +511,12 @@ export async function getJourneyDetail(req: Request, res: Response) {
         page: e.page,
         timestamp: e.createdAt,
       })),
+      context: {
+        projects: projectMap,
+        chapters: chapterMap,
+        users: userMap,
+        primaryUserId,
+      },
     });
   } catch (err: any) {
     console.error('[journey] admin detail error:', err?.message || err);
