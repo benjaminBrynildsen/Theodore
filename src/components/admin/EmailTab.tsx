@@ -528,23 +528,35 @@ function substitute(s: string, vars: Record<string, string>): string {
 function wrapPreviewHtml(opts: { subject: string; bodyHtml: string; fromLine: string }): string {
   const safe = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   return `<!doctype html><html><head><meta charset="utf-8">
-<style>body{margin:0;padding:0;background:#f7f6f1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c1c1e;line-height:1.55;font-size:15px;}</style>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body{margin:0;padding:0;background:#f7f6f1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c1c1e;line-height:1.55;font-size:15px;}
+  .card{width:100%;max-width:560px;background:#ffffff;border-radius:16px;border:1px solid rgba(0,0,0,0.06);overflow:hidden;}
+  .card-pad{padding:28px 32px 8px 32px;}
+  .card-body{padding:8px 32px 32px 32px;font-size:15px;color:#1c1c1e;}
+  .footer{font-size:12px;color:#8a8a8e;padding:20px 16px 0 16px;width:100%;max-width:560px;line-height:1.6;box-sizing:border-box;}
+  .meta{padding:18px 16px 8px;font-size:11px;color:#8a8a8e;width:100%;max-width:592px;margin:0 auto;box-sizing:border-box;}
+  @media (max-width: 480px){
+    .card-pad{padding:22px 18px 6px;}
+    .card-body{padding:6px 18px 22px;}
+  }
+</style>
 </head><body>
-<div style="padding:18px 16px 8px;font-size:11px;color:#8a8a8e;max-width:592px;margin:0 auto;">
+<div class="meta">
   <div><span style="color:#48484a;">From:</span> ${safe(opts.fromLine)}</div>
   <div><span style="color:#48484a;">Subject:</span> <span style="color:#1c1c1e;font-weight:600;">${safe(opts.subject)}</span></div>
 </div>
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f7f6f1;">
   <tr><td align="center" style="padding:8px 16px 32px;">
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="560" style="max-width:560px;background:#ffffff;border-radius:16px;border:1px solid rgba(0,0,0,0.06);overflow:hidden;">
-      <tr><td style="padding:28px 32px 8px 32px;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="card">
+      <tr><td class="card-pad">
         <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:700;letter-spacing:-0.01em;color:#1c1c1e;">Theodore</div>
       </td></tr>
-      <tr><td style="padding:8px 32px 32px 32px;font-size:15px;color:#1c1c1e;">
+      <tr><td class="card-body">
         ${opts.bodyHtml}
       </td></tr>
     </table>
-    <div style="font-size:12px;color:#8a8a8e;padding:20px 16px 0 16px;max-width:560px;line-height:1.6;">
+    <div class="footer">
       You're getting this because you signed up at <a href="https://theodore.tools" style="color:#8a8a8e;">theodore.tools</a>.<br>
       <a href="#" style="color:#8a8a8e;">Unsubscribe from these emails</a>.
     </div>
