@@ -27,7 +27,7 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser } from './admin.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
@@ -3111,6 +3111,7 @@ app.post('/api/admin/backfill-broken-images', backfillBrokenImages);
 app.get('/api/admin/user-cover-health', userCoverHealth);
 app.post('/api/admin/set-pending-notice', setPendingNotice);
 app.get('/api/admin/ios-launch-recipients', listIosLaunchRecipients);
+app.post('/api/admin/ios-launch-reset', resetIosLaunchForUser);
 
 // ========== Outreach (open tracking + creator pipeline) ==========
 // Pixel route — intentionally public, served on track.theodore.tools

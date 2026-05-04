@@ -1333,3 +1333,28 @@ export async function listIosLaunchRecipients(req: Request, res: Response) {
     res.status(500).json({ error: 'Internal server error' });
   }
 }
+
+// Clears the iOS-launch flags from a user's settings so the modal pops again.
+// Body: { email } (defaults to the authenticated admin's own account).
+export async function resetIosLaunchForUser(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const targetEmail = typeof req.body?.email === 'string' && req.body.email
+      ? String(req.body.email).toLowerCase().trim()
+      : (admin.user.email as string | undefined);
+    if (!targetEmail) return res.status(400).json({ error: 'email required' });
+
+    const [target] = await db.select().from(users).where(eq(users.email, targetEmail)).limit(1);
+    if (!target) return res.status(404).json({ error: `No user with email ${targetEmail}` });
+
+    const cur = (target.settings as Record<string, any>) || {};
+    const { iosLaunchSeen: _a, iosLaunchSeenAt: _b, iosLaunchOptInAt: _c, ...rest } = cur;
+    await db.update(users).set({ settings: rest, updatedAt: new Date() }).where(eq(users.id, target.id));
+    res.json({ ok: true, email: target.email });
+  } catch (e: any) {
+    console.error('[Admin] reset ios launch error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
