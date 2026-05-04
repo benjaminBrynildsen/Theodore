@@ -27,7 +27,8 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, sendTestEmail } from './admin.js';
+import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
@@ -848,6 +849,7 @@ app.post('/api/auth/register', async (req, res) => {
     const passwordHash = hashPassword(password);
 
     let user = existing;
+    let isNewUser = false;
     if (!user) {
       const [inserted] = await db.insert(users).values({
         id: `user-${randomUUID()}`,
@@ -861,6 +863,7 @@ app.post('/api/auth/register', async (req, res) => {
         lastCreditResetAt: now,
       }).returning();
       user = inserted;
+      isNewUser = true;
     } else {
       const [updated] = await db.update(users).set({
         passwordHash,
@@ -881,6 +884,11 @@ app.post('/api/auth/register', async (req, res) => {
       }
     } catch (claimErr) {
       console.error('[guest-claim] failed during register', claimErr);
+    }
+    if (isNewUser) {
+      // Fire-and-forget — never block signup on SMTP latency / rate limits.
+      void sendWelcome({ id: user.id, email: user.email, name: user.name, settings: user.settings })
+        .catch((err) => console.warn('[email/welcome] register send failed', err?.message || err));
     }
     res.json({ user: toSafeUser(user), token, guestClaim });
   } catch (e: any) {
@@ -918,6 +926,7 @@ app.post('/api/auth/google', async (req, res) => {
 
     // Find or create user
     let user = await getUserByEmail(email);
+    let isNewUser = false;
     if (!user) {
       // New user — create account
       const [inserted] = await db.insert(users).values({
@@ -933,6 +942,7 @@ app.post('/api/auth/google', async (req, res) => {
         lastCreditResetAt: now,
       }).returning();
       user = inserted;
+      isNewUser = true;
       trackRegistration(req as any);
     } else {
       // Existing user — update name/avatar if not set
@@ -953,6 +963,10 @@ app.post('/api/auth/google', async (req, res) => {
       }
     } catch (claimErr) {
       console.error('[guest-claim] failed during google auth', claimErr);
+    }
+    if (isNewUser) {
+      void sendWelcome({ id: user.id, email: user.email, name: user.name, settings: user.settings })
+        .catch((err) => console.warn('[email/welcome] google send failed', err?.message || err));
     }
     res.json({ user: toSafeUser(user), token, guestClaim });
   } catch (e: any) {
@@ -2305,6 +2319,29 @@ async function runTTSJob(jobId: string) {
       error: null,
     });
     console.log(`[TTS] Job ${jobId}: Complete → ${result.audioUrl}`);
+
+    // Audiobook-ready email — chapter-level audio only (skip free-sample one-offs
+    // and scene-level renders so the listener doesn't get spammed mid-flow).
+    if (row.userId && !row.isGuest && !spec.isFreeAudioSample && !spec.chapterId.startsWith('scene-')) {
+      void (async () => {
+        try {
+          const [u] = await db.select().from(users).where(eq(users.id, row.userId!)).limit(1);
+          if (!u) return;
+          const [ch] = await db.select({ title: chapters.title, projectId: chapters.projectId })
+            .from(chapters).where(eq(chapters.id, spec.chapterId)).limit(1);
+          if (!ch) return;
+          const baseUrl = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, '') : 'https://theodore.tools';
+          const deepLink = `${baseUrl}/?project=${encodeURIComponent(ch.projectId)}&chapter=${encodeURIComponent(spec.chapterId)}`;
+          await sendAudiobookReady({
+            user: { id: u.id, email: u.email, name: u.name, settings: u.settings },
+            chapterTitle: spec.chapterTitle || ch.title || 'your chapter',
+            deepLink,
+          });
+        } catch (err: any) {
+          console.warn('[email/audiobook-ready] send failed', err?.message || err);
+        }
+      })();
+    }
   } catch (e: any) {
     console.error(`[TTS] Job ${jobId}: Failed —`, e.message);
     try { fs.appendFileSync(path.join(process.cwd(), 'uploads', 'audio', 'error.log'), `[${new Date().toISOString()}] Job ${jobId} error: ${e.message}\n${e.stack || ''}\n`); } catch {}
@@ -3112,6 +3149,11 @@ app.get('/api/admin/user-cover-health', userCoverHealth);
 app.post('/api/admin/set-pending-notice', setPendingNotice);
 app.get('/api/admin/ios-launch-recipients', listIosLaunchRecipients);
 app.post('/api/admin/ios-launch-reset', resetIosLaunchForUser);
+app.post('/api/admin/email/send', sendBulkEmail);
+app.get('/api/admin/email/history', listEmailHistory);
+app.get('/api/admin/email/templates/:key', getEmailTemplate);
+app.put('/api/admin/email/templates/:key', saveEmailTemplate);
+app.post('/api/admin/email/test', sendTestEmail);
 
 // ========== Outreach (open tracking + creator pipeline) ==========
 // Pixel route — intentionally public, served on track.theodore.tools
@@ -4388,6 +4430,74 @@ app.post('/api/users/me/ios-launch-dismiss', async (req, res) => {
     res.status(500).json({ error: 'Failed to dismiss' });
   }
 });
+
+// Public unsubscribe endpoint — accepts both GET (link click → HTML page) and
+// POST (Gmail one-click via List-Unsubscribe-Post). Token format defined in
+// server/email.ts. Once flipped, future sends of that kind skip the user.
+app.get('/unsubscribe', async (req, res) => {
+  const t = String(req.query.t || '');
+  const parsed = parseUnsubscribeToken(t);
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  if (!parsed) {
+    return res.status(400).send(unsubscribePage({ ok: false, message: 'This unsubscribe link is invalid or expired.' }));
+  }
+  try {
+    const [u] = await db.select().from(users).where(eq(users.id, parsed.userId)).limit(1);
+    if (!u) return res.status(404).send(unsubscribePage({ ok: false, message: 'Account not found.' }));
+    const cur = (u.settings as Record<string, any>) || {};
+    const flags = { ...(cur.emailOptOut || {}), [parsed.kind]: true };
+    await db.update(users).set({ settings: { ...cur, emailOptOut: flags }, updatedAt: new Date() }).where(eq(users.id, u.id));
+    res.send(unsubscribePage({ ok: true, message: `You're unsubscribed from ${humanLabel(parsed.kind)} emails.`, email: u.email, kind: parsed.kind }));
+  } catch (e: any) {
+    console.error('[unsubscribe]', e);
+    res.status(500).send(unsubscribePage({ ok: false, message: 'Something went wrong. Please try again.' }));
+  }
+});
+app.post('/unsubscribe', async (req, res) => {
+  const t = String(req.body?.t || req.query?.t || '');
+  const parsed = parseUnsubscribeToken(t);
+  if (!parsed) return res.status(400).json({ ok: false });
+  try {
+    const [u] = await db.select().from(users).where(eq(users.id, parsed.userId)).limit(1);
+    if (!u) return res.status(404).json({ ok: false });
+    const cur = (u.settings as Record<string, any>) || {};
+    const flags = { ...(cur.emailOptOut || {}), [parsed.kind]: true };
+    await db.update(users).set({ settings: { ...cur, emailOptOut: flags }, updatedAt: new Date() }).where(eq(users.id, u.id));
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[unsubscribe POST]', e);
+    res.status(500).json({ ok: false });
+  }
+});
+function humanLabel(kind: string): string {
+  const map: Record<string, string> = {
+    welcome: 'welcome',
+    'audiobook-ready': 'audiobook',
+    announcement: 'announcement',
+    'password-reset': 'password reset',
+  };
+  return map[kind] || kind;
+}
+function unsubscribePage(opts: { ok: boolean; message: string; email?: string; kind?: string }): string {
+  const color = opts.ok ? '#1c1c1e' : '#b91c1c';
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unsubscribe — Theodore</title>
+<style>
+body{margin:0;background:#f7f6f1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1c1c1e;}
+.wrap{max-width:520px;margin:80px auto;padding:0 16px;}
+.card{background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:16px;padding:36px;text-align:center;}
+h1{font-family:Georgia,serif;margin:0 0 12px 0;font-size:24px;}
+p{color:#48484a;line-height:1.6;}
+a{color:#1c1c1e;}
+</style></head>
+<body><div class="wrap"><div class="card">
+  <h1 style="color:${color};">${opts.ok ? 'Done.' : 'Hmm.'}</h1>
+  <p>${opts.message}</p>
+  ${opts.email ? `<p style="font-size:12px;color:#8a8a8e;">${opts.email}</p>` : ''}
+  <p style="margin-top:24px;font-size:14px;"><a href="/">Back to Theodore</a></p>
+</div></div></body></html>`;
+}
 
 app.delete('/api/users/me/push-token', async (req, res) => {
   try {

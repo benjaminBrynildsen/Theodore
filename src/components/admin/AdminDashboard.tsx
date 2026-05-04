@@ -10,6 +10,7 @@ import { CREATORS } from '../../data/creators';
 import { OutreachTab } from './OutreachTab';
 import { PushTab } from './PushTab';
 import { LaunchTab } from './LaunchTab';
+import { EmailTab } from './EmailTab';
 
 const API = '/api/admin';
 
@@ -199,7 +200,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email';
 
 interface JourneySession {
   session_id: string;
@@ -407,6 +408,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'creators', label: 'Creators', icon: Film },
     { id: 'outreach', label: 'Outreach', icon: Mail },
     { id: 'push', label: 'Push', icon: Bell },
+    { id: 'email', label: 'Email', icon: Mail },
     { id: 'launch', label: 'Launch', icon: Apple },
     { id: 'grok-probe', label: 'Grok Probe', icon: Image },
   ];
@@ -1342,6 +1344,8 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {view === 'push' && <PushTab />}
 
         {view === 'launch' && <LaunchTab />}
+
+        {view === 'email' && <EmailTab />}
 
         {/* ========== Grok image-reference probe ========== */}
         {view === 'grok-probe' && <GrokProbePanel />}

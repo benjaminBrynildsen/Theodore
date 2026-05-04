@@ -376,6 +376,37 @@ export const outreachOpens = pgTable('outreach_opens', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ========== Transactional / Announcement Emails ==========
+// One row per outbound email triggered by Theodore (welcome, audiobook-ready,
+// announcement blasts). Distinct from outreach_emails which targets cold
+// leads in outreach_recipients — this table targets users in `users`.
+export const transactionalEmails = pgTable('transactional_emails', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  toAddress: text('to_address').notNull(),
+  fromAddress: text('from_address').notNull(),
+  kind: text('kind').notNull(), // 'welcome' | 'audiobook-ready' | 'announcement' | 'password-reset'
+  subject: text('subject').notNull(),
+  bodyHtml: text('body_html'),
+  status: text('status').notNull().default('sent'), // sent | failed | skipped-opt-out
+  errorMessage: text('error_message'),
+  metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  sentAt: timestamp('sent_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// ========== Email Templates (admin-editable) ==========
+// Stored under a known key (e.g. 'welcome', 'audiobook-ready') so the admin
+// can tweak wording without redeploying. Body supports {{firstName}},
+// {{email}}, {{appUrl}}, {{deepLink}}, {{unsubscribeUrl}} substitutions.
+export const emailTemplates = pgTable('email_templates', {
+  key: text('key').primaryKey(),
+  subject: text('subject').notNull(),
+  bodyHtml: text('body_html').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  updatedBy: text('updated_by'),
+});
+
 // ========== Validation Overrides ==========
 export const validationOverrides = pgTable('validation_overrides', {
   id: serial('id').primaryKey(),

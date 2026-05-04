@@ -4,10 +4,11 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { db } from './db.js';
-import { users, projects, chapters, canonEntries, creditTransactions, audioGenerations, guestEvents, pushTokens } from './schema.js';
+import { users, projects, chapters, canonEntries, creditTransactions, audioGenerations, guestEvents, pushTokens, transactionalEmails, emailTemplates } from './schema.js';
 import { sql, eq, desc, count, sum, gt, and, inArray } from 'drizzle-orm';
 import { getAuth } from './auth.js';
 import { sendPushToTokens } from './push.js';
+import { sendToUser, getTemplate, setTemplate, DEFAULT_TEMPLATES, substituteVars, type EmailKind, APP_URL } from './email.js';
 
 // Must match the hashing in server/index.ts so the admin's own IP
 // resolves to the same prefix shown in the guest activity feed.
@@ -1331,6 +1332,200 @@ export async function listIosLaunchRecipients(req: Request, res: Response) {
   } catch (e: any) {
     console.error('[Admin] list ios launch recipients error:', e);
     res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// ========== Email (welcome / audiobook-ready / announcements) ==========
+// Compose & send a transactional or announcement email to a target audience.
+// Body shape:
+//   {
+//     subject: string;
+//     bodyHtml: string;                  // inner body, gets wrapped + var-substituted
+//     kind: 'announcement' | ...;        // affects per-category opt-out enforcement
+//     target:
+//       | { all: true }                  // every active user with an email
+//       | { iosOptIns: true }            // users who clicked Notify Me on the iOS launch modal
+//       | { userIds: string[] };
+//     force?: boolean;                   // bypass opt-out (admin override)
+//   }
+// Sends are sequential with a small delay so we don't trip Gmail's per-second
+// rate limit. Returns counts + per-recipient status.
+export async function sendBulkEmail(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const { subject, bodyHtml, kind, target, force } = req.body || {};
+    if (typeof subject !== 'string' || !subject.trim()) return res.status(400).json({ error: 'subject required' });
+    if (typeof bodyHtml !== 'string' || !bodyHtml.trim()) return res.status(400).json({ error: 'bodyHtml required' });
+    if (!target || typeof target !== 'object') return res.status(400).json({ error: 'target required' });
+    const allowedKinds: EmailKind[] = ['announcement', 'welcome', 'audiobook-ready'];
+    const sendKind: EmailKind = allowedKinds.includes(kind) ? kind : 'announcement';
+
+    let recipients: { id: string; email: string; name: string | null; settings: any }[] = [];
+    if (target.all === true) {
+      recipients = await db
+        .select({ id: users.id, email: users.email, name: users.name, settings: users.settings })
+        .from(users);
+    } else if (target.iosOptIns === true) {
+      const rows = await db
+        .select({ id: users.id, email: users.email, name: users.name, settings: users.settings })
+        .from(users)
+        .where(sql`${users.settings} ? 'iosLaunchOptInAt'`);
+      recipients = rows;
+    } else if (Array.isArray(target.userIds) && target.userIds.length > 0) {
+      const rows = await db
+        .select({ id: users.id, email: users.email, name: users.name, settings: users.settings })
+        .from(users)
+        .where(inArray(users.id, target.userIds));
+      recipients = rows;
+    } else {
+      return res.status(400).json({ error: 'target must specify all, iosOptIns, or userIds' });
+    }
+
+    // De-dup defensively in case targets overlap.
+    const seen = new Set<string>();
+    recipients = recipients.filter((r) => {
+      if (!r.email || seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    });
+
+    if (recipients.length === 0) return res.status(400).json({ error: 'No recipients matched.' });
+
+    // Hard cap so an accidental "all" can't blast 50k emails before someone
+    // notices. Bumpable via env if Theodore actually grows past this.
+    const MAX = Number(process.env.EMAIL_BULK_MAX || 5000);
+    if (recipients.length > MAX) return res.status(400).json({ error: `Too many recipients (${recipients.length} > ${MAX}). Bump EMAIL_BULK_MAX to override.` });
+
+    let sent = 0, optedOut = 0, failed = 0;
+    const results: Array<{ email: string; status: string; error?: string }> = [];
+    for (const r of recipients) {
+      const firstName = (r.name || '').split(/\s+/)[0] || 'there';
+      const personalized = substituteVars(bodyHtml, {
+        firstName, email: r.email, appUrl: APP_URL,
+      });
+      const personalizedSubject = substituteVars(subject, {
+        firstName, email: r.email, appUrl: APP_URL,
+      });
+      const out = await sendToUser({
+        user: r,
+        kind: sendKind,
+        subject: personalizedSubject,
+        bodyHtml: personalized,
+        force: Boolean(force),
+        metadata: { admin: admin.user.email, target: target.all ? 'all' : target.iosOptIns ? 'iosOptIns' : 'userIds' },
+      });
+      if (out.status === 'sent') sent++;
+      else if (out.status === 'skipped-opt-out') optedOut++;
+      else failed++;
+      results.push({ email: r.email, status: out.status, error: out.error });
+      // Gmail SMTP allows ~100/sec but we don't need that fast. 80ms gap → 12/sec.
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    }
+
+    res.json({ sent, optedOut, failed, total: recipients.length, results });
+  } catch (e: any) {
+    console.error('[Admin] send bulk email error:', e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
+  }
+}
+
+// Recent transactional emails — newest first.
+export async function listEmailHistory(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const limit = Math.min(Number(req.query.limit) || 200, 1000);
+    const rows = await db
+      .select({
+        id: transactionalEmails.id,
+        userId: transactionalEmails.userId,
+        toAddress: transactionalEmails.toAddress,
+        kind: transactionalEmails.kind,
+        subject: transactionalEmails.subject,
+        status: transactionalEmails.status,
+        errorMessage: transactionalEmails.errorMessage,
+        sentAt: transactionalEmails.sentAt,
+      })
+      .from(transactionalEmails)
+      .orderBy(desc(transactionalEmails.sentAt))
+      .limit(limit);
+    res.json({ emails: rows, total: rows.length });
+  } catch (e: any) {
+    console.error('[Admin] email history error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Get a template (welcome / audiobook-ready) — falls back to inline default
+// if no row has been saved yet. Lets the admin tab seed-then-edit.
+export async function getEmailTemplate(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const key = String(req.params.key || '');
+    if (!['welcome', 'audiobook-ready'].includes(key)) return res.status(400).json({ error: 'Unknown template key' });
+    const stored = await getTemplate(key);
+    const fallback = DEFAULT_TEMPLATES[key as 'welcome' | 'audiobook-ready'];
+    res.json({
+      key,
+      subject: stored?.subject ?? fallback.subject,
+      bodyHtml: stored?.bodyHtml ?? fallback.bodyHtml,
+      isDefault: !stored,
+    });
+  } catch (e: any) {
+    console.error('[Admin] get email template error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+export async function saveEmailTemplate(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const key = String(req.params.key || '');
+    if (!['welcome', 'audiobook-ready'].includes(key)) return res.status(400).json({ error: 'Unknown template key' });
+    const { subject, bodyHtml } = req.body || {};
+    if (typeof subject !== 'string' || !subject.trim()) return res.status(400).json({ error: 'subject required' });
+    if (typeof bodyHtml !== 'string' || !bodyHtml.trim()) return res.status(400).json({ error: 'bodyHtml required' });
+    await setTemplate({ key, subject, bodyHtml, updatedBy: admin.user.email });
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[Admin] save email template error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Send a single email to one address — used by the admin tab's "Send test" button.
+export async function sendTestEmail(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const { subject, bodyHtml, toEmail, kind } = req.body || {};
+    if (typeof subject !== 'string' || !subject.trim()) return res.status(400).json({ error: 'subject required' });
+    if (typeof bodyHtml !== 'string' || !bodyHtml.trim()) return res.status(400).json({ error: 'bodyHtml required' });
+    if (typeof toEmail !== 'string' || !toEmail.includes('@')) return res.status(400).json({ error: 'toEmail required' });
+    const allowedKinds: EmailKind[] = ['announcement', 'welcome', 'audiobook-ready'];
+    const sendKind: EmailKind = allowedKinds.includes(kind) ? kind : 'announcement';
+
+    const [target] = await db.select().from(users).where(eq(users.email, String(toEmail).toLowerCase().trim())).limit(1);
+    const fakeUser = target
+      ? { id: target.id, email: target.email, name: target.name, settings: target.settings }
+      : { id: 'test-recipient', email: toEmail, name: null, settings: {} };
+
+    const firstName = (fakeUser.name || '').split(/\s+/)[0] || 'there';
+    const out = await sendToUser({
+      user: fakeUser,
+      kind: sendKind,
+      subject: substituteVars(subject, { firstName, email: fakeUser.email, appUrl: APP_URL }),
+      bodyHtml: substituteVars(bodyHtml, { firstName, email: fakeUser.email, appUrl: APP_URL, chapterTitle: '(test) Chapter 1', deepLink: `${APP_URL}/?test=1` }),
+      force: true,
+      metadata: { test: true, admin: admin.user.email },
+    });
+    res.json({ status: out.status, error: out.error });
+  } catch (e: any) {
+    console.error('[Admin] send test email error:', e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
   }
 }
 
