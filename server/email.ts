@@ -223,11 +223,26 @@ export async function sendToUser(opts: {
 }
 
 // ── Template helpers ──
-// Templates are stored in the email_templates table; if a key is missing the
+// Templates are stored in the email_templates table; if a row is missing the
 // caller falls back to the inline default. Edits flow through the admin tab.
 export async function getTemplate(key: string): Promise<{ subject: string; bodyHtml: string } | null> {
   const [row] = await db.select().from(emailTemplates).where(eq(emailTemplates.key, key)).limit(1);
   return row ? { subject: row.subject, bodyHtml: row.bodyHtml } : null;
+}
+
+// Look up by event attachment — used by the transactional send pipelines so
+// the active template for an event can be swapped from the admin tab without
+// touching code. Falls back to the seed template keyed by the event name
+// (preserving the old `getTemplate('welcome')` behavior for fresh DBs).
+export async function getTemplateByEvent(eventKey: string): Promise<{ subject: string; bodyHtml: string } | null> {
+  const [row] = await db
+    .select()
+    .from(emailTemplates)
+    .where(eq(emailTemplates.eventKey, eventKey))
+    .limit(1);
+  if (row) return { subject: row.subject, bodyHtml: row.bodyHtml };
+  // Legacy fallback: an old install will have a row keyed by the event name.
+  return getTemplate(eventKey);
 }
 
 export async function setTemplate(opts: { key: string; subject: string; bodyHtml: string; updatedBy?: string }): Promise<void> {
@@ -266,7 +281,7 @@ export const DEFAULT_TEMPLATES: Record<'welcome' | 'audiobook-ready', { subject:
 
 // ── Convenience: send welcome for a freshly registered user ──
 export async function sendWelcome(user: { id: string; email: string; name?: string | null; settings?: any }) {
-  const template = (await getTemplate('welcome')) ?? DEFAULT_TEMPLATES.welcome;
+  const template = (await getTemplateByEvent('welcome')) ?? DEFAULT_TEMPLATES.welcome;
   const firstName = (user.name || '').split(/\s+/)[0] || 'there';
   const vars = { firstName, email: user.email, appUrl: APP_URL };
   return sendToUser({
@@ -284,7 +299,7 @@ export async function sendAudiobookReady(opts: {
   chapterTitle: string;
   deepLink: string; // absolute URL
 }) {
-  const template = (await getTemplate('audiobook-ready')) ?? DEFAULT_TEMPLATES['audiobook-ready'];
+  const template = (await getTemplateByEvent('audiobook-ready')) ?? DEFAULT_TEMPLATES['audiobook-ready'];
   const firstName = (opts.user.name || '').split(/\s+/)[0] || 'there';
   const vars = {
     firstName,

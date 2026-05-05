@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { db } from './db.js';
 import { users, projects, chapters, canonEntries, creditTransactions, audioGenerations, guestEvents, pushTokens, transactionalEmails, emailTemplates } from './schema.js';
-import { sql, eq, desc, count, sum, gt, and, inArray } from 'drizzle-orm';
+import { sql, eq, desc, count, sum, gt, and, inArray, isNotNull, ne } from 'drizzle-orm';
 import { getAuth } from './auth.js';
 import { sendPushToTokens } from './push.js';
 import { sendToUser, getTemplate, setTemplate, DEFAULT_TEMPLATES, substituteVars, type EmailKind, APP_URL } from './email.js';
@@ -1457,41 +1457,238 @@ export async function listEmailHistory(req: Request, res: Response) {
   }
 }
 
-// Get a template (welcome / audiobook-ready) — falls back to inline default
-// if no row has been saved yet. Lets the admin tab seed-then-edit.
+// Available transactional events. Adding a new event also requires a server
+// send pipeline (see email.ts) — the admin UI only lets you attach a template
+// to an event that exists here.
+const EMAIL_EVENTS = [
+  { key: 'welcome', label: 'On signup', description: 'Fires when a user signs up' },
+  { key: 'audiobook-ready', label: 'On audiobook ready', description: 'Fires when chapter audio finishes' },
+] as const;
+type EmailEventKey = (typeof EMAIL_EVENTS)[number]['key'];
+const EVENT_KEYS: EmailEventKey[] = EMAIL_EVENTS.map((e) => e.key);
+
+// Default name for a system-event template when the row hasn't set one.
+function defaultNameForEvent(eventKey: EmailEventKey): string {
+  const ev = EMAIL_EVENTS.find((e) => e.key === eventKey);
+  return ev ? `${ev.label} email` : eventKey;
+}
+
+// List all templates + a virtual "default" entry for any event that has no
+// row attached yet, so the UI can show every event whether or not it's been
+// customized. The virtual entries carry the seed body from DEFAULT_TEMPLATES.
+export async function listEmailTemplates(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    // Legacy backfill: pre-event_key installs stored system templates with the
+    // event name as the row key and no event_key. Migrate those once so they
+    // show up correctly in the UI and the new lookup-by-event path works.
+    for (const ev of EMAIL_EVENTS) {
+      await db
+        .update(emailTemplates)
+        .set({ eventKey: ev.key })
+        .where(and(eq(emailTemplates.key, ev.key), sql`${emailTemplates.eventKey} IS NULL`));
+    }
+    const rows = await db.select().from(emailTemplates).orderBy(desc(emailTemplates.updatedAt));
+    const stored = rows.map((r) => ({
+      key: r.key,
+      name: r.name || defaultNameForEvent(r.eventKey as EmailEventKey) || 'Untitled template',
+      eventKey: r.eventKey,
+      subject: r.subject,
+      bodyHtml: r.bodyHtml,
+      updatedAt: r.updatedAt,
+      updatedBy: r.updatedBy,
+      isDefault: false,
+    }));
+    // Synthesize defaults for any unattached events so the UI shows them.
+    const attachedEvents = new Set(rows.map((r) => r.eventKey).filter(Boolean));
+    const defaults = EMAIL_EVENTS
+      .filter((ev) => !attachedEvents.has(ev.key))
+      // Legacy: an old install may have a row keyed by the event name with no
+      // event_key set. Treat that as the active row for the event.
+      .filter((ev) => !rows.some((r) => r.key === ev.key))
+      .map((ev) => ({
+        key: ev.key,
+        name: defaultNameForEvent(ev.key),
+        eventKey: ev.key,
+        subject: DEFAULT_TEMPLATES[ev.key].subject,
+        bodyHtml: DEFAULT_TEMPLATES[ev.key].bodyHtml,
+        updatedAt: null as any,
+        updatedBy: null,
+        isDefault: true,
+      }));
+    res.json({
+      templates: [...stored, ...defaults],
+      events: EMAIL_EVENTS,
+    });
+  } catch (e: any) {
+    console.error('[Admin] list email templates error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Get a single template by key. Falls back to the seed default for the two
+// system events so a fresh DB still serves something sensible.
 export async function getEmailTemplate(req: Request, res: Response) {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
     const key = String(req.params.key || '');
-    if (!['welcome', 'audiobook-ready'].includes(key)) return res.status(400).json({ error: 'Unknown template key' });
-    const stored = await getTemplate(key);
-    const fallback = DEFAULT_TEMPLATES[key as 'welcome' | 'audiobook-ready'];
-    res.json({
-      key,
-      subject: stored?.subject ?? fallback.subject,
-      bodyHtml: stored?.bodyHtml ?? fallback.bodyHtml,
-      isDefault: !stored,
-    });
+    const [row] = await db.select().from(emailTemplates).where(eq(emailTemplates.key, key)).limit(1);
+    if (row) {
+      return res.json({
+        key: row.key,
+        name: row.name || (row.eventKey ? defaultNameForEvent(row.eventKey as EmailEventKey) : 'Untitled template'),
+        eventKey: row.eventKey,
+        subject: row.subject,
+        bodyHtml: row.bodyHtml,
+        isDefault: false,
+      });
+    }
+    // No row — fall back to the inline default if `key` matches an event.
+    if ((EVENT_KEYS as readonly string[]).includes(key)) {
+      const fallback = DEFAULT_TEMPLATES[key as EmailEventKey];
+      return res.json({
+        key,
+        name: defaultNameForEvent(key as EmailEventKey),
+        eventKey: key,
+        subject: fallback.subject,
+        bodyHtml: fallback.bodyHtml,
+        isDefault: true,
+      });
+    }
+    res.status(404).json({ error: 'Template not found' });
   } catch (e: any) {
     console.error('[Admin] get email template error:', e);
     res.status(500).json({ error: 'Internal server error' });
   }
 }
 
+// Create or update a template. If `eventKey` is set, detach any other
+// template currently attached to that event so we keep the one-template-per-
+// event invariant. Setting `eventKey` to null leaves the template as a
+// manual-only draft (loadable from Compose blast).
 export async function saveEmailTemplate(req: Request, res: Response) {
   try {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
     const key = String(req.params.key || '');
-    if (!['welcome', 'audiobook-ready'].includes(key)) return res.status(400).json({ error: 'Unknown template key' });
-    const { subject, bodyHtml } = req.body || {};
+    const { subject, bodyHtml, name, eventKey } = req.body || {};
     if (typeof subject !== 'string' || !subject.trim()) return res.status(400).json({ error: 'subject required' });
     if (typeof bodyHtml !== 'string' || !bodyHtml.trim()) return res.status(400).json({ error: 'bodyHtml required' });
-    await setTemplate({ key, subject, bodyHtml, updatedBy: admin.user.email });
+    const normalizedEvent: string | null = (() => {
+      if (eventKey === undefined) return undefined as any; // leave existing value untouched
+      if (eventKey === null || eventKey === '') return null;
+      if (!(EVENT_KEYS as readonly string[]).includes(String(eventKey))) {
+        throw Object.assign(new Error('Unknown eventKey'), { httpStatus: 400 });
+      }
+      return String(eventKey);
+    })();
+    const trimmedName: string | null = (() => {
+      if (name === undefined) return undefined as any;
+      if (typeof name !== 'string') return null;
+      const t = name.trim();
+      return t.length ? t.slice(0, 120) : null;
+    })();
+
+    // If we're claiming an event, detach it from any other template first.
+    if (normalizedEvent) {
+      await db
+        .update(emailTemplates)
+        .set({ eventKey: null, updatedAt: new Date(), updatedBy: admin.user.email })
+        .where(and(eq(emailTemplates.eventKey, normalizedEvent), ne(emailTemplates.key, key)));
+    }
+
+    const [existing] = await db.select().from(emailTemplates).where(eq(emailTemplates.key, key)).limit(1);
+    if (existing) {
+      const patch: any = { subject, bodyHtml, updatedAt: new Date(), updatedBy: admin.user.email };
+      if (normalizedEvent !== undefined) patch.eventKey = normalizedEvent;
+      if (trimmedName !== undefined) patch.name = trimmedName;
+      await db.update(emailTemplates).set(patch).where(eq(emailTemplates.key, key));
+    } else {
+      await db.insert(emailTemplates).values({
+        key,
+        name: trimmedName ?? null,
+        eventKey: normalizedEvent ?? null,
+        subject,
+        bodyHtml,
+        updatedAt: new Date(),
+        updatedBy: admin.user.email,
+      });
+    }
     res.json({ ok: true });
   } catch (e: any) {
+    if (e?.httpStatus) return res.status(e.httpStatus).json({ error: e.message });
     console.error('[Admin] save email template error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Create a new custom template. Generates a random key so callers don't have
+// to worry about uniqueness; same detach-on-event-claim logic as save.
+export async function createEmailTemplate(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const { name, eventKey, subject, bodyHtml } = req.body || {};
+    if (typeof subject !== 'string' || !subject.trim()) return res.status(400).json({ error: 'subject required' });
+    if (typeof bodyHtml !== 'string' || !bodyHtml.trim()) return res.status(400).json({ error: 'bodyHtml required' });
+    const trimmedName: string | null = typeof name === 'string' && name.trim() ? name.trim().slice(0, 120) : null;
+    let normalizedEvent: string | null = null;
+    if (eventKey != null && eventKey !== '') {
+      if (!(EVENT_KEYS as readonly string[]).includes(String(eventKey))) {
+        return res.status(400).json({ error: 'Unknown eventKey' });
+      }
+      normalizedEvent = String(eventKey);
+    }
+    if (!trimmedName && !normalizedEvent) return res.status(400).json({ error: 'name required for manual-only templates' });
+
+    const slug = (trimmedName || 'template')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'template';
+    const key = `custom:${slug}-${Math.random().toString(36).slice(2, 8)}`;
+
+    if (normalizedEvent) {
+      await db
+        .update(emailTemplates)
+        .set({ eventKey: null, updatedAt: new Date(), updatedBy: admin.user.email })
+        .where(eq(emailTemplates.eventKey, normalizedEvent));
+    }
+
+    await db.insert(emailTemplates).values({
+      key,
+      name: trimmedName,
+      eventKey: normalizedEvent,
+      subject,
+      bodyHtml,
+      updatedAt: new Date(),
+      updatedBy: admin.user.email,
+    });
+    res.json({ ok: true, key });
+  } catch (e: any) {
+    console.error('[Admin] create email template error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Delete a template. Only custom templates can be deleted — system events
+// fall back to the inline default if no row exists, so deleting a system row
+// is also fine (it'll re-seed on next save). We block deleting the *only*
+// row attached to an event to avoid an "active template just disappeared"
+// surprise; admin can detach (set eventKey=null) first if they really want.
+export async function deleteEmailTemplate(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const key = String(req.params.key || '');
+    const [row] = await db.select().from(emailTemplates).where(eq(emailTemplates.key, key)).limit(1);
+    if (!row) return res.status(404).json({ error: 'Template not found' });
+    await db.delete(emailTemplates).where(eq(emailTemplates.key, key));
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[Admin] delete email template error:', e);
     res.status(500).json({ error: 'Internal server error' });
   }
 }

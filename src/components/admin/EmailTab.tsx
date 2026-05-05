@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Send, Mail, RefreshCw, AlertCircle, CheckCircle2, Save, Eye, Users as UsersIcon, Apple, FileText, Smartphone, Monitor, X, Search } from 'lucide-react';
+import { Send, Mail, RefreshCw, AlertCircle, CheckCircle2, Save, Eye, Users as UsersIcon, Apple, FileText, Smartphone, Monitor, X, Search, Plus, Trash2, Zap, ChevronLeft } from 'lucide-react';
 
 const API = '/api/admin';
 
 type TargetMode = 'all' | 'iosOptIns' | 'specific';
-type Section = 'compose' | 'welcome' | 'audiobook-ready' | 'history';
+type Section = 'compose' | 'templates' | 'history';
 
 interface SendResult {
   sent: number;
@@ -24,10 +24,26 @@ interface HistoryRow {
   sentAt: string;
 }
 
+interface EmailEvent {
+  key: string;
+  label: string;
+  description: string;
+}
+
+interface TemplateRow {
+  key: string;
+  name: string;
+  eventKey: string | null;
+  subject: string;
+  bodyHtml: string;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  isDefault: boolean;
+}
+
 const SECTIONS: { id: Section; label: string; icon: typeof Mail }[] = [
   { id: 'compose', label: 'Compose blast', icon: Send },
-  { id: 'welcome', label: 'Welcome template', icon: FileText },
-  { id: 'audiobook-ready', label: 'Audiobook template', icon: FileText },
+  { id: 'templates', label: 'Templates', icon: FileText },
   { id: 'history', label: 'Send history', icon: Mail },
 ];
 
@@ -41,7 +57,7 @@ export function EmailTab() {
         <h2 className="text-base font-serif font-semibold">Email</h2>
       </div>
       <p className="text-xs text-text-tertiary mb-5">
-        Welcome emails fire on signup. Audiobook emails fire when chapter audio finishes. Use “Compose blast” for one-off announcements (e.g. iOS launch).
+        Templates can attach to a transactional event (e.g. signup) or stay manual-only for blasts. Use “Compose blast” for one-off announcements.
       </p>
 
       {/* Section nav */}
@@ -63,8 +79,7 @@ export function EmailTab() {
       </div>
 
       {section === 'compose' && <ComposeBlast />}
-      {section === 'welcome' && <TemplateEditor templateKey="welcome" />}
-      {section === 'audiobook-ready' && <TemplateEditor templateKey="audiobook-ready" />}
+      {section === 'templates' && <TemplatesSection />}
       {section === 'history' && <History />}
     </div>
   );
@@ -142,8 +157,17 @@ function ComposeBlast() {
     }
   };
 
+  const loadTemplate = (t: TemplateRow) => {
+    setSubject(t.subject);
+    setBodyHtml(t.bodyHtml);
+    setError(null);
+    setResult(null);
+  };
+
   return (
     <div className="space-y-4">
+      <TemplateLoadBar onLoad={loadTemplate} />
+
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="space-y-4">
           <Field label="Subject">
@@ -391,26 +415,93 @@ function UserPicker({
   );
 }
 
-// ── Template editor (welcome / audiobook-ready) ──
-function TemplateEditor({ templateKey }: { templateKey: 'welcome' | 'audiobook-ready' }) {
-  const [subject, setSubject] = useState('');
-  const [bodyHtml, setBodyHtml] = useState('');
-  const [isDefault, setIsDefault] = useState(true);
+// ── Template loader (Compose blast helper) ──
+// Lets the admin populate the compose form from a saved template instead of
+// hand-typing subject + body. Pulls the same list used by the templates tab.
+function TemplateLoadBar({ onLoad }: { onLoad: (t: TemplateRow) => void }) {
+  const [open, setOpen] = useState(false);
+  const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open || templates) return;
+    setLoading(true);
+    fetch(`${API}/email/templates`, { credentials: 'include' })
+      .then((r) => r.json())
+      .then((j) => setTemplates(j.templates || []))
+      .catch(() => setTemplates([]))
+      .finally(() => setLoading(false));
+  }, [open, templates]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="px-3 py-1.5 rounded-lg bg-black/5 hover:bg-black/10 text-xs font-semibold inline-flex items-center gap-1.5"
+      >
+        <FileText size={12} />
+        Load template
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-72 max-h-80 overflow-y-auto rounded-lg bg-white border border-black/10 shadow-lg">
+          {loading && <div className="px-3 py-2 text-xs text-text-tertiary">Loading…</div>}
+          {!loading && templates && templates.length === 0 && (
+            <div className="px-3 py-2 text-xs text-text-tertiary">No templates yet.</div>
+          )}
+          {templates?.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => { onLoad(t); setOpen(false); }}
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-black/5 border-b border-black/5 last:border-b-0"
+            >
+              <div className="text-text-primary font-medium truncate">{t.name}</div>
+              <div className="text-text-tertiary text-[10px] truncate">
+                {t.eventKey ? <EventBadgeInline eventKey={t.eventKey} /> : <span>Manual only</span>}
+                <span className="ml-1">· {t.subject}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventBadgeInline({ eventKey }: { eventKey: string }) {
+  const label = eventKey === 'welcome' ? 'On signup' : eventKey === 'audiobook-ready' ? 'On audiobook ready' : eventKey;
+  return <span className="text-emerald-700">{label}</span>;
+}
+
+// ── Templates section (list + editor) ──
+function TemplatesSection() {
+  const [templates, setTemplates] = useState<TemplateRow[] | null>(null);
+  const [events, setEvents] = useState<EmailEvent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const load = async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${API}/email/templates/${templateKey}`, { credentials: 'include' });
+      const r = await fetch(`${API}/email/templates`, { credentials: 'include' });
       if (!r.ok) throw new Error(`${r.status}`);
       const j = await r.json();
-      setSubject(j.subject);
-      setBodyHtml(j.bodyHtml);
-      setIsDefault(j.isDefault);
+      setTemplates(j.templates || []);
+      setEvents(j.events || []);
     } catch (e: any) {
       setError(e?.message || 'Failed to load');
     } finally {
@@ -418,21 +509,167 @@ function TemplateEditor({ templateKey }: { templateKey: 'welcome' | 'audiobook-r
     }
   };
 
-  useEffect(() => { load(); }, [templateKey]);
+  useEffect(() => { load(); }, []);
+
+  if (loading) return <div className="py-12 text-center text-text-tertiary text-sm">Loading…</div>;
+  if (error) return <div className="p-3 rounded-lg bg-red-50 text-sm text-red-700">{error}</div>;
+
+  if (creating) {
+    return (
+      <TemplateEditor
+        mode="create"
+        events={events}
+        existing={null}
+        onCancel={() => setCreating(false)}
+        onSaved={() => { setCreating(false); load(); }}
+      />
+    );
+  }
+  if (editingKey) {
+    const t = templates?.find((x) => x.key === editingKey) || null;
+    return (
+      <TemplateEditor
+        mode="edit"
+        events={events}
+        existing={t}
+        onCancel={() => setEditingKey(null)}
+        onSaved={() => { setEditingKey(null); load(); }}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-xs text-text-tertiary">
+          {templates?.length || 0} templates · {events.length} events available
+        </div>
+        <button
+          onClick={() => setCreating(true)}
+          className="px-4 py-2 rounded-lg bg-text-primary text-white text-xs font-semibold inline-flex items-center gap-1.5 hover:opacity-90"
+        >
+          <Plus size={12} />
+          New template
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-black/5 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-black/[0.02] text-text-tertiary text-xs">
+            <tr>
+              <th className="text-left font-medium px-3 py-2">Name</th>
+              <th className="text-left font-medium px-3 py-2">Event</th>
+              <th className="text-left font-medium px-3 py-2 hidden md:table-cell">Subject</th>
+              <th className="text-left font-medium px-3 py-2">Updated</th>
+              <th className="px-3 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {templates?.map((t) => (
+              <tr key={t.key} className="border-t border-black/5 hover:bg-black/[0.02]">
+                <td className="px-3 py-2">
+                  <div className="font-medium text-text-primary">{t.name}</div>
+                  {t.isDefault && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold mt-0.5">Not customized</span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <EventBadge eventKey={t.eventKey} events={events} />
+                </td>
+                <td className="px-3 py-2 text-text-secondary truncate max-w-[260px] hidden md:table-cell">{t.subject}</td>
+                <td className="px-3 py-2 text-xs text-text-tertiary">
+                  {t.updatedAt ? formatTime(t.updatedAt) : '—'}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    onClick={() => setEditingKey(t.key)}
+                    className="px-2 py-1 rounded text-xs font-semibold text-text-secondary hover:bg-black/5"
+                  >
+                    {t.isDefault ? 'Customize' : 'Edit'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function EventBadge({ eventKey, events }: { eventKey: string | null; events: EmailEvent[] }) {
+  if (!eventKey) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-black/5 text-text-tertiary text-[10px] font-semibold">
+        Manual only
+      </span>
+    );
+  }
+  const ev = events.find((e) => e.key === eventKey);
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-semibold">
+      <Zap size={10} />
+      {ev?.label || eventKey}
+    </span>
+  );
+}
+
+// ── Template editor (create + edit) ──
+function TemplateEditor({
+  mode,
+  events,
+  existing,
+  onCancel,
+  onSaved,
+}: {
+  mode: 'create' | 'edit';
+  events: EmailEvent[];
+  existing: TemplateRow | null;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(existing?.name || '');
+  const [eventKey, setEventKey] = useState<string>(existing?.eventKey || '');
+  const [subject, setSubject] = useState(existing?.subject || '');
+  const [bodyHtml, setBodyHtml] = useState(existing?.bodyHtml || `<p>Hey {{firstName}},</p>\n<p></p>\n<p>— Ben</p>`);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isCustom = existing ? existing.key.startsWith('custom:') : false;
 
   const save = async () => {
-    setSaving(true);
     setError(null);
+    if (!subject.trim()) { setError('Subject required'); return; }
+    if (!bodyHtml.trim()) { setError('Body required'); return; }
+    if (mode === 'create' && !name.trim() && !eventKey) {
+      setError('Give the template a name or attach it to an event.');
+      return;
+    }
+    setSaving(true);
     try {
-      const r = await fetch(`${API}/email/templates/${templateKey}`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, bodyHtml }),
+      const body = JSON.stringify({
+        subject,
+        bodyHtml,
+        name: name.trim() || null,
+        eventKey: eventKey || null,
       });
-      if (!r.ok) throw new Error(`${r.status}`);
-      setSavedAt(Date.now());
-      setIsDefault(false);
+      const r = mode === 'create'
+        ? await fetch(`${API}/email/templates`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+          })
+        : await fetch(`${API}/email/templates/${encodeURIComponent(existing!.key)}`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+          });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `${r.status}`);
+      onSaved();
     } catch (e: any) {
       setError(e?.message || 'Save failed');
     } finally {
@@ -440,21 +677,72 @@ function TemplateEditor({ templateKey }: { templateKey: 'welcome' | 'audiobook-r
     }
   };
 
-  if (loading) return <div className="py-12 text-center text-text-tertiary text-sm">Loading…</div>;
+  const remove = async () => {
+    if (!existing) return;
+    if (!window.confirm(`Delete "${existing.name}"? This can't be undone.`)) return;
+    setDeleting(true);
+    try {
+      const r = await fetch(`${API}/email/templates/${encodeURIComponent(existing.key)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+      onSaved();
+    } catch (e: any) {
+      setError(e?.message || 'Delete failed');
+      setDeleting(false);
+    }
+  };
 
-  const vars = templateKey === 'welcome'
-    ? '{{firstName}}, {{email}}, {{appUrl}}'
-    : '{{firstName}}, {{email}}, {{appUrl}}, {{chapterTitle}}, {{deepLink}}';
+  const extraVars = eventKey === 'audiobook-ready' ? ['chapterTitle', 'deepLink'] : [];
+  const varsHelp = eventKey === 'audiobook-ready'
+    ? '{{firstName}}, {{email}}, {{appUrl}}, {{chapterTitle}}, {{deepLink}}'
+    : '{{firstName}}, {{email}}, {{appUrl}}';
 
   return (
     <div className="space-y-4">
-      <div className="text-xs text-text-tertiary">
-        Variables: <code className="text-text-primary">{vars}</code>
-        {isDefault && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-semibold">Default — not yet customized</span>}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onCancel}
+          className="px-2 py-1 rounded text-xs font-semibold text-text-secondary hover:bg-black/5 inline-flex items-center gap-1"
+        >
+          <ChevronLeft size={12} />
+          Back
+        </button>
+        <div className="text-xs text-text-tertiary">
+          {mode === 'create' ? 'New template' : `Editing: ${existing?.name}`}
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4">
         <div className="space-y-4">
+          <Field label="Name">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="iOS launch announcement"
+              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
+            />
+          </Field>
+
+          <Field label="Trigger event">
+            <select
+              value={eventKey}
+              onChange={(e) => setEventKey(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm"
+            >
+              <option value="">Manual only — no automatic trigger</option>
+              {events.map((ev) => (
+                <option key={ev.key} value={ev.key}>{ev.label} — {ev.description}</option>
+              ))}
+            </select>
+            {eventKey && (
+              <div className="mt-1 text-[11px] text-text-tertiary">
+                Saving will detach this event from any other template that currently has it.
+              </div>
+            )}
+          </Field>
+
           <Field label="Subject">
             <input
               value={subject}
@@ -463,26 +751,31 @@ function TemplateEditor({ templateKey }: { templateKey: 'welcome' | 'audiobook-r
             />
           </Field>
 
-          <Field label="Body HTML">
+          <Field label={`Body HTML — supports ${varsHelp}`}>
             <textarea
               value={bodyHtml}
               onChange={(e) => setBodyHtml(e.target.value)}
-              rows={20}
+              rows={18}
               className="w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm font-mono"
             />
           </Field>
         </div>
 
-        <PreviewPane
-          subject={subject}
-          bodyHtml={bodyHtml}
-          extraVars={templateKey === 'audiobook-ready' ? ['chapterTitle', 'deepLink'] : []}
-        />
+        <PreviewPane subject={subject} bodyHtml={bodyHtml} extraVars={extraVars} />
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="text-xs text-text-tertiary">
-          {savedAt && `Saved ${new Date(savedAt).toLocaleTimeString()}`}
+      <div className="flex items-center justify-between pt-2">
+        <div>
+          {mode === 'edit' && isCustom && (
+            <button
+              onClick={remove}
+              disabled={deleting}
+              className="px-3 py-2 rounded-lg text-xs font-semibold text-red-700 hover:bg-red-50 inline-flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <Trash2 size={12} />
+              {deleting ? 'Deleting…' : 'Delete template'}
+            </button>
+          )}
         </div>
         <button
           onClick={save}
@@ -490,7 +783,7 @@ function TemplateEditor({ templateKey }: { templateKey: 'welcome' | 'audiobook-r
           className="px-5 py-2.5 rounded-lg bg-text-primary text-white text-sm font-semibold inline-flex items-center gap-2 hover:opacity-90 disabled:opacity-50"
         >
           <Save size={14} />
-          {saving ? 'Saving…' : 'Save template'}
+          {saving ? 'Saving…' : mode === 'create' ? 'Create template' : 'Save template'}
         </button>
       </div>
 

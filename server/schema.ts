@@ -396,11 +396,15 @@ export const transactionalEmails = pgTable('transactional_emails', {
 });
 
 // ========== Email Templates (admin-editable) ==========
-// Stored under a known key (e.g. 'welcome', 'audiobook-ready') so the admin
-// can tweak wording without redeploying. Body supports {{firstName}},
-// {{email}}, {{appUrl}}, {{deepLink}}, {{unsubscribeUrl}} substitutions.
+// `key` is a stable identifier (well-known for system templates like
+// 'welcome'/'audiobook-ready', generated for custom ones). `eventKey`
+// determines which transactional event the template fires on — at most one
+// template per event is active; null means manual-only (loadable into the
+// Compose blast). `name` is the human-readable label shown in the admin UI.
 export const emailTemplates = pgTable('email_templates', {
   key: text('key').primaryKey(),
+  name: text('name'),
+  eventKey: text('event_key'),
   subject: text('subject').notNull(),
   bodyHtml: text('body_html').notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
