@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Send, Mail, RefreshCw, AlertCircle, CheckCircle2, Save, Eye, Users as UsersIcon, Apple, FileText, Smartphone, Monitor } from 'lucide-react';
+import { Send, Mail, RefreshCw, AlertCircle, CheckCircle2, Save, Eye, Users as UsersIcon, Apple, FileText, Smartphone, Monitor, X, Search } from 'lucide-react';
 
 const API = '/api/admin';
 
@@ -77,7 +77,7 @@ function ComposeBlast() {
     `<p>Hey {{firstName}},</p>\n<p></p>\n<p>— Ben</p>`,
   );
   const [target, setTarget] = useState<TargetMode>('iosOptIns');
-  const [specificEmails, setSpecificEmails] = useState('');
+  const [selectedUsers, setSelectedUsers] = useState<PickerUser[]>([]);
   const [force, setForce] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [sending, setSending] = useState(false);
@@ -101,9 +101,8 @@ function ComposeBlast() {
     } else if (target === 'iosOptIns') {
       payloadTarget = { iosOptIns: true };
     } else {
-      const ids = await resolveEmailsToIds(specificEmails);
-      if (!ids.length) { setError('No matching users for those emails.'); return; }
-      payloadTarget = { userIds: ids };
+      if (!selectedUsers.length) { setError('Pick at least one user.'); return; }
+      payloadTarget = { userIds: selectedUsers.map((u) => u.id) };
     }
 
     setSending(true);
@@ -173,16 +172,12 @@ function ComposeBlast() {
         <div className="flex flex-col sm:flex-row gap-2">
           <TargetButton active={target === 'iosOptIns'} onClick={() => setTarget('iosOptIns')} icon={<Apple size={12} />} label="iOS opt-ins" />
           <TargetButton active={target === 'all'} onClick={() => setTarget('all')} icon={<UsersIcon size={12} />} label="All users" />
-          <TargetButton active={target === 'specific'} onClick={() => setTarget('specific')} icon={<Mail size={12} />} label="Specific emails" />
+          <TargetButton active={target === 'specific'} onClick={() => setTarget('specific')} icon={<Mail size={12} />} label="Specific users" />
         </div>
         {target === 'specific' && (
-          <textarea
-            value={specificEmails}
-            onChange={(e) => setSpecificEmails(e.target.value)}
-            placeholder="alice@example.com, bob@example.com"
-            rows={3}
-            className="mt-2 w-full px-3 py-2 rounded-lg bg-white border border-black/10 text-sm font-mono"
-          />
+          <div className="mt-2">
+            <UserPicker selected={selectedUsers} onChange={setSelectedUsers} />
+          </div>
         )}
       </Field>
 
@@ -244,20 +239,156 @@ function ComposeBlast() {
   );
 }
 
-async function resolveEmailsToIds(raw: string): Promise<string[]> {
-  const emails = raw.split(/[,\s\n]+/).map((e) => e.trim()).filter(Boolean);
-  if (!emails.length) return [];
-  // Use the existing admin /users endpoint with a contains filter? Simpler:
-  // fetch all users (capped) and filter client-side. For now, accept the cost.
-  try {
-    const r = await fetch(`${API}/users?limit=10000`, { credentials: 'include' });
-    if (!r.ok) return [];
-    const j = await r.json();
-    const set = new Set(emails.map((e) => e.toLowerCase()));
-    return (j.users || []).filter((u: any) => set.has(String(u.email).toLowerCase())).map((u: any) => u.id);
-  } catch {
-    return [];
-  }
+interface PickerUser {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
+// Searchable multi-select for picking specific users to email. Loads the full
+// user list once (cap 10k) and filters client-side — fine until we outgrow
+// it, at which point this should switch to a server-side search endpoint.
+function UserPicker({
+  selected,
+  onChange,
+}: {
+  selected: PickerUser[];
+  onChange: (next: PickerUser[]) => void;
+}) {
+  const [users, setUsers] = useState<PickerUser[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const r = await fetch(`${API}/users?limit=10000`, { credentials: 'include' });
+        if (!r.ok) throw new Error(`${r.status}`);
+        const j = await r.json();
+        if (cancelled) return;
+        const list: PickerUser[] = (j.users || []).map((u: any) => ({
+          id: u.id, email: u.email, name: u.name ?? null,
+        }));
+        setUsers(list);
+      } catch (e: any) {
+        if (!cancelled) setLoadError(e?.message || 'Failed to load users');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Click-outside to close the dropdown.
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  const selectedIds = useMemo(() => new Set(selected.map((u) => u.id)), [selected]);
+
+  const filtered = useMemo(() => {
+    if (!users) return [];
+    const q = query.trim().toLowerCase();
+    const list = q
+      ? users.filter((u) =>
+          u.email.toLowerCase().includes(q) || (u.name || '').toLowerCase().includes(q),
+        )
+      : users;
+    return list.slice(0, 100);
+  }, [users, query]);
+
+  const toggle = (u: PickerUser) => {
+    if (selectedIds.has(u.id)) onChange(selected.filter((s) => s.id !== u.id));
+    else onChange([...selected, u]);
+  };
+
+  const remove = (id: string) => onChange(selected.filter((s) => s.id !== id));
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <div
+        className="min-h-[42px] w-full px-2 py-1.5 rounded-lg bg-white border border-black/10 text-sm flex flex-wrap gap-1.5 items-center cursor-text"
+        onClick={() => setOpen(true)}
+      >
+        {selected.map((u) => (
+          <span
+            key={u.id}
+            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-black/5 text-xs"
+          >
+            <span className="text-text-primary">{u.name || u.email}</span>
+            {u.name && <span className="text-text-tertiary">·</span>}
+            {u.name && <span className="text-text-tertiary">{u.email}</span>}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); remove(u.id); }}
+              className="ml-0.5 p-0.5 rounded hover:bg-black/10"
+              title="Remove"
+            >
+              <X size={10} />
+            </button>
+          </span>
+        ))}
+        <div className="flex-1 min-w-[160px] inline-flex items-center gap-1.5 px-1">
+          <Search size={12} className="text-text-tertiary shrink-0" />
+          <input
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            placeholder={selected.length ? 'Add another…' : 'Search by name or email…'}
+            className="flex-1 bg-transparent outline-none text-sm py-1"
+          />
+        </div>
+      </div>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-h-72 overflow-y-auto rounded-lg bg-white border border-black/10 shadow-lg">
+          {loading && <div className="px-3 py-2 text-xs text-text-tertiary">Loading users…</div>}
+          {loadError && <div className="px-3 py-2 text-xs text-red-700">{loadError}</div>}
+          {!loading && !loadError && filtered.length === 0 && (
+            <div className="px-3 py-2 text-xs text-text-tertiary">No matches.</div>
+          )}
+          {filtered.map((u) => {
+            const isSel = selectedIds.has(u.id);
+            return (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => toggle(u)}
+                className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-black/5 ${isSel ? 'bg-emerald-50/60' : ''}`}
+              >
+                <input type="checkbox" readOnly checked={isSel} className="pointer-events-none" />
+                <span className="flex-1 truncate">
+                  <span className="text-text-primary">{u.name || '—'}</span>
+                  <span className="text-text-tertiary"> · {u.email}</span>
+                </span>
+              </button>
+            );
+          })}
+          {users && users.length > filtered.length && !query && (
+            <div className="px-3 py-1.5 text-[10px] text-text-tertiary border-t border-black/5">
+              Showing first {filtered.length} of {users.length}. Type to narrow.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mt-1.5 text-[11px] text-text-tertiary">
+        {selected.length} user{selected.length === 1 ? '' : 's'} selected
+        {users && ` · ${users.length} total`}
+      </div>
+    </div>
+  );
 }
 
 // ── Template editor (welcome / audiobook-ready) ──
