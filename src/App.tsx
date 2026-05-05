@@ -13,6 +13,7 @@ import { api } from './lib/api';
 import { BottomNav } from './components/layout/BottomNav';
 import { CookieConsent } from './components/layout/CookieConsent';
 import { PendingNoticeModal } from './components/PendingNoticeModal';
+import { CreditNudge } from './components/credits/CreditNudge';
 import { IosLaunchModalGate } from './components/IosLaunchModalGate';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
@@ -692,6 +693,7 @@ export default function App() {
         <UpgradeModal />
         <ImpactPanel />
       </Suspense>
+      <CreditNudge />
       <PendingNoticeModal />
       <IosLaunchModalGate />
       {showReadingMode && (

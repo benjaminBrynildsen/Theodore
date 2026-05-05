@@ -24,7 +24,7 @@ export function UpgradeModal() {
   const displayCurrency = useMemo(() => detectDisplayCurrency(), []);
   const showUsdDisclaimer = isNonUsdDisplay(displayCurrency);
   const isAudioCap = upgradeReason === 'audio_cap';
-  const isGuestAudioCap = isAudioCap && !user;
+  const isGuestUpgrade = !user;
   const priceFor = (tier: PlanTier): string => {
     if (tier === 'free') return PLAN_DETAILS.free.price;
     const usd = TIER_PRICES_USD[tier as 'writer' | 'author' | 'studio' | 'publisher'];
@@ -151,10 +151,12 @@ export function UpgradeModal() {
               )}
             </div>
 
-            {/* Guest + audio-cap: inline signup + direct-to-Stripe Writer trial.
+            {/* Guest upgrade: inline signup + direct-to-Stripe.
                 Collapses 3 view-switches (modal → auth page → redirect) into
-                one continuous flow. Tier grid is hidden until "See all plans". */}
-            {isGuestAudioCap && !showAllPlans && (
+                one continuous flow. Tier grid is hidden until "See all plans".
+                Audio-cap variant gets the 7-day trial copy; generic variant
+                shows monthly price. */}
+            {isGuestUpgrade && !showAllPlans && (
               <GuestCapInline
                 isAudioCap={isAudioCap}
                 onSeeAllPlans={() => setShowAllPlans(true)}
@@ -168,8 +170,8 @@ export function UpgradeModal() {
               </div>
             )}
 
-            {/* Tier cards — hidden for guest audio-cap unless they expand */}
-            {(!isGuestAudioCap || showAllPlans) && (
+            {/* Tier cards — hidden for guest upgrade flow unless they expand */}
+            {(!isGuestUpgrade || showAllPlans) && (
             <>
             <div className="space-y-3">
               {tiers.map(({ tier, icon: Icon, recommended }) => {
@@ -322,9 +324,11 @@ function GuestCapInline({
   const googleBtnRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    jTrack('audio_cap_inline_shown');
-    pixel.trackCustom('AudioCapInlineShown');
-  }, []);
+    const evt = isAudioCap ? 'audio_cap_inline_shown' : 'upgrade_inline_shown';
+    const pix = isAudioCap ? 'AudioCapInlineShown' : 'UpgradeInlineShown';
+    jTrack(evt);
+    pixel.trackCustom(pix);
+  }, [isAudioCap]);
 
   // bfcache restore from Stripe back-nav — clear the stuck "Redirecting…" state
   useEffect(() => {
@@ -338,7 +342,7 @@ function GuestCapInline({
   const continueToStripe = async () => {
     const checkout = await api.billingCheckout({ tier: 'writer', reason: isAudioCap ? 'audio_cap' : undefined });
     if (!checkout?.url) throw new Error('Stripe checkout URL was not returned.');
-    jTrack('audio_cap_checkout_redirect');
+    jTrack(isAudioCap ? 'audio_cap_checkout_redirect' : 'upgrade_checkout_redirect');
     window.location.href = checkout.url;
   };
 
@@ -369,8 +373,8 @@ function GuestCapInline({
       onError('');
       try {
         await googleLogin(response.credential);
-        jTrack('audio_cap_signup_google');
-        pixel.trackCustom('AudioCapSignupGoogle');
+        jTrack(isAudioCap ? 'audio_cap_signup_google' : 'upgrade_signup_google');
+        pixel.trackCustom(isAudioCap ? 'AudioCapSignupGoogle' : 'UpgradeSignupGoogle');
         await continueToStripe();
       } catch (err: any) {
         onError(err?.message || 'Google sign-in failed.');
@@ -397,11 +401,11 @@ function GuestCapInline({
     try {
       if (mode === 'register') {
         await register(email.trim(), password, name.trim() || undefined);
-        jTrack('audio_cap_signup_email');
-        pixel.trackCustom('AudioCapSignupEmail');
+        jTrack(isAudioCap ? 'audio_cap_signup_email' : 'upgrade_signup_email');
+        pixel.trackCustom(isAudioCap ? 'AudioCapSignupEmail' : 'UpgradeSignupEmail');
       } else {
         await login(email.trim(), password);
-        jTrack('audio_cap_login_email');
+        jTrack(isAudioCap ? 'audio_cap_login_email' : 'upgrade_login_email');
       }
       await continueToStripe();
     } catch (err: any) {
@@ -471,7 +475,13 @@ function GuestCapInline({
             disabled={busy || !email.trim() || !password}
             className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white text-[#16162a] hover:bg-white/90 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {busy ? 'Redirecting…' : mode === 'register' ? 'Start 7-day trial · Writer' : 'Sign in & continue'}
+            {busy
+              ? 'Redirecting…'
+              : mode === 'register'
+              ? isAudioCap
+                ? 'Start 7-day trial · Writer'
+                : 'Sign up & continue · Writer $10/mo'
+              : 'Sign in & continue'}
           </button>
           <div className="text-center text-xs text-white/40">
             {mode === 'register' ? (
