@@ -4508,6 +4508,31 @@ app.post('/api/users/me/ios-launch-dismiss', async (req, res) => {
   }
 });
 
+// Authed in-app email-prefs toggle. Mirrors what /unsubscribe does, but lets
+// signed-in clients flip flags without needing to round-trip through an email
+// link. Same emailOptOut map under user.settings.
+const TOGGLEABLE_EMAIL_KINDS = new Set(['audiobook-ready', 'announcement']);
+app.patch('/api/users/me/email-prefs', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const kind = String(req.body?.kind || '');
+    const optOut = Boolean(req.body?.optOut);
+    if (!TOGGLEABLE_EMAIL_KINDS.has(kind)) {
+      return res.status(400).json({ error: 'Invalid email kind' });
+    }
+    const cur = (auth.user.settings as Record<string, any>) || {};
+    const flags = { ...(cur.emailOptOut || {}), [kind]: optOut };
+    await db.update(users)
+      .set({ settings: { ...cur, emailOptOut: flags }, updatedAt: new Date() })
+      .where(eq(users.id, auth.user.id));
+    res.json({ ok: true, emailOptOut: flags });
+  } catch (e: any) {
+    console.error('[users/me/email-prefs]', e);
+    res.status(500).json({ error: 'Failed to update email preferences' });
+  }
+});
+
 // Public unsubscribe endpoint — accepts both GET (link click → HTML page) and
 // POST (Gmail one-click via List-Unsubscribe-Post). Token format defined in
 // server/email.ts. Once flipped, future sends of that kind skip the user.
