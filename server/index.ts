@@ -4513,6 +4513,7 @@ app.post('/api/users/me/ios-launch-dismiss', async (req, res) => {
 // server/email.ts. Once flipped, future sends of that kind skip the user.
 app.get('/unsubscribe', async (req, res) => {
   const t = String(req.query.t || '');
+  const undo = req.query.undo === '1';
   const parsed = parseUnsubscribeToken(t);
   res.set('Content-Type', 'text/html; charset=utf-8');
   if (!parsed) {
@@ -4522,9 +4523,12 @@ app.get('/unsubscribe', async (req, res) => {
     const [u] = await db.select().from(users).where(eq(users.id, parsed.userId)).limit(1);
     if (!u) return res.status(404).send(unsubscribePage({ ok: false, message: 'Account not found.' }));
     const cur = (u.settings as Record<string, any>) || {};
-    const flags = { ...(cur.emailOptOut || {}), [parsed.kind]: true };
+    const flags = { ...(cur.emailOptOut || {}), [parsed.kind]: !undo };
     await db.update(users).set({ settings: { ...cur, emailOptOut: flags }, updatedAt: new Date() }).where(eq(users.id, u.id));
-    res.send(unsubscribePage({ ok: true, message: `You're unsubscribed from ${humanLabel(parsed.kind)} emails.`, email: u.email, kind: parsed.kind }));
+    const message = undo
+      ? `You're resubscribed to ${humanLabel(parsed.kind)} emails.`
+      : `You're unsubscribed from ${humanLabel(parsed.kind)} emails.`;
+    res.send(unsubscribePage({ ok: true, message, email: u.email, kind: parsed.kind, token: t, undone: undo }));
   } catch (e: any) {
     console.error('[unsubscribe]', e);
     res.status(500).send(unsubscribePage({ ok: false, message: 'Something went wrong. Please try again.' }));
@@ -4555,8 +4559,12 @@ function humanLabel(kind: string): string {
   };
   return map[kind] || kind;
 }
-function unsubscribePage(opts: { ok: boolean; message: string; email?: string; kind?: string }): string {
+function unsubscribePage(opts: { ok: boolean; message: string; email?: string; kind?: string; token?: string; undone?: boolean }): string {
   const color = opts.ok ? '#1c1c1e' : '#b91c1c';
+  const toggleHref = opts.token
+    ? `/unsubscribe?t=${encodeURIComponent(opts.token)}${opts.undone ? '' : '&undo=1'}`
+    : null;
+  const toggleLabel = opts.undone ? 'Unsubscribe again' : 'Resubscribe';
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Unsubscribe — Theodore</title>
@@ -4567,11 +4575,13 @@ body{margin:0;background:#f7f6f1;font-family:-apple-system,BlinkMacSystemFont,'S
 h1{font-family:Georgia,serif;margin:0 0 12px 0;font-size:24px;}
 p{color:#48484a;line-height:1.6;}
 a{color:#1c1c1e;}
+.btn{display:inline-block;margin-top:8px;padding:10px 18px;border:1px solid #1c1c1e;border-radius:999px;text-decoration:none;font-size:14px;}
 </style></head>
 <body><div class="wrap"><div class="card">
   <h1 style="color:${color};">${opts.ok ? 'Done.' : 'Hmm.'}</h1>
   <p>${opts.message}</p>
   ${opts.email ? `<p style="font-size:12px;color:#8a8a8e;">${opts.email}</p>` : ''}
+  ${toggleHref ? `<p style="margin-top:20px;"><a class="btn" href="${toggleHref}">${toggleLabel}</a></p>` : ''}
   <p style="margin-top:24px;font-size:14px;"><a href="/">Back to Theodore</a></p>
 </div></div></body></html>`;
 }
