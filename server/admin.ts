@@ -1750,3 +1750,119 @@ export async function resetIosLaunchForUser(req: Request, res: Response) {
     res.status(500).json({ error: 'Internal server error' });
   }
 }
+
+// ========== Copy Grader (Hormozi 12+1 rubric) ==========
+// POST /api/admin/grade-copy   { headline: string, primary?: string }
+// Returns rule-by-rule grading + rewrites. Internal admin tool only.
+
+const COPY_GRADER_SYSTEM = `You are a senior direct-response copy strategist trained on Alex Hormozi's "12 internal hacks for ad copy" framework. Your job: grade an ad headline (and optional body) against the framework, then suggest sharper rewrites.
+
+PRODUCT CONTEXT — Theodore (theodore.tools)
+A writing app that turns one sentence into a complete audiobook. It writes the novel AND narrates it in one tool. Unique edge: ChatGPT writes paragraphs, ElevenLabs narrates audio — Theodore is the only tool that does both end-to-end. The current best-performing creative is an audio-player image; copy variants A/B against it. Audience: indie authors and AI-tool users. Free trial.
+
+THE RUBRIC — 13 rules. Don't penalize rules that don't apply to a short headline; mark them applies:false.
+
+1. HEADLINE FIRST — Curiosity, "different", or sexy. Not generic. Steals from non-adjacent industries when novel. Meta limit: 40 chars (penalize over).
+2. SAY WHAT ONLY YOU CAN SAY — Specific to Theodore's unique edge (writes + narrates). Generic AI-writer claims fail this.
+3. CALL OUT WHO (AND WHO NOT) — Polarizes. Lets the right person feel "this is for me."
+4. REASON WHY — Includes "because" or an implicit reason for the next step.
+5. DAMAGING ADMISSION — "X but Y" so Y lands harder. Headlines rarely do this fully — flag if attempted.
+6. SHOW THE MOMENT — Concrete, sensory. "Headphones in. Your novel narrated." beats "easy audiobooks".
+7. STATUS — Ties benefit to social envy (spouse, writer-friend, peer).
+8. URGENCY/SCARCITY — Only if legitimate. Penalize fake scarcity. (Theodore has none real right now — flag if used.)
+9. IMPLIED AUTHORITY — Real numbers/credentials. Penalize fabricated authority.
+10. PS LINE — N/A for headline alone, applies to body if provided.
+11. CLEAR CTA — Often the headline implies the next step.
+12. THIRD GRADE READING — Short sentences, simple words, strong verbs. Reading level test.
+13. HUMOR — Bonus. Only if natural; never forced.
+
+Rules 1, 2, 6, and 12 weight most heavily on the overall score.
+
+OUTPUT — strict JSON only, no prose outside the JSON, no markdown code fences:
+{
+  "overall": <0-100 integer>,
+  "verdict": "<one short sentence — would you ship this?>",
+  "char_count": <integer length of headline>,
+  "char_warning": "<empty string OR 'Over Meta's 40-char limit by N'>",
+  "rules": [
+    { "n": 1, "name": "Headline first", "applies": true, "score": <0-3>, "note": "<≤15 words>" }
+  ],
+  "strengths": ["<rule + why, ≤15 words>"],
+  "weaknesses": ["<rule + how to fix, ≤15 words>"],
+  "rewrites": ["<headline ≤40 chars>", "<headline ≤40 chars>", "<headline ≤40 chars>"]
+}
+
+Score scale: 0=absent, 1=weak, 2=okay, 3=strong. Up to 3 strengths and 3 weaknesses. Always provide exactly 3 rewrite headlines.`;
+
+export async function gradeCopy(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const { headline, primary } = (req.body || {}) as { headline?: string; primary?: string };
+    const trimmed = typeof headline === 'string' ? headline.trim() : '';
+    if (!trimmed) {
+      res.status(400).json({ error: 'headline required' });
+      return;
+    }
+    if (trimmed.length > 200) {
+      res.status(400).json({ error: 'headline too long (max 200 chars)' });
+      return;
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({ error: 'ANTHROPIC_API_KEY missing' });
+      return;
+    }
+
+    const userMessage = primary && typeof primary === 'string' && primary.trim()
+      ? `HEADLINE: """${trimmed}"""\n\nPRIMARY TEXT: """${primary.slice(0, 2000)}"""`
+      : `HEADLINE: """${trimmed}"""`;
+
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1500,
+        temperature: 0.4,
+        system: COPY_GRADER_SYSTEM,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+    });
+
+    if (!r.ok) {
+      const body = await r.text().catch(() => '');
+      console.error('[Admin] grade-copy upstream error:', r.status, body.slice(0, 300));
+      res.status(502).json({ error: `Anthropic API ${r.status}` });
+      return;
+    }
+
+    const json = (await r.json()) as any;
+    const text = json?.content?.[0]?.text;
+    if (!text) {
+      res.status(502).json({ error: 'Empty response from grader' });
+      return;
+    }
+
+    let parsed: any;
+    try {
+      const cleaned = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      parsed = JSON.parse(cleaned);
+    } catch (e: any) {
+      console.error('[Admin] grade-copy JSON parse error:', e?.message, 'raw:', String(text).slice(0, 300));
+      res.status(502).json({ error: 'Grader returned invalid JSON', raw: String(text).slice(0, 500) });
+      return;
+    }
+
+    res.json(parsed);
+  } catch (e: any) {
+    console.error('[Admin] grade-copy error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}

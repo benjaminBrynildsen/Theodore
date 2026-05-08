@@ -3,7 +3,7 @@ import {
   Users, CreditCard, TrendingUp, Activity, FileText,
   ChevronRight, ChevronDown, ArrowLeft, BarChart3, Zap, BookOpen,
   Headphones, Image, Music, Sparkles, RefreshCw, Globe,
-  Film, Upload, Trash2, CheckCircle2, Mail, ExternalLink, Volume2, Bell, Apple,
+  Film, Upload, Trash2, CheckCircle2, Mail, ExternalLink, Volume2, Bell, Apple, Megaphone,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { CREATORS } from '../../data/creators';
@@ -11,6 +11,7 @@ import { OutreachTab } from './OutreachTab';
 import { PushTab } from './PushTab';
 import { LaunchTab } from './LaunchTab';
 import { EmailTab } from './EmailTab';
+import { CopyGraderTab } from './CopyGraderTab';
 import { JourneyDetailView } from './JourneyDetailView';
 
 const API = '/api/admin';
@@ -201,7 +202,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email' | 'copy-grader';
 
 interface JourneySession {
   session_id: string;
@@ -411,6 +412,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'push', label: 'Push', icon: Bell },
     { id: 'email', label: 'Email', icon: Mail },
     { id: 'launch', label: 'Launch', icon: Apple },
+    { id: 'copy-grader', label: 'Copy Grader', icon: Megaphone },
     { id: 'grok-probe', label: 'Grok Probe', icon: Image },
   ];
 
@@ -1256,6 +1258,8 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {view === 'launch' && <LaunchTab />}
 
         {view === 'email' && <EmailTab />}
+
+        {view === 'copy-grader' && <CopyGraderTab />}
 
         {/* ========== Grok image-reference probe ========== */}
         {view === 'grok-probe' && <GrokProbePanel />}
