@@ -1860,7 +1860,7 @@ export async function gradeCopy(req: Request, res: Response) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-6',
         max_tokens: 1500,
         temperature: 0.4,
         system: COPY_GRADER_SYSTEM,
@@ -1870,8 +1870,10 @@ export async function gradeCopy(req: Request, res: Response) {
 
     if (!r.ok) {
       const body = await r.text().catch(() => '');
-      console.error('[Admin] grade-copy upstream error:', r.status, body.slice(0, 300));
-      res.status(502).json({ error: `Anthropic API ${r.status}` });
+      console.error('[Admin] grade-copy upstream error:', r.status, body.slice(0, 500));
+      let detail = body.slice(0, 300);
+      try { const j = JSON.parse(body); detail = j?.error?.message || detail; } catch { /* ignore */ }
+      res.status(502).json({ error: `Anthropic API ${r.status}: ${detail}` });
       return;
     }
 
@@ -1961,7 +1963,7 @@ export async function conceptToHeadlines(req: Request, res: Response) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-7',
+        model: 'claude-opus-4-6',
         max_tokens: 800,
         temperature: 0.9,
         system: CONCEPT_HEADLINES_SYSTEM,
@@ -1971,8 +1973,10 @@ export async function conceptToHeadlines(req: Request, res: Response) {
 
     if (!r.ok) {
       const body = await r.text().catch(() => '');
-      console.error('[Admin] concept-to-headlines upstream error:', r.status, body.slice(0, 300));
-      res.status(502).json({ error: `Anthropic API ${r.status}` });
+      console.error('[Admin] concept-to-headlines upstream error:', r.status, body.slice(0, 500));
+      let detail = body.slice(0, 300);
+      try { const j = JSON.parse(body); detail = j?.error?.message || detail; } catch { /* ignore */ }
+      res.status(502).json({ error: `Anthropic API ${r.status}: ${detail}` });
       return;
     }
 
