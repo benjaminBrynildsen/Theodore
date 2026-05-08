@@ -12,11 +12,16 @@ interface RuleScore {
   note: string;
 }
 
+type AwarenessLevel = 'unaware' | 'problem' | 'solution' | 'product' | 'most';
+
 interface GradeResult {
   overall: number;
   verdict: string;
   char_count: number;
   char_warning: string;
+  awareness_level?: AwarenessLevel;
+  awareness_note?: string;
+  hook_formula?: { proof: number; promise: number; plan: number };
   rules: RuleScore[];
   strengths: string[];
   weaknesses: string[];
@@ -145,9 +150,9 @@ const PRESETS: Preset[] = [
 ];
 
 // Iteration loop config
-const ITER_MAX = 8;
+const ITER_MAX = 10;
 const ITER_TARGET = 90;
-const ITER_PLATEAU_LIMIT = 2;
+const ITER_PLATEAU_LIMIT = 3;
 
 export function CopyGraderTab() {
   const [headline, setHeadline] = useState('');
@@ -358,11 +363,17 @@ export function CopyGraderTab() {
     setIterStatus('running');
     setError(null);
 
-    let currentHeadline = headline.trim();
-    let currentPrimary = showPrimary ? primary.trim() : undefined;
-    let currentResult = result;
-    let currentScore = result.overall;
-    const history: IterationStep[] = [{ headline: currentHeadline, score: currentScore, delta: 0 }];
+    const startHeadline = headline.trim();
+    const startResult = result;
+    const currentPrimary = showPrimary ? primary.trim() : undefined;
+
+    // bestEver only goes up. exploring rotates each round so we get fresh rewrites
+    // even when scores don't improve — that was the plateau bug.
+    let bestEver = { headline: startHeadline, result: startResult, score: startResult.overall };
+    let exploring = bestEver;
+    const seenHeadlines = new Set<string>([startHeadline]);
+
+    const history: IterationStep[] = [{ headline: startHeadline, score: startResult.overall, delta: 0 }];
     setIterHistory(history);
 
     let plateau = 0;
@@ -370,10 +381,22 @@ export function CopyGraderTab() {
 
     for (let i = 0; i < ITER_MAX; i++) {
       if (iterStopRef.current) { stopReason = 'stopped'; break; }
-      if (currentScore >= ITER_TARGET) { stopReason = 'success'; break; }
+      if (bestEver.score >= ITER_TARGET) { stopReason = 'success'; break; }
 
-      const rewrites = (currentResult.rewrites || []).filter((r) => r && r.trim()).slice(0, 3);
+      const candidates = (exploring.result.rewrites || [])
+        .filter((r) => r && r.trim() && !seenHeadlines.has(r.trim()))
+        .slice(0, 3);
+
+      // If the explorer's rewrites are all stale, fall back to the bestEver's rewrites
+      let rewrites = candidates;
+      if (!rewrites.length && exploring !== bestEver) {
+        rewrites = (bestEver.result.rewrites || [])
+          .filter((r) => r && r.trim() && !seenHeadlines.has(r.trim()))
+          .slice(0, 3);
+      }
       if (!rewrites.length) { stopReason = 'plateau'; break; }
+
+      rewrites.forEach((rw) => seenHeadlines.add(rw.trim()));
 
       const graded = await Promise.allSettled(
         rewrites.map((rw) => callGradeApi(rw, currentPrimary).then((res) => ({ rw, res })))
@@ -384,25 +407,33 @@ export function CopyGraderTab() {
       if (!results.length) { stopReason = 'plateau'; break; }
 
       results.sort((a, b) => b.res.overall - a.res.overall);
-      const best = results[0];
-      const delta = best.res.overall - currentScore;
-      history.push({ headline: best.rw, score: best.res.overall, delta });
+      const roundBest = results[0];
+      const delta = roundBest.res.overall - bestEver.score;
+      history.push({ headline: roundBest.rw, score: roundBest.res.overall, delta });
       setIterHistory([...history]);
 
-      if (best.res.overall > currentScore) {
-        currentHeadline = best.rw;
-        currentResult = best.res;
-        currentScore = best.res.overall;
-        setHeadline(currentHeadline);
-        setResult(currentResult);
+      // Always rotate exploration to the round's best — this gives next round
+      // fresh rewrites (Haiku generates them based on the input headline).
+      // Without this we'd re-grade the same 3 rewrites every round and plateau.
+      exploring = { headline: roundBest.rw, result: roundBest.res, score: roundBest.res.overall };
+
+      if (roundBest.res.overall > bestEver.score) {
+        bestEver = exploring;
         plateau = 0;
+        // Reflect the new best in the editor + result panel as we climb
+        setHeadline(bestEver.headline);
+        setResult(bestEver.result);
       } else {
         plateau++;
         if (plateau >= ITER_PLATEAU_LIMIT) { stopReason = 'plateau'; break; }
       }
     }
 
-    if (currentScore >= ITER_TARGET) stopReason = 'success';
+    // Always restore bestEver as the final state — even if the last round regressed
+    setHeadline(bestEver.headline);
+    setResult(bestEver.result);
+
+    if (bestEver.score >= ITER_TARGET) stopReason = 'success';
     setIterStatus(stopReason);
     setIterating(false);
   };
@@ -750,8 +781,24 @@ export function CopyGraderTab() {
                         <AlertCircle size={11} /> {result.char_warning}
                       </p>
                     )}
+                    {result.awareness_level && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <AwarenessPill level={result.awareness_level} />
+                        {result.awareness_note && (
+                          <span className="text-[11px] text-text-tertiary">{result.awareness_note}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
+
+                {result.hook_formula && (
+                  <div className="mt-3 grid grid-cols-3 gap-2 pt-3 border-t border-black/5">
+                    <PPPCell label="Proof" score={result.hook_formula.proof} />
+                    <PPPCell label="Promise" score={result.hook_formula.promise} />
+                    <PPPCell label="Plan" score={result.hook_formula.plan} />
+                  </div>
+                )}
 
                 {/* Action bar */}
                 <div className="mt-4 flex flex-wrap items-center gap-2 pt-3 border-t border-black/5">
@@ -968,6 +1015,58 @@ function charBandLabel(band: CharBand): string {
   if (band === 'full') return 'displays in full';
   if (band === 'risk') return 'may truncate on mobile feed';
   return 'likely truncates in feed';
+}
+
+const AWARENESS_LABELS: Record<AwarenessLevel, string> = {
+  unaware: 'Unaware',
+  problem: 'Problem-aware',
+  solution: 'Solution-aware',
+  product: 'Product-aware',
+  most: 'Most-aware',
+};
+
+const AWARENESS_TONES: Record<AwarenessLevel, { bg: string; text: string; warn: boolean }> = {
+  unaware: { bg: 'bg-emerald-50', text: 'text-emerald-700', warn: false },
+  problem: { bg: 'bg-emerald-50', text: 'text-emerald-700', warn: false },
+  solution: { bg: 'bg-amber-50', text: 'text-amber-700', warn: false },
+  product: { bg: 'bg-orange-50', text: 'text-orange-700', warn: true },
+  most: { bg: 'bg-red-50', text: 'text-red-700', warn: true },
+};
+
+function AwarenessPill({ level }: { level: AwarenessLevel }) {
+  const tone = AWARENESS_TONES[level];
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${tone.bg} ${tone.text}`}
+      title="Schwartz's 5-stage awareness model. Theodore's Meta ads run on cold traffic — unaware/problem-aware fits best."
+    >
+      {tone.warn && <AlertCircle size={10} />}
+      {AWARENESS_LABELS[level]}
+    </span>
+  );
+}
+
+function PPPCell({ label, score }: { label: string; score: number }) {
+  const tone = score >= 3 ? 'emerald' : score >= 2 ? 'amber' : score >= 1 ? 'orange' : 'red';
+  const colors: Record<string, { bg: string; text: string; bar: string }> = {
+    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', bar: 'bg-emerald-500' },
+    amber: { bg: 'bg-amber-50', text: 'text-amber-700', bar: 'bg-amber-500' },
+    orange: { bg: 'bg-orange-50', text: 'text-orange-700', bar: 'bg-orange-500' },
+    red: { bg: 'bg-red-50', text: 'text-red-700', bar: 'bg-red-400' },
+  };
+  const c = colors[tone];
+  const pct = Math.max(0, Math.min(3, score)) / 3 * 100;
+  return (
+    <div className={`rounded-lg ${c.bg} px-2.5 py-2`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className={`text-[10px] uppercase tracking-wider font-semibold ${c.text}`}>{label}</span>
+        <span className={`text-[11px] tabular-nums font-semibold ${c.text}`}>{score}/3</span>
+      </div>
+      <div className="h-1 rounded-full bg-black/5 overflow-hidden">
+        <div className={`h-full ${c.bar}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
 }
 
 function ScoreRing({ score }: { score: number }) {
