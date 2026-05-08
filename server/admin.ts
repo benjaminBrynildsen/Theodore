@@ -1762,7 +1762,7 @@ A writing app that turns one sentence into a complete audiobook. It writes the n
 
 THE RUBRIC — 13 rules. Don't penalize rules that don't apply to a short headline; mark them applies:false.
 
-1. HEADLINE FIRST — Curiosity, "different", or sexy. Not generic. Steals from non-adjacent industries when novel. Meta limit: 40 chars (penalize over).
+1. HEADLINE FIRST — Curiosity, "different", or sexy. Not generic. Steals from non-adjacent industries when novel. Length: ≤27 chars displays in full on mobile feed (best); 28-40 may truncate on some placements; 40+ likely truncates in feed. Don't hard-fail over 40, but flag the truncation risk if it's the headline's main weakness.
 2. SAY WHAT ONLY YOU CAN SAY — Specific to Theodore's unique edge (writes + narrates). Generic AI-writer claims fail this.
 3. CALL OUT WHO (AND WHO NOT) — Polarizes. Lets the right person feel "this is for me."
 4. REASON WHY — Includes "because" or an implicit reason for the next step.
@@ -1783,7 +1783,7 @@ OUTPUT — strict JSON only, no prose outside the JSON, no markdown code fences:
   "overall": <0-100 integer>,
   "verdict": "<one short sentence — would you ship this?>",
   "char_count": <integer length of headline>,
-  "char_warning": "<empty string OR 'Over Meta's 40-char limit by N'>",
+  "char_warning": "<empty if ≤27; '<N chars — may truncate on mobile feed' if 28-40; '<N chars — will likely truncate in feed' if >40. Never call 40 a hard limit.>",
   "rules": [
     { "n": 1, "name": "Headline first", "applies": true, "score": <0-3>, "note": "<≤15 words>" }
   ],
@@ -1863,6 +1863,110 @@ export async function gradeCopy(req: Request, res: Response) {
     res.json(parsed);
   } catch (e: any) {
     console.error('[Admin] grade-copy error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// POST /api/admin/concept-to-headlines  { concept: string, n?: number }
+// Generates N starter headlines from a concept using diverse Hormozi angles.
+const CONCEPT_HEADLINES_SYSTEM = `You are a senior direct-response copywriter trained on Alex Hormozi's "12 internal hacks" framework. Generate ad headlines from a product concept.
+
+PRODUCT CONTEXT — Theodore (theodore.tools)
+A writing app that turns one sentence into a complete audiobook. Writes the novel AND narrates it in one tool. Unique edge: ChatGPT writes paragraphs, ElevenLabs narrates audio — Theodore is the only tool that does both end-to-end. Audience: indie authors and AI-tool users. Free trial.
+
+GENERATE N HEADLINES that pull on DIFFERENT Hormozi angles — don't repeat angles:
+- curiosity / "different" / sexy hook
+- "say what only you can say" — unique edge
+- polarize (who / who not)
+- show the moment (concrete, sensory)
+- status (spouse, peer, writer-friend)
+- damaging admission ("X but Y")
+- 3rd-grade staccato (short sentences, simple words)
+- borrowed-industry hook (steal-from-elsewhere)
+- humor (only if natural)
+
+CONSTRAINTS for every headline:
+- Aim for ≤27 chars (displays in full on mobile feed); ≤40 acceptable; over 40 only if the hook is *significantly* better
+- Don't make up false authority numbers
+- Don't fake urgency/scarcity
+- Specific over generic — show, don't tell
+
+OUTPUT — strict JSON only, no prose, no code fences:
+{ "headlines": ["<headline 1>", "<headline 2>", ...exactly N strings] }`;
+
+export async function conceptToHeadlines(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const { concept, n } = (req.body || {}) as { concept?: string; n?: number };
+    const trimmed = typeof concept === 'string' ? concept.trim() : '';
+    if (!trimmed) {
+      res.status(400).json({ error: 'concept required' });
+      return;
+    }
+    if (trimmed.length > 1000) {
+      res.status(400).json({ error: 'concept too long (max 1000 chars)' });
+      return;
+    }
+    const count = Math.min(10, Math.max(1, Number.isFinite(n) ? Number(n) : 5));
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({ error: 'ANTHROPIC_API_KEY missing' });
+      return;
+    }
+
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 800,
+        temperature: 0.9,
+        system: CONCEPT_HEADLINES_SYSTEM,
+        messages: [{ role: 'user', content: `CONCEPT: """${trimmed}"""\n\nGenerate exactly ${count} headlines.` }],
+      }),
+    });
+
+    if (!r.ok) {
+      const body = await r.text().catch(() => '');
+      console.error('[Admin] concept-to-headlines upstream error:', r.status, body.slice(0, 300));
+      res.status(502).json({ error: `Anthropic API ${r.status}` });
+      return;
+    }
+
+    const json = (await r.json()) as any;
+    const text = json?.content?.[0]?.text;
+    if (!text) {
+      res.status(502).json({ error: 'Empty response' });
+      return;
+    }
+
+    let parsed: any;
+    try {
+      const cleaned = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      parsed = JSON.parse(cleaned);
+    } catch {
+      res.status(502).json({ error: 'Generator returned invalid JSON', raw: String(text).slice(0, 500) });
+      return;
+    }
+
+    const headlines: string[] = Array.isArray(parsed?.headlines)
+      ? parsed.headlines.filter((h: any) => typeof h === 'string' && h.trim()).map((h: string) => h.trim())
+      : [];
+    if (!headlines.length) {
+      res.status(502).json({ error: 'No headlines returned' });
+      return;
+    }
+
+    res.json({ headlines });
+  } catch (e: any) {
+    console.error('[Admin] concept-to-headlines error:', e);
     res.status(500).json({ error: 'Internal server error' });
   }
 }

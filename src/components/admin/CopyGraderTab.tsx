@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Megaphone, Sparkles, AlertCircle, Loader2, ChevronDown, ChevronRight, Copy, CheckCircle2, Bookmark } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Megaphone, Sparkles, AlertCircle, Loader2, ChevronDown, ChevronRight, Copy, CheckCircle2, Bookmark, Zap, ArrowUpDown, Rocket, X, Lightbulb, Check, Wand2, StopCircle } from 'lucide-react';
 
 const API = '/api/admin';
+const APPROVED_KEY = 'theodore-copy-grader-approved-v1';
 
 interface RuleScore {
   n: number;
@@ -28,6 +29,22 @@ interface Preset {
   label: string;
   headline: string;
   primary?: string;
+}
+
+interface ApprovedItem {
+  id: string;
+  headline: string;
+  primary?: string;
+  score: number;
+  approvedAt: number;
+  source: 'preset' | 'manual' | 'iteration' | 'concept';
+  note?: string;
+}
+
+interface IterationStep {
+  headline: string;
+  score: number;
+  delta: number;
 }
 
 const PRESETS: Preset[] = [
@@ -127,6 +144,11 @@ const PRESETS: Preset[] = [
     primary: 'Drop in any sentence. Theodore builds a structured story, three-dimensional characters, prose in your voice, AND an audiobook narration. Free trial. Worth 5 minutes.' },
 ];
 
+// Iteration loop config
+const ITER_MAX = 8;
+const ITER_TARGET = 90;
+const ITER_PLATEAU_LIMIT = 2;
+
 export function CopyGraderTab() {
   const [headline, setHeadline] = useState('');
   const [primary, setPrimary] = useState('');
@@ -139,28 +161,64 @@ export function CopyGraderTab() {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [presetScores, setPresetScores] = useState<Record<string, number>>({});
+  const [presetResults, setPresetResults] = useState<Record<string, GradeResult>>({});
+  const [inFlight, setInFlight] = useState<Set<string>>(new Set());
+  const [gradingAll, setGradingAll] = useState(false);
+  const [sortByScore, setSortByScore] = useState(false);
+
+  // Concept generator
+  const [concept, setConcept] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [generatedHeadlines, setGeneratedHeadlines] = useState<string[]>([]);
+
+  // Make-it-great iteration loop
+  const [iterating, setIterating] = useState(false);
+  const iterStopRef = useRef(false);
+  const [iterHistory, setIterHistory] = useState<IterationStep[]>([]);
+  const [iterStatus, setIterStatus] = useState<'idle' | 'running' | 'success' | 'plateau' | 'capped' | 'stopped'>('idle');
+
+  // Approved collection (persisted)
+  const [approved, setApproved] = useState<ApprovedItem[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(APPROVED_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem(APPROVED_KEY, JSON.stringify(approved)); } catch { /* ignore */ }
+  }, [approved]);
 
   const charCount = headline.length;
-  const overLimit = charCount > 40;
+  const charBand = charBandFor(charCount); // 'full' | 'risk' | 'truncate'
 
-  const runGrade = async (h: string, p: string | undefined, presetId?: string) => {
+  const callGradeApi = async (h: string, p: string | undefined): Promise<GradeResult> => {
+    const r = await fetch(`${API}/grade-copy`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ headline: h, primary: p && p.trim() ? p : undefined }),
+    });
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.error || `${r.status}`);
+    }
+    return r.json();
+  };
+
+  const grade = async () => {
+    const trimmed = headline.trim();
+    if (!trimmed) { setError('Enter a headline first'); return; }
+    setActivePresetId(null);
     setGrading(true);
     setError(null);
     setResult(null);
+    setIterHistory([]);
+    setIterStatus('idle');
     try {
-      const r = await fetch(`${API}/grade-copy`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ headline: h, primary: p && p.trim() ? p : undefined }),
-      });
-      if (!r.ok) {
-        const body = await r.json().catch(() => ({}));
-        throw new Error(body.error || `${r.status}`);
-      }
-      const j: GradeResult = await r.json();
+      const j = await callGradeApi(trimmed, showPrimary ? primary.trim() : undefined);
       setResult(j);
-      if (presetId) setPresetScores((prev) => ({ ...prev, [presetId]: j.overall }));
     } catch (e: any) {
       setError(e?.message || 'Grading failed');
     } finally {
@@ -168,27 +226,64 @@ export function CopyGraderTab() {
     }
   };
 
-  const grade = () => {
-    const trimmed = headline.trim();
-    if (!trimmed) {
-      setError('Enter a headline first');
-      return;
+  const gradeOnePreset = async (preset: Preset, updateResultPanel: boolean): Promise<void> => {
+    setInFlight((prev) => { const s = new Set(prev); s.add(preset.id); return s; });
+    if (updateResultPanel) {
+      setHeadline(preset.headline);
+      if (preset.primary) { setPrimary(preset.primary); setShowPrimary(true); }
+      else { setPrimary(''); setShowPrimary(false); }
+      setActivePresetId(preset.id);
+      setResult(null);
+      setError(null);
+      setIterHistory([]);
+      setIterStatus('idle');
     }
-    setActivePresetId(null);
-    runGrade(trimmed, showPrimary ? primary.trim() : undefined);
+    try {
+      const j = await callGradeApi(preset.headline, preset.primary);
+      setPresetScores((prev) => ({ ...prev, [preset.id]: j.overall }));
+      setPresetResults((prev) => ({ ...prev, [preset.id]: j }));
+      if (updateResultPanel) setResult(j);
+    } catch (e: any) {
+      if (updateResultPanel) setError(e?.message || 'Grading failed');
+      console.error('[copy-grader]', preset.id, e);
+    } finally {
+      setInFlight((prev) => { const s = new Set(prev); s.delete(preset.id); return s; });
+    }
   };
 
-  const loadAndGrade = (preset: Preset) => {
+  const loadAndGrade = (preset: Preset) => { void gradeOnePreset(preset, true); };
+
+  const viewCachedResult = (preset: Preset) => {
+    const cached = presetResults[preset.id];
+    if (!cached) return;
     setHeadline(preset.headline);
-    if (preset.primary) {
-      setPrimary(preset.primary);
-      setShowPrimary(true);
-    } else {
-      setPrimary('');
-      setShowPrimary(false);
-    }
+    if (preset.primary) { setPrimary(preset.primary); setShowPrimary(true); }
+    else { setPrimary(''); setShowPrimary(false); }
     setActivePresetId(preset.id);
-    runGrade(preset.headline, preset.primary);
+    setResult(cached);
+    setError(null);
+    setIterHistory([]);
+    setIterStatus('idle');
+  };
+
+  const gradeAll = async () => {
+    if (gradingAll) return;
+    setGradingAll(true);
+    setError(null);
+    setResult(null);
+    setActivePresetId(null);
+    try {
+      await Promise.allSettled(PRESETS.map((p) => gradeOnePreset(p, false)));
+    } finally {
+      setGradingAll(false);
+    }
+  };
+
+  const clearScores = () => {
+    setPresetScores({});
+    setPresetResults({});
+    setActivePresetId(null);
+    setResult(null);
   };
 
   const copyRewrite = async (text: string, idx: number) => {
@@ -205,228 +300,645 @@ export function CopyGraderTab() {
     setHeadline(text);
     setActivePresetId(null);
     setResult(null);
+    setIterHistory([]);
+    setIterStatus('idle');
   };
 
-  // Group presets for display
-  const grouped = PRESETS.reduce<Record<string, Preset[]>>((acc, p) => {
-    (acc[p.group] ||= []).push(p);
-    return acc;
-  }, {});
+  // ─── Concept generator ─────────────────────────────────────────────────
+  const generateFromConcept = async () => {
+    const c = concept.trim();
+    if (!c) { setError('Enter a concept first'); return; }
+    setGenerating(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API}/concept-to-headlines`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ concept: c, n: 6 }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.error || `${r.status}`);
+      }
+      const j = await r.json();
+      setGeneratedHeadlines(j.headlines || []);
+    } catch (e: any) {
+      setError(e?.message || 'Generation failed');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const gradeGenerated = async (h: string) => {
+    setHeadline(h);
+    setPrimary('');
+    setShowPrimary(false);
+    setActivePresetId(null);
+    setGrading(true);
+    setError(null);
+    setResult(null);
+    setIterHistory([]);
+    setIterStatus('idle');
+    try {
+      const j = await callGradeApi(h, undefined);
+      setResult(j);
+    } catch (e: any) {
+      setError(e?.message || 'Grading failed');
+    } finally {
+      setGrading(false);
+    }
+  };
+
+  // ─── Make it great: iterate until 90+ ──────────────────────────────────
+  const makeItGreat = async () => {
+    if (!result || iterating) return;
+    setIterating(true);
+    iterStopRef.current = false;
+    setIterStatus('running');
+    setError(null);
+
+    let currentHeadline = headline.trim();
+    let currentPrimary = showPrimary ? primary.trim() : undefined;
+    let currentResult = result;
+    let currentScore = result.overall;
+    const history: IterationStep[] = [{ headline: currentHeadline, score: currentScore, delta: 0 }];
+    setIterHistory(history);
+
+    let plateau = 0;
+    let stopReason: 'success' | 'plateau' | 'capped' | 'stopped' = 'capped';
+
+    for (let i = 0; i < ITER_MAX; i++) {
+      if (iterStopRef.current) { stopReason = 'stopped'; break; }
+      if (currentScore >= ITER_TARGET) { stopReason = 'success'; break; }
+
+      const rewrites = (currentResult.rewrites || []).filter((r) => r && r.trim()).slice(0, 3);
+      if (!rewrites.length) { stopReason = 'plateau'; break; }
+
+      const graded = await Promise.allSettled(
+        rewrites.map((rw) => callGradeApi(rw, currentPrimary).then((res) => ({ rw, res })))
+      );
+      const results = graded
+        .filter((g): g is PromiseFulfilledResult<{ rw: string; res: GradeResult }> => g.status === 'fulfilled')
+        .map((g) => g.value);
+      if (!results.length) { stopReason = 'plateau'; break; }
+
+      results.sort((a, b) => b.res.overall - a.res.overall);
+      const best = results[0];
+      const delta = best.res.overall - currentScore;
+      history.push({ headline: best.rw, score: best.res.overall, delta });
+      setIterHistory([...history]);
+
+      if (best.res.overall > currentScore) {
+        currentHeadline = best.rw;
+        currentResult = best.res;
+        currentScore = best.res.overall;
+        setHeadline(currentHeadline);
+        setResult(currentResult);
+        plateau = 0;
+      } else {
+        plateau++;
+        if (plateau >= ITER_PLATEAU_LIMIT) { stopReason = 'plateau'; break; }
+      }
+    }
+
+    if (currentScore >= ITER_TARGET) stopReason = 'success';
+    setIterStatus(stopReason);
+    setIterating(false);
+  };
+
+  const stopIterating = () => { iterStopRef.current = true; };
+
+  // ─── Approved collection ───────────────────────────────────────────────
+  const approveCurrent = () => {
+    if (!result) return;
+    const item: ApprovedItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      headline: headline.trim(),
+      primary: showPrimary ? primary.trim() || undefined : undefined,
+      score: result.overall,
+      approvedAt: Date.now(),
+      source: activePresetId
+        ? 'preset'
+        : iterHistory.length > 0
+          ? 'iteration'
+          : generatedHeadlines.includes(headline.trim())
+            ? 'concept'
+            : 'manual',
+    };
+    setApproved((prev) => [item, ...prev]);
+  };
+
+  const removeApproved = (id: string) => {
+    setApproved((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const exportApproved = async () => {
+    if (!approved.length) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(approved, null, 2));
+    } catch {
+      setError('Copy failed');
+    }
+  };
+
+  const clearApproved = () => {
+    if (!approved.length) return;
+    if (confirm(`Remove all ${approved.length} approved variants?`)) setApproved([]);
+  };
+
+  const isCurrentApproved = useMemo(() => {
+    if (!result) return false;
+    const h = headline.trim();
+    return approved.some((a) => a.headline === h);
+  }, [approved, headline, result]);
+
+  const gradedCount = Object.keys(presetScores).length;
+
+  const groupedView = useMemo(() => {
+    return PRESETS.reduce<Record<string, Preset[]>>((acc, p) => {
+      (acc[p.group] ||= []).push(p);
+      return acc;
+    }, {});
+  }, []);
+
+  const sortedFlat = useMemo(() => {
+    return [...PRESETS].sort((a, b) => {
+      const sa = presetScores[a.id];
+      const sb = presetScores[b.id];
+      if (sa === undefined && sb === undefined) return 0;
+      if (sa === undefined) return 1;
+      if (sb === undefined) return -1;
+      return sb - sa;
+    });
+  }, [presetScores]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6 max-w-3xl">
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
       <div className="flex items-center gap-2 mb-1">
         <Megaphone size={16} className="text-text-tertiary" />
         <h2 className="text-base font-serif font-semibold">Copy Grader</h2>
       </div>
       <p className="text-xs text-text-tertiary mb-5">
-        Paste a headline (and optionally body copy). Grades against Hormozi's 12+1 rules and suggests rewrites. Tuned for Theodore audio-player ads.
+        Paste a headline, generate from a concept, or auto-iterate to a 90+ score. Approve winners to ship to Facebook.
       </p>
 
-      {/* ─── Saved headlines (front-loaded) ──────────────────────────────── */}
-      <div className="rounded-2xl border border-black/5 bg-white mb-4 overflow-hidden">
-        <button
-          onClick={() => setShowPresets(!showPresets)}
-          className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.02]"
-        >
-          <span className="text-sm font-semibold text-text-primary inline-flex items-center gap-1.5">
-            {showPresets ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            <Bookmark size={13} className="text-text-tertiary" />
-            Saved headlines ({PRESETS.length})
-          </span>
-          <span className="text-[11px] text-text-tertiary">
-            {Object.keys(presetScores).length} graded
-          </span>
-        </button>
-
-        {showPresets && (
-          <div className="border-t border-black/5">
-            {Object.entries(grouped).map(([groupName, items]) => (
-              <div key={groupName} className="border-b border-black/5 last:border-b-0">
-                <div className="px-4 py-2 bg-black/[0.02] text-[10px] uppercase tracking-wider font-semibold text-text-tertiary">
-                  {groupName}
-                </div>
-                <div>
-                  {items.map((p) => {
-                    const score = presetScores[p.id];
-                    const isActive = activePresetId === p.id;
-                    return (
-                      <div
-                        key={p.id}
-                        className={`flex items-center gap-3 px-4 py-2 border-t border-black/5 first:border-t-0 ${
-                          isActive ? 'bg-amber-50/50' : 'hover:bg-black/[0.02]'
-                        }`}
-                      >
-                        <span className="text-[11px] font-mono text-text-tertiary w-14 shrink-0 truncate">{p.label.split(' — ')[0]}</span>
-                        <span className="flex-1 min-w-0 text-sm text-text-primary truncate font-serif">{p.headline}</span>
-                        <span className={`text-[10px] tabular-nums shrink-0 ${p.headline.length > 40 ? 'text-red-600 font-semibold' : 'text-text-tertiary'}`}>
-                          {p.headline.length}c
-                        </span>
-                        {score !== undefined && (
-                          <span className={`text-[11px] tabular-nums font-semibold shrink-0 px-1.5 py-0.5 rounded ${scoreColor(score)}`}>
-                            {score}
-                          </span>
-                        )}
-                        <button
-                          onClick={() => loadAndGrade(p)}
-                          disabled={grading}
-                          className="text-[11px] font-semibold text-text-secondary hover:text-text-primary px-2 py-1 rounded hover:bg-black/5 shrink-0 disabled:opacity-40"
-                        >
-                          Grade
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ─── Manual editor ───────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-black/5 bg-white p-4 mb-4">
-        <label className="block text-xs font-semibold text-text-secondary mb-1.5">Headline</label>
-        <textarea
-          value={headline}
-          onChange={(e) => { setHeadline(e.target.value); setActivePresetId(null); }}
-          placeholder="Press play. That's an AI audiobook."
-          rows={2}
-          className="w-full text-sm rounded-lg border border-black/10 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
-          maxLength={200}
-        />
-        <div className="flex items-center justify-between mt-1.5">
-          <span className={`text-[11px] tabular-nums ${overLimit ? 'text-red-600 font-semibold' : 'text-text-tertiary'}`}>
-            {charCount} / 40 chars{overLimit && ` — over by ${charCount - 40}`}
-          </span>
-          <button
-            onClick={() => setShowPrimary(!showPrimary)}
-            className="text-[11px] text-text-tertiary hover:text-text-secondary inline-flex items-center gap-1"
-          >
-            {showPrimary ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            {showPrimary ? 'Hide' : 'Add'} primary text
-          </button>
-        </div>
-
-        {showPrimary && (
-          <div className="mt-3">
-            <label className="block text-xs font-semibold text-text-secondary mb-1.5">Primary text (optional)</label>
-            <textarea
-              value={primary}
-              onChange={(e) => setPrimary(e.target.value)}
-              placeholder="Type one sentence. Theodore writes the novel and narrates the audiobook. Free."
-              rows={4}
-              className="w-full text-sm rounded-lg border border-black/10 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
-              maxLength={2200}
-            />
-            <span className="text-[11px] text-text-tertiary tabular-nums">{primary.length} / 2200</span>
-          </div>
-        )}
-
-        <button
-          onClick={grade}
-          disabled={grading || !headline.trim()}
-          className="mt-3 w-full sm:w-auto px-4 py-2 rounded-lg bg-text-primary text-white text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-40 hover:bg-text-primary/90 transition-colors"
-        >
-          {grading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          {grading ? 'Grading…' : 'Grade headline'}
-        </button>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-100 text-sm text-red-700 inline-flex items-start gap-2">
-          <AlertCircle size={14} className="mt-0.5 shrink-0" />
-          {error}
-        </div>
-      )}
-
-      {result && (
-        <div className="space-y-4 animate-fade-in">
-          {/* Score + verdict */}
-          <div className="rounded-2xl border border-black/5 bg-white p-5">
-            <div className="flex items-center gap-4">
-              <ScoreRing score={result.overall} />
-              <div className="flex-1 min-w-0">
-                <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-semibold mb-1">Verdict</div>
-                <p className="text-sm text-text-primary leading-snug">{result.verdict}</p>
-                {result.char_warning && (
-                  <p className="text-[11px] text-red-600 mt-1.5 inline-flex items-center gap-1">
-                    <AlertCircle size={11} /> {result.char_warning}
-                  </p>
-                )}
-              </div>
+      <div className="grid lg:grid-cols-[minmax(0,_5fr)_minmax(0,_7fr)] gap-4">
+        {/* ═══════════════ LEFT COLUMN ═══════════════ */}
+        <div className="space-y-4 min-w-0">
+          {/* Concept generator */}
+          <div className="rounded-2xl border border-black/5 bg-white p-4">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Lightbulb size={14} className="text-amber-600" />
+              <h3 className="text-sm font-semibold text-text-primary">Concept → Headlines</h3>
             </div>
-          </div>
+            <p className="text-[11px] text-text-tertiary mb-2">
+              Describe an angle or product positioning. Get 6 starter headlines using different Hormozi rules.
+            </p>
+            <textarea
+              value={concept}
+              onChange={(e) => setConcept(e.target.value)}
+              placeholder="e.g. Theodore for ChatGPT power users who want to write a novel without quitting their day job"
+              rows={3}
+              className="w-full text-sm rounded-lg border border-black/10 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+              maxLength={1000}
+            />
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-[11px] text-text-tertiary tabular-nums">{concept.length} / 1000</span>
+              <button
+                onClick={generateFromConcept}
+                disabled={generating || !concept.trim()}
+                className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
+              >
+                {generating ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                {generating ? 'Generating…' : 'Generate 6'}
+              </button>
+            </div>
 
-          {/* Strengths + weaknesses */}
-          <div className="grid sm:grid-cols-2 gap-3">
-            <SectionList title="Strengths" items={result.strengths} tone="good" />
-            <SectionList title="Weaknesses" items={result.weaknesses} tone="bad" />
-          </div>
-
-          {/* Rewrites */}
-          {result.rewrites?.length > 0 && (
-            <div className="rounded-2xl border border-black/5 bg-white p-4">
-              <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-semibold mb-2">Rewrites</div>
-              <div className="space-y-2">
-                {result.rewrites.map((rw, i) => (
-                  <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg bg-black/[0.02] border border-black/5">
-                    <span className="flex-1 text-sm font-serif text-text-primary">{rw}</span>
-                    <span className="text-[10px] text-text-tertiary tabular-nums shrink-0">{rw.length}c</span>
+            {generatedHeadlines.length > 0 && (
+              <div className="mt-3 space-y-1.5 border-t border-black/5 pt-3">
+                {generatedHeadlines.map((h, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2 rounded-lg bg-black/[0.02] border border-black/5">
+                    <span className="flex-1 text-sm text-text-primary font-serif truncate">{h}</span>
+                    <span className={`text-[10px] tabular-nums shrink-0 ${charBandColor(charBandFor(h.length))}`} title="≤27 mobile-feed safe · 28-40 may truncate · 40+ likely truncates">
+                      {h.length}c
+                    </span>
                     <button
-                      onClick={() => useRewrite(rw)}
-                      className="text-[11px] text-text-secondary hover:text-text-primary px-2 py-1 rounded hover:bg-black/5 shrink-0"
-                      title="Load into the editor"
+                      onClick={() => gradeGenerated(h)}
+                      disabled={grading}
+                      className="text-[11px] font-semibold text-text-secondary hover:text-text-primary px-2 py-1 rounded hover:bg-black/5 shrink-0 disabled:opacity-40"
                     >
-                      Use
-                    </button>
-                    <button
-                      onClick={() => copyRewrite(rw, i)}
-                      className="p-1 rounded hover:bg-black/5 shrink-0"
-                      title="Copy"
-                    >
-                      {copiedIdx === i ? <CheckCircle2 size={13} className="text-emerald-600" /> : <Copy size={13} className="text-text-tertiary" />}
+                      Grade
                     </button>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Rule breakdown */}
-          <div className="rounded-2xl border border-black/5 bg-white">
-            <button
-              onClick={() => setShowRules(!showRules)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.02] rounded-2xl"
-            >
-              <span className="text-sm font-semibold text-text-primary inline-flex items-center gap-1.5">
-                {showRules ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                Rule-by-rule breakdown
-              </span>
-              <span className="text-[11px] text-text-tertiary">
-                {result.rules.filter(r => r.applies).length} rules scored
-              </span>
-            </button>
-            {showRules && (
-              <div className="px-4 pb-4 space-y-1.5 border-t border-black/5 pt-3">
-                {result.rules.map((rule) => (
-                  <div key={rule.n} className={`flex items-start gap-3 p-2 rounded-lg ${!rule.applies ? 'opacity-40' : ''}`}>
-                    <span className="text-[11px] font-mono text-text-tertiary w-5 shrink-0 mt-0.5">#{rule.n}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-text-primary">{rule.name}</span>
-                        {rule.applies && <ScoreDots score={rule.score} />}
-                        {!rule.applies && <span className="text-[10px] text-text-tertiary uppercase tracking-wider">N/A</span>}
+          {/* Saved headlines */}
+          <div className="rounded-2xl border border-black/5 bg-white overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 hover:bg-black/[0.02]">
+              <button
+                onClick={() => setShowPresets(!showPresets)}
+                className="text-sm font-semibold text-text-primary inline-flex items-center gap-1.5"
+              >
+                {showPresets ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                <Bookmark size={13} className="text-text-tertiary" />
+                Saved ({PRESETS.length})
+              </button>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-text-tertiary tabular-nums">
+                  {gradingAll ? `${gradedCount}/${PRESETS.length}…` : `${gradedCount}/${PRESETS.length}`}
+                </span>
+                {gradedCount > 0 && (
+                  <button
+                    onClick={() => setSortByScore(!sortByScore)}
+                    className="text-[11px] text-text-secondary hover:text-text-primary px-2 py-1 rounded hover:bg-black/5 inline-flex items-center gap-1"
+                    title={sortByScore ? 'Show by group' : 'Sort by score'}
+                  >
+                    <ArrowUpDown size={11} />
+                    {sortByScore ? 'Group' : 'Score'}
+                  </button>
+                )}
+                {gradedCount > 0 && !gradingAll && (
+                  <button
+                    onClick={clearScores}
+                    className="text-[11px] text-text-tertiary hover:text-text-primary px-2 py-1 rounded hover:bg-black/5"
+                  >
+                    Clear
+                  </button>
+                )}
+                <button
+                  onClick={gradeAll}
+                  disabled={gradingAll}
+                  className="px-2.5 py-1.5 rounded-lg bg-text-primary text-white text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-40 hover:bg-text-primary/90"
+                >
+                  {gradingAll ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
+                  {gradingAll ? `${gradedCount}/${PRESETS.length}` : 'Grade all'}
+                </button>
+              </div>
+            </div>
+
+            {showPresets && (
+              <div className="border-t border-black/5 max-h-[60vh] overflow-y-auto">
+                {sortByScore ? (
+                  <div>
+                    {sortedFlat.map((p, idx) => (
+                      <PresetRow
+                        key={p.id} p={p} idx={idx + 1}
+                        score={presetScores[p.id]}
+                        inFlight={inFlight.has(p.id)}
+                        isActive={activePresetId === p.id}
+                        hasResult={!!presetResults[p.id]}
+                        disabled={gradingAll}
+                        onGrade={() => loadAndGrade(p)}
+                        onView={() => viewCachedResult(p)}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  Object.entries(groupedView).map(([groupName, items]) => (
+                    <div key={groupName} className="border-b border-black/5 last:border-b-0">
+                      <div className="px-4 py-2 bg-black/[0.02] text-[10px] uppercase tracking-wider font-semibold text-text-tertiary sticky top-0">
+                        {groupName}
                       </div>
-                      <p className="text-[11px] text-text-tertiary mt-0.5 leading-snug">{rule.note}</p>
+                      <div>
+                        {items.map((p) => (
+                          <PresetRow
+                            key={p.id} p={p}
+                            score={presetScores[p.id]}
+                            inFlight={inFlight.has(p.id)}
+                            isActive={activePresetId === p.id}
+                            hasResult={!!presetResults[p.id]}
+                            disabled={gradingAll}
+                            onGrade={() => loadAndGrade(p)}
+                            onView={() => viewCachedResult(p)}
+                          />
+                        ))}
+                      </div>
                     </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Approved collection */}
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3">
+              <span className="text-sm font-semibold text-emerald-800 inline-flex items-center gap-1.5">
+                <Rocket size={13} className="text-emerald-700" />
+                Approved to ship ({approved.length})
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={exportApproved}
+                  disabled={!approved.length}
+                  className="text-[11px] text-emerald-800 hover:text-emerald-900 px-2 py-1 rounded hover:bg-emerald-100 inline-flex items-center gap-1 disabled:opacity-40"
+                  title="Copy approved JSON to clipboard"
+                >
+                  <Copy size={11} />
+                  Export
+                </button>
+                {approved.length > 0 && (
+                  <button
+                    onClick={clearApproved}
+                    className="text-[11px] text-emerald-700 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+            {approved.length === 0 ? (
+              <div className="px-4 pb-4 text-[11px] text-emerald-700/70">
+                Click "Ship it" on a graded result to add it here. Then tell Claude to push the collection to Meta.
+              </div>
+            ) : (
+              <div className="border-t border-emerald-200 max-h-[40vh] overflow-y-auto">
+                {approved.map((a) => (
+                  <div key={a.id} className="flex items-center gap-2 px-4 py-2 border-t border-emerald-100 first:border-t-0 hover:bg-emerald-100/30">
+                    <span className={`text-[11px] tabular-nums font-semibold shrink-0 px-1.5 py-0.5 rounded ${scoreColor(a.score)}`}>
+                      {a.score}
+                    </span>
+                    <span className="flex-1 min-w-0 text-sm text-text-primary font-serif truncate">{a.headline}</span>
+                    <span className="text-[10px] text-emerald-700/70 shrink-0 capitalize">{a.source}</span>
+                    <button
+                      onClick={() => removeApproved(a.id)}
+                      className="p-1 rounded hover:bg-red-100 shrink-0"
+                      title="Remove"
+                    >
+                      <X size={11} className="text-emerald-700/60 hover:text-red-700" />
+                    </button>
                   </div>
                 ))}
               </div>
             )}
           </div>
         </div>
+
+        {/* ═══════════════ RIGHT COLUMN ═══════════════ */}
+        <div className="space-y-4 min-w-0">
+          {/* Editor */}
+          <div className="rounded-2xl border border-black/5 bg-white p-4">
+            <label className="block text-xs font-semibold text-text-secondary mb-1.5">Headline</label>
+            <textarea
+              value={headline}
+              onChange={(e) => { setHeadline(e.target.value); setActivePresetId(null); }}
+              placeholder="Press play. That's an AI audiobook."
+              rows={2}
+              className="w-full text-sm rounded-lg border border-black/10 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+              maxLength={200}
+            />
+            <div className="flex items-center justify-between mt-1.5">
+              <span className={`text-[11px] tabular-nums ${charBandColor(charBand)}`} title="≤27 displays in full on mobile feed; 28-40 may truncate on some placements; 40+ likely truncates">
+                {charCount} chars · {charBandLabel(charBand)}
+              </span>
+              <button
+                onClick={() => setShowPrimary(!showPrimary)}
+                className="text-[11px] text-text-tertiary hover:text-text-secondary inline-flex items-center gap-1"
+              >
+                {showPrimary ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                {showPrimary ? 'Hide' : 'Add'} primary text
+              </button>
+            </div>
+
+            {showPrimary && (
+              <div className="mt-3">
+                <label className="block text-xs font-semibold text-text-secondary mb-1.5">Primary text (optional)</label>
+                <textarea
+                  value={primary}
+                  onChange={(e) => setPrimary(e.target.value)}
+                  placeholder="Type one sentence. Theodore writes the novel and narrates the audiobook. Free."
+                  rows={4}
+                  className="w-full text-sm rounded-lg border border-black/10 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-black/20 resize-none"
+                  maxLength={2200}
+                />
+                <span className="text-[11px] text-text-tertiary tabular-nums">{primary.length} / 2200</span>
+              </div>
+            )}
+
+            <button
+              onClick={grade}
+              disabled={grading || !headline.trim()}
+              className="mt-3 w-full sm:w-auto px-4 py-2 rounded-lg bg-text-primary text-white text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-40 hover:bg-text-primary/90"
+            >
+              {grading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {grading ? 'Grading…' : 'Grade headline'}
+            </button>
+          </div>
+
+          {error && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-100 text-sm text-red-700 inline-flex items-start gap-2">
+              <AlertCircle size={14} className="mt-0.5 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {result && (
+            <>
+              {/* Score + verdict + actions */}
+              <div className="rounded-2xl border border-black/5 bg-white p-5">
+                <div className="flex items-center gap-4">
+                  <ScoreRing score={result.overall} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-semibold mb-1">Verdict</div>
+                    <p className="text-sm text-text-primary leading-snug">{result.verdict}</p>
+                    {result.char_warning && (
+                      <p className="text-[11px] text-red-600 mt-1.5 inline-flex items-center gap-1">
+                        <AlertCircle size={11} /> {result.char_warning}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Action bar */}
+                <div className="mt-4 flex flex-wrap items-center gap-2 pt-3 border-t border-black/5">
+                  {iterating ? (
+                    <button
+                      onClick={stopIterating}
+                      className="px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold inline-flex items-center gap-1.5"
+                    >
+                      <StopCircle size={13} />
+                      Stop
+                    </button>
+                  ) : (
+                    <button
+                      onClick={makeItGreat}
+                      disabled={result.overall >= ITER_TARGET}
+                      className="px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
+                      title={result.overall >= ITER_TARGET ? `Already at ${ITER_TARGET}+` : `Iterate up to ${ITER_MAX} rounds aiming for ${ITER_TARGET}+`}
+                    >
+                      <Wand2 size={13} />
+                      {result.overall >= ITER_TARGET ? `Already ${ITER_TARGET}+` : `Make it ${ITER_TARGET}+`}
+                    </button>
+                  )}
+                  <button
+                    onClick={approveCurrent}
+                    disabled={isCurrentApproved}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 disabled:opacity-40 disabled:bg-emerald-600/60"
+                  >
+                    {isCurrentApproved ? <CheckCircle2 size={13} /> : <Rocket size={13} />}
+                    {isCurrentApproved ? 'Approved' : 'Ship it'}
+                  </button>
+                </div>
+
+                {/* Iteration log */}
+                {iterHistory.length > 1 && (
+                  <div className="mt-4 pt-3 border-t border-black/5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] uppercase tracking-wider font-semibold text-text-tertiary">Iteration log</span>
+                      <span className="text-[11px] text-text-tertiary">
+                        {iterStatus === 'running' && <span className="inline-flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> iterating…</span>}
+                        {iterStatus === 'success' && <span className="text-emerald-700 inline-flex items-center gap-1"><Check size={11} /> reached {ITER_TARGET}+</span>}
+                        {iterStatus === 'plateau' && <span className="text-amber-700">plateau — best: {Math.max(...iterHistory.map((s) => s.score))}</span>}
+                        {iterStatus === 'capped' && <span className="text-orange-700">capped at {ITER_MAX} rounds — best: {Math.max(...iterHistory.map((s) => s.score))}</span>}
+                        {iterStatus === 'stopped' && <span className="text-text-tertiary">stopped</span>}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {iterHistory.map((step, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span className="text-[10px] font-mono text-text-tertiary w-10 shrink-0">
+                            {i === 0 ? 'start' : `iter ${i}`}
+                          </span>
+                          <span className="flex-1 min-w-0 truncate font-serif text-text-primary">"{step.headline}"</span>
+                          <span className={`text-[11px] tabular-nums font-semibold shrink-0 px-1.5 py-0.5 rounded ${scoreColor(step.score)}`}>
+                            {step.score}
+                          </span>
+                          {i > 0 && step.delta !== 0 && (
+                            <span className={`text-[10px] tabular-nums shrink-0 w-10 text-right ${step.delta > 0 ? 'text-emerald-600' : 'text-text-tertiary'}`}>
+                              {step.delta > 0 ? '+' : ''}{step.delta}
+                            </span>
+                          )}
+                          {i === 0 && <span className="text-[10px] tabular-nums shrink-0 w-10" />}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Strengths + weaknesses */}
+              <div className="grid sm:grid-cols-2 gap-3">
+                <SectionList title="Strengths" items={result.strengths} tone="good" />
+                <SectionList title="Weaknesses" items={result.weaknesses} tone="bad" />
+              </div>
+
+              {/* Rewrites */}
+              {result.rewrites?.length > 0 && (
+                <div className="rounded-2xl border border-black/5 bg-white p-4">
+                  <div className="text-[10px] uppercase tracking-wider text-text-tertiary font-semibold mb-2">Rewrites</div>
+                  <div className="space-y-2">
+                    {result.rewrites.map((rw, i) => (
+                      <div key={i} className="flex items-center gap-2 p-2.5 rounded-lg bg-black/[0.02] border border-black/5">
+                        <span className="flex-1 text-sm font-serif text-text-primary">{rw}</span>
+                        <span className="text-[10px] text-text-tertiary tabular-nums shrink-0">{rw.length}c</span>
+                        <button
+                          onClick={() => useRewrite(rw)}
+                          className="text-[11px] text-text-secondary hover:text-text-primary px-2 py-1 rounded hover:bg-black/5 shrink-0"
+                          title="Load into the editor"
+                        >
+                          Use
+                        </button>
+                        <button
+                          onClick={() => copyRewrite(rw, i)}
+                          className="p-1 rounded hover:bg-black/5 shrink-0"
+                          title="Copy"
+                        >
+                          {copiedIdx === i ? <CheckCircle2 size={13} className="text-emerald-600" /> : <Copy size={13} className="text-text-tertiary" />}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Rule breakdown */}
+              <div className="rounded-2xl border border-black/5 bg-white">
+                <button
+                  onClick={() => setShowRules(!showRules)}
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.02] rounded-2xl"
+                >
+                  <span className="text-sm font-semibold text-text-primary inline-flex items-center gap-1.5">
+                    {showRules ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    Rule-by-rule breakdown
+                  </span>
+                  <span className="text-[11px] text-text-tertiary">
+                    {result.rules.filter((r) => r.applies).length} rules scored
+                  </span>
+                </button>
+                {showRules && (
+                  <div className="px-4 pb-4 space-y-1.5 border-t border-black/5 pt-3">
+                    {result.rules.map((rule) => (
+                      <div key={rule.n} className={`flex items-start gap-3 p-2 rounded-lg ${!rule.applies ? 'opacity-40' : ''}`}>
+                        <span className="text-[11px] font-mono text-text-tertiary w-5 shrink-0 mt-0.5">#{rule.n}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-text-primary">{rule.name}</span>
+                            {rule.applies && <ScoreDots score={rule.score} />}
+                            {!rule.applies && <span className="text-[10px] text-text-tertiary uppercase tracking-wider">N/A</span>}
+                          </div>
+                          <p className="text-[11px] text-text-tertiary mt-0.5 leading-snug">{rule.note}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PresetRow({ p, idx, score, inFlight, isActive, hasResult, disabled, onGrade, onView }: {
+  p: Preset;
+  idx?: number;
+  score: number | undefined;
+  inFlight: boolean;
+  isActive: boolean;
+  hasResult: boolean;
+  disabled: boolean;
+  onGrade: () => void;
+  onView: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 px-4 py-2 border-t border-black/5 first:border-t-0 ${
+        isActive ? 'bg-amber-50/50' : 'hover:bg-black/[0.02]'
+      }`}
+    >
+      {idx !== undefined && (
+        <span className="text-[11px] font-mono text-text-tertiary w-6 shrink-0 text-right">{idx}.</span>
       )}
+      <span className="text-[11px] font-mono text-text-tertiary w-12 shrink-0 truncate">{p.label.split(' — ')[0]}</span>
+      <span className="flex-1 min-w-0 text-sm text-text-primary truncate font-serif">{p.headline}</span>
+      <span className={`text-[10px] tabular-nums shrink-0 ${charBandColor(charBandFor(p.headline.length))}`} title="≤27 mobile-feed safe · 28-40 may truncate · 40+ likely truncates">
+        {p.headline.length}c
+      </span>
+      {inFlight ? (
+        <Loader2 size={11} className="animate-spin text-text-tertiary shrink-0" />
+      ) : score !== undefined ? (
+        <button
+          onClick={onView}
+          disabled={!hasResult || disabled}
+          className={`text-[11px] tabular-nums font-semibold shrink-0 px-1.5 py-0.5 rounded ${scoreColor(score)} ${hasResult && !disabled ? 'hover:opacity-80 cursor-pointer' : ''}`}
+          title={hasResult ? 'View graded result' : ''}
+        >
+          {score}
+        </button>
+      ) : null}
+      <button
+        onClick={onGrade}
+        disabled={disabled || inFlight}
+        className="text-[11px] font-semibold text-text-secondary hover:text-text-primary px-2 py-1 rounded hover:bg-black/5 shrink-0 disabled:opacity-40"
+      >
+        {score !== undefined ? 'Re-grade' : 'Grade'}
+      </button>
     </div>
   );
 }
@@ -436,6 +948,26 @@ function scoreColor(score: number): string {
   if (score >= 60) return 'bg-amber-100 text-amber-700';
   if (score >= 40) return 'bg-orange-100 text-orange-700';
   return 'bg-red-100 text-red-700';
+}
+
+type CharBand = 'full' | 'risk' | 'truncate';
+
+function charBandFor(n: number): CharBand {
+  if (n <= 27) return 'full';
+  if (n <= 40) return 'risk';
+  return 'truncate';
+}
+
+function charBandColor(band: CharBand): string {
+  if (band === 'full') return 'text-emerald-600';
+  if (band === 'risk') return 'text-amber-600';
+  return 'text-orange-600 font-semibold';
+}
+
+function charBandLabel(band: CharBand): string {
+  if (band === 'full') return 'displays in full';
+  if (band === 'risk') return 'may truncate on mobile feed';
+  return 'likely truncates in feed';
 }
 
 function ScoreRing({ score }: { score: number }) {
