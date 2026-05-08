@@ -1860,7 +1860,7 @@ export async function gradeCopy(req: Request, res: Response) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-opus-4-7',
         max_tokens: 1500,
         temperature: 0.4,
         system: COPY_GRADER_SYSTEM,
@@ -1961,7 +1961,7 @@ export async function conceptToHeadlines(req: Request, res: Response) {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-opus-4-7',
         max_tokens: 800,
         temperature: 0.9,
         system: CONCEPT_HEADLINES_SYSTEM,
