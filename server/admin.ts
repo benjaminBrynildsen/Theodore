@@ -1902,6 +1902,75 @@ export async function gradeCopy(req: Request, res: Response) {
   }
 }
 
+// POST /api/admin/chapters/:chapterId/attribute  ?force=1
+// Runs the strict Opus voice-attribution pass on a chapter and caches the
+// result. Used for ad-hoc QA before relying on it in audio generation.
+// See docs/VOICE-ATTRIBUTION.md for the contract.
+export async function attributeChapterEndpoint(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const chapterId = String(req.params.chapterId || '');
+    const force = req.query.force === '1' || req.query.force === 'true';
+
+    const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId)).limit(1);
+    if (!chapter) {
+      res.status(404).json({ error: 'Chapter not found' });
+      return;
+    }
+
+    // Cached path — return existing attribution unless force=1
+    const cached = chapter.voiceAttribution as Record<string, any> | null;
+    if (!force && cached && Array.isArray(cached.segments) && cached.segments.length) {
+      res.json({ ...cached, cached: true, chapterId });
+      return;
+    }
+
+    // Pull canon characters for this chapter's project
+    const canonChars = await db.select().from(canonEntries).where(
+      and(eq(canonEntries.projectId, chapter.projectId), eq(canonEntries.type, 'character')),
+    );
+    const roster = canonChars.map((c: any) => ({
+      canonName: c.name,
+      aliases: Array.isArray(c.tags) ? c.tags.filter((t: any) => typeof t === 'string') : [],
+      gender: (c.data && typeof c.data === 'object' && c.data.gender) ? String(c.data.gender) : '',
+    }));
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({ error: 'ANTHROPIC_API_KEY missing' });
+      return;
+    }
+
+    const { attributeChapter } = await import('./voice-attribution.js');
+    const result = await attributeChapter({
+      prose: chapter.prose || '',
+      characters: roster,
+      apiKey,
+    });
+
+    const cachePayload = {
+      segments: result.segments,
+      status: result.status,
+      attempts: result.attempts,
+      model: result.model,
+      attributedAt: new Date().toISOString(),
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      ...(result.unattributedQuotes ? { unattributedQuotes: result.unattributedQuotes } : {}),
+    };
+
+    await db.update(chapters)
+      .set({ voiceAttribution: cachePayload, updatedAt: new Date() })
+      .where(eq(chapters.id, chapterId));
+
+    res.json({ ...cachePayload, cached: false, chapterId, rosterSize: roster.length });
+  } catch (e: any) {
+    console.error('[Admin] attribute-chapter error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
+  }
+}
+
 // POST /api/admin/concept-to-headlines  { concept: string, n?: number }
 // Generates N starter headlines from a concept using diverse Hormozi angles.
 const CONCEPT_HEADLINES_SYSTEM = `You are a senior direct-response copywriter trained on Alex Hormozi's "12 internal hacks" framework. Generate ad headlines from a product concept.

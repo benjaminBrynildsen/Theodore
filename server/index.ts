@@ -27,7 +27,7 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint } from './admin.js';
 import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
@@ -2291,6 +2291,26 @@ async function runTTSJob(jobId: string) {
     console.log(`[TTS] Running job ${jobId} (attempt ${row.attempts + 1}) for ${spec.chapterId}`);
     await updatePersistedJob(jobId, { status: 'processing', attempts: row.attempts + 1, error: null });
 
+    // Pull cached Opus voice-attribution if present. Generated lazily by the
+    // admin endpoint POST /api/admin/chapters/:id/attribute (see
+    // docs/VOICE-ATTRIBUTION.md). When unavailable, parseDialogue falls back
+    // to its existing regex heuristic — same behavior as before this feature.
+    let attributionSegments: any[] | undefined;
+    try {
+      const [chRow] = await db
+        .select({ voiceAttribution: chapters.voiceAttribution })
+        .from(chapters)
+        .where(eq(chapters.id, spec.chapterId))
+        .limit(1);
+      const va = chRow?.voiceAttribution as any;
+      if (va && va.status === 'ok' && Array.isArray(va.segments) && va.segments.length > 0) {
+        attributionSegments = va.segments;
+        console.log(`[TTS] Using cached attribution for ${spec.chapterId} (${va.segments.length} segs, ${va.attempts} attempts, ${va.model})`);
+      }
+    } catch (e: any) {
+      console.warn(`[TTS] Failed to load voiceAttribution for ${spec.chapterId}:`, e?.message || e);
+    }
+
     const result = await generateChapterAudio({
       chapterId: spec.chapterId,
       prose: spec.prose,
@@ -2307,6 +2327,7 @@ async function runTTSJob(jobId: string) {
       sceneSFX: spec.sceneSFX || [],
       chapterNumber: spec.chapterNumber || undefined,
       chapterTitle: spec.chapterTitle || undefined,
+      attributionSegments,
       onProgress: (pct) => {
         liveProgress.set(jobId, pct);
         void db.update(ttsJobsTable).set({ progress: pct, updatedAt: new Date() }).where(eq(ttsJobsTable.id, jobId)).catch(() => {});
@@ -3234,6 +3255,7 @@ app.delete('/api/admin/email/templates/:key', deleteEmailTemplate);
 app.post('/api/admin/email/test', sendTestEmail);
 app.post('/api/admin/grade-copy', gradeCopy);
 app.post('/api/admin/concept-to-headlines', conceptToHeadlines);
+app.post('/api/admin/chapters/:chapterId/attribute', attributeChapterEndpoint);
 
 // ========== Outreach (open tracking + creator pipeline) ==========
 // Pixel route — intentionally public, served on track.theodore.tools

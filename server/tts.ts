@@ -125,6 +125,15 @@ export interface TTSRequest {
   chapterId: string;
   prose: string;
   voiceMap: VoiceMap;
+  /**
+   * Optional cached output of the strict Opus voice-attribution pass
+   * (chapters.voiceAttribution.segments). When supplied AND its quotes
+   * cover the prose, this overrides the regex heuristic in attributeSpeaker.
+   * See server/voice-attribution.ts and docs/VOICE-ATTRIBUTION.md.
+   * Caller is responsible for loading it from the chapter row before calling
+   * generateChapterAudio so this stays a pure data-in / data-out contract.
+   */
+  attributionSegments?: Array<{ type: 'narration' | 'dialogue'; text: string; speaker?: string }>;
   provider?: 'elevenlabs' | 'openai' | 'fish' | 'grok';
   model?: string;
   speed?: number; // 0.5 – 2.0
@@ -798,6 +807,13 @@ export function parseDialogue(
   knownCharacters: string[],
   characterAliases?: Record<string, string[]>,
   characterGenders?: Record<string, string>,
+  /**
+   * Optional pre-computed attribution map keyed by NORMALIZED quoted text
+   * (strip outer quotes, collapse whitespace, lowercase, trim). When present,
+   * this overrides the regex heuristic in `attributeSpeaker`. See
+   * server/voice-attribution.ts and docs/VOICE-ATTRIBUTION.md.
+   */
+  attributionMap?: Map<string, string>,
 ): TTSSegment[] {
   const segments: TTSSegment[] = [];
   const dialogueRegex = /[\u201C"]((?:[^\u201D"\\]|\\.)*)[\u201D"]/g;
@@ -842,9 +858,17 @@ export function parseDialogue(
     if (dirTags.length > 0) {
       dialogueText = `${dirTags.join(' ')} ${dialogueText}`;
     }
-    // Use tagged speaker if available, otherwise fall back to heuristic
+    // Resolution order:
+    //   1. [Name] tag emitted by the model directly in prose (highest signal)
+    //   2. Cached Opus attribution lookup (if provided) — strict, validated
+    //   3. Regex heuristic on the surrounding window (fallback)
     const taggedSpeaker = taggedSpeakers.get(match.index);
-    const speaker = taggedSpeaker || attributeSpeaker(prose, match.index, match[0].length, knownCharacters, characterAliases, mentionIndex, characterGenders);
+    const opusSpeaker = attributionMap
+      ? attributionMap.get(match[1].replace(/\s+/g, ' ').trim().toLowerCase())
+      : undefined;
+    const speaker = taggedSpeaker
+      || opusSpeaker
+      || attributeSpeaker(prose, match.index, match[0].length, knownCharacters, characterAliases, mentionIndex, characterGenders);
     const tone = detectTone(prose, match.index, match[0].length);
 
     segments.push({
@@ -1315,9 +1339,38 @@ function ttsLog(msg: string) {
   try { fs.appendFileSync(LOG_FILE, line); } catch {}
 }
 
+/**
+ * Convert cached Opus attribution segments into the lookup map parseDialogue
+ * understands. Key = normalized inner text of the quote (no surrounding marks,
+ * collapsed whitespace, lowercased, trimmed). Returns undefined when no usable
+ * attributions are present so callers can branch cleanly.
+ */
+function buildAttributionMap(
+  segs?: Array<{ type: 'narration' | 'dialogue'; text: string; speaker?: string }>,
+): Map<string, string> | undefined {
+  if (!Array.isArray(segs) || segs.length === 0) return undefined;
+  const map = new Map<string, string>();
+  for (const s of segs) {
+    if (s.type !== 'dialogue' || !s.speaker || !s.speaker.trim()) continue;
+    const inner = String(s.text || '')
+      .replace(/^[“"]/, '')
+      .replace(/[”"]$/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    if (inner) map.set(inner, s.speaker.trim());
+  }
+  return map.size > 0 ? map : undefined;
+}
+
 export async function generateChapterAudio(req: TTSRequest & { knownCharacters?: string[]; onProgress?: (pct: number) => void }): Promise<TTSResult> {
   ensureAudioDir();
   ttsLog(`START generateChapterAudio chapterId=${req.chapterId} prose=${req.prose.length}chars`);
+
+  // Build attribution map from cached Opus output if supplied. See
+  // docs/VOICE-ATTRIBUTION.md for the full contract.
+  const attributionMap = buildAttributionMap(req.attributionSegments);
+  if (attributionMap) ttsLog(`attribution: ${attributionMap.size} cached quote→speaker pairs`);
 
   // Sanitize model: if it's an OpenAI model but we're on the ElevenLabs path, use default
   const rawModel = req.model || 'eleven_v3';
@@ -1432,7 +1485,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     // Parse before stripping — parseDialogue needs the [Name] tags to attribute
     // speakers reliably. The announcement is plain narration, so prepend it.
     const proseWithAnnouncement = announcement + proseBody;
-    let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases, req.characterGenders);
+    let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases, req.characterGenders, attributionMap);
     segments = applyVoiceMap(segments, voiceMap);
 
     // Defensive: any voice that isn't grok:* gets coerced to the narrator.
@@ -1759,7 +1812,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   // Parse prose into segments (narration, dialogue, sfx markers)
   let segments: TTSSegment[];
   if (req.multiVoice && req.knownCharacters && req.knownCharacters.length > 0) {
-    segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases, req.characterGenders);
+    segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases, req.characterGenders, attributionMap);
     segments = applyVoiceMap(segments, voiceMap);
   } else {
     // Single-voice mode: parse for SFX markers only, force narrator voice on everything

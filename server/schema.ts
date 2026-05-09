@@ -87,6 +87,12 @@ export const chapters = pgTable('chapters', {
   editChatHistory: jsonb('edit_chat_history').$type<any[]>().default([]),
   imageUrl: text('image_url'),
   illustrationNotes: text('illustration_notes'),
+  // Cached output of the strict Opus voice-attribution pass. See
+  // server/voice-attribution.ts and docs/VOICE-ATTRIBUTION.md for the contract.
+  // Shape: { segments: AttributionSegment[], status: 'ok' | 'needs-review',
+  //          attempts: number, model: string, attributedAt: ISOString }.
+  // Null until first audio gen triggers attribution; survives re-narrations.
+  voiceAttribution: jsonb('voice_attribution').$type<Record<string, any>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
