@@ -187,12 +187,19 @@ export function CopyGraderTab() {
     if (typeof window === 'undefined') return [];
     try {
       const raw = localStorage.getItem(APPROVED_KEY);
-      return raw ? JSON.parse(raw) : [];
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
     } catch { return []; }
   });
+  const [recentlyApprovedId, setRecentlyApprovedId] = useState<string | null>(null);
+  const [savedFlash, setSavedFlash] = useState(false);
 
   useEffect(() => {
-    try { localStorage.setItem(APPROVED_KEY, JSON.stringify(approved)); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(APPROVED_KEY, JSON.stringify(approved));
+    } catch (e) {
+      console.error('[copy-grader] localStorage write failed — approved queue will not persist across refresh:', e);
+    }
   }, [approved]);
 
   const charCount = headline.length;
@@ -457,7 +464,15 @@ export function CopyGraderTab() {
             ? 'concept'
             : 'manual',
     };
-    setApproved((prev) => [item, ...prev]);
+    setApproved((prev) => {
+      const next = [item, ...prev];
+      console.log('[copy-grader] approved →', item.headline, '· queue size:', next.length);
+      return next;
+    });
+    setRecentlyApprovedId(item.id);
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 1400);
+    setTimeout(() => setRecentlyApprovedId((cur) => (cur === item.id ? null : cur)), 2400);
   };
 
   const removeApproved = (id: string) => {
@@ -478,11 +493,13 @@ export function CopyGraderTab() {
     if (confirm(`Remove all ${approved.length} approved variants?`)) setApproved([]);
   };
 
+  // Match on headline + primary so a tweaked variant can be re-approved
   const isCurrentApproved = useMemo(() => {
     if (!result) return false;
     const h = headline.trim();
-    return approved.some((a) => a.headline === h);
-  }, [approved, headline, result]);
+    const p = showPrimary ? primary.trim() || undefined : undefined;
+    return approved.some((a) => a.headline === h && (a.primary || undefined) === p);
+  }, [approved, headline, primary, showPrimary, result]);
 
   const gradedCount = Object.keys(presetScores).length;
 
@@ -656,7 +673,7 @@ export function CopyGraderTab() {
           </div>
 
           {/* Approved collection */}
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 overflow-hidden">
+          <div className={`rounded-2xl border bg-emerald-50/40 overflow-hidden transition-colors ${savedFlash ? 'border-emerald-500 ring-2 ring-emerald-300' : 'border-emerald-200'}`}>
             <div className="flex items-center justify-between px-4 py-3">
               <span className="text-sm font-semibold text-emerald-800 inline-flex items-center gap-1.5">
                 <Rocket size={13} className="text-emerald-700" />
@@ -689,7 +706,12 @@ export function CopyGraderTab() {
             ) : (
               <div className="border-t border-emerald-200 max-h-[40vh] overflow-y-auto">
                 {approved.map((a) => (
-                  <div key={a.id} className="flex items-center gap-2 px-4 py-2 border-t border-emerald-100 first:border-t-0 hover:bg-emerald-100/30">
+                  <div
+                    key={a.id}
+                    className={`flex items-center gap-2 px-4 py-2 border-t border-emerald-100 first:border-t-0 transition-colors ${
+                      recentlyApprovedId === a.id ? 'bg-emerald-200/60 animate-pulse' : 'hover:bg-emerald-100/30'
+                    }`}
+                  >
                     <span className={`text-[11px] tabular-nums font-semibold shrink-0 px-1.5 py-0.5 rounded ${scoreColor(a.score)}`}>
                       {a.score}
                     </span>
@@ -829,6 +851,12 @@ export function CopyGraderTab() {
                     {isCurrentApproved ? <CheckCircle2 size={13} /> : <Rocket size={13} />}
                     {isCurrentApproved ? 'Approved' : 'Ship it'}
                   </button>
+                  {savedFlash && (
+                    <span className="text-[11px] font-semibold text-emerald-700 inline-flex items-center gap-1 animate-pulse">
+                      <CheckCircle2 size={12} />
+                      Saved to queue ({approved.length})
+                    </span>
+                  )}
                 </div>
 
                 {/* Iteration log */}
