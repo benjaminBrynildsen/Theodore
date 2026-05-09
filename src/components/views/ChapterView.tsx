@@ -12,6 +12,7 @@ import { VersionTimeline } from '../features/VersionTimeline';
 import type { ProseSelection } from '../../types';
 import { isDirectionTag } from '../../lib/direction-tagger';
 import { TokenBudget } from '../credits/TokenBudget';
+import { GenerateChapterAudioModal } from '../modals/GenerateChapterAudioModal';
 import { DictationMode } from '../features/DictationMode';
 import { ProseXRay } from '../features/ProseXRay';
 import { EmotionalXRay } from '../features/EmotionalXRay';
@@ -170,6 +171,10 @@ export function ChapterView({ chapter }: Props) {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showBudget, setShowBudget] = useState(false);
+  // Voice-confirm modal — fires before "Generate Chapter + Audio" so the user
+  // can pick narrator + per-character voices. Auto-first-chapter at project
+  // creation does NOT route through this; only the user-clicked button does.
+  const [showVoiceConfirm, setShowVoiceConfirm] = useState(false);
   const [showDictation, setShowDictation] = useState(false);
   const [showXRay, setShowXRay] = useState(false);
   const [showEmotionXRay, setShowEmotionXRay] = useState(false);
@@ -1741,8 +1746,17 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 ) : !showBudget ? (
                   <button
                     onClick={() => {
-                      setShowBudget(false);
-                      handleGenerate();
+                      // For chapter+audio bundles, prompt for voice settings first.
+                      // Children's book pages don't bundle audio so skip the modal.
+                      const willBundleAudio =
+                        project?.subtype !== 'childrens-book' &&
+                        settings.ai?.autoAudioOnGenerate !== false;
+                      if (willBundleAudio) {
+                        setShowVoiceConfirm(true);
+                      } else {
+                        setShowBudget(false);
+                        handleGenerate();
+                      }
                     }}
                     disabled={!!generatingSceneId}
                     className={cn(
@@ -2547,6 +2561,19 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
           <span>~{Math.ceil(wordCount / 250)} min read</span>
         </div>
       </div>
+
+      {project && (
+        <GenerateChapterAudioModal
+          isOpen={showVoiceConfirm}
+          projectId={project.id}
+          onCancel={() => setShowVoiceConfirm(false)}
+          onConfirm={() => {
+            setShowVoiceConfirm(false);
+            setShowBudget(false);
+            handleGenerate();
+          }}
+        />
+      )}
     </div>
   );
 }
