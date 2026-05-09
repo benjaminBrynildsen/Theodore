@@ -1902,6 +1902,38 @@ export async function gradeCopy(req: Request, res: Response) {
   }
 }
 
+// GET /api/admin/projects/:projectId/canon
+// Read-only canon dump for a project. Used to debug character voice
+// assignment (which characters made the top-4 cut, which fell back to
+// narrator, what role/gender values are on each entry).
+export async function dumpProjectCanon(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const projectId = String(req.params.projectId || '');
+    const rows = await db
+      .select()
+      .from(canonEntries)
+      .where(eq(canonEntries.projectId, projectId));
+    const slim = rows.map((r: any) => {
+      const data = (r.data || {}) as Record<string, any>;
+      const character = data.character || data; // some schemas nest, some don't
+      return {
+        id: r.id,
+        type: r.type,
+        name: r.name,
+        role: character.role || data.role || null,
+        gender: character.gender || data.gender || null,
+        mainCharacter: character.mainCharacter ?? data.mainCharacter ?? null,
+      };
+    });
+    res.json({ projectId, total: rows.length, characters: slim.filter((c) => c.type === 'character') });
+  } catch (e: any) {
+    console.error('[Admin] dump-canon error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
+  }
+}
+
 // POST /api/admin/chapters/:chapterId/attribute  ?force=1
 // Runs the strict Opus voice-attribution pass on a chapter and caches the
 // result. Used for ad-hoc QA before relying on it in audio generation.
