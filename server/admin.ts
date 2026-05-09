@@ -1446,6 +1446,7 @@ export async function listEmailHistory(req: Request, res: Response) {
         status: transactionalEmails.status,
         errorMessage: transactionalEmails.errorMessage,
         sentAt: transactionalEmails.sentAt,
+        firstOpenedAt: transactionalEmails.firstOpenedAt,
       })
       .from(transactionalEmails)
       .orderBy(desc(transactionalEmails.sentAt))

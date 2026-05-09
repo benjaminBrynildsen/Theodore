@@ -391,7 +391,26 @@ export const transactionalEmails = pgTable('transactional_emails', {
   status: text('status').notNull().default('sent'), // sent | failed | skipped-opt-out
   errorMessage: text('error_message'),
   metadata: jsonb('metadata').$type<Record<string, any>>().default({}),
+  // Denormalized first-non-bot-open timestamp so the admin Send History list
+  // can show open status without joining transactional_opens. Per-open
+  // detail (UA, IP, bot reason) lives in transactional_opens.
+  firstOpenedAt: timestamp('first_opened_at'),
   sentAt: timestamp('sent_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// One row per pixel hit on a transactional email — same shape and bot-detection
+// rules as outreach_opens. The first non-bot open also flips
+// transactional_emails.firstOpenedAt so the list view stays a single-table read.
+export const transactionalOpens = pgTable('transactional_opens', {
+  id: serial('id').primaryKey(),
+  emailId: text('email_id').notNull().references(() => transactionalEmails.id, { onDelete: 'cascade' }),
+  ip: text('ip'),
+  userAgent: text('user_agent'),
+  country: text('country'),
+  isBot: boolean('is_bot').notNull().default(false),
+  botReason: text('bot_reason'),
+  msSinceSend: integer('ms_since_send'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

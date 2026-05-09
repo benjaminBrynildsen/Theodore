@@ -22,6 +22,7 @@ interface HistoryRow {
   status: string;
   errorMessage: string | null;
   sentAt: string;
+  firstOpenedAt?: string | null;
 }
 
 interface EmailEvent {
@@ -870,6 +871,7 @@ function History() {
                 <th className="text-left font-medium px-3 py-2">To</th>
                 <th className="text-left font-medium px-3 py-2 hidden md:table-cell">Subject</th>
                 <th className="text-left font-medium px-3 py-2">Status</th>
+                <th className="text-left font-medium px-3 py-2">Opened</th>
               </tr>
             </thead>
             <tbody>
@@ -882,6 +884,9 @@ function History() {
                   <td className="px-3 py-2">
                     <StatusPill status={r.status} />
                     {r.errorMessage && <div className="text-[10px] text-red-700 mt-0.5">{r.errorMessage}</div>}
+                  </td>
+                  <td className="px-3 py-2">
+                    <OpenedCell sentAt={r.sentAt} firstOpenedAt={r.firstOpenedAt} status={r.status} />
                   </td>
                 </tr>
               ))}
@@ -1057,6 +1062,39 @@ function PreviewPane({
 
       <EmailPreview subject={subject} bodyHtml={bodyHtml} variables={vars} device={device} />
     </div>
+  );
+}
+
+function OpenedCell({ sentAt, firstOpenedAt, status }: { sentAt: string; firstOpenedAt?: string | null; status: string }) {
+  // Skip-opt-out emails were never sent → can't have been opened.
+  if (status === 'skipped-opt-out' || status === 'failed') {
+    return <span className="text-[11px] text-text-tertiary">—</span>;
+  }
+  if (!firstOpenedAt) {
+    // Older sends pre-pixel won't have firstOpenedAt either. Distinguish "old"
+    // from "recent unopened" by age — anything older than 30 days predates
+    // tracking and shouldn't read as "not opened".
+    const ageMs = Date.now() - new Date(sentAt).getTime();
+    if (ageMs > 30 * 24 * 60 * 60 * 1000) {
+      return <span className="text-[11px] text-text-tertiary" title="Sent before open tracking">—</span>;
+    }
+    return <span className="text-[11px] text-text-tertiary">Not yet</span>;
+  }
+  const opened = new Date(firstOpenedAt);
+  const sent = new Date(sentAt);
+  const deltaMin = Math.max(0, Math.round((opened.getTime() - sent.getTime()) / 60000));
+  const ago =
+    deltaMin < 1 ? '<1m' :
+    deltaMin < 60 ? `${deltaMin}m` :
+    deltaMin < 60 * 24 ? `${Math.round(deltaMin / 60)}h` :
+    `${Math.round(deltaMin / 60 / 24)}d`;
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-semibold"
+      title={`First opened ${opened.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} (${ago} after send)`}
+    >
+      ✓ {ago}
+    </span>
   );
 }
 

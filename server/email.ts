@@ -26,6 +26,19 @@ const GMAIL_USER = process.env.GMAIL_USER || SEND_FROM;
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
 const APP_URL = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, '') : 'https://theodore.tools';
 const UNSUBSCRIBE_SECRET = process.env.SESSION_SECRET || process.env.PAGEVIEW_SALT || 'theodore-unsubscribe-secret';
+// Pixel host — same domain outreach.ts uses, hosting both `/t/` (outreach) and
+// `/te/` (transactional) pixel routes via CNAME → main Render service.
+const TRACK_HOST = process.env.TRACK_HOST || 'track.theodore.tools';
+
+function transactionalPixelUrl(emailId: string): string {
+  return `https://${TRACK_HOST}/te/${emailId}.gif`;
+}
+
+function injectTransactionalPixel(html: string, emailId: string): string {
+  const img = `<img src="${transactionalPixelUrl(emailId)}" alt="" width="1" height="1" style="display:none;border:0;outline:none;" />`;
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${img}</body>`);
+  return html + img;
+}
 
 export type EmailKind = 'welcome' | 'audiobook-ready' | 'announcement' | 'password-reset';
 
@@ -174,6 +187,10 @@ export async function sendToUser(opts: {
 
   const unsubHref = unsubscribeUrl(opts.user.id, opts.kind);
   const wrappedHtml = wrapHtml({ bodyHtml: opts.bodyHtml, unsubscribeHref: unsubHref, preheader: opts.preheader });
+  // Inject the open-tracking pixel keyed to this email's id. The pixel route
+  // (server/transactional-pixel.ts → /te/:id.gif) logs every hit to
+  // transactional_opens and flips firstOpenedAt on the first non-bot open.
+  const trackedHtml = injectTransactionalPixel(wrappedHtml, id);
 
   try {
     const transporter = getTransporter();
@@ -181,8 +198,8 @@ export async function sendToUser(opts: {
       from: `${FROM_NAME} <${SEND_FROM}>`,
       to: opts.user.email,
       subject: opts.subject,
-      html: wrappedHtml,
-      text: htmlToText(wrappedHtml),
+      html: trackedHtml,
+      text: htmlToText(wrappedHtml), // text part stays pixel-free
       headers: {
         'List-Unsubscribe': `<${unsubHref}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
@@ -196,7 +213,7 @@ export async function sendToUser(opts: {
         fromAddress: `${FROM_NAME} <${SEND_FROM}>`,
         kind: opts.kind,
         subject: opts.subject,
-        bodyHtml: wrappedHtml,
+        bodyHtml: trackedHtml,
         status: 'sent',
         metadata: opts.metadata || {},
       }).catch((err) => console.warn('[email] log insert failed', err));
@@ -212,7 +229,7 @@ export async function sendToUser(opts: {
         fromAddress: `${FROM_NAME} <${SEND_FROM}>`,
         kind: opts.kind,
         subject: opts.subject,
-        bodyHtml: wrappedHtml,
+        bodyHtml: trackedHtml,
         status: 'failed',
         errorMessage: e?.message || 'Unknown error',
         metadata: opts.metadata || {},

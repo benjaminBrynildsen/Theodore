@@ -42,6 +42,7 @@ import { verifyAppleIdentityToken } from './apple-auth.js';
 import { attachActiveCharacterRoutes } from './active-character.js';
 import { parseBookText } from './book-parser.js';
 import { pixelHandler, listRecipients, createRecipient, updateRecipient, deleteRecipient, recipientTimeline, sendEmail as sendOutreachEmail, outreachStats, listTemplates, createTemplate, updateTemplate, deleteTemplate, templateStats } from './outreach.js';
+import { transactionalPixelHandler } from './transactional-pixel.js';
 import { startInboxPoller, listReplies, recipientReplies, markReplyRead, pollNow as pollInboxNow, unreadReplyCount } from './inbox.js';
 
 // Keep the process alive when a rogue async error escapes a handler. Without
@@ -3239,6 +3240,10 @@ app.post('/api/admin/concept-to-headlines', conceptToHeadlines);
 // (custom domain → same Render service). Works on any host so testing
 // from theodore.tools/t/<id>.gif also works.
 app.get('/t/:uuid.gif', pixelHandler);
+// Transactional / announcement email pixel (Welcome, Audiobook Ready, blasts).
+// Distinct route prefix from outreach `/t/` so the two open-tracking pipelines
+// stay independent and the routing handler can target the right table.
+app.get('/te/:uuid.gif', transactionalPixelHandler);
 app.get('/api/admin/outreach/recipients', listRecipients);
 app.post('/api/admin/outreach/recipients', createRecipient);
 app.patch('/api/admin/outreach/recipients/:id', updateRecipient);
