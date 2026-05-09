@@ -12,10 +12,50 @@ import { useState, useMemo, useEffect } from 'react';
 import { X, Mic, Users, Sparkles, Check } from 'lucide-react';
 import { useAudioStore } from '../../store/audio';
 import { useCanonStore } from '../../store/canon';
-import { ELEVENLABS_VOICES, OPENAI_TTS_VOICES, GROK_VOICES, FISH_AUDIO_VOICES } from '../../lib/tts-types';
-import { autoAssignVoice, autoAssignVoiceFromPool } from '../../lib/voice-assign';
-import type { CharacterEntry } from '../../store/canon';
+import { ELEVENLABS_VOICES } from '../../lib/tts-types';
+import type { CharacterEntry as CanonCharacterEntry } from '../../types/canon';
+
+// These per-provider voice constants are defined locally inside
+// AudiobookPanel.tsx — duplicated here to keep the modal self-contained.
+// If the canonical lists move to a shared module later, swap to that import.
+const OPENAI_TTS_VOICES = [
+  { id: 'openai:alloy', name: 'Alloy', desc: 'Neutral, modern' },
+  { id: 'openai:ash', name: 'Ash', desc: 'Calm, grounded' },
+  { id: 'openai:ballad', name: 'Ballad', desc: 'Warm storyteller' },
+  { id: 'openai:cedar', name: 'Cedar', desc: 'Deep, warm' },
+  { id: 'openai:coral', name: 'Coral', desc: 'Bright, expressive' },
+  { id: 'openai:echo', name: 'Echo', desc: 'Clear, direct' },
+  { id: 'openai:fable', name: 'Fable', desc: 'Narrative-friendly' },
+  { id: 'openai:marin', name: 'Marin', desc: 'Gentle, steady' },
+  { id: 'openai:nova', name: 'Nova', desc: 'Natural, smooth' },
+  { id: 'openai:onyx', name: 'Onyx', desc: 'Deep, authoritative' },
+  { id: 'openai:sage', name: 'Sage', desc: 'Balanced, calm' },
+  { id: 'openai:shimmer', name: 'Shimmer', desc: 'Soft, airy' },
+  { id: 'openai:verse', name: 'Verse', desc: 'Lyrical, dynamic' },
+] as const;
+
+const GROK_VOICES = [
+  { id: 'grok:eve', name: 'Eve', desc: 'Energetic & bright', gender: 'female' },
+  { id: 'grok:ara', name: 'Ara', desc: 'Warm & inviting', gender: 'female' },
+  { id: 'grok:rex', name: 'Rex', desc: 'Confident & clear', gender: 'male' },
+  { id: 'grok:sal', name: 'Sal', desc: 'Smooth & grounded', gender: 'male' },
+  { id: 'grok:leo', name: 'Leo', desc: 'Authoritative', gender: 'male' },
+] as const;
+
+const FISH_AUDIO_VOICES = [
+  { id: 'fish:933563129e564b19a115bedd57b7406a', name: 'Sarah', desc: 'Soft & intimate', gender: 'female' },
+  { id: 'fish:bf322df2096a46f18c579d0baa36f41d', name: 'Adrian', desc: 'Deep & dramatic', gender: 'male' },
+  { id: 'fish:536d3a5e000945adb7038665781a4aca', name: 'Ethan', desc: 'Clear & professional', gender: 'male' },
+  { id: 'fish:e3cd384158934cc9a01029cd7d278634', name: 'Laura', desc: 'Warm & confident', gender: 'female' },
+  { id: 'fish:b347db033a6549378b48d00acb0d06cd', name: 'Selene', desc: 'Gentle & meditative', gender: 'female' },
+  { id: 'fish:400b2a2c4aa44afc87b6d14adf0dd13c', name: 'Chosen', desc: 'British · deep & dramatic', gender: 'male' },
+  { id: 'fish:5e79e8f5d2b345f98baa8c83c947532d', name: 'Paddington', desc: 'Deep & wise', gender: 'male' },
+  { id: 'fish:4858e0be678c4449bf3a7646186edd42', name: 'Nahida', desc: 'Gentle & empathetic', gender: 'female' },
+] as const;
+import { autoAssignVoice } from '../../lib/voice-assign';
 import type { ElevenLabsVoice } from '../../lib/tts-types';
+
+type CharacterEntry = CanonCharacterEntry;
 
 interface Props {
   isOpen: boolean;
