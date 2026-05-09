@@ -252,21 +252,32 @@ export default function App() {
         }
       } catch {}
 
-      // Migrate guest data: if we have local projects that aren't on the server yet, push them
+      // Migrate guest data: if we have local projects that aren't on the server yet, push them.
+      //
+      // Server-first: register/google/apple all run claimGuestBackupForUser at signup, which
+      // re-creates the guest's projects/chapters/canon under the new account with fresh server
+      // IDs. If we naively re-push local state on top, we (a) create duplicate projects (one
+      // from the claim, one from the client push) and (b) generate a burst of 500s as
+      // chapter/canon FK references race against partially-inserted projects. Caught in the
+      // wild on 2026-05-09 (one ad-acquired user fired 73 errors in 10 seconds post-signup).
+      //
+      // Strategy: load server state first. If the server already has projects, the claim path
+      // ran successfully — trust it and skip the client push. Only push local state if the
+      // server is empty (the "different device / cleared cookie" case where the server-side
+      // claim had no guest_backups row to work with).
       const migrateGuestData = async () => {
         const localProjects = useStore.getState().projects;
         const localChapters = useStore.getState().chapters;
         const localCanonEntries = useCanonStore.getState().entries;
+        const savedActiveProject = useStore.getState().activeProjectId;
 
-        if (localProjects.length > 0) {
-          // We have local guest data — persist it to the new account before loading server data.
-          // Note: the server *also* claims any guest_backups row tied to the
-          // visitor's guest-session cookie at register/google time. That path
-          // handles the "different device / cleared localStorage" case; this
-          // client loop handles the happy path where localStorage survived.
-          // Errors are now logged (previously silently swallowed), so a real
-          // migration failure is visible in the console instead of masked as
-          // an empty account.
+        await loadProjects();
+        const serverHasProjects = useStore.getState().projects.length > 0;
+
+        if (localProjects.length > 0 && !serverHasProjects) {
+          // Server is empty; push local state. This is the fallback path for users whose
+          // guest cookie didn't survive (incognito, cross-device, cookie cleared) so the
+          // server-side claim found nothing to migrate.
           let migrationErrors = 0;
           for (const project of localProjects) {
             try {
@@ -277,7 +288,6 @@ export default function App() {
               });
             } catch (err) {
               migrationErrors++;
-              // Likely a duplicate (project already claimed server-side) — keep going.
               console.warn('[guest-migrate] createProject failed', project.id, err);
             }
           }
@@ -298,18 +308,28 @@ export default function App() {
             }
           }
           if (migrationErrors > 0) {
-            console.warn(`[guest-migrate] completed with ${migrationErrors} errors — server-side claim should have caught the rest`);
+            console.warn(`[guest-migrate] completed with ${migrationErrors} errors`);
           }
+          // Re-load to pick up what we just pushed.
+          await loadProjects();
+        } else if (localProjects.length > 0 && serverHasProjects) {
+          console.log('[guest-migrate] server already has data — skipping client push (server-side claim handled it)');
         }
 
-        // Now load from server (which includes the just-migrated data)
-        const savedActiveProject = useStore.getState().activeProjectId;
-        await loadProjects();
-        // Restore the active project so the user stays where they were
+        // Restore the active project so the user stays where they were. After server-side
+        // claim, the local activeProjectId likely points at a stale guest UUID — fall back
+        // to title-matching if exact ID lookup misses.
         if (savedActiveProject) {
-          const stillExists = useStore.getState().projects.some(p => p.id === savedActiveProject);
-          if (stillExists) {
-            useStore.setState({ activeProjectId: savedActiveProject, currentView: 'project' });
+          const projects = useStore.getState().projects;
+          let target = projects.find((p) => p.id === savedActiveProject);
+          if (!target) {
+            const localActive = localProjects.find((p) => p.id === savedActiveProject);
+            if (localActive?.title) {
+              target = projects.find((p) => p.title === localActive.title);
+            }
+          }
+          if (target) {
+            useStore.setState({ activeProjectId: target.id, currentView: 'project' });
           }
         }
       };
