@@ -61,6 +61,19 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
   const { entries } = useCanonStore();
   const user = useAuthStore((s) => s.user);
   const multiVoiceUnlocked = isPaidPlan(user?.plan);
+  const multiVoiceActive = multiVoiceUnlocked && audioStore.multiVoice;
+
+  // When multi-voice is on, the narrator MUST be Leo — every other voice in
+  // the pool is claimed by a character slot, so letting the user pick one of
+  // them as narrator would create a clash (e.g. Sal as both narrator AND the
+  // antagonist's voice). Force-correct on open and on multi-voice toggle.
+  useEffect(() => {
+    if (!isOpen) return;
+    if (multiVoiceActive && audioStore.narratorVoice !== NARRATOR_VOICE) {
+      audioStore.setNarratorVoice(NARRATOR_VOICE as ElevenLabsVoice);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, multiVoiceActive]);
 
   const characters = useMemo(
     () => entries.filter((e) => e.projectId === projectId && e.type === 'character' && (e as any).character) as CharacterEntry[],
@@ -95,8 +108,11 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
   const fallbackCount = assignments.length - lockedAssignments.length;
 
   return (
+    // z-[80] sits ABOVE the mobile MiniPlayerBar (z-[52]) and BottomNav (z-50),
+    // so the modal's Generate button isn't hidden behind them. Without this,
+    // on mobile the player bar covered the bottom ~110px of the modal.
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
       onClick={onCancel}
     >
       <div
@@ -120,34 +136,48 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
         </div>
 
         <div className="overflow-y-auto px-6 py-4 space-y-5 flex-1">
-          {/* Narrator voice — user-pickable */}
+          {/* Narrator voice */}
           <section>
             <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold uppercase tracking-wider text-text-tertiary">
               <Mic size={12} />
               Narrator
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {NARRATOR_OPTIONS.map((v) => {
-                const selected = audioStore.narratorVoice === v.id;
-                return (
-                  <button
-                    key={v.id}
-                    onClick={() => audioStore.setNarratorVoice(v.id as ElevenLabsVoice)}
-                    className={`text-left p-3 rounded-xl border transition-colors ${
-                      selected
-                        ? 'border-text-primary bg-black/[0.04]'
-                        : 'border-black/5 bg-white hover:bg-black/[0.02]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm font-semibold text-text-primary truncate">{v.name}</div>
-                      {selected && <Check size={13} className="text-text-primary shrink-0" />}
-                    </div>
-                    <div className="text-[11px] text-text-tertiary mt-0.5 truncate">{v.desc}</div>
-                  </button>
-                );
-              })}
-            </div>
+            {multiVoiceActive ? (
+              // Multi-voice on → narrator is locked to Leo (every other voice
+              // is reserved for a character slot).
+              <div className="p-3 rounded-xl border border-black/5 bg-black/[0.02] flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-text-primary">Leo</div>
+                  <div className="text-[11px] text-text-tertiary mt-0.5">Authoritative · narrator + fallback for unvoiced lines</div>
+                </div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded bg-black/5 text-text-tertiary">
+                  Locked
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {NARRATOR_OPTIONS.map((v) => {
+                  const selected = audioStore.narratorVoice === v.id;
+                  return (
+                    <button
+                      key={v.id}
+                      onClick={() => audioStore.setNarratorVoice(v.id as ElevenLabsVoice)}
+                      className={`text-left p-3 rounded-xl border transition-colors ${
+                        selected
+                          ? 'border-text-primary bg-black/[0.04]'
+                          : 'border-black/5 bg-white hover:bg-black/[0.02]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-text-primary truncate">{v.name}</div>
+                        {selected && <Check size={13} className="text-text-primary shrink-0" />}
+                      </div>
+                      <div className="text-[11px] text-text-tertiary mt-0.5 truncate">{v.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           {/* Multi-voice toggle — Writer+ only */}
@@ -226,7 +256,7 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-black/5 flex items-center justify-end gap-2">
+        <div className="px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-black/5 flex items-center justify-end gap-2">
           <button
             onClick={onCancel}
             className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary rounded-lg hover:bg-black/5"
