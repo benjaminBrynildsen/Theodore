@@ -49,13 +49,33 @@ const OPENAI_TTS_VOICES = [
   { id: 'openai:verse', name: 'Verse', desc: 'Lyrical, dynamic' },
 ] as const;
 
-// xAI Grok TTS voices (launched 2026). Budget pricing, high quality.
+// xAI Grok TTS voices. Originals (eve/ara/rex/sal/leo) are multilingual.
+// The hex-ID voices come from xAI's expanded library — English-speaking
+// only, grouped by accent so users can pick the regional flavor.
 const GROK_VOICES = [
+  // Multilingual flagship voices
   { id: 'grok:eve', name: 'Eve', desc: 'Energetic & bright', gender: 'female' },
   { id: 'grok:ara', name: 'Ara', desc: 'Warm & inviting', gender: 'female' },
   { id: 'grok:rex', name: 'Rex', desc: 'Confident & clear', gender: 'male' },
   { id: 'grok:sal', name: 'Sal', desc: 'Smooth & grounded', gender: 'male' },
   { id: 'grok:leo', name: 'Leo', desc: 'Authoritative', gender: 'male' },
+  // American English
+  { id: 'grok:6a41d324', name: 'Liam', desc: 'American · steady', gender: 'male' },
+  { id: 'grok:d11249e6', name: 'Emma', desc: 'American · mature & wise', gender: 'female' },
+  // British English
+  { id: 'grok:f15c6a6a', name: 'Henry', desc: 'British · grounded', gender: 'male' },
+  { id: 'grok:bedd6226', name: 'Olivia', desc: 'British · young & bright', gender: 'female' },
+  // Irish English
+  { id: 'grok:a7b78b05', name: 'Sean', desc: 'Irish · warm', gender: 'male' },
+  { id: 'grok:355dca53', name: 'Niamh', desc: 'Irish · lyrical', gender: 'female' },
+  // South African English
+  { id: 'grok:5d695b41', name: 'Marc', desc: 'South African · measured', gender: 'male' },
+  { id: 'grok:135ff7ec', name: 'Thandi', desc: 'South African · warm', gender: 'female' },
+  // General English
+  { id: 'grok:96819d0bd28d', name: 'Daniel', desc: 'English · clear', gender: 'male' },
+  { id: 'grok:78a495fdbb39', name: 'James', desc: 'English · youthful', gender: 'male' },
+  { id: 'grok:f8cf5c2c78d4', name: 'Grace', desc: 'English · young & bright', gender: 'female' },
+  { id: 'grok:79f3a8b96d43', name: 'Claire', desc: 'English · poised', gender: 'female' },
 ] as const;
 
 const FISH_AUDIO_VOICES = [
@@ -157,6 +177,19 @@ export function AudiobookPanel() {
             audio.preload = 'none'; // Don't preload all — only on demand
             audio.src = v.previewUrl;
             preloadedAudioRef.current[fishId] = audio;
+          }
+        }
+      }
+      // Grok voice previews — already include the `grok:` prefix in `id`.
+      // previewUrl points at /voice-previews/<voiceId>.mp3 served by our backend.
+      if ((data as any).grokVoices) {
+        for (const v of (data as any).grokVoices as Array<{ id: string; previewUrl?: string }>) {
+          if (v.previewUrl) {
+            urls[v.id] = v.previewUrl;
+            const audio = new Audio();
+            audio.preload = 'none';
+            audio.src = v.previewUrl;
+            preloadedAudioRef.current[v.id] = audio;
           }
         }
       }

@@ -14,6 +14,7 @@ import { BottomNav } from './components/layout/BottomNav';
 import { CookieConsent } from './components/layout/CookieConsent';
 import { PendingNoticeModal } from './components/PendingNoticeModal';
 import { CreditNudge } from './components/credits/CreditNudge';
+import { UsageReceipt } from './components/credits/UsageReceipt';
 import { IosLaunchModalGate } from './components/IosLaunchModalGate';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
@@ -714,6 +715,7 @@ export default function App() {
         <ImpactPanel />
       </Suspense>
       <CreditNudge />
+      <UsageReceipt />
       <PendingNoticeModal />
       <IosLaunchModalGate />
       {showReadingMode && (

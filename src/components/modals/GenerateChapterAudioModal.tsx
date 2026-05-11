@@ -29,16 +29,31 @@ interface Props {
   onConfirm: () => void;
 }
 
-// The 5 Grok voice cards available for the narrator slot. Other Theodore TTS
+// Grok voice cards available for the narrator slot. Other Theodore TTS
 // providers (ElevenLabs, OpenAI, Fish) are intentionally NOT shown here —
 // multi-voice locks the character voices to Grok per the mobile spec, and
 // mixing providers across a project sounds inconsistent.
+//
+// Original 5 (multilingual) + 12 from xAI's expanded English library,
+// grouped by accent.
 const NARRATOR_OPTIONS = [
   { id: 'grok:leo', name: 'Leo', desc: 'Authoritative · default' },
   { id: 'grok:sal', name: 'Sal', desc: 'Smooth & grounded' },
   { id: 'grok:rex', name: 'Rex', desc: 'Confident & clear' },
   { id: 'grok:ara', name: 'Ara', desc: 'Warm & inviting' },
   { id: 'grok:eve', name: 'Eve', desc: 'Energetic & bright' },
+  { id: 'grok:6a41d324', name: 'Liam', desc: 'American · steady' },
+  { id: 'grok:d11249e6', name: 'Emma', desc: 'American · mature' },
+  { id: 'grok:f15c6a6a', name: 'Henry', desc: 'British · grounded' },
+  { id: 'grok:bedd6226', name: 'Olivia', desc: 'British · bright' },
+  { id: 'grok:a7b78b05', name: 'Sean', desc: 'Irish · warm' },
+  { id: 'grok:355dca53', name: 'Niamh', desc: 'Irish · lyrical' },
+  { id: 'grok:5d695b41', name: 'Marc', desc: 'South African · measured' },
+  { id: 'grok:135ff7ec', name: 'Thandi', desc: 'South African · warm' },
+  { id: 'grok:96819d0bd28d', name: 'Daniel', desc: 'English · clear' },
+  { id: 'grok:78a495fdbb39', name: 'James', desc: 'English · youthful' },
+  { id: 'grok:f8cf5c2c78d4', name: 'Grace', desc: 'English · young' },
+  { id: 'grok:79f3a8b96d43', name: 'Claire', desc: 'English · poised' },
 ] as const;
 
 export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfirm }: Props) {

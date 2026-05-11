@@ -5,20 +5,22 @@ import { useAuthStore } from '../../store/auth';
 import { track as jTrack } from '../../lib/journey';
 import * as pixel from '../../lib/pixel';
 
-const THRESHOLDS = [80, 50, 20] as const;
+// Thresholds in **% remaining** — fires once each as user's balance crosses
+// the threshold going down. Tuned to be quiet early, sharp near the end.
+const THRESHOLDS = [50, 25, 10] as const;
 type Threshold = typeof THRESHOLDS[number];
 
 const COPY: Record<Threshold, { title: string; body: string }> = {
-  80: {
-    title: "You're cooking",
-    body: "20% of your free credits used. Heads up — when you run out, paid plans pick up where you left off.",
-  },
   50: {
-    title: "Halfway through",
-    body: "Half your monthly credits used. Want unlimited chapters? Writer plan is $10/mo.",
+    title: 'Halfway through',
+    body: "Half your monthly credits left. Like what you're making? Writer is $10/mo, unlimited chapters.",
   },
-  20: {
-    title: "Running low — 20% left",
+  25: {
+    title: '25% left',
+    body: "You're using Theodore a lot — let's keep it flowing. Writer plan = $10/mo, no caps.",
+  },
+  10: {
+    title: 'Almost out — 10% left',
     body: "Don't lose momentum. Upgrade to keep generating chapters and audio.",
   },
 };
@@ -48,39 +50,42 @@ export function CreditNudge() {
   const { plan, setShowUpgradeModal } = useCreditsStore();
   const user = useAuthStore((s) => s.user);
   const [active, setActive] = useState<Threshold | null>(null);
-  const prevPctRef = useRef<number | null>(null);
+  const prevRemainingRef = useRef<number | null>(null);
   const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isFreeAuthed = !!user && plan.tier === 'free' && plan.creditsTotal > 0;
-  const pct = plan.creditsTotal > 0 ? (plan.creditsRemaining / plan.creditsTotal) * 100 : 100;
-  const used = 100 - pct;
+  const pctRemaining = plan.creditsTotal > 0
+    ? (plan.creditsRemaining / plan.creditsTotal) * 100
+    : 100;
   const periodEnd = plan.stripeCurrentPeriodEnd;
 
   useEffect(() => {
     if (!isFreeAuthed) {
-      prevPctRef.current = null;
+      prevRemainingRef.current = null;
       return;
     }
-    const prev = prevPctRef.current;
-    prevPctRef.current = used;
+    const prev = prevRemainingRef.current;
+    prevRemainingRef.current = pctRemaining;
 
     if (prev === null) return;
-    if (used <= prev) return;
+    // Only fire when remaining is dropping
+    if (pctRemaining >= prev) return;
 
     const shown = readShown(periodEnd);
+    // Highest unfired threshold the user crossed going down
     const crossed = THRESHOLDS.find(
-      (t) => prev < t && used >= t && !shown.includes(t)
+      (t) => prev > t && pctRemaining <= t && !shown.includes(t)
     );
     if (!crossed) return;
 
     writeShown(periodEnd, [...shown, crossed]);
     setActive(crossed);
-    jTrack('credit_nudge_shown', { threshold: crossed });
+    jTrack('credit_nudge_shown', { threshold_remaining: crossed });
     pixel.trackCustom('CreditNudgeShown', { threshold: crossed });
 
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
     dismissTimerRef.current = setTimeout(() => setActive(null), 12000);
-  }, [used, isFreeAuthed, periodEnd]);
+  }, [pctRemaining, isFreeAuthed, periodEnd]);
 
   useEffect(() => () => {
     if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
@@ -102,7 +107,7 @@ export function CreditNudge() {
         <button
           onClick={() => {
             setActive(null);
-            jTrack('credit_nudge_dismissed', { threshold: active });
+            jTrack('credit_nudge_dismissed', { threshold_remaining: active });
           }}
           className="absolute top-2 right-2 p-1 rounded-md text-white/40 hover:text-white/80 hover:bg-white/10 transition-all"
           aria-label="Dismiss"
@@ -119,7 +124,7 @@ export function CreditNudge() {
             <button
               onClick={() => {
                 setActive(null);
-                jTrack('credit_nudge_clicked', { threshold: active });
+                jTrack('credit_nudge_clicked', { threshold_remaining: active });
                 pixel.trackCustom('CreditNudgeClicked', { threshold: active });
                 setShowUpgradeModal(true, 'generic');
               }}
@@ -130,7 +135,7 @@ export function CreditNudge() {
             <button
               onClick={() => {
                 setActive(null);
-                jTrack('credit_nudge_dismissed', { threshold: active });
+                jTrack('credit_nudge_dismissed', { threshold_remaining: active });
               }}
               className="px-3 py-1.5 rounded-lg text-xs text-white/60 hover:text-white/90 transition-all"
             >

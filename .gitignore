@@ -5,6 +5,9 @@ uploads/
 pricing/
 .local/
 
+# Generated on first /api/tts/voices request, cached per deploy
+server/assets/voice-previews/
+
 # Remotion promo videos
 remotion/
 remotion.config.ts

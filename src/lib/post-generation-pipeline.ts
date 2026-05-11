@@ -277,10 +277,17 @@ async function runContinuityExtraction(chapterId: string): Promise<void> {
 
   const prompt = `You are Theodore, a story continuity analyst working on "${project.title}".
 
-Read the chapter below and produce three things:
-1) A 1-sentence SUMMARY of what happens (max 30 words, plot-focused).
-2) A list of OPEN_THREADS — any new unresolved promises, commitments, plans, secrets, or emotional threads a character introduces in this chapter that should be remembered for future chapters. Format: "CHARACTER: thread description". Be concise. Only include genuine open threads, not closed beats.
-3) A list of RESOLVED_THREAD_IDS — given the existing open threads below, which ids did THIS chapter resolve? Only include ids from the existing list.
+Read the chapter below and produce four things:
+
+1) SHORT_SUMMARY — one sentence (≤30 words), plot-focused. This is the tight memory used when generating much-later chapters.
+2) RICH_SUMMARY — 3-5 sentences (≤100 words) covering, in order:
+   • What physically and emotionally HAPPENS.
+   • WHY (motivations, causality — not just events).
+   • What CHANGES for the protagonist or central relationships (knowledge gained, beliefs shifted, alliances formed/broken).
+   • What STATE the chapter ends in (location, time of day, who is with whom, what is unresolved).
+   This is the model's primary memory of the chapter — be specific, not generic.
+3) OPEN_THREADS — any new unresolved promises, commitments, plans, secrets, or emotional threads a character introduces. Format: "CHARACTER: thread description". Concise. Only genuine open threads.
+4) RESOLVED_THREAD_IDS — given the existing open threads below, which ids did THIS chapter resolve? Only include ids from the existing list.
 
 EXISTING OPEN THREADS:
 ${openThreadsList || '(none)'}
@@ -289,7 +296,9 @@ CHAPTER ${chapter.number}: ${chapter.title}
 ${proseExcerpt}
 
 Respond ONLY in this exact format:
-SUMMARY: <one sentence>
+SHORT_SUMMARY: <one sentence>
+RICH_SUMMARY:
+<3-5 sentences>
 OPEN_THREADS:
 - CHARACTER: thread one
 - CHARACTER: thread two
@@ -297,13 +306,13 @@ RESOLVED_THREAD_IDS:
 - id1
 - id2
 
-If there are no open threads or none resolved, leave the list empty (just the header).`;
+If there are no open threads or none resolved, leave that list empty (just the header).`;
 
   console.info('[PostGen] Running continuity extraction for ch', chapter.number);
   const result = await generateText({
     prompt,
     model: settings.ai.preferredModel || 'claude-sonnet',
-    maxTokens: 600,
+    maxTokens: 1200,
     action: 'extract-continuity',
     projectId: project.id,
     chapterId: chapter.id,
@@ -318,22 +327,30 @@ If there are no open threads or none resolved, leave the list empty (just the he
     aiIntentMetadata: {
       ...existingMeta,
       summary: parsed.summary,
+      richSummary: parsed.richSummary,
       openedThreads: parsed.openedThreads,
       resolvedThreadIds: parsed.resolvedThreadIds,
     } as any,
   });
-  console.info('[PostGen] Continuity extracted:', { summary: parsed.summary, threads: parsed.openedThreads.length, resolved: parsed.resolvedThreadIds.length });
+  console.info('[PostGen] Continuity extracted:', { summary: parsed.summary, richLen: parsed.richSummary.length, threads: parsed.openedThreads.length, resolved: parsed.resolvedThreadIds.length });
 }
 
 function parseContinuityResponse(text: string, chapterNumber: number): {
   summary: string;
+  richSummary: string;
   openedThreads: Array<{ id: string; character: string; thread: string; introducedInChapter: number }>;
   resolvedThreadIds: string[];
 } | null {
   if (!text) return null;
-  const summaryMatch = text.match(/SUMMARY:\s*(.+?)(?:\n|$)/);
-  const summary = summaryMatch ? summaryMatch[1].trim() : '';
+  // SHORT_SUMMARY (new) — fall back to legacy "SUMMARY:" header so old responses keep parsing.
+  const shortMatch = text.match(/SHORT_SUMMARY:\s*(.+?)(?:\n|$)/i)
+    || text.match(/^SUMMARY:\s*(.+?)(?:\n|$)/im);
+  const summary = shortMatch ? shortMatch[1].trim() : '';
   if (!summary) return null;
+
+  // RICH_SUMMARY: everything between RICH_SUMMARY: and the next ALL_CAPS header
+  const richMatch = text.match(/RICH_SUMMARY:\s*([\s\S]*?)(?=\n\s*(?:OPEN_THREADS|RESOLVED_THREAD_IDS):|$)/i);
+  const richSummary = richMatch ? richMatch[1].trim() : '';
 
   const openSection = text.split(/OPEN_THREADS:/i)[1]?.split(/RESOLVED_THREAD_IDS:/i)[0] || '';
   const openedThreads: Array<{ id: string; character: string; thread: string; introducedInChapter: number }> = [];
@@ -360,7 +377,7 @@ function parseContinuityResponse(text: string, chapterNumber: number): {
     if (m) resolvedThreadIds.push(m[1].trim());
   }
 
-  return { summary, openedThreads, resolvedThreadIds };
+  return { summary, richSummary, openedThreads, resolvedThreadIds };
 }
 
 /** Step 1: AI-powered entity/artifact scanning with refinement */

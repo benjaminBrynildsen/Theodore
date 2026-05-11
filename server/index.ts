@@ -26,7 +26,7 @@ import {
 import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
-import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, estimateTTSCredits } from './tts.js';
+import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, GROK_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, getGrokVoicesWithPreviews, getGrokPreviewBuffer, estimateTTSCredits } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon } from './admin.js';
 import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.js';
 import multer from 'multer';
@@ -2165,26 +2165,48 @@ app.get('/api/tts/free-sample', async (req, res) => {
 
 app.get('/api/tts/voices', async (_req, res) => {
   try {
-    const [voices, fishVoices] = await Promise.all([
+    const [voices, fishVoices, grokVoices] = await Promise.all([
       getVoicesWithPreviews(),
       getFishVoicesWithPreviews(),
+      getGrokVoicesWithPreviews(),
     ]);
     res.json({
       voices,
       fishVoices,
+      grokVoices,
       providers: {
         openai: true,
         fish: !!process.env.FISH_AUDIO_API_KEY,
         elevenlabs: !!process.env.ELEVENLABS_API_KEY,
+        grok: !!process.env.XAI_API_KEY,
       },
     });
   } catch {
     res.json({
       voices: ELEVENLABS_VOICES,
       fishVoices: FISH_AUDIO_VOICES,
-      providers: { openai: true, fish: !!process.env.FISH_AUDIO_API_KEY, elevenlabs: !!process.env.ELEVENLABS_API_KEY },
+      grokVoices: GROK_VOICES,
+      providers: { openai: true, fish: !!process.env.FISH_AUDIO_API_KEY, elevenlabs: !!process.env.ELEVENLABS_API_KEY, grok: !!process.env.XAI_API_KEY },
     });
   }
+});
+
+// Static Grok voice previews. The MP3s are generated once per voice by
+// getGrokVoicesWithPreviews and cached on disk + in-memory. We don't serve
+// directly from a static dir because the files appear lazily on first call.
+app.get('/voice-previews/:filename', (req, res) => {
+  const filename = req.params.filename || '';
+  const m = filename.match(/^([a-z0-9]+)\.mp3$/i);
+  if (!m) return res.status(404).end();
+  const voiceId = m[1];
+  const buf = getGrokPreviewBuffer(voiceId);
+  if (!buf) return res.status(404).end();
+  res.set({
+    'Content-Type': 'audio/mpeg',
+    'Content-Length': String(buf.length),
+    'Cache-Control': 'public, max-age=86400',
+  });
+  res.send(buf);
 });
 
 // ========== Async TTS Job System ==========

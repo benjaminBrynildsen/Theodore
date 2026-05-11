@@ -88,7 +88,11 @@ export const api = {
   createTransaction: (data: any) => request<any>('/transactions', { method: 'POST', body: JSON.stringify(data) }),
 
   // ========== TTS / Audiobook ==========
-  ttsVoices: () => request<{ voices: Array<{ id: string; name: string; desc: string; gender: string; tone: string; previewUrl?: string }> }>('/tts/voices'),
+  ttsVoices: () => request<{
+    voices: Array<{ id: string; name: string; desc: string; gender: string; tone: string; previewUrl?: string }>;
+    fishVoices?: Array<{ id: string; name: string; desc: string; gender: string; tone: string; previewUrl?: string }>;
+    grokVoices?: Array<{ id: string; voiceId: string; name: string; desc: string; gender: 'male' | 'female'; accent: string; previewUrl?: string }>;
+  }>('/tts/voices'),
   ttsGenerate: async (data: {
     chapterId: string;
     prose: string;

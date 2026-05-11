@@ -6,6 +6,7 @@ import type { Project, Chapter, PremiseCard, WritingMode, GenerationType, Scene,
 import type { AppSettings, WritingStyleSettings } from '../types/settings';
 import type { AnyCanonEntry, CharacterEntry, LocationEntry } from '../types/canon';
 import { buildContinuityContext, formatContinuityBlock } from './continuity-context';
+import { getDialogueTargetForProject, buildDialogueClause } from './dialogue-targets';
 
 // ========== Selection-Based Edit Prompt (Vibe Editor) ==========
 
@@ -174,6 +175,21 @@ function buildCraftRules(): string {
 SCENES: Enter late, leave early. Start in the middle of action or tension, not with arrivals or greetings. End on a shift — a decision, a revelation, a door closing — not a resolution.
 
 DIALOGUE: People rarely say what they mean. Layer subtext beneath the words. Use interruptions, deflections, non-answers. Use clear, explicit attribution — default to "said" for neutral delivery, and use action beats when they add meaningful character or motion. NEVER sacrifice speaker clarity. Every dialogue line in a multi-character scene should anchor to a named speaker (a "Name said" tag or an action beat that names them). If two or more characters are speaking, each time the speaker changes, make attribution explicit in the same or adjacent sentence. Do not stack multiple unattributed quote-only paragraphs in a row. Never use dialogue to deliver backstory ("As you know, Tim...").
+- VARY ATTRIBUTION STYLES — mix three forms across a scene so the rhythm doesn't flatten:
+  (1) Inline tag — short attribution attached to the quote: \`"Don't," she said, laughing under her breath.\`
+  (2) Wrapping action beat — narrative action before or after the line that identifies the speaker through behavior: \`Mara set the cup down. Her hand was steady. "I'm leaving in the morning."\`
+  (3) Pure beat (no tag) — only when the prior beat already locked the speaker.
+- When a speech act has a notable physical or emotional quality, NAME IT in the attribution. Prefer concrete cues that a listener could hear:
+  • "...," she said, laughing softly.
+  • "...," he whispered.
+  • "...," she sighed.
+  • He chuckled. "..."
+  • Her voice dropped to a near-whisper. "..."
+  • She exhaled slowly. "..."
+  • "..." — a sharp, dry laugh.
+  • He shouted over the wind, "..."
+  These cues feed the audiobook layer. Vague cues ("she said quietly") help less than concrete ones ("she said, breath catching").
+- Don't over-decorate every line. Roughly 1 in 3 spoken lines deserves an expressive cue; the rest should stay clean with plain "said" or a beat.
 
 CHARACTERS: On first appearance in a chapter, anchor with ONE visceral sensory detail — not a full description. Show personality through choices and behavior, not adjectives. Interior monologue should conflict with exterior action.
 
@@ -477,6 +493,30 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
   // Tone and narrative controls (from project)
   sections.push('\n=== TONE & NARRATIVE ===');
   sections.push(buildToneInstructions(project));
+
+  // Dialogue target — soft per-genre percentage (mirrors mobile)
+  const dialogueTarget = getDialogueTargetForProject(project);
+  sections.push('\n=== DIALOGUE TARGET ===');
+  sections.push(buildDialogueClause(dialogueTarget));
+
+  // Chapter-ending rule — cliffhanger on every chapter except the last
+  const sortedChapters = [...allChapters].sort((a, b) => (a.number || 0) - (b.number || 0));
+  const isFinalChapter = sortedChapters.length > 0 && sortedChapters[sortedChapters.length - 1].id === chapter.id;
+  sections.push('\n=== CHAPTER ENDING RULE ===');
+  if (isFinalChapter) {
+    sections.push(
+      'This is the FINAL chapter of the novel. End on resolution — wrap the central arc, deliver the emotional payoff, ' +
+      'and give the reader closure. Lingering ambiguity is fine; an unresolved cliffhanger is not.'
+    );
+  } else {
+    sections.push(
+      'End this chapter on a CLIFFHANGER — an unresolved hook that compels the reader to turn the page. ' +
+      'Acceptable forms: a sudden revelation, a hard choice posed and not yet answered, a door opening on something unexpected, ' +
+      'a line of dialogue that recontextualizes everything, a physical threat closing in, an interrupted moment. ' +
+      'Do NOT resolve the chapter\'s central tension before the final paragraph. ' +
+      'Cut on the highest-tension beat. Avoid soft fades, falling-action wrap-ups, or "and then they went to sleep" endings.'
+    );
+  }
 
   // AI behavior settings
   sections.push('\n=== GENERATION PREFERENCES ===');

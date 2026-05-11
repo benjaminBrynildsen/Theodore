@@ -4,12 +4,21 @@ import { generateId } from '../lib/utils';
 
 export type UpgradeReason = 'generic' | 'audio_cap';
 
+export interface UsageReceipt {
+  id: string;
+  action: string;
+  creditsUsed: number;
+  shownAt: number;
+}
+
 interface CreditsState {
   plan: UserPlan;
   transactions: CreditTransaction[];
   showUpgradeModal: boolean;
   upgradeReason: UpgradeReason;
   showSettingsModal: boolean;
+  lastReceipt: UsageReceipt | null;
+  dismissReceipt: () => void;
 
   // Actions
   spendCredits: (amount: number, action: CreditTransaction['action'], meta?: Partial<CreditTransaction>) => boolean;
@@ -48,14 +57,16 @@ interface CreditsState {
 export const useCreditsStore = create<CreditsState>((set, get) => ({
   plan: {
     tier: 'free',
-    creditsTotal: 100,
+    creditsTotal: 200,
     creditsUsed: 0,
-    creditsRemaining: 100,
+    creditsRemaining: 200,
   },
   transactions: [],
   showUpgradeModal: false,
   upgradeReason: 'generic',
   showSettingsModal: false,
+  lastReceipt: null,
+  dismissReceipt: () => set({ lastReceipt: null }),
 
   spendCredits: (amount, action, meta = {}) => {
     const { plan } = get();
@@ -110,9 +121,9 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
       set({
         plan: {
           tier: 'free',
-          creditsTotal: 100,
+          creditsTotal: 200,
           creditsUsed: 0,
-          creditsRemaining: 100,
+          creditsRemaining: 200,
           renewsAt: undefined,
           stripeCustomerId: undefined,
           stripeSubscriptionId: undefined,
@@ -159,6 +170,15 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
         ? s.plan.creditsRemaining
         : Math.max(0, usage.creditsRemaining);
       const nextTotal = s.plan.creditsTotal;
+      const receipt: UsageReceipt | null =
+        usage.creditsUsed > 0
+          ? {
+              id: generateId(),
+              action: usage.action,
+              creditsUsed: usage.creditsUsed,
+              shownAt: Date.now(),
+            }
+          : s.lastReceipt;
       return {
         plan: {
           ...s.plan,
@@ -176,6 +196,7 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
           chapterId: usage.chapterId,
           timestamp: new Date().toISOString(),
         }],
+        lastReceipt: receipt,
       };
     });
   },
@@ -204,7 +225,7 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
         break;
       case 'customer.subscription.deleted':
         set((s) => ({
-          plan: { ...s.plan, tier: 'free', creditsTotal: 100, creditsRemaining: 100 - s.plan.creditsUsed },
+          plan: { ...s.plan, tier: 'free', creditsTotal: 200, creditsRemaining: 200 - s.plan.creditsUsed },
         }));
         break;
       case 'invoice.payment_succeeded':

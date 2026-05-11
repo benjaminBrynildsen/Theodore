@@ -6,6 +6,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { execFile } from 'child_process';
 import { generateSFX } from './sfx.js';
+import { injectGrokAudioTags } from './grok-tag-injector.js';
 
 // ========== Direction Tag Detection ==========
 
@@ -264,7 +265,42 @@ const OPENAI_VALID_VOICES = new Set([
   'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer',
   'coral', 'verse', 'ballad', 'ash', 'sage', 'marin', 'cedar',
 ]);
-const GROK_VALID_VOICES = new Set(['eve', 'ara', 'rex', 'sal', 'leo']);
+export interface GrokVoiceInfo {
+  id: string;        // Full client-side ID with `grok:` prefix
+  voiceId: string;   // Bare ID xAI expects (no prefix)
+  name: string;
+  desc: string;
+  gender: 'male' | 'female';
+  accent: string;
+}
+
+// xAI Grok voices, English-speaking subset. Originals (eve/ara/rex/sal/leo)
+// are multilingual; the rest come from xAI's expanded library
+// (GET https://api.x.ai/v1/tts/voices). Keep this in sync with the UI:
+//   - src/components/features/AudiobookPanel.tsx → GROK_VOICES
+//   - src/components/modals/GenerateChapterAudioModal.tsx → NARRATOR_OPTIONS
+//   - src/lib/character-voices.ts → GROK_VOICE_META
+export const GROK_VOICES: GrokVoiceInfo[] = [
+  { id: 'grok:leo', voiceId: 'leo', name: 'Leo', desc: 'Authoritative · default', gender: 'male', accent: 'multilingual' },
+  { id: 'grok:sal', voiceId: 'sal', name: 'Sal', desc: 'Smooth & grounded', gender: 'male', accent: 'multilingual' },
+  { id: 'grok:rex', voiceId: 'rex', name: 'Rex', desc: 'Confident & clear', gender: 'male', accent: 'multilingual' },
+  { id: 'grok:ara', voiceId: 'ara', name: 'Ara', desc: 'Warm & inviting', gender: 'female', accent: 'multilingual' },
+  { id: 'grok:eve', voiceId: 'eve', name: 'Eve', desc: 'Energetic & bright', gender: 'female', accent: 'multilingual' },
+  { id: 'grok:6a41d324', voiceId: '6a41d324', name: 'Liam', desc: 'American · steady', gender: 'male', accent: 'en-US' },
+  { id: 'grok:d11249e6', voiceId: 'd11249e6', name: 'Emma', desc: 'American · mature & wise', gender: 'female', accent: 'en-US' },
+  { id: 'grok:f15c6a6a', voiceId: 'f15c6a6a', name: 'Henry', desc: 'British · grounded', gender: 'male', accent: 'en-GB' },
+  { id: 'grok:bedd6226', voiceId: 'bedd6226', name: 'Olivia', desc: 'British · young & bright', gender: 'female', accent: 'en-GB' },
+  { id: 'grok:a7b78b05', voiceId: 'a7b78b05', name: 'Sean', desc: 'Irish · warm', gender: 'male', accent: 'en-IE' },
+  { id: 'grok:355dca53', voiceId: '355dca53', name: 'Niamh', desc: 'Irish · lyrical', gender: 'female', accent: 'en-IE' },
+  { id: 'grok:5d695b41', voiceId: '5d695b41', name: 'Marc', desc: 'South African · measured', gender: 'male', accent: 'en-ZA' },
+  { id: 'grok:135ff7ec', voiceId: '135ff7ec', name: 'Thandi', desc: 'South African · warm', gender: 'female', accent: 'en-ZA' },
+  { id: 'grok:96819d0bd28d', voiceId: '96819d0bd28d', name: 'Daniel', desc: 'English · clear', gender: 'male', accent: 'en' },
+  { id: 'grok:78a495fdbb39', voiceId: '78a495fdbb39', name: 'James', desc: 'English · youthful', gender: 'male', accent: 'en' },
+  { id: 'grok:f8cf5c2c78d4', voiceId: 'f8cf5c2c78d4', name: 'Grace', desc: 'English · young & bright', gender: 'female', accent: 'en' },
+  { id: 'grok:79f3a8b96d43', voiceId: '79f3a8b96d43', name: 'Claire', desc: 'English · poised', gender: 'female', accent: 'en' },
+];
+
+const GROK_VALID_VOICES = new Set(GROK_VOICES.map(v => v.voiceId));
 
 const PROVIDER_DEFAULT_VOICE = {
   openai: 'fable',
@@ -362,10 +398,15 @@ export async function callGrokTTS(text: string, voiceId: string): Promise<Buffer
   const apiKey = process.env.XAI_API_KEY;
   if (!apiKey) throw new Error('XAI_API_KEY is required for Grok TTS');
 
+  // Inject xAI audio tags ([laugh], <whisper>...</whisper>, etc.) from
+  // descriptive cues in the prose. Pure regex pass — adds ~few chars per
+  // tagged line, well within the 15K budget.
+  const tagged = injectGrokAudioTags(text);
+
   // Hard guard so we never accidentally send > 15K chars and get a truncated response.
-  const safeText = text.length > GROK_MAX_CHARS_PER_REQUEST
-    ? text.slice(0, GROK_MAX_CHARS_PER_REQUEST)
-    : text;
+  const safeText = tagged.length > GROK_MAX_CHARS_PER_REQUEST
+    ? tagged.slice(0, GROK_MAX_CHARS_PER_REQUEST)
+    : tagged;
   const coerced = coerceVoiceForProvider(voiceId, 'grok');
   if (coerced.coerced) ttsLog(`[grok] coerced voice "${coerced.original}" → "${coerced.voice}" (mismatched provider)`);
 
@@ -412,6 +453,98 @@ export async function callGrokTTS(text: string, voiceId: string): Promise<Buffer
     }
     throw err;
   }
+}
+
+// ========== Grok voice previews ==========
+// xAI's voice-list endpoint doesn't expose preview URLs, so we generate a
+// short sample MP3 once per voice and cache it on disk. The disk copy survives
+// hot reloads (and Render redeploys, until the container is replaced). Falls
+// back to in-memory only if the assets dir isn't writable.
+
+const GROK_PREVIEW_DIR = path.join(process.cwd(), 'server', 'assets', 'voice-previews');
+const GROK_PREVIEW_TEXT = 'Hello — this is what my voice sounds like. I can narrate any story you bring me, from the quietest moments to the loudest crescendos.';
+const grokPreviewMemoryCache = new Map<string, Buffer>();
+
+function ensureGrokPreviewDir(): boolean {
+  try {
+    fs.mkdirSync(GROK_PREVIEW_DIR, { recursive: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getOrGenerateGrokPreview(voice: GrokVoiceInfo): Promise<Buffer | null> {
+  const cached = grokPreviewMemoryCache.get(voice.voiceId);
+  if (cached) return cached;
+
+  const dirOk = ensureGrokPreviewDir();
+  const filePath = dirOk ? path.join(GROK_PREVIEW_DIR, `${voice.voiceId}.mp3`) : null;
+
+  if (filePath && fs.existsSync(filePath)) {
+    try {
+      const buf = fs.readFileSync(filePath);
+      grokPreviewMemoryCache.set(voice.voiceId, buf);
+      return buf;
+    } catch (e) {
+      console.warn(`[grok-preview] failed to read cached ${voice.voiceId}:`, e);
+    }
+  }
+
+  // Generate fresh from xAI. We pass the bare voiceId (no `grok:` prefix).
+  try {
+    const buf = await callGrokTTS(GROK_PREVIEW_TEXT, voice.voiceId);
+    grokPreviewMemoryCache.set(voice.voiceId, buf);
+    if (filePath) {
+      try { fs.writeFileSync(filePath, buf); } catch (e) { console.warn(`[grok-preview] failed to write ${voice.voiceId}:`, e); }
+    }
+    return buf;
+  } catch (e) {
+    console.warn(`[grok-preview] generation failed for ${voice.voiceId}:`, (e as Error).message);
+    return null;
+  }
+}
+
+/**
+ * Return all Grok voices with a previewUrl pointing at the static preview
+ * route. Triggers background generation for any voice whose preview isn't
+ * cached yet — first /api/tts/voices call after deploy warms the cache.
+ */
+export async function getGrokVoicesWithPreviews(): Promise<(GrokVoiceInfo & { previewUrl?: string })[]> {
+  // Kick off generation for any missing previews. Fire-and-forget — we don't
+  // block the voices-list response on the full warm-up (17 voices × ~1s each
+  // would be too slow). Clients fall back to /api/tts/preview for any voice
+  // whose static file isn't ready yet.
+  for (const v of GROK_VOICES) {
+    const filePath = path.join(GROK_PREVIEW_DIR, `${v.voiceId}.mp3`);
+    if (!grokPreviewMemoryCache.has(v.voiceId) && !fs.existsSync(filePath)) {
+      // intentionally not awaited
+      getOrGenerateGrokPreview(v).catch(() => {});
+    }
+  }
+
+  return GROK_VOICES.map(v => {
+    const filePath = path.join(GROK_PREVIEW_DIR, `${v.voiceId}.mp3`);
+    const ready = grokPreviewMemoryCache.has(v.voiceId) || fs.existsSync(filePath);
+    return ready ? { ...v, previewUrl: `/voice-previews/${v.voiceId}.mp3` } : { ...v };
+  });
+}
+
+/** Serve a cached preview buffer for the express static handler. */
+export function getGrokPreviewBuffer(voiceId: string): Buffer | null {
+  const mem = grokPreviewMemoryCache.get(voiceId);
+  if (mem) return mem;
+  const filePath = path.join(GROK_PREVIEW_DIR, `${voiceId}.mp3`);
+  if (fs.existsSync(filePath)) {
+    try {
+      const buf = fs.readFileSync(filePath);
+      grokPreviewMemoryCache.set(voiceId, buf);
+      return buf;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 // ========== Fish Audio TTS ==========

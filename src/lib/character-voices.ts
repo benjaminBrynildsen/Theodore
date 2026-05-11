@@ -87,24 +87,35 @@ export function assignVoicesForProject(characters: CharacterEntry[]): VoiceAssig
   }));
 }
 
+// Grok voice metadata table — original 5 multilingual voices plus the
+// English library subset (en, en-US, en-GB, en-IE, en-ZA). Keep this in
+// sync with NARRATOR_OPTIONS / GROK_VOICES in the UI components.
+const GROK_VOICE_META: Record<string, { name: string; desc: string }> = {
+  'grok:leo': { name: 'Leo', desc: 'Authoritative narrator' },
+  'grok:rex': { name: 'Rex', desc: 'Confident & clear' },
+  'grok:sal': { name: 'Sal', desc: 'Smooth & grounded' },
+  'grok:eve': { name: 'Eve', desc: 'Energetic & bright' },
+  'grok:ara': { name: 'Ara', desc: 'Warm & inviting' },
+  'grok:6a41d324': { name: 'Liam', desc: 'American · steady' },
+  'grok:d11249e6': { name: 'Emma', desc: 'American · mature & wise' },
+  'grok:f15c6a6a': { name: 'Henry', desc: 'British · grounded' },
+  'grok:bedd6226': { name: 'Olivia', desc: 'British · young & bright' },
+  'grok:a7b78b05': { name: 'Sean', desc: 'Irish · warm' },
+  'grok:355dca53': { name: 'Niamh', desc: 'Irish · lyrical' },
+  'grok:5d695b41': { name: 'Marc', desc: 'South African · measured' },
+  'grok:135ff7ec': { name: 'Thandi', desc: 'South African · warm' },
+  'grok:96819d0bd28d': { name: 'Daniel', desc: 'English · clear' },
+  'grok:78a495fdbb39': { name: 'James', desc: 'English · youthful' },
+  'grok:f8cf5c2c78d4': { name: 'Grace', desc: 'English · young & bright' },
+  'grok:79f3a8b96d43': { name: 'Claire', desc: 'English · poised' },
+};
+
 export function getVoiceLabel(voiceId: string): string {
-  switch (voiceId) {
-    case 'grok:leo': return 'Leo';
-    case 'grok:rex': return 'Rex';
-    case 'grok:sal': return 'Sal';
-    case 'grok:eve': return 'Eve';
-    case 'grok:ara': return 'Ara';
-    default: return voiceId.replace(/^grok:/, '');
-  }
+  const meta = GROK_VOICE_META[voiceId];
+  if (meta) return meta.name;
+  return voiceId.replace(/^grok:/, '');
 }
 
 export function getVoiceDescription(voiceId: string): string {
-  switch (voiceId) {
-    case 'grok:leo': return 'Authoritative narrator';
-    case 'grok:rex': return 'Confident & clear';
-    case 'grok:sal': return 'Smooth & grounded';
-    case 'grok:eve': return 'Energetic & bright';
-    case 'grok:ara': return 'Warm & inviting';
-    default: return '';
-  }
+  return GROK_VOICE_META[voiceId]?.desc || '';
 }
