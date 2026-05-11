@@ -1937,6 +1937,7 @@ export async function dumpProjectCanon(req: Request, res: Response) {
 // POST /api/admin/chapters/:chapterId/attribute  ?force=1
 // Runs the strict Opus voice-attribution pass on a chapter and caches the
 // result. Used for ad-hoc QA before relying on it in audio generation.
+// Same code path the auto-attribution uses during TTS (see runTTSJob).
 // See docs/VOICE-ATTRIBUTION.md for the contract.
 export async function attributeChapterEndpoint(req: Request, res: Response) {
   try {
@@ -1951,52 +1952,24 @@ export async function attributeChapterEndpoint(req: Request, res: Response) {
       return;
     }
 
-    // Cached path — return existing attribution unless force=1
-    const cached = chapter.voiceAttribution as Record<string, any> | null;
-    if (!force && cached && Array.isArray(cached.segments) && cached.segments.length) {
-      res.json({ ...cached, cached: true, chapterId });
+    // Force=1 wipes the cache so the helper has to re-run.
+    if (force) {
+      await db.update(chapters).set({ voiceAttribution: null, updatedAt: new Date() }).where(eq(chapters.id, chapterId));
+    }
+
+    const { ensureChapterAttribution } = await import('./voice-attribution-cache.js');
+    const r = await ensureChapterAttribution(chapterId);
+
+    if (r.source === 'failed') {
+      res.status(500).json({ error: r.error || 'attribution failed' });
       return;
     }
 
-    // Pull canon characters for this chapter's project
-    const canonChars = await db.select().from(canonEntries).where(
-      and(eq(canonEntries.projectId, chapter.projectId), eq(canonEntries.type, 'character')),
-    );
-    const roster = canonChars.map((c: any) => ({
-      canonName: c.name,
-      aliases: Array.isArray(c.tags) ? c.tags.filter((t: any) => typeof t === 'string') : [],
-      gender: (c.data && typeof c.data === 'object' && c.data.gender) ? String(c.data.gender) : '',
-    }));
-
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      res.status(500).json({ error: 'ANTHROPIC_API_KEY missing' });
-      return;
-    }
-
-    const { attributeChapter } = await import('./voice-attribution.js');
-    const result = await attributeChapter({
-      prose: chapter.prose || '',
-      characters: roster,
-      apiKey,
-    });
-
-    const cachePayload = {
-      segments: result.segments,
-      status: result.status,
-      attempts: result.attempts,
-      model: result.model,
-      attributedAt: new Date().toISOString(),
-      tokensIn: result.tokensIn,
-      tokensOut: result.tokensOut,
-      ...(result.unattributedQuotes ? { unattributedQuotes: result.unattributedQuotes } : {}),
-    };
-
-    await db.update(chapters)
-      .set({ voiceAttribution: cachePayload, updatedAt: new Date() })
-      .where(eq(chapters.id, chapterId));
-
-    res.json({ ...cachePayload, cached: false, chapterId, rosterSize: roster.length });
+    // Read the cached payload back so the response includes metadata
+    // (attempts, model, tokens, etc.) — ensureChapterAttribution writes it.
+    const [refreshed] = await db.select({ voiceAttribution: chapters.voiceAttribution }).from(chapters).where(eq(chapters.id, chapterId)).limit(1);
+    const cached = refreshed?.voiceAttribution as Record<string, any> | null;
+    res.json({ ...(cached || { segments: r.segments, status: r.status }), cached: r.source === 'cached', chapterId });
   } catch (e: any) {
     console.error('[Admin] attribute-chapter error:', e?.message || e);
     res.status(500).json({ error: e?.message || 'Internal server error' });
@@ -2109,6 +2082,98 @@ export async function conceptToHeadlines(req: Request, res: Response) {
     res.json({ headlines });
   } catch (e: any) {
     console.error('[Admin] concept-to-headlines error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// ========== Share-referral analytics ==========
+// Returns:
+//   - referredUsers: flat list of users who signed up via a share link
+//   - bySharer: aggregated per-sharer conversion stats (total referred, paid, free, slugs)
+export async function getReferrals(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const referred = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        plan: users.plan,
+        stripeSubscriptionStatus: users.stripeSubscriptionStatus,
+        referredByUserId: users.referredByUserId,
+        referredViaSlug: users.referredViaSlug,
+        referredAt: users.referredAt,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(isNotNull(users.referredByUserId))
+      .orderBy(desc(users.createdAt));
+
+    // Sharer info for joining email/name
+    const sharerIds = Array.from(new Set(referred.map((r) => r.referredByUserId).filter((x): x is string => !!x)));
+    const sharerRows = sharerIds.length
+      ? await db.select({ id: users.id, email: users.email, name: users.name }).from(users).where(inArray(users.id, sharerIds))
+      : [];
+    const sharerById = new Map(sharerRows.map((s) => [s.id, s]));
+
+    // Aggregate per sharer
+    const aggMap = new Map<string, {
+      sharerId: string;
+      sharerEmail: string | null;
+      sharerName: string | null;
+      totalReferred: number;
+      paidReferred: number;
+      slugs: Set<string>;
+      latestReferralAt: Date | null;
+    }>();
+    for (const r of referred) {
+      if (!r.referredByUserId) continue;
+      let row = aggMap.get(r.referredByUserId);
+      if (!row) {
+        const s = sharerById.get(r.referredByUserId);
+        row = {
+          sharerId: r.referredByUserId,
+          sharerEmail: s?.email || null,
+          sharerName: s?.name || null,
+          totalReferred: 0,
+          paidReferred: 0,
+          slugs: new Set<string>(),
+          latestReferralAt: null,
+        };
+        aggMap.set(r.referredByUserId, row);
+      }
+      row.totalReferred += 1;
+      if (r.plan && r.plan !== 'free') row.paidReferred += 1;
+      if (r.referredViaSlug) row.slugs.add(r.referredViaSlug);
+      const at = r.referredAt || r.createdAt;
+      if (at && (!row.latestReferralAt || at > row.latestReferralAt)) row.latestReferralAt = at;
+    }
+
+    const bySharer = Array.from(aggMap.values())
+      .map((r) => ({
+        sharerId: r.sharerId,
+        sharerEmail: r.sharerEmail,
+        sharerName: r.sharerName,
+        totalReferred: r.totalReferred,
+        paidReferred: r.paidReferred,
+        slugs: Array.from(r.slugs),
+        latestReferralAt: r.latestReferralAt,
+      }))
+      .sort((a, b) => b.totalReferred - a.totalReferred);
+
+    res.json({
+      totalReferred: referred.length,
+      totalPaidReferred: referred.filter((r) => r.plan && r.plan !== 'free').length,
+      bySharer,
+      referredUsers: referred.map((r) => ({
+        ...r,
+        sharerEmail: r.referredByUserId ? sharerById.get(r.referredByUserId)?.email || null : null,
+      })),
+    });
+  } catch (e: any) {
+    console.error('[Admin] referrals error:', e);
     res.status(500).json({ error: 'Internal server error' });
   }
 }

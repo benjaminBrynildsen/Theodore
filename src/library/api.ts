@@ -54,6 +54,44 @@ export function trackListen(slug: string) {
   fetch(`/api/public/track-listen/${encodeURIComponent(slug)}`, { method: 'POST' }).catch(() => {});
 }
 
+// Share-referral attribution. The library page parses `?ref=<userId>` from the
+// URL once on mount, calls the capture endpoint, and stashes the ref here so
+// other library components (player, CTA) can stamp it into journey events.
+let activeRef: string | null = null;
+
+export function parseRefParam(): string | null {
+  try {
+    const url = new URL(window.location.href);
+    const raw = url.searchParams.get('ref');
+    if (!raw) return null;
+    if (raw.length > 200) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+export function getActiveRef(): string | null {
+  return activeRef;
+}
+
+export async function captureReferrer(slug: string, ref: string): Promise<boolean> {
+  activeRef = ref;
+  try {
+    const r = await fetch('/api/referrer/capture', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ ref, slug }),
+    });
+    if (!r.ok) return false;
+    const j = await r.json();
+    return !!j?.captured;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Parse the library route from the current URL.
  * Supports:

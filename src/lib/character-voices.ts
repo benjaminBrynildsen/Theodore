@@ -1,25 +1,47 @@
 // ========== Character Voice Assignment — web port of mobile spec ==========
-// Mirrors theodore-mobile-app/lib/character-voices.ts. Same locked Grok voice
-// slots, same project-wide consistency rule (voices don't change per chapter).
+// See docs/MULTI_VOICE.md for the full design. Keep this file in lockstep with
+// theodore-mobile-app/lib/character-voices.ts and the GROK_VOICES table in
+// theodore-web/server/tts.ts.
 //
-// Per-project assignment plan (Ben 2026-04-25, ported to web 2026-05-09):
-//   - Leo  → narrator AND fallback for any character not in the top 4
-//   - Rex  → most important male character
-//   - Sal  → second-most important male character
-//   - Eve  → most important female character
-//   - Ara  → second-most important female character
+// Phase 3 (2026-05-11): pools expanded from 2+2 to 8+8 using xAI's English
+// voice library. Pool head order is the multilingual originals (Rex/Sal,
+// Eve/Ara) so Phase-1 projects keep their original voice mapping on re-render.
+//
+// Per-project assignment:
+//   - Narrator + fallback: Leo
+//   - Top 8 male characters → MALE_CHARACTER_VOICES[0..7]
+//   - Top 8 female characters → FEMALE_CHARACTER_VOICES[0..7]
+//   - Beyond rank 8 or neutral gender → narrator fallback
 //
 // Importance ranking (web): role-based — protagonist > antagonist > supporting.
-// Mobile uses Haiku's `mainCharacter` flag at outline time (set on the
-// `data` jsonb blob); web doesn't currently emit that flag, so we use the
-// existing `character.role` enum which Theodore's outline pipeline does set.
-// Within each gender we sort by role priority then by canon order.
+// Within same role, canon array order. Mobile uses Haiku's `mainCharacter`
+// flag as the primary signal; web will adopt it once outlines emit it.
 
 import type { CharacterEntry } from '../types/canon';
 
 export const NARRATOR_VOICE = 'grok:leo';
-export const MALE_CHARACTER_VOICES = ['grok:rex', 'grok:sal'] as const;
-export const FEMALE_CHARACTER_VOICES = ['grok:eve', 'grok:ara'] as const;
+// Pool head is intentionally the multilingual originals so Phase-1 projects
+// (before 2026-05) preserve their voice assignments when re-rendered.
+export const MALE_CHARACTER_VOICES = [
+  'grok:rex',          // Rex — Confident & clear (multilingual)
+  'grok:sal',          // Sal — Smooth & grounded (multilingual)
+  'grok:f15c6a6a',     // Henry — British, grounded
+  'grok:6a41d324',     // Liam — American, steady
+  'grok:a7b78b05',     // Sean — Irish, warm
+  'grok:5d695b41',     // Marc — South African, measured
+  'grok:96819d0bd28d', // Daniel — English, clear
+  'grok:78a495fdbb39', // James — English, youthful
+] as const;
+export const FEMALE_CHARACTER_VOICES = [
+  'grok:eve',          // Eve — Energetic & bright (multilingual)
+  'grok:ara',          // Ara — Warm & inviting (multilingual)
+  'grok:bedd6226',     // Olivia — British, young & bright
+  'grok:d11249e6',     // Emma — American, mature & wise
+  'grok:355dca53',     // Niamh — Irish, lyrical
+  'grok:135ff7ec',     // Thandi — South African, warm
+  'grok:f8cf5c2c78d4', // Grace — English, young & bright
+  'grok:79f3a8b96d43', // Claire — English, poised
+] as const;
 
 export type Gender = 'male' | 'female' | 'neutral';
 
@@ -33,7 +55,10 @@ export interface VoiceAssignment {
   isFallback: boolean;
 }
 
-const MAIN_ROLES = new Set<string>(['protagonist', 'antagonist', 'supporting']);
+// Eligible roles for a unique voice. We exclude 'mentioned' — those are
+// referenced characters who never speak. 'minor' is included now that the
+// pool is wide enough (Phase 3) — side characters can get a unique voice.
+const VOICED_ROLES = new Set<string>(['protagonist', 'antagonist', 'supporting', 'minor']);
 
 function getGender(c: CharacterEntry): Gender {
   const raw = (c.character?.gender || '').toLowerCase().trim();
@@ -42,32 +67,35 @@ function getGender(c: CharacterEntry): Gender {
   return 'neutral';
 }
 
-function isMain(c: CharacterEntry): boolean {
-  return MAIN_ROLES.has(String(c.character?.role || ''));
+function isVoiced(c: CharacterEntry): boolean {
+  const role = String(c.character?.role || '');
+  // Empty role passes through — older projects without role data still get voices.
+  return role === '' || VOICED_ROLES.has(role);
 }
 
 function rolePriority(role: string): number {
   if (role === 'protagonist') return 0;
   if (role === 'antagonist') return 1;
   if (role === 'supporting') return 2;
-  return 3;
+  if (role === 'minor') return 3;
+  return 4;
 }
 
 /**
  * Pure function: doesn't mutate the canon. Returns one assignment per
- * character. Top 2 main males → rex/sal, top 2 main females → eve/ara,
- * everyone else → narrator (isFallback=true).
+ * character. Top 8 voiced males → MALE_CHARACTER_VOICES, top 8 voiced females
+ * → FEMALE_CHARACTER_VOICES, neutral/excess → narrator (isFallback=true).
  */
 export function assignVoicesForProject(characters: CharacterEntry[]): VoiceAssignment[] {
   if (!characters.length) return [];
 
-  const mains = characters.filter(isMain);
+  const voiced = characters.filter(isVoiced);
   const sortByRole = (a: CharacterEntry, b: CharacterEntry) =>
     rolePriority(String(a.character?.role || '')) -
     rolePriority(String(b.character?.role || ''));
 
-  const males = mains.filter((c) => getGender(c) === 'male').sort(sortByRole);
-  const females = mains.filter((c) => getGender(c) === 'female').sort(sortByRole);
+  const males = voiced.filter((c) => getGender(c) === 'male').sort(sortByRole);
+  const females = voiced.filter((c) => getGender(c) === 'female').sort(sortByRole);
 
   const voiceById = new Map<string, string>();
   males.slice(0, MALE_CHARACTER_VOICES.length).forEach((c, i) => {

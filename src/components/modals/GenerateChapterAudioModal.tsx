@@ -1,24 +1,24 @@
 // Confirmation modal that surfaces voice settings before chapter+audio gen
 // fires from the ChapterView "Generate Chapter + Audio" button.
 //
-// Voice assignment mirrors the mobile app pattern (per Ben 2026-04-25,
-// ported to web 2026-05-09): the top 2 main males and top 2 main females
-// get locked Grok voices (rex/sal/eve/ara). Narrator (leo) handles
-// everyone else. Voices are PROJECT-WIDE and AUTO-ASSIGNED — users do not
-// pick per-character voices. This keeps the audiobook consistent across
-// all chapters of the same project. See lib/character-voices.ts for the
-// full assignment algorithm.
+// Multi-voice is gated to Writer+ subscribers. Voice assignment is
+// PROJECT-WIDE and AUTO-ASSIGNED — top 8 main males and top 8 main females
+// get unique Grok voices, everyone else falls back to the narrator. See
+// docs/MULTI_VOICE.md for the full design and lib/character-voices.ts for
+// the assignment algorithm.
 
 import { useEffect, useMemo } from 'react';
-import { X, Mic, Users, Sparkles, Check } from 'lucide-react';
+import { X, Mic, Users, Sparkles, Check, Lock } from 'lucide-react';
 import { useAudioStore } from '../../store/audio';
 import { useCanonStore } from '../../store/canon';
+import { useAuthStore } from '../../store/auth';
 import {
   assignVoicesForProject,
   getVoiceLabel,
   getVoiceDescription,
   NARRATOR_VOICE,
 } from '../../lib/character-voices';
+import { isPaidPlan } from '../../lib/plan';
 import type { CharacterEntry } from '../../types/canon';
 import type { ElevenLabsVoice } from '../../lib/tts-types';
 
@@ -59,6 +59,8 @@ const NARRATOR_OPTIONS = [
 export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfirm }: Props) {
   const audioStore = useAudioStore();
   const { entries } = useCanonStore();
+  const user = useAuthStore((s) => s.user);
+  const multiVoiceUnlocked = isPaidPlan(user?.plan);
 
   const characters = useMemo(
     () => entries.filter((e) => e.projectId === projectId && e.type === 'character' && (e as any).character) as CharacterEntry[],
@@ -148,22 +150,41 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
             </div>
           </section>
 
-          {/* Multi-voice toggle */}
-          <section className="flex items-center justify-between p-3 rounded-xl bg-black/[0.02] border border-black/5">
+          {/* Multi-voice toggle — Writer+ only */}
+          <section className={`flex items-center justify-between p-3 rounded-xl border ${
+            multiVoiceUnlocked ? 'bg-black/[0.02] border-black/5' : 'bg-amber-50/40 border-amber-200/60'
+          }`}>
             <div className="flex items-start gap-2.5">
-              <Users size={14} className="text-text-tertiary mt-0.5 shrink-0" />
+              {multiVoiceUnlocked ? (
+                <Users size={14} className="text-text-tertiary mt-0.5 shrink-0" />
+              ) : (
+                <Lock size={14} className="text-amber-600 mt-0.5 shrink-0" />
+              )}
               <div>
-                <div className="text-sm font-semibold text-text-primary">Multi-voice characters</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-sm font-semibold text-text-primary">Multi-voice characters</div>
+                  {!multiVoiceUnlocked && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-200/70 text-amber-900">
+                      Writer+
+                    </span>
+                  )}
+                </div>
                 <div className="text-[11px] text-text-tertiary mt-0.5">
-                  Up to four main characters get their own voice — auto-assigned by role and gender. Everyone else stays in the narrator voice.
+                  {multiVoiceUnlocked
+                    ? 'Up to 16 characters get their own voice — auto-assigned by role and gender. Everyone else stays in the narrator voice.'
+                    : 'Give each character their own voice. Available on Writer ($10/mo) and up.'}
                 </div>
               </div>
             </div>
-            <Toggle checked={audioStore.multiVoice} onChange={audioStore.setMultiVoice} />
+            <Toggle
+              checked={multiVoiceUnlocked && audioStore.multiVoice}
+              disabled={!multiVoiceUnlocked}
+              onChange={audioStore.setMultiVoice}
+            />
           </section>
 
           {/* Locked character voice assignments — read-only */}
-          {audioStore.multiVoice && (
+          {multiVoiceUnlocked && audioStore.multiVoice && (
             <section>
               <div className="text-xs font-semibold uppercase tracking-wider text-text-tertiary mb-2">
                 Character voices ({lockedAssignments.length} of {assignments.length})
@@ -171,7 +192,7 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
 
               {lockedAssignments.length === 0 ? (
                 <div className="text-xs text-text-tertiary p-4 rounded-lg bg-black/[0.02] border border-dashed border-black/10">
-                  No main characters with a defined gender yet. Add characters in the canon panel and mark their role (protagonist, antagonist, supporting) and gender — they'll get assigned voices here automatically.
+                  No characters with a defined gender yet. Add characters in the canon panel and mark their role and gender — they'll get assigned voices here automatically.
                 </div>
               ) : (
                 <div className="space-y-1.5">
@@ -197,7 +218,7 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
 
               {fallbackCount > 0 && (
                 <div className="mt-2 text-[11px] text-text-tertiary px-1">
-                  {fallbackCount} other character{fallbackCount === 1 ? ' uses' : 's use'} the narrator voice ({getVoiceLabel(NARRATOR_VOICE)}) — only the top main characters per gender get distinct voices, to keep the audiobook clean.
+                  {fallbackCount} other character{fallbackCount === 1 ? ' uses' : 's use'} the narrator voice ({getVoiceLabel(NARRATOR_VOICE)}) — the pool fits 8 male + 8 female; beyond that, side characters share the narrator.
                 </div>
               )}
             </section>
@@ -225,12 +246,13 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
   );
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
-      onClick={() => onChange(!checked)}
+      onClick={() => !disabled && onChange(!checked)}
+      disabled={disabled}
       className={`relative w-10 h-6 rounded-full transition-colors shrink-0 ${
-        checked ? 'bg-emerald-600' : 'bg-black/15'
+        disabled ? 'bg-black/10 cursor-not-allowed opacity-60' : checked ? 'bg-emerald-600' : 'bg-black/15'
       }`}
     >
       <span

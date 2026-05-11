@@ -1,4 +1,10 @@
-import { mainAppUrl } from './api';
+import { mainAppUrl, getActiveRef } from './api';
+import { track as jTrack } from '../lib/journey';
+
+function onClickCta(variant: string) {
+  const ref = getActiveRef();
+  jTrack('share_cta_clicked', { variant, ref, has_ref: !!ref });
+}
 
 export function CreateCTA({ authorName, variant = 'sticky' }: { authorName?: string; variant?: 'sticky' | 'card' | 'inline' }) {
   const href = mainAppUrl();
@@ -7,6 +13,7 @@ export function CreateCTA({ authorName, variant = 'sticky' }: { authorName?: str
     return (
       <a
         href={href}
+        onClick={() => onClickCta('card')}
         className="block rounded-2xl bg-gradient-to-br from-amber-100 via-rose-100 to-purple-100 p-6 shadow-lg hover:shadow-xl transition-all"
       >
         <p className="text-xs uppercase tracking-widest text-neutral-600 mb-2">Theodore · Story Engine</p>
@@ -23,7 +30,7 @@ export function CreateCTA({ authorName, variant = 'sticky' }: { authorName?: str
 
   if (variant === 'inline') {
     return (
-      <a href={href} className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-800 transition-colors">
+      <a href={href} onClick={() => onClickCta('inline')} className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-neutral-900 text-white text-sm font-medium hover:bg-neutral-800 transition-colors">
         Create your story free →
       </a>
     );
@@ -38,6 +45,7 @@ export function CreateCTA({ authorName, variant = 'sticky' }: { authorName?: str
         </div>
         <a
           href={href}
+          onClick={() => onClickCta('sticky')}
           className="shrink-0 px-4 py-2.5 rounded-full bg-white text-black text-sm font-semibold hover:scale-105 active:scale-95 transition-transform"
         >
           Create free →

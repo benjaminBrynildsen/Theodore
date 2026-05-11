@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, SkipBack, SkipForward, ChevronDown, ChevronUp, RotateCcw, RotateCw, Volume2, VolumeX, List, X, BookOpen } from 'lucide-react';
-import { type PublicBook, type PublicChapterSummary, type PublicAudio, trackListen } from './api';
+import { type PublicBook, type PublicChapterSummary, type PublicAudio, trackListen, getActiveRef } from './api';
+import { track as jTrack } from '../lib/journey';
 
 function formatTime(s: number): string {
   if (!s || !isFinite(s)) return '0:00';
@@ -133,7 +134,17 @@ export function LibraryPlayerFullscreen({ state, onChapterSelect, onClose }: Pro
     }
 
     a.play().then(() => setPlaying(true)).catch(() => {});
-    if (!listenTracked.current) { listenTracked.current = true; trackListen(slug); }
+    if (!listenTracked.current) {
+      listenTracked.current = true;
+      trackListen(slug);
+      jTrack('share_book_listened', {
+        slug,
+        ref: getActiveRef(),
+        has_ref: !!getActiveRef(),
+        chapter_id: chapterIdx >= 0 ? chapters[chapterIdx]?.id : null,
+        chapter_number: chapterIdx >= 0 ? chapters[chapterIdx]?.number : null,
+      });
+    }
 
     return () => { a.pause(); a.src = ''; };
   }, [segments[segmentIdx]?.audioUrl]);

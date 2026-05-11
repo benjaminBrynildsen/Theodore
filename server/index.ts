@@ -27,7 +27,8 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, GROK_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, getGrokVoicesWithPreviews, getGrokPreviewBuffer, estimateTTSCredits } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, getReferrals } from './admin.js';
+import { readReferrer, writeReferrer, clearReferrer, refResolvesToRealUser } from './referrer.js';
 import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
@@ -828,6 +829,36 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
   }
 });
 
+// ========== Share-referral capture (set referrer cookie on share-link landing) ==========
+// Called by the library page when it sees ?ref=<userId> in the URL. Stores the
+// sharer's user id + book slug in an HttpOnly cookie that survives until the
+// recipient signs up (at which point auth endpoints read + clear it).
+app.post('/api/referrer/capture', async (req, res) => {
+  try {
+    const ref = typeof req.body?.ref === 'string' ? req.body.ref.trim() : '';
+    const slug = typeof req.body?.slug === 'string' ? req.body.slug.trim() : '';
+    // Always respond ok — don't leak whether the ref is a real user.
+    if (!ref || !slug) return res.json({ ok: true, captured: false });
+    if (ref.length > 200 || slug.length > 200) return res.json({ ok: true, captured: false });
+
+    // Don't overwrite an existing referrer cookie — first-touch attribution.
+    const existing = readReferrer(req);
+    if (existing) return res.json({ ok: true, captured: false, reason: 'existing' });
+
+    // Validate the sharer exists. Bogus refs (from URL tampering) are silently
+    // dropped so we don't pollute attribution.
+    const real = await refResolvesToRealUser(ref);
+    if (!real) return res.json({ ok: true, captured: false, reason: 'unknown_ref' });
+
+    writeReferrer(res, { ref, slug, ts: Date.now() });
+    res.json({ ok: true, captured: true });
+  } catch (e: any) {
+    // Never block the landing page on a tracking failure.
+    console.warn('[referrer] capture failed:', e?.message || e);
+    res.json({ ok: true, captured: false, reason: 'error' });
+  }
+});
+
 // ========== Auth ==========
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -853,6 +884,8 @@ app.post('/api/auth/register', async (req, res) => {
     let user = existing;
     let isNewUser = false;
     if (!user) {
+      // Capture share-referral attribution if the user came in via a share link.
+      const referrer = readReferrer(req);
       const [inserted] = await db.insert(users).values({
         id: `user-${randomUUID()}`,
         email,
@@ -863,9 +896,13 @@ app.post('/api/auth/register', async (req, res) => {
         creditsRemaining: FREE_TIER_CREDITS,
         creditsTotal: FREE_TIER_CREDITS,
         lastCreditResetAt: now,
+        referredByUserId: referrer?.ref || null,
+        referredViaSlug: referrer?.slug || null,
+        referredAt: referrer ? now : null,
       }).returning();
       user = inserted;
       isNewUser = true;
+      if (referrer) clearReferrer(res);
     } else {
       const [updated] = await db.update(users).set({
         passwordHash,
@@ -930,7 +967,8 @@ app.post('/api/auth/google', async (req, res) => {
     let user = await getUserByEmail(email);
     let isNewUser = false;
     if (!user) {
-      // New user — create account
+      // New user — create account. Capture share-referral attribution.
+      const referrer = readReferrer(req);
       const [inserted] = await db.insert(users).values({
         id: `user-${randomUUID()}`,
         email,
@@ -942,9 +980,13 @@ app.post('/api/auth/google', async (req, res) => {
         creditsRemaining: FREE_TIER_CREDITS,
         creditsTotal: FREE_TIER_CREDITS,
         lastCreditResetAt: now,
+        referredByUserId: referrer?.ref || null,
+        referredViaSlug: referrer?.slug || null,
+        referredAt: referrer ? now : null,
       }).returning();
       user = inserted;
       isNewUser = true;
+      if (referrer) clearReferrer(res);
       trackRegistration(req as any);
     } else {
       // Existing user — update name/avatar if not set
@@ -1030,6 +1072,7 @@ app.post('/api/auth/apple', async (req, res) => {
     let user = await getUserByEmail(email);
     let isNewUser = false;
     if (!user) {
+      const referrer = readReferrer(req);
       const [inserted] = await db.insert(users).values({
         id: `user-${randomUUID()}`,
         email,
@@ -1041,9 +1084,13 @@ app.post('/api/auth/apple', async (req, res) => {
         creditsRemaining: FREE_TIER_CREDITS,
         creditsTotal: FREE_TIER_CREDITS,
         lastCreditResetAt: now,
+        referredByUserId: referrer?.ref || null,
+        referredViaSlug: referrer?.slug || null,
+        referredAt: referrer ? now : null,
       }).returning();
       user = inserted;
       isNewUser = true;
+      if (referrer) clearReferrer(res);
       trackRegistration(req as any);
     } else {
       const updates: any = { updatedAt: now };
@@ -2313,24 +2360,38 @@ async function runTTSJob(jobId: string) {
     console.log(`[TTS] Running job ${jobId} (attempt ${row.attempts + 1}) for ${spec.chapterId}`);
     await updatePersistedJob(jobId, { status: 'processing', attempts: row.attempts + 1, error: null });
 
-    // Pull cached Opus voice-attribution if present. Generated lazily by the
-    // admin endpoint POST /api/admin/chapters/:id/attribute (see
-    // docs/VOICE-ATTRIBUTION.md). When unavailable, parseDialogue falls back
-    // to its existing regex heuristic — same behavior as before this feature.
+    // Voice attribution — strict Opus pass that identifies the speaker of
+    // every quoted line. Multi-voice REQUIRES this to work — without it,
+    // unattributed dialogue falls through to the narrator voice, defeating
+    // the feature. See docs/VOICE-ATTRIBUTION.md.
+    //
+    // Strategy:
+    //   - multi-voice ON  → run/refresh attribution before TTS. Cached
+    //                       result is reused when prose hash matches, so the
+    //                       cost is one Opus call per (chapter, prose-edit).
+    //   - multi-voice OFF → skip entirely; regex heuristic is fine for
+    //                       single-voice (it only needs the narrator anyway).
     let attributionSegments: any[] | undefined;
-    try {
-      const [chRow] = await db
-        .select({ voiceAttribution: chapters.voiceAttribution })
-        .from(chapters)
-        .where(eq(chapters.id, spec.chapterId))
-        .limit(1);
-      const va = chRow?.voiceAttribution as any;
-      if (va && va.status === 'ok' && Array.isArray(va.segments) && va.segments.length > 0) {
-        attributionSegments = va.segments;
-        console.log(`[TTS] Using cached attribution for ${spec.chapterId} (${va.segments.length} segs, ${va.attempts} attempts, ${va.model})`);
+    if (spec.multiVoice) {
+      // Surface the attribution phase so the UI doesn't look frozen during
+      // the 20-30s Opus call on first generation for a chapter.
+      liveProgress.set(jobId, 1);
+      void db.update(ttsJobsTable).set({ progress: 1, updatedAt: new Date() }).where(eq(ttsJobsTable.id, jobId)).catch(() => {});
+
+      const t0 = Date.now();
+      const { ensureChapterAttribution } = await import('./voice-attribution-cache.js');
+      const r = await ensureChapterAttribution(spec.chapterId);
+      const ms = Date.now() - t0;
+
+      if (r.source === 'failed') {
+        // Fall back to regex heuristic — same behavior as before this feature.
+        console.warn(`[TTS] Attribution failed for ${spec.chapterId} (${r.error}) — falling back to regex. ${ms}ms`);
+      } else if (r.segments.length > 0) {
+        attributionSegments = r.segments;
+        console.log(`[TTS] Attribution ${r.source} for ${spec.chapterId} (${r.segments.length} segs, status=${r.status}, ${ms}ms)`);
+      } else {
+        console.log(`[TTS] Attribution skipped for ${spec.chapterId} (no character roster, ${ms}ms)`);
       }
-    } catch (e: any) {
-      console.warn(`[TTS] Failed to load voiceAttribution for ${spec.chapterId}:`, e?.message || e);
     }
 
     const result = await generateChapterAudio({
@@ -2521,6 +2582,17 @@ app.post('/api/tts/generate', async (req, res) => {
     // monthly credit allowance.
     const isFreeUser = !user.planTier || user.planTier === 'free';
     if (isFreeUser) {
+      // Multi-voice is a paid feature (Writer+). See docs/MULTI_VOICE.md.
+      // Surfaced as 402 rather than silent coercion so the client can route
+      // to the upgrade modal instead of generating a single-voice audiobook
+      // the user didn't ask for.
+      if (multiVoice === true) {
+        return res.status(402).json({
+          error: 'multi_voice_requires_paid_tier',
+          message: 'Multi-voice narration is available on Writer and up. Upgrade to give each character their own voice.',
+          needsUpgrade: true,
+        });
+      }
       provider = 'grok';
       narratorVoice = 'grok:leo';
     }
@@ -3258,6 +3330,7 @@ app.get('/api/admin/stats/daily', getDailyStats);
 app.get('/api/admin/traffic', getTrafficStats);
 app.get('/api/admin/journeys', getJourneys);
 app.get('/api/admin/journeys/:sessionId', getJourneyDetail);
+app.get('/api/admin/referrals', getReferrals);
 app.get('/api/admin/push/tokens', listPushTokens);
 app.post('/api/admin/push/send', sendAdminPush);
 app.post('/api/admin/cleanup-disk', cleanupDisk);

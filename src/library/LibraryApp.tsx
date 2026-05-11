@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { parseLibraryRoute, fetchBook, fetchChapter, type PublicBook, type PublicChapterSummary, type PublicAudio } from './api';
+import { parseLibraryRoute, fetchBook, fetchChapter, parseRefParam, captureReferrer, type PublicBook, type PublicChapterSummary, type PublicAudio } from './api';
 import { LibraryBookPage } from './LibraryBookPage';
 import { LibraryChapterPage } from './LibraryChapterPage';
 import { LibraryPlayerFullscreen, LibraryMiniBar } from './LibraryPlayer';
 import { CreateCTA } from './CreateCTA';
+import { track as jTrack } from '../lib/journey';
 
 interface ActivePlayer {
   book: PublicBook;
@@ -27,6 +28,19 @@ export function LibraryApp() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  // Share-referral capture: if the URL has ?ref=<userId> and a slug, tell the
+  // server to set the referrer cookie and fire a journey event so we can stitch
+  // the funnel back to the sharer when this guest signs up later.
+  useEffect(() => {
+    const r = parseRefParam();
+    const slug = route.slug;
+    if (!slug) return;
+    jTrack('share_link_opened', { slug, ref: r, has_ref: !!r, chapter_id: route.chapterId || null });
+    if (r) {
+      void captureReferrer(slug, r);
+    }
+  }, [route.slug, route.chapterId]);
 
   const startPlayer = async (slug: string, chapterId: string, bookData?: PublicBook, chaptersData?: PublicChapterSummary[]) => {
     try {

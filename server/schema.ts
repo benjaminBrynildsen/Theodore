@@ -11,8 +11,8 @@ export const users = pgTable('users', {
   name: text('name'),
   avatarUrl: text('avatar_url'),
   plan: text('plan').notNull().default('free'), // free, writer, author, studio
-  creditsRemaining: integer('credits_remaining').notNull().default(200),
-  creditsTotal: integer('credits_total').notNull().default(200),
+  creditsRemaining: integer('credits_remaining').notNull().default(500),
+  creditsTotal: integer('credits_total').notNull().default(500),
   lastCreditResetAt: timestamp('last_credit_reset_at'),
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
@@ -23,6 +23,13 @@ export const users = pgTable('users', {
   byokKey: text('byok_key'), // encrypted
   byokProvider: text('byok_provider'),
   settings: jsonb('settings').$type<Record<string, any>>().default({}),
+  // Share-referral attribution: who shared the book that brought this user in,
+  // and which book they landed on. Captured via `theodore_referrer` cookie set
+  // by /api/referrer/capture when the user lands on /library/b/:slug?ref=u_xxx.
+  // Stamped once at user creation; never overwritten.
+  referredByUserId: text('referred_by_user_id'),
+  referredViaSlug: text('referred_via_slug'),
+  referredAt: timestamp('referred_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

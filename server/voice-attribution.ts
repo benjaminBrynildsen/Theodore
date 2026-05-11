@@ -37,7 +37,7 @@ export interface AttributeOptions {
   characters: CharacterRosterEntry[];
   /** Anthropic API key. Caller must supply — no default for portability. */
   apiKey: string;
-  /** Model ID. Defaults to claude-opus-4-6 (the production target). Override for cheaper runs. */
+  /** Model ID. Defaults to claude-sonnet-4-6 (cost-tuned production target). Override for Opus quality or Haiku speed. */
   model?: string;
   /** Max retry passes when validation fails. Default 3. */
   maxAttempts?: number;
@@ -60,7 +60,11 @@ export interface AttributeResult {
   tokensOut: number;
 }
 
-const DEFAULT_MODEL = 'claude-opus-4-6';
+// Sonnet 4.6 is ~5x cheaper than Opus for this strict-JSON task. The 3-attempt
+// retry + invariant validation catches the occasional edge-case miss; combined
+// cost still lands well under a cent per chapter. Override via opts.model if
+// you need to A/B against Opus or Haiku.
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_TIMEOUT_MS = 60_000;
 

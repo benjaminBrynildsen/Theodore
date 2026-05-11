@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, Copy, Check, Globe, Lock } from 'lucide-react';
+import { useAuthStore } from '../../store/auth';
+import { track as jTrack } from '../../lib/journey';
 
 interface Props {
   projectId: string;
@@ -24,13 +26,15 @@ interface ShareStatus {
   listens: number;
 }
 
-function libraryUrl(slug: string): string {
+function libraryUrl(slug: string, ref?: string | null): string {
   // Use path-based URL on the main domain. The library.* subdomain isn't
   // wired up in DNS yet; the path fallback always works.
-  return `${window.location.origin}/library/b/${slug}`;
+  const base = `${window.location.origin}/library/b/${slug}`;
+  return ref ? `${base}?ref=${encodeURIComponent(ref)}` : base;
 }
 
 export function ShareBookDialog({ projectId, projectTitle, chapters, defaultDescription, defaultAuthorName, onClose }: Props) {
+  const userId = useAuthStore((s) => s.user?.id || null);
   const [status, setStatus] = useState<ShareStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -97,8 +101,9 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, defaultDesc
         listens: prev?.listens || 0,
       }));
       setJustPublished(true);
+      jTrack('share_published', { slug: data.slug, project_id: projectId, has_ref: !!userId });
       // Auto-copy the link the moment it's available
-      try { await navigator.clipboard.writeText(libraryUrl(data.slug)); setCopied(true); } catch {}
+      try { await navigator.clipboard.writeText(libraryUrl(data.slug, userId)); setCopied(true); } catch {}
     } catch (e: any) {
       setError(e?.message || 'Network error. Please try again.');
     } finally {
@@ -124,7 +129,8 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, defaultDesc
 
   const copyLink = () => {
     if (!status?.slug) return;
-    navigator.clipboard.writeText(libraryUrl(status.slug));
+    navigator.clipboard.writeText(libraryUrl(status.slug, userId));
+    jTrack('share_link_copied', { slug: status.slug, project_id: projectId, has_ref: !!userId });
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -154,7 +160,7 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, defaultDesc
               <div className="flex items-center gap-2">
                 <input
                   readOnly
-                  value={libraryUrl(status.slug)}
+                  value={libraryUrl(status.slug, userId)}
                   className="flex-1 text-xs bg-white border border-green-200 rounded-lg px-3 py-2 font-mono"
                 />
                 <button onClick={copyLink} className="p-2 rounded-lg bg-white border border-green-200 hover:bg-green-100">

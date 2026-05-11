@@ -68,7 +68,7 @@ export const PAID_TIER_CREDITS: Record<'writer' | 'author' | 'studio' | 'publish
   publisher: 50000,
 };
 
-export const FREE_TIER_CREDITS = 200;
+export const FREE_TIER_CREDITS = 500;
 export const FREE_TIER_NAME = 'Dreamer';
 
 export const TIER_PRICES_USD: Record<'writer' | 'author' | 'studio' | 'publisher', number> = {

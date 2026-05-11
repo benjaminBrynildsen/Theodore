@@ -41,7 +41,7 @@ interface AttributeOptions {
   prose: string;
   characters: CharacterRosterEntry[];
   apiKey: string;
-  model?: string;        // default 'claude-opus-4-6'
+  model?: string;        // default 'claude-sonnet-4-6'
   maxAttempts?: number;  // default 3
   timeoutMs?: number;    // default 60_000
 }
@@ -165,11 +165,12 @@ return { segments: lastValid, status: 'needs-review', unattributedQuotes: missin
 
 ## Model + cost
 
-- **Model:** `claude-opus-4-6` (per Ben 2026-05-09; reasoning capacity matters more than cost for accuracy here).
+- **Model:** `claude-sonnet-4-6` (default, per Ben 2026-05-11 — strict prompt + 3-attempt retry validation lets a smaller model handle the structured-output task; cost matters once this auto-fires on every multi-voice generation).
 - **Temperature:** `0.1` (attribution is deterministic; low temp tightens behavior).
 - **max_tokens:** `16000` (output JSON is roughly the same size as input prose).
-- **Per-chapter cost:** ~$0.05 (5k input + 5k output tokens × Opus 4.6 pricing). Multi-pass averages ~$0.07.
+- **Per-chapter cost:** ~$0.01 (5k input + 5k output tokens × Sonnet 4.6 pricing). Multi-pass averages ~$0.015.
 - **Latency:** 5–15 seconds for the first attribution pass on a typical 3000-word chapter.
+- **Override:** pass `opts.model: 'claude-opus-4-6'` for max accuracy (~5× cost) or `'claude-haiku-4-5'` for speed (~3× faster, slightly less reliable on banter-heavy chapters).
 
 ---
 
@@ -182,16 +183,18 @@ Result lives in `chapters.voiceAttribution` (jsonb). Cache shape:
   "segments": [...],
   "status": "ok" | "needs-review",
   "attempts": 1,
-  "model": "claude-opus-4-6",
+  "model": "claude-sonnet-4-6",
+  "proseHash": "sha256...",       // SHA-256 of prose at attribution time — cache invalidates on prose edit
   "attributedAt": "2026-05-09T17:00:00Z",
   "unattributedQuotes": [...]   // only present on needs-review
 }
 ```
 
-**When attribution runs:**
+**When attribution runs (as of Phase 3, 2026-05-11):**
 
-- **Lazy** — on first audio-gen request for a chapter where `voiceAttribution IS NULL`. Avoids cost for chapters that never get narrated.
-- **Forced** — admin "Re-attribute chapter" action OR when `chapters.prose` has been edited since `attributedAt` (cache stale).
+- **Auto** — fires inside `runTTSJob` whenever the user requests multi-voice audio. Cache hit (matching prose hash) = instant; cache miss = one Sonnet call. See `server/voice-attribution-cache.ts:ensureChapterAttribution`.
+- **Forced** — admin "Re-attribute chapter" endpoint (`POST /api/admin/chapters/:id/attribute?force=1`) wipes the cache so the helper re-runs.
+- **Invalidation** — cache stores `proseHash` (SHA-256); on read, we recompute and discard if the prose has been edited since. No manual flag needed.
 
 **When attribution does NOT run:**
 

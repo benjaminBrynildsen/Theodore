@@ -20,7 +20,7 @@ const TIER_CONFIG: Record<PaidPlanTier, { name: string; credits: number; priceUs
   publisher: { name: 'Publisher', credits: 50000, priceUsd: 200 },
 };
 
-export const FREE_TIER_CREDITS = 200;
+export const FREE_TIER_CREDITS = 500;
 export const FREE_TIER_NAME = 'Dreamer';
 export const FREE_TIER_RESET_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // 30d rolling
 

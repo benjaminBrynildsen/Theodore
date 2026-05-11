@@ -1597,11 +1597,10 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   }
 
   // ── Grok (xAI) multi-voice path: per-segment TTS with character voices ──
-  // Mobile-only entry point. Web client never sends multiVoice=true (UI gated
-  // behind MULTI_VOICE_ENABLED=false), so this branch is unreachable from web
-  // and the original single-voice Grok path below handles every web request.
+  // Used by both mobile and web (Phase 3, 2026-05). The Writer+ tier gate is
+  // enforced in /api/tts/generate before the request reaches this branch.
   // Mirrors the ElevenLabs multi-voice flow but routes each segment through
-  // callGrokTTS with the segment's assigned voice.
+  // callGrokTTS with the segment's assigned voice. See docs/MULTI_VOICE.md.
   if (
     (req.provider || '').toLowerCase() === 'grok' &&
     req.multiVoice === true &&
