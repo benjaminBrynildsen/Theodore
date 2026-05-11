@@ -5,7 +5,7 @@ import { useAudioStore } from '../../store/audio';
 import { useAuthStore } from '../../store/auth';
 import { useCanonStore } from '../../store/canon';
 import { useGenerationStore } from '../../store/generation';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { buildVoiceParams } from '../../lib/voice-params';
 import { cn } from '../../lib/utils';
 import { track as jTrack } from '../../lib/journey';
@@ -726,11 +726,23 @@ export function AudioPlayerBar() {
       }
       useGenerationStore.getState().setPhase('done');
     } catch (e: any) {
+      useGenerationStore.getState().end();
+      // 402 + needsUpgrade is the server's signal to route to the upgrade
+      // modal instead of surfacing a raw error. Catches both
+      // 'multi_voice_requires_paid_tier' and 'Insufficient credits…'.
+      if (e instanceof ApiError && e.status === 402 && e.body?.needsUpgrade) {
+        const m = await import('../../store/credits');
+        m.useCreditsStore.getState().setShowUpgradeModal(true);
+        return;
+      }
+      // Legacy/string match — keep as belt-and-suspenders for any 402 path
+      // that doesn't surface a typed ApiError.
       if (e.message?.includes('credits') || e.message?.includes('402')) {
-        import('../../store/credits').then(m => m.useCreditsStore.getState().setShowUpgradeModal(true));
+        const m = await import('../../store/credits');
+        m.useCreditsStore.getState().setShowUpgradeModal(true);
+        return;
       }
       setError(e.message || 'Audio generation failed');
-      useGenerationStore.getState().end();
     } finally {
       setGenerating(null);
     }

@@ -2198,7 +2198,7 @@ app.get('/api/tts/free-sample', async (req, res) => {
     const auth = await getAuth(req);
     if (!auth) return res.json({ available: false });
     const user = auth.user;
-    const isFreeUser = !user.planTier || user.planTier === 'free';
+    const isFreeUser = !isPaidPlanTier(user.plan);
     if (!isFreeUser) return res.json({ available: false, reason: 'paid' });
     const existing = await db.select({ id: creditTransactions.id })
       .from(creditTransactions)
@@ -2580,7 +2580,7 @@ app.post('/api/tts/generate', async (req, res) => {
     // is ignored until they upgrade. This keeps ElevenLabs spend to paying
     // users only; free users still get a full audiobook within their
     // monthly credit allowance.
-    const isFreeUser = !user.planTier || user.planTier === 'free';
+    const isFreeUser = !isPaidPlanTier(user.plan);
     if (isFreeUser) {
       // Multi-voice is a paid feature (Writer+). See docs/MULTI_VOICE.md.
       // Surfaced as 402 rather than silent coercion so the client can route
