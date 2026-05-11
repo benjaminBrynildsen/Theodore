@@ -3,10 +3,13 @@ import { Play, Pause, SkipBack, SkipForward, Loader2, X, Volume2, VolumeX, Headp
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
 import { useAuthStore } from '../../store/auth';
+import { useCanonStore } from '../../store/canon';
 import { useGenerationStore } from '../../store/generation';
 import { api } from '../../lib/api';
+import { buildVoiceParams } from '../../lib/voice-params';
 import { cn } from '../../lib/utils';
 import { track as jTrack } from '../../lib/journey';
+import type { CharacterEntry } from '../../types/canon';
 
 /** Draggable progress bar — works with mouse and touch */
 function ProgressScrubber({ progressPct, onSeek }: { progressPct: number; onSeek: (fraction: number) => void }) {
@@ -560,9 +563,34 @@ export function AudioPlayerBar() {
 
     try {
       const versionSuffix = `-v${Date.now()}`;
-      const { ttsProvider, ttsModel } = useAudioStore.getState();
+      const { ttsProvider, ttsModel, multiVoice } = useAudioStore.getState();
       const effectiveProvider = ttsProvider || 'fish';
       const effectiveModel = ttsModel || 'fish-s2-pro';
+
+      // Multi-voice context — derived the SAME way as AudiobookPanel so both
+      // entry points behave identically. Without this block, multi-voice
+      // toggled in the modal silently did nothing because this code path
+      // never forwarded the flag to the server.
+      const requestProvider = isGuest ? 'openai' : effectiveProvider;
+      const characters = useCanonStore.getState().entries.filter(
+        (e: any) => e.projectId === chapter!.projectId && e.type === 'character' && e.character,
+      ) as CharacterEntry[];
+      const user = useAuthStore.getState().user;
+      const vp = buildVoiceParams({
+        provider: requestProvider,
+        multiVoiceRequested: multiVoice,
+        plan: user?.plan,
+        characters,
+        // ElevenLabs per-character assignments come from the Studio panel;
+        // they're persisted on canon entries as character.voiceId. Read those.
+        elevenlabsAssignments: characters
+          .map((c) => ({
+            characterId: c.id,
+            characterName: c.name,
+            voiceId: ((c.character || {}) as any).voiceId || '',
+          }))
+          .filter((a) => a.voiceId),
+      });
 
       if (iterateScenes) {
         const firstScene = scenes[0];
@@ -574,8 +602,13 @@ export function AudioPlayerBar() {
           prose: firstScene.prose,
           narratorVoice,
           model: effectiveModel,
-          provider: isGuest ? 'openai' : effectiveProvider,
+          provider: requestProvider as any,
           speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
+          multiVoice: vp.effectiveMultiVoice,
+          characterVoices: vp.characterVoices,
+          characterDescriptions: vp.characterDescriptions,
+          characterAliases: vp.characterAliases,
+          characterGenders: vp.characterGenders,
           sceneSFX: firstSceneSFX,
           chapterNumber: chapter.number,
           chapterTitle: chapter.title || undefined,
@@ -618,8 +651,13 @@ export function AudioPlayerBar() {
               prose: scene.prose,
               narratorVoice,
               model: effectiveModel,
-              provider: isGuest ? 'openai' : effectiveProvider,
+              provider: requestProvider as any,
               speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
+              multiVoice: vp.effectiveMultiVoice,
+              characterVoices: vp.characterVoices,
+              characterDescriptions: vp.characterDescriptions,
+              characterAliases: vp.characterAliases,
+              characterGenders: vp.characterGenders,
               sceneSFX: sceneSFXData,
               isGuest,
             });
@@ -650,8 +688,13 @@ export function AudioPlayerBar() {
           prose: chapter.prose,
           narratorVoice,
           model: effectiveModel,
-          provider: isGuest ? 'openai' : effectiveProvider,
+          provider: requestProvider as any,
           speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
+          multiVoice: vp.effectiveMultiVoice,
+          characterVoices: vp.characterVoices,
+          characterDescriptions: vp.characterDescriptions,
+          characterAliases: vp.characterAliases,
+          characterGenders: vp.characterGenders,
           sceneSFX: allSceneSFX,
           chapterNumber: chapter.number,
           chapterTitle: chapter.title || undefined,

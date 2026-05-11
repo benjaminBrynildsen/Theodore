@@ -100,6 +100,8 @@ export const api = {
     onProgress?: (pct: number) => void;
     characterVoices: Record<string, string>;
     characterDescriptions?: Record<string, string>;
+    characterAliases?: Record<string, string[]>;
+    characterGenders?: Record<string, string>;
     narratorStyle?: string;
     model?: string;
     provider?: 'elevenlabs' | 'openai' | 'fish' | 'grok';

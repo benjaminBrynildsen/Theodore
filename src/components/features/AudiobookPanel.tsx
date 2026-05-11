@@ -6,7 +6,7 @@ import { useCanonStore } from '../../store/canon';
 import { useAudioStore } from '../../store/audio';
 import { useAuthStore } from '../../store/auth';
 import { isPaidPlan } from '../../lib/plan';
-import { assignVoicesForProject } from '../../lib/character-voices';
+import { buildVoiceParams as buildSharedVoiceParams } from '../../lib/voice-params';
 import { useCreditsStore } from '../../store/credits';
 import { useGenerationStore } from '../../store/generation';
 import { useMusicStore } from '../../store/music';
@@ -773,51 +773,27 @@ export function AudiobookPanel() {
   };
 
   // ========== Voice context builder (shared) ==========
-  // Provider-aware: Grok uses the Phase-3 pool from lib/character-voices.ts
-  // (8 male + 8 female, narrator fallback beyond rank 8). ElevenLabs uses the
-  // per-character voice assignments built from its larger voice library.
-  // Sending the wrong family of IDs to the server makes every dialogue line
-  // fall back to the narrator — see docs/MULTI_VOICE.md.
+  // Delegates to lib/voice-params.ts so AudioPlayerBar and any future
+  // entry-point use the identical shape. See docs/MULTI_VOICE.md.
   const buildVoiceParams = useCallback(() => {
-    const charVoiceMap: Record<string, string> = {};
-    const charDescriptions: Record<string, string> = {};
-
-    const buildDescription = (char: CharacterEntry | undefined): string | undefined => {
-      if (!char) return undefined;
-      const c = char.character || {} as any;
-      const personality = c.personality || {} as any;
-      const parts: string[] = [];
-      if (c.gender) parts.push(c.gender);
-      if (c.age) parts.push(`${c.age} years old`);
-      if (c.role) parts.push(`${c.role} character`);
-      if (personality.speechPattern) parts.push(`Speech style: ${personality.speechPattern}`);
-      if (personality.traits?.length) parts.push(`Personality: ${personality.traits.slice(0, 4).join(', ')}`);
-      if (char.description) parts.push(char.description.slice(0, 120));
-      return parts.length > 0 ? parts.join('. ') + '.' : undefined;
+    const vp = buildSharedVoiceParams({
+      provider: ttsProvider,
+      multiVoiceRequested: multiVoice,
+      plan: user?.plan,
+      characters,
+      elevenlabsAssignments: voiceAssignments.map((a) => ({
+        characterId: a.characterId,
+        characterName: a.characterName,
+        voiceId: a.voiceId,
+      })),
+    });
+    return {
+      charVoiceMap: vp.characterVoices,
+      charDescriptions: vp.characterDescriptions,
+      charAliases: vp.characterAliases,
+      charGenders: vp.characterGenders,
     };
-
-    if (ttsProvider === 'grok') {
-      // Pool-based assignment, same algorithm the Generate modal uses.
-      const grokAssignments = assignVoicesForProject(characters);
-      for (const a of grokAssignments) {
-        if (a.isFallback) continue; // narrator handles fallback chars on the server
-        charVoiceMap[a.characterName] = a.voice;
-        const char = characters.find(c => c.id === a.characterId);
-        const desc = buildDescription(char);
-        if (desc) charDescriptions[a.characterName] = desc;
-      }
-    } else {
-      // ElevenLabs (or other large-library providers) — per-character voiceId.
-      for (const a of voiceAssignments) {
-        charVoiceMap[a.characterName] = a.voiceId;
-        const char = characters.find(c => c.id === a.characterId);
-        const desc = buildDescription(char);
-        if (desc) charDescriptions[a.characterName] = desc;
-      }
-    }
-
-    return { charVoiceMap, charDescriptions };
-  }, [ttsProvider, voiceAssignments, characters]);
+  }, [ttsProvider, multiVoice, user?.plan, voiceAssignments, characters]);
 
   // ========== Generation ==========
 
@@ -978,15 +954,11 @@ export function AudiobookPanel() {
       const updatedChapter = updatedChapters.find(c => c.id === chapterId);
       const updatedScene = (updatedChapter?.scenes || []).find(s => s.id === sceneId);
 
-      const { charVoiceMap, charDescriptions } = buildVoiceParams();
-      // Multi-voice is supported on ElevenLabs and Grok. Server enforces
-      // Writer+ tier; we mirror that here so free users don't even send the
-      // request. See docs/MULTI_VOICE.md.
-      const supportsMultiVoice = ttsProvider === 'elevenlabs' || ttsProvider === 'grok';
-      const multiVoiceAllowed = supportsMultiVoice && isPaidPlan(user?.plan);
-      const effectiveMultiVoice = multiVoiceAllowed ? multiVoice : false;
-      const effectiveCharacterVoices = effectiveMultiVoice ? charVoiceMap : {};
-      const effectiveCharacterDescriptions = effectiveMultiVoice ? charDescriptions : {};
+      const { charVoiceMap, charDescriptions, charAliases, charGenders } = buildVoiceParams();
+      // buildVoiceParams already does the tier check + provider check, so
+      // characterVoices is empty when multi-voice can't run. effectiveMultiVoice
+      // is true only when those are populated.
+      const effectiveMultiVoice = Object.keys(charVoiceMap).length > 0;
       const versionSuffix = `-v${Date.now()}`;
 
       // Collect scene SFX for audio mixing
@@ -1008,8 +980,10 @@ export function AudiobookPanel() {
         chapterId: `${chapterId}-scene-${sceneId}${versionSuffix}`,
         prose: latestSceneProse,
         narratorVoice,
-        characterVoices: effectiveCharacterVoices,
-        characterDescriptions: effectiveCharacterDescriptions,
+        characterVoices: charVoiceMap,
+        characterDescriptions: charDescriptions,
+        characterAliases: charAliases,
+        characterGenders: charGenders,
         model: ttsModel,
         provider: isGuest ? 'grok' : ttsProvider,
         speed: (ttsProvider === 'openai' || ttsProvider === 'fish' || ttsProvider === 'grok') ? 1.0 : speed,
@@ -1079,15 +1053,8 @@ export function AudiobookPanel() {
     try {
       await planSFXForChapter(chapterId);
 
-      const { charVoiceMap, charDescriptions } = buildVoiceParams();
-      // Multi-voice is supported on ElevenLabs and Grok. Server enforces
-      // Writer+ tier; we mirror that here so free users don't even send the
-      // request. See docs/MULTI_VOICE.md.
-      const supportsMultiVoice = ttsProvider === 'elevenlabs' || ttsProvider === 'grok';
-      const multiVoiceAllowed = supportsMultiVoice && isPaidPlan(user?.plan);
-      const effectiveMultiVoice = multiVoiceAllowed ? multiVoice : false;
-      const effectiveCharacterVoices = effectiveMultiVoice ? charVoiceMap : {};
-      const effectiveCharacterDescriptions = effectiveMultiVoice ? charDescriptions : {};
+      const { charVoiceMap, charDescriptions, charAliases, charGenders } = buildVoiceParams();
+      const effectiveMultiVoice = Object.keys(charVoiceMap).length > 0;
       const versionSuffix = `-v${Date.now()}`;
       const provider = isGuest ? 'grok' : ttsProvider;
 
@@ -1135,8 +1102,10 @@ export function AudiobookPanel() {
           chapterId: `${chapterId}-scene-${s0.id}${versionSuffix}`,
           prose: s0.prose,
           narratorVoice,
-          characterVoices: effectiveCharacterVoices,
-          characterDescriptions: effectiveCharacterDescriptions,
+          characterVoices: charVoiceMap,
+          characterDescriptions: charDescriptions,
+          characterAliases: charAliases,
+          characterGenders: charGenders,
           model: ttsModel,
           provider,
           speed: (provider === 'openai' || provider === 'fish' || provider === 'grok') ? 1.0 : speed,
@@ -1183,8 +1152,10 @@ export function AudiobookPanel() {
                 chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
                 prose: scene.prose,
                 narratorVoice,
-                characterVoices: effectiveCharacterVoices,
-                characterDescriptions: effectiveCharacterDescriptions,
+                characterVoices: charVoiceMap,
+                characterDescriptions: charDescriptions,
+                characterAliases: charAliases,
+                characterGenders: charGenders,
                 model: ttsModel,
                 provider,
                 speed: (provider === 'openai' || provider === 'fish' || provider === 'grok') ? 1.0 : speed,
@@ -1240,8 +1211,10 @@ export function AudiobookPanel() {
           chapterId: `${chapterId}${versionSuffix}`,
           prose: latestProse,
           narratorVoice,
-          characterVoices: effectiveCharacterVoices,
-          characterDescriptions: effectiveCharacterDescriptions,
+          characterVoices: charVoiceMap,
+          characterDescriptions: charDescriptions,
+          characterAliases: charAliases,
+          characterGenders: charGenders,
           model: ttsModel,
           provider,
           speed: (provider === 'openai' || provider === 'fish' || provider === 'grok') ? 1.0 : speed,
