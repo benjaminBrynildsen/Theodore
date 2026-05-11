@@ -42,6 +42,13 @@ interface AudioState {
   setMiniPlayerVisible: (visible: boolean) => void;
   setSidebarPlayerVisible: (visible: boolean) => void;
   addChapterAudio: (chapterId: string, audio: Omit<ChapterAudio, 'activeVersion' | 'versions'>) => void;
+  /**
+   * Progressive update for streaming scene-by-scene generation: appends a new
+   * scene URL to the active version in place (no new version cut). Used by the
+   * scene-iteration flows so the player can chain to scene N+1 the moment its
+   * audio lands, without waiting for the whole chapter's batch to finish.
+   */
+  appendSceneAudio: (chapterId: string, scene: { sceneAudioUrl: string; sceneId: string; durationDelta: number }) => void;
   removeChapterAudio: (chapterId: string) => void;
   removeAudioVersion: (chapterId: string, version: number) => void;
   setActiveVersion: (chapterId: string, version: number) => void;
@@ -169,6 +176,32 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
       };
 
       return { chapterAudio: { ...s.chapterAudio, [chapterId]: updated } };
+    }),
+
+  appendSceneAudio: (chapterId, scene) =>
+    set((s) => {
+      const existing = s.chapterAudio[chapterId];
+      if (!existing) return s;
+      const existingUrls = existing.sceneAudioUrls || [existing.audioUrl];
+      const existingIds = existing.sceneIds || [];
+      const updated: ChapterAudio = {
+        ...existing,
+        sceneAudioUrls: [...existingUrls, scene.sceneAudioUrl],
+        sceneIds: [...existingIds, scene.sceneId],
+        durationEstimate: existing.durationEstimate + scene.durationDelta,
+      };
+      // Mirror onto the active version so it's persisted if the user re-selects this version later.
+      const versions = existing.versions || [];
+      const activeIdx = versions.findIndex((v) => v.version === existing.activeVersion);
+      const nextVersions = activeIdx >= 0
+        ? versions.map((v, i) => i === activeIdx ? {
+            ...v,
+            sceneAudioUrls: updated.sceneAudioUrls,
+            sceneIds: updated.sceneIds,
+            durationEstimate: updated.durationEstimate,
+          } : v)
+        : versions;
+      return { chapterAudio: { ...s.chapterAudio, [chapterId]: { ...updated, versions: nextVersions } } };
     }),
 
   removeChapterAudio: (chapterId) =>

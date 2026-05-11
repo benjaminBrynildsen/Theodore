@@ -635,48 +635,64 @@ export function AudioPlayerBar() {
 
         sceneIndexRef.current = 0;
         sceneStartOffsetRef.current = 0;
-        const allUrls = [result.audioUrl];
-        const allSceneIds = [firstScene.id];
-        let totalDuration = result.durationEstimate;
 
-        for (let i = 1; i < scenes.length; i++) {
-          const scene = scenes[i];
-          useGenerationStore.getState().setSubtitle(`Scene ${i + 1} of ${scenes.length}…`);
-          try {
-            const sceneSFXData = (scene.sfx || []).map((s: any) => ({
-              prompt: s.prompt, audioUrl: s.audioUrl, position: s.position, enabled: s.enabled,
-            }));
-            const sceneResult = await api.ttsGenerate({
-              chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
-              prose: scene.prose,
-              narratorVoice,
-              model: effectiveModel,
-              provider: requestProvider as any,
-              speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
-              multiVoice: vp.effectiveMultiVoice,
-              characterVoices: vp.characterVoices,
-              characterDescriptions: vp.characterDescriptions,
-              characterAliases: vp.characterAliases,
-              characterGenders: vp.characterGenders,
-              sceneSFX: sceneSFXData,
-              isGuest,
-            });
-            allUrls.push(sceneResult.audioUrl);
-            allSceneIds.push(scene.id);
-            totalDuration += sceneResult.durationEstimate;
-          } catch (e: any) {
-            console.error(`Scene ${i + 1} generation failed:`, e);
-          }
-        }
-
+        // Register scene 1 in the audio store IMMEDIATELY so the player can
+        // chain to scene 2 the moment its audio lands. Previously this was
+        // called after the whole scene loop, which meant scene 1 would end
+        // and the player stopped because sceneAudioUrls was empty.
         addChapterAudio(chapterId, {
           chapterId,
-          audioUrl: allUrls[0],
-          sceneAudioUrls: allUrls,
-          sceneIds: allSceneIds,
-          durationEstimate: totalDuration,
+          audioUrl: result.audioUrl,
+          sceneAudioUrls: [result.audioUrl],
+          sceneIds: [firstScene.id],
+          durationEstimate: result.durationEstimate,
           generatedAt: new Date().toISOString(),
         });
+
+        // Generate remaining scenes in PARALLEL batches of 3 — much faster
+        // than the old sequential loop, especially with multi-voice on (each
+        // scene independently runs per-segment Grok TTS in parallel server-side).
+        // appendSceneAudio merges each result into the active version as it
+        // lands, so the player chains scenes progressively.
+        const remaining = scenes.slice(1);
+        const BATCH_SIZE = 3;
+        for (let b = 0; b < remaining.length; b += BATCH_SIZE) {
+          const batch = remaining.slice(b, b + BATCH_SIZE);
+          useGenerationStore.getState().setSubtitle(
+            `Scene ${b + 2}${batch.length > 1 ? `-${b + 1 + batch.length}` : ''} of ${scenes.length}…`
+          );
+          await Promise.all(
+            batch.map(async (scene: any) => {
+              const sceneSFXData = (scene.sfx || []).map((s: any) => ({
+                prompt: s.prompt, audioUrl: s.audioUrl, position: s.position, enabled: s.enabled,
+              }));
+              try {
+                const sceneResult = await api.ttsGenerate({
+                  chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
+                  prose: scene.prose,
+                  narratorVoice,
+                  model: effectiveModel,
+                  provider: requestProvider as any,
+                  speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
+                  multiVoice: vp.effectiveMultiVoice,
+                  characterVoices: vp.characterVoices,
+                  characterDescriptions: vp.characterDescriptions,
+                  characterAliases: vp.characterAliases,
+                  characterGenders: vp.characterGenders,
+                  sceneSFX: sceneSFXData,
+                  isGuest,
+                });
+                useAudioStore.getState().appendSceneAudio(chapterId, {
+                  sceneAudioUrl: sceneResult.audioUrl,
+                  sceneId: scene.id,
+                  durationDelta: sceneResult.durationEstimate,
+                });
+              } catch (e: any) {
+                console.error(`Scene "${scene.title || scene.id}" generation failed:`, e);
+              }
+            }),
+          );
+        }
       } else {
         const allSceneSFX = (chapter.scenes || []).flatMap((s: any) =>
           (s.sfx || []).map((sfx: any) => ({
