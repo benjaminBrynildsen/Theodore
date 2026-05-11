@@ -3,7 +3,7 @@ import {
   Users, CreditCard, TrendingUp, Activity, FileText,
   ChevronRight, ChevronDown, ArrowLeft, BarChart3, Zap, BookOpen,
   Headphones, Image, Music, Sparkles, RefreshCw, Globe,
-  Film, Upload, Trash2, CheckCircle2, Mail, ExternalLink, Volume2, Bell, Apple, Megaphone,
+  Film, Upload, Trash2, CheckCircle2, Mail, ExternalLink, Volume2, Bell, Apple, Megaphone, Share2,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { CREATORS } from '../../data/creators';
@@ -12,6 +12,7 @@ import { PushTab } from './PushTab';
 import { LaunchTab } from './LaunchTab';
 import { EmailTab } from './EmailTab';
 import { CopyGraderTab } from './CopyGraderTab';
+import { ReferralsTab } from './ReferralsTab';
 import { JourneyDetailView } from './JourneyDetailView';
 
 const API = '/api/admin';
@@ -202,7 +203,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email' | 'copy-grader';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email' | 'copy-grader' | 'referrals';
 
 interface JourneySession {
   session_id: string;
@@ -407,6 +408,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'users', label: 'Users', icon: Users },
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'journey', label: 'Journey', icon: TrendingUp },
+    { id: 'referrals', label: 'Referrals', icon: Share2 },
     { id: 'creators', label: 'Creators', icon: Film },
     { id: 'outreach', label: 'Outreach', icon: Mail },
     { id: 'push', label: 'Push', icon: Bell },
@@ -1260,6 +1262,8 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {view === 'email' && <EmailTab />}
 
         {view === 'copy-grader' && <CopyGraderTab />}
+
+        {view === 'referrals' && <ReferralsTab />}
 
         {/* ========== Grok image-reference probe ========== */}
         {view === 'grok-probe' && <GrokProbePanel />}

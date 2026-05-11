@@ -55,11 +55,8 @@ export interface VoiceAssignment {
   isFallback: boolean;
 }
 
-// Eligible roles for a unique voice. We exclude 'mentioned' — those are
-// referenced characters who never speak. 'minor' is included now that the
-// pool is wide enough (Phase 3) — side characters can get a unique voice.
-const VOICED_ROLES = new Set<string>(['protagonist', 'antagonist', 'supporting', 'minor']);
-
+// Loose role-priority match — tolerates free-form role strings the model
+// emits like "mentor/supporting" or "supporting character".
 function getGender(c: CharacterEntry): Gender {
   const raw = (c.character?.gender || '').toLowerCase().trim();
   if (raw === 'male' || raw === 'man' || raw === 'boy' || raw === 'm') return 'male';
@@ -67,41 +64,63 @@ function getGender(c: CharacterEntry): Gender {
   return 'neutral';
 }
 
+// Voiced if EITHER mainCharacter:true is on the canon entry (the primary
+// signal Haiku stamps at outline time, per docs/MULTI_VOICE.md) OR the role
+// looks like a speaking part. We never voice purely 'mentioned' characters.
 function isVoiced(c: CharacterEntry): boolean {
-  const role = String(c.character?.role || '');
-  // Empty role passes through — older projects without role data still get voices.
-  return role === '' || VOICED_ROLES.has(role);
+  const char = c.character || ({} as any);
+  if (char.mainCharacter === true) return true;
+  const role = String(char.role || '').toLowerCase();
+  if (!role) return true; // older projects without role data
+  if (role === 'mentioned') return false;
+  // Permissive — accepts "supporting", "mentor/supporting", "supporting (foil)" etc.
+  return /protagonist|antagonist|supporting|minor|mentor|foil/.test(role);
 }
 
-function rolePriority(role: string): number {
-  if (role === 'protagonist') return 0;
-  if (role === 'antagonist') return 1;
-  if (role === 'supporting') return 2;
-  if (role === 'minor') return 3;
-  return 4;
+// Lower = more important. `mainCharacter:true` always beats a non-main entry,
+// then we fall back to role priority for older projects without the flag.
+function importanceRank(c: CharacterEntry, canonIndex: number): number {
+  const char = c.character || ({} as any);
+  // Main characters: rank purely by canon-array order (creation order ≈
+  // outline-listing order, which Haiku produces by importance). Always wins
+  // over any non-main character.
+  if (char.mainCharacter === true) return canonIndex;
+  // Non-main: layered by role first, then canon position.
+  const role = String(char.role || '').toLowerCase();
+  let roleBase = 10_000;
+  if (role.includes('protagonist')) roleBase = 1_000;
+  else if (role.includes('antagonist')) roleBase = 2_000;
+  else if (role.includes('supporting') || role.includes('mentor')) roleBase = 3_000;
+  else if (role.includes('minor') || role.includes('foil')) roleBase = 4_000;
+  return roleBase + canonIndex;
 }
 
 /**
  * Pure function: doesn't mutate the canon. Returns one assignment per
  * character. Top 8 voiced males → MALE_CHARACTER_VOICES, top 8 voiced females
  * → FEMALE_CHARACTER_VOICES, neutral/excess → narrator (isFallback=true).
+ *
+ * Importance ranking: `mainCharacter: true` wins over everything (canon order
+ * inside that set), then role-based priority for non-main characters. See
+ * docs/MULTI_VOICE.md for the full algorithm.
  */
 export function assignVoicesForProject(characters: CharacterEntry[]): VoiceAssignment[] {
   if (!characters.length) return [];
 
-  const voiced = characters.filter(isVoiced);
-  const sortByRole = (a: CharacterEntry, b: CharacterEntry) =>
-    rolePriority(String(a.character?.role || '')) -
-    rolePriority(String(b.character?.role || ''));
+  // Preserve canon-array index so importanceRank can break ties by creation order.
+  const indexed = characters.map((c, i) => ({ c, i }));
+  const voiced = indexed.filter(({ c }) => isVoiced(c));
+  const sortByImportance = (a: { c: CharacterEntry; i: number }, b: { c: CharacterEntry; i: number }) =>
+    importanceRank(a.c, a.i) - importanceRank(b.c, b.i);
 
-  const males = voiced.filter((c) => getGender(c) === 'male').sort(sortByRole);
-  const females = voiced.filter((c) => getGender(c) === 'female').sort(sortByRole);
+  const males = voiced.filter(({ c }) => getGender(c) === 'male').sort(sortByImportance);
+  const females = voiced.filter(({ c }) => getGender(c) === 'female').sort(sortByImportance);
 
   const voiceById = new Map<string, string>();
-  males.slice(0, MALE_CHARACTER_VOICES.length).forEach((c, i) => {
+  males.slice(0, MALE_CHARACTER_VOICES.length).forEach(({ c }, i) => {
     voiceById.set(c.id, MALE_CHARACTER_VOICES[i]);
   });
-  females.slice(0, FEMALE_CHARACTER_VOICES.length).forEach((c, i) => {
+  females.slice(0, FEMALE_CHARACTER_VOICES.length).forEach(({ c }, i) => {
     voiceById.set(c.id, FEMALE_CHARACTER_VOICES[i]);
   });
 

@@ -39,6 +39,22 @@ export interface EnsureResult {
 }
 
 /**
+ * The TTS job system rewrites chapterId to `<uuid>-v<timestamp>` or
+ * `<uuid>-scene-<sceneId>-v<timestamp>` so each generation has a unique
+ * audio cache key. The chapters table only stores the bare UUID, though,
+ * so we have to strip the suffixes before looking up the row. UUIDs are
+ * 36 chars (hyphenated) so the leading UUID survives.
+ */
+function extractBaseChapterId(suffixedId: string): string {
+  let id = suffixedId;
+  // -v<digits> at the end (audio version stamp from Date.now())
+  id = id.replace(/-v\d+$/, '');
+  // -scene-<uuid> just before the version (per-scene audio splits)
+  id = id.replace(/-scene-[a-f0-9-]{36}$/, '');
+  return id;
+}
+
+/**
  * Returns a usable attribution-segments array for the given chapter. Reuses
  * the cached jsonb when prose hash matches; otherwise re-runs the strict Opus
  * pass and caches the result.
@@ -48,20 +64,35 @@ export interface EnsureResult {
  *
  * Skips the call entirely (returns empty cached) when there are no characters
  * in the roster — multi-voice with no characters is single-voice.
+ *
+ * @param chapterId  Either the bare chapter UUID or the version-suffixed
+ *                   form the TTS job system uses (`<uuid>-v...`,
+ *                   `<uuid>-scene-<uuid>-v...`). We strip the suffix internally.
+ * @param proseOverride  Optional. When provided (e.g., per-scene audio gen
+ *                   where the prose is a scene slice rather than full chapter),
+ *                   we attribute against this text instead of pulling from DB.
+ *                   The chapter row is still consulted for the cache key.
  */
-export async function ensureChapterAttribution(chapterId: string): Promise<EnsureResult> {
-  const [chapter] = await db.select().from(chapters).where(eq(chapters.id, chapterId)).limit(1);
-  if (!chapter || !chapter.prose) {
-    return { segments: [], source: 'failed', status: 'error', error: 'chapter not found or empty prose' };
+export async function ensureChapterAttribution(chapterId: string, proseOverride?: string): Promise<EnsureResult> {
+  const baseId = extractBaseChapterId(chapterId);
+  const [chapter] = await db.select().from(chapters).where(eq(chapters.id, baseId)).limit(1);
+  if (!chapter) {
+    return { segments: [], source: 'failed', status: 'error', error: `chapter ${baseId} not found` };
+  }
+  const proseToAttribute = (proseOverride ?? chapter.prose) || '';
+  if (!proseToAttribute.trim()) {
+    return { segments: [], source: 'failed', status: 'error', error: 'empty prose' };
   }
 
-  const currentHash = hashProse(chapter.prose);
+  const currentHash = hashProse(proseToAttribute);
   const cached = chapter.voiceAttribution as CachePayload | null;
 
   // Cache hit — prose matches AND we got a clean result last time.
   // 'needs-review' results aren't reused; we retry on next gen in case the
   // model does better with a fresh window of context.
-  if (cached && cached.proseHash === currentHash && cached.status === 'ok' && Array.isArray(cached.segments) && cached.segments.length > 0) {
+  // Note: we only cache for the full-chapter prose (proseOverride absent).
+  // Scene-level prose slices are too narrow for the cache to be reusable.
+  if (!proseOverride && cached && cached.proseHash === currentHash && cached.status === 'ok' && Array.isArray(cached.segments) && cached.segments.length > 0) {
     return { segments: cached.segments, source: 'cached', status: 'ok' };
   }
 
@@ -78,17 +109,19 @@ export async function ensureChapterAttribution(chapterId: string): Promise<Ensur
   if (roster.length === 0) {
     // No named characters → attribution is a no-op. Cache an empty result so
     // we don't repeat the lookup on every audio regen.
-    const payload: CachePayload = {
-      segments: [],
-      status: 'ok',
-      attempts: 0,
-      model: 'none',
-      attributedAt: new Date().toISOString(),
-      tokensIn: 0,
-      tokensOut: 0,
-      proseHash: currentHash,
-    };
-    await db.update(chapters).set({ voiceAttribution: payload, updatedAt: new Date() }).where(eq(chapters.id, chapterId)).catch(() => {});
+    if (!proseOverride) {
+      const payload: CachePayload = {
+        segments: [],
+        status: 'ok',
+        attempts: 0,
+        model: 'none',
+        attributedAt: new Date().toISOString(),
+        tokensIn: 0,
+        tokensOut: 0,
+        proseHash: currentHash,
+      };
+      await db.update(chapters).set({ voiceAttribution: payload, updatedAt: new Date() }).where(eq(chapters.id, baseId)).catch(() => {});
+    }
     return { segments: [], source: 'fresh', status: 'ok' };
   }
 
@@ -99,7 +132,7 @@ export async function ensureChapterAttribution(chapterId: string): Promise<Ensur
 
   try {
     const result = await attributeChapter({
-      prose: chapter.prose,
+      prose: proseToAttribute,
       characters: roster,
       apiKey,
     });
@@ -116,9 +149,13 @@ export async function ensureChapterAttribution(chapterId: string): Promise<Ensur
       ...(result.unattributedQuotes ? { unattributedQuotes: result.unattributedQuotes } : {}),
     };
 
-    await db.update(chapters)
-      .set({ voiceAttribution: payload, updatedAt: new Date() })
-      .where(eq(chapters.id, chapterId));
+    // Only persist when attributing the FULL chapter prose. Scene slices
+    // would overwrite the chapter-wide cache with a partial result.
+    if (!proseOverride) {
+      await db.update(chapters)
+        .set({ voiceAttribution: payload, updatedAt: new Date() })
+        .where(eq(chapters.id, baseId));
+    }
 
     return { segments: result.segments, source: 'fresh', status: result.status };
   } catch (e: any) {
