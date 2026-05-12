@@ -110,6 +110,11 @@ function setupAutoTracking() {
     }, 300);
   }, { passive: true });
 
+  // Named-section visibility. Any element with [data-journey-section="name"]
+  // fires `section_reached` the first time it crosses ~40% into the viewport.
+  // Lets us see exactly how far down a long landing page each visitor gets.
+  setupSectionObserver();
+
   // Timed engagement milestones
   [5, 15, 30, 60, 120].forEach((sec) => {
     setTimeout(() => track('engaged', { seconds: sec }), sec * 1000);
@@ -185,6 +190,51 @@ function setupAutoTracking() {
     if (document.visibilityState === 'hidden') sendExit();
   });
   window.addEventListener('pagehide', sendExit);
+}
+
+// Section visibility tracker — fires `section_reached` events for any element
+// tagged with [data-journey-section="name"] the first time it scrolls into
+// view. Re-scans every 2s so dynamically rendered React sections also register.
+const seenSections = new Set<string>();
+let sectionObserver: IntersectionObserver | null = null;
+
+function observeSection(el: Element) {
+  const name = el.getAttribute('data-journey-section');
+  if (!name) return;
+  if (!sectionObserver) return;
+  sectionObserver.observe(el);
+}
+
+function setupSectionObserver() {
+  if (typeof IntersectionObserver === 'undefined') return;
+  sectionObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const name = entry.target.getAttribute('data-journey-section');
+        if (!name || seenSections.has(name)) continue;
+        seenSections.add(name);
+        const rect = entry.target.getBoundingClientRect();
+        const docHeight = Math.max(document.body.scrollHeight, 1);
+        const approxDepth = Math.round(((window.scrollY + rect.top) / docHeight) * 100);
+        track('section_reached', { section: name, approx_depth_pct: approxDepth });
+        sectionObserver?.unobserve(entry.target);
+      }
+    },
+    { threshold: 0.4 }
+  );
+
+  // Observe what's already in the DOM
+  document.querySelectorAll('[data-journey-section]').forEach(observeSection);
+
+  // Re-scan periodically so SPA route changes / lazy-mounted sections register.
+  setInterval(() => {
+    document.querySelectorAll('[data-journey-section]').forEach((el) => {
+      const name = el.getAttribute('data-journey-section');
+      if (!name || seenSections.has(name)) return;
+      observeSection(el);
+    });
+  }, 2000);
 }
 
 // Initialize — call once per page load

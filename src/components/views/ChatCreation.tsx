@@ -1609,10 +1609,13 @@ ${childrensRule}`,
   const userMessageCount = messages.filter(m => m.role === 'user').length;
   useEffect(() => {
     if (!guestMode || chatModalDismissed || showChatSignupModal) return;
-    if (userMessageCount >= 5) {
+    // Lowered from 5 → 3 messages on 2026-05-12. Journey data showed only 2 of
+    // 200 sessions ever crossed 5 messages; 3 catches the bulk of engaged
+    // guests at the moment they've committed enough to want their work saved.
+    if (userMessageCount >= 3) {
       setShowChatSignupModal(true);
       pixel.trackCustom('GuestChatSignupModalShown');
-      jTrack('guest_chat_signup_modal_shown');
+      jTrack('guest_chat_signup_modal_shown', { user_message_count: userMessageCount });
     }
   }, [guestMode, userMessageCount, chatModalDismissed, showChatSignupModal]);
 
@@ -1670,7 +1673,11 @@ ${childrensRule}`,
               Save your progress. <span className="text-amber-700">Sign up free.</span>
             </p>
             <button
-              onClick={onRequireAuth}
+              onClick={() => {
+                jTrack('signup_banner_clicked', { source: 'guest_chat_banner' });
+                pixel.trackCustom('SignupBannerClicked', { source: 'guest_chat_banner' });
+                onRequireAuth();
+              }}
               className="px-3 py-1 rounded-lg bg-text-primary text-white text-xs font-semibold hover:opacity-90 transition-opacity flex-shrink-0 ml-2"
             >
               Sign Up
