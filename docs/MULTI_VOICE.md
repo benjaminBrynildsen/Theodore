@@ -91,7 +91,7 @@ existing audiobooks keep their original voices on re-render.
 
 **Male pool (8):** Rex, Sal, Henry, Liam, Sean, Marc, Daniel, James
 
-**Female pool (8):** Eve, Ara, Olivia, Emma, Niamh, Thandi, Grace, Claire
+**Female pool (8):** Eve, Olivia, Emma, Niamh, Thandi, Grace, Claire, Ara (Ara deprioritized 2026-05-11 — only assigned when the project has 8+ voiced female characters)
 
 **Narrator:** Leo. Also the fallback for:
 - Any character ranked beyond pool index 7 in their gender.

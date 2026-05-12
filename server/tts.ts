@@ -456,10 +456,11 @@ export async function callGrokTTS(text: string, voiceId: string): Promise<Buffer
 }
 
 // ========== Grok voice previews ==========
-// xAI's voice-list endpoint doesn't expose preview URLs, so we generate a
-// short sample MP3 once per voice and cache it on disk. The disk copy survives
-// hot reloads (and Render redeploys, until the container is replaced). Falls
-// back to in-memory only if the assets dir isn't writable.
+// xAI's voice-list endpoint doesn't expose preview URLs, so we ship a short
+// sample MP3 per voice committed to the repo at server/assets/voice-previews/.
+// On the rare case the file is missing (new voice added, or cache wiped in
+// dev), we generate fresh from xAI and write to disk. The committed copies
+// survive Render redeploys so the studio never shows missing-sample 404s.
 
 const GROK_PREVIEW_DIR = path.join(process.cwd(), 'server', 'assets', 'voice-previews');
 const GROK_PREVIEW_TEXT = 'Hello — this is what my voice sounds like. I can narrate any story you bring me, from the quietest moments to the loudest crescendos.';

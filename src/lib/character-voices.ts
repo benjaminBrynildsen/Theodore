@@ -34,13 +34,15 @@ export const MALE_CHARACTER_VOICES = [
 ] as const;
 export const FEMALE_CHARACTER_VOICES = [
   'grok:eve',          // Eve — Energetic & bright (multilingual)
-  'grok:ara',          // Ara — Warm & inviting (multilingual)
   'grok:bedd6226',     // Olivia — British, young & bright
   'grok:d11249e6',     // Emma — American, mature & wise
   'grok:355dca53',     // Niamh — Irish, lyrical
   'grok:135ff7ec',     // Thandi — South African, warm
   'grok:f8cf5c2c78d4', // Grace — English, young & bright
   'grok:79f3a8b96d43', // Claire — English, poised
+  'grok:ara',          // Ara — Warm & inviting (multilingual). Deprioritized
+                       // 2026-05-11 per Ben — only assigned when the project
+                       // has 8+ voiced female characters.
 ] as const;
 
 export type Gender = 'male' | 'female' | 'neutral';
