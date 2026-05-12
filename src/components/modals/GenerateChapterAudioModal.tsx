@@ -64,18 +64,21 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
   const multiVoiceUnlocked = isPaidPlan(user?.plan);
   const multiVoiceActive = multiVoiceUnlocked && audioStore.multiVoice;
   const [narratorExpanded, setNarratorExpanded] = useState(false);
+  // Free (Dreamer) tier: narrator is server-coerced to Leo, so the picker
+  // should be locked too — otherwise users pick e.g. Henry and get Leo without
+  // explanation. Paid tiers can choose any voice in single-voice mode.
+  const narratorLockedToLeo = multiVoiceActive || !isPaidPlan(user?.plan);
 
-  // When multi-voice is on, the narrator MUST be Leo — every other voice in
-  // the pool is claimed by a character slot, so letting the user pick one of
-  // them as narrator would create a clash (e.g. Sal as both narrator AND the
-  // antagonist's voice). Force-correct on open and on multi-voice toggle.
+  // Force-correct narrator to Leo whenever the picker is locked (multi-voice
+  // on, OR free tier where the server coerces anyway). Without this a stale
+  // store value from a previous paid session could carry over after downgrade.
   useEffect(() => {
     if (!isOpen) return;
-    if (multiVoiceActive && audioStore.narratorVoice !== NARRATOR_VOICE) {
+    if (narratorLockedToLeo && audioStore.narratorVoice !== NARRATOR_VOICE) {
       audioStore.setNarratorVoice(NARRATOR_VOICE as ElevenLabsVoice);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, multiVoiceActive]);
+  }, [isOpen, narratorLockedToLeo]);
 
   const characters = useMemo(
     () => entries.filter((e) => e.projectId === projectId && e.type === 'character' && (e as any).character) as CharacterEntry[],
@@ -200,13 +203,20 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
               <Mic size={12} />
               Narrator
             </div>
-            {multiVoiceActive ? (
-              // Multi-voice on → narrator is locked to Leo (every other voice
-              // is reserved for a character slot).
+            {narratorLockedToLeo ? (
+              // Locked to Leo. Two cases:
+              //   - Multi-voice on (every other voice is reserved for a
+              //     character slot, picking one would clash).
+              //   - Free (Dreamer) tier — server coerces narrator to Leo
+              //     regardless of pick, so we shouldn't let them pick one.
               <div className="p-3 rounded-xl border border-black/5 bg-black/[0.02] flex items-center justify-between">
                 <div>
                   <div className="text-sm font-semibold text-text-primary">Leo</div>
-                  <div className="text-[11px] text-text-tertiary mt-0.5">Authoritative · narrator + fallback for unvoiced lines</div>
+                  <div className="text-[11px] text-text-tertiary mt-0.5">
+                    {multiVoiceActive
+                      ? 'Authoritative · narrator + fallback for unvoiced lines'
+                      : 'Authoritative · the Dreamer narrator voice. Upgrade to Writer for accent options.'}
+                  </div>
                 </div>
                 <div className="text-[10px] font-semibold uppercase tracking-wider px-2 py-1 rounded bg-black/5 text-text-tertiary">
                   Locked
