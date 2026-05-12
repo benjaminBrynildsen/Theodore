@@ -1910,6 +1910,7 @@ export async function dumpProjectChapters(req: Request, res: Response) {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
     const projectId = String(req.params.projectId || '');
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
     const rows = await db
       .select()
       .from(chapters)
@@ -1923,7 +1924,13 @@ export async function dumpProjectChapters(req: Request, res: Response) {
         wordCount: (r.prose || '').trim().split(/\s+/).filter(Boolean).length,
       }))
       .sort((a, b) => (a.number || 0) - (b.number || 0));
-    res.json({ projectId, total: slim.length, chapters: slim });
+    res.json({
+      projectId,
+      title: project?.title || null,
+      coverUrl: project?.coverUrl || null,
+      total: slim.length,
+      chapters: slim,
+    });
   } catch (e: any) {
     console.error('[Admin] dump-chapters error:', e?.message || e);
     res.status(500).json({ error: e?.message || 'Internal server error' });
