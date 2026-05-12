@@ -8,27 +8,30 @@ interface LandingPageProps {
 }
 
 // ── Static featured books — matches /go page ──
+// Covers + audio committed to public/landing/ so they ship with every build
+// (don't rely on the uploads disk, which only exists on prod). Regenerate
+// audio via scripts/generate-landing-audio.mjs.
 const FEATURED_BOOKS = [
   {
     title: 'Blind Target',
     chapterTitle: 'Touch and Go',
     genre: 'Thriller',
-    coverUrl: '/uploads/covers/343d93d9-1525-40fe-82cd-83b07e1bfcfb.png',
-    audioUrl: '/uploads/audio/ch-2d1e25b52425.mp3',
+    coverUrl: '/landing/covers/blind-target.png',
+    audioUrl: '/landing/audio/blind-target.mp3',
   },
   {
     title: 'Henry & Husky',
     chapterTitle: 'The Robot in the Workshop',
     genre: 'Adventure',
-    coverUrl: '/uploads/covers/f97a37c5-02d0-4526-b73d-3b8452ce8974.png',
-    audioUrl: '/uploads/audio/ch-0b359cb08418.mp3',
+    coverUrl: '/landing/covers/henry-and-husky.png',
+    audioUrl: '/landing/audio/henry-and-husky.mp3',
   },
   {
     title: 'On Ice and Lanes',
     chapterTitle: 'Spare Time',
     genre: 'Fiction',
-    coverUrl: '/uploads/covers/b07fbe31-7eca-4432-ba84-f7a718d072ff.png',
-    audioUrl: '/uploads/audio/ch-87341070a4d5.mp3',
+    coverUrl: '/landing/covers/on-ice-and-lanes.png',
+    audioUrl: '/landing/audio/on-ice-and-lanes.mp3',
   },
 ];
 
