@@ -15,7 +15,10 @@
     "db:push": "drizzle-kit push --force || true",
     "db:studio": "drizzle-kit studio",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sync:staging": "node scripts/sync-staging-from-prod.mjs",
+    "sync:staging:apply": "node scripts/sync-staging-from-prod.mjs --apply",
+    "sync:staging:full": "node scripts/sync-staging-from-prod.mjs --apply --code"
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",
