@@ -302,6 +302,14 @@ export const GROK_VOICES: GrokVoiceInfo[] = [
 
 const GROK_VALID_VOICES = new Set(GROK_VOICES.map(v => v.voiceId));
 
+// voice_id → BCP-47 language code. Sending the voice's actual locale
+// (en-GB for Henry, en-IE for Sean, etc.) helps xAI render the correct
+// phoneme set; defaulting everything to plain `en` produced the "echoey
+// / wonky" quality Ben reported on the library voices.
+const GROK_LANGUAGE_BY_VOICE: Record<string, string> = Object.fromEntries(
+  GROK_VOICES.map((v) => [v.voiceId, v.accent === 'multilingual' ? 'en' : v.accent])
+);
+
 const PROVIDER_DEFAULT_VOICE = {
   openai: 'fable',
   grok: 'eve',
@@ -411,6 +419,9 @@ export async function callGrokTTS(text: string, voiceId: string): Promise<Buffer
   if (coerced.coerced) ttsLog(`[grok] coerced voice "${coerced.original}" → "${coerced.voice}" (mismatched provider)`);
 
   const attempt = async (v: string) => {
+    // Per-voice locale (en-GB for Henry, en-IE for Sean, etc.) when known —
+    // falls back to generic `en` for the multilingual flagship voices.
+    const language = GROK_LANGUAGE_BY_VOICE[v] || 'en';
     const response = await fetch(GROK_TTS_API, {
       method: 'POST',
       headers: {
@@ -420,7 +431,7 @@ export async function callGrokTTS(text: string, voiceId: string): Promise<Buffer
       body: JSON.stringify({
         text: safeText,
         voice_id: v,
-        language: 'en',
+        language,
         output_format: {
           codec: 'mp3',
           sample_rate: 24000,
@@ -1702,9 +1713,9 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         const next = speechSegs[idx + 1];
         if (next && next.voice && next.voice !== seg.voice) {
           // Trailing pause renders at the END of this segment's audio, just
-          // before the voice change. `[long-pause]` is xAI's longest inline
-          // beat — feels about right for a paragraph break / speaker switch.
-          speakable = `${speakable} [long-pause]`;
+          // before the voice change. `[pause]` is xAI's short beat — enough
+          // breathing room without the conversational drag of [long-pause].
+          speakable = `${speakable} [pause]`;
         }
         const buf = await callGrokTTS(speakable, seg.voice);
         completed++;
