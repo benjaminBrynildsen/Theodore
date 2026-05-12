@@ -1684,13 +1684,27 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
 
     // Generate every segment in parallel. If any one fails, fail the whole
     // chapter — partial audio would silently drop a speaker mid-scene.
+    //
+    // Pacing: when consecutive segments use different voices (e.g. narrator
+    // → dialogue, or character A → character B), we append a `[long-pause]`
+    // xAI tag to the EARLIER segment's text so Grok renders a natural breath
+    // before the voice changes. Same-voice runs get no extra pause (Grok
+    // already handles intra-line pacing). Fixes the "rushed transition"
+    // complaint when switching between narrator and dialogue voices.
     let completed = 0;
     const audioBuffers = await Promise.all(
-      speechSegs.map(async (seg) => {
+      speechSegs.map(async (seg, idx) => {
         // Strip remaining bracket tags from the text Grok actually speaks.
         // Direction tags ([whispering] etc.) and any speaker tags that
         // survived parseDialogue must not be read aloud.
-        const speakable = seg.text.replace(/\[[^\]]+\]/g, '').trim();
+        let speakable = seg.text.replace(/\[[^\]]+\]/g, '').trim();
+        const next = speechSegs[idx + 1];
+        if (next && next.voice && next.voice !== seg.voice) {
+          // Trailing pause renders at the END of this segment's audio, just
+          // before the voice change. `[long-pause]` is xAI's longest inline
+          // beat — feels about right for a paragraph break / speaker switch.
+          speakable = `${speakable} [long-pause]`;
+        }
         const buf = await callGrokTTS(speakable, seg.voice);
         completed++;
         req.onProgress?.(Math.round((completed / speechSegs.length) * 100));
