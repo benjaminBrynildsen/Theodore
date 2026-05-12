@@ -410,67 +410,68 @@ function CaseStudySpotlight() {
   );
 }
 
+// 2026-05-12: cut from 4 steps to 2 — the in-between screenshots (theodore-06-read,
+// theodore-08-closer) lost too much detail at 180px wide. Each remaining step
+// now gets its own full-width row with a 320–380px phone mock alongside roomier
+// copy, and the rows alternate sides so the eye moves through both.
 const HOW_STEPS = [
   {
     num: '01',
     title: 'Type your idea',
-    desc: 'One sentence is enough. Theodore asks the right questions to fill in the world.',
+    desc: 'One sentence is enough. Theodore asks the right questions, fills in the world, and turns vague into specific without a blank page in sight.',
     img: '/launch/theodore-02-cowrite.webp',
     alt: 'Imagine chat in Theodore',
+    imgSide: 'left' as const,
   },
   {
     num: '02',
-    title: 'Theodore writes',
-    desc: 'Characters, plot, and prose — chapter by chapter, in your tone.',
-    img: '/launch/theodore-06-read.webp',
-    alt: 'A generated chapter in Theodore',
-  },
-  {
-    num: '03',
     title: 'Audio narrates itself',
-    desc: 'Professional voices read every chapter the moment it\'s written.',
+    desc: 'Professional voices read every chapter the moment it\'s written. Multi-voice casts dialogue by character — no exporting, no stitching.',
     img: '/launch/theodore-07-listen.webp',
     alt: 'Audiobook player in Theodore',
-  },
-  {
-    num: '04',
-    title: 'Share & listen',
-    desc: 'One link your friends can press play on — anywhere, no app.',
-    img: '/launch/theodore-08-closer.webp',
-    alt: 'Sharing a book from Theodore',
+    imgSide: 'right' as const,
   },
 ];
 
 function HowItWorks() {
   return (
     <section data-journey-section="landing_how_it_works" className="w-full max-w-6xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28">
-      <div className="text-center mb-12 sm:mb-14">
+      <div className="text-center mb-14 sm:mb-16">
         <p className="text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-2">How it works</p>
         <h2 className="font-serif text-3xl sm:text-4xl tracking-tight text-black">From a sentence to a full audiobook</h2>
-        <p className="mt-3 text-sm text-black/50 max-w-md mx-auto">Four steps. About one afternoon. Free to try.</p>
+        <p className="mt-3 text-sm text-black/50 max-w-md mx-auto">Two steps. About one afternoon. Free to try.</p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-5">
-        {HOW_STEPS.map((step, i) => (
-          <div
-            key={step.num}
-            className="flex flex-col items-center text-center animate-fade-in"
-            style={{ animationDelay: `${100 + i * 90}ms` }}
-          >
-            <div className="text-xs font-semibold text-black/30 tracking-widest mb-3">{step.num}</div>
-            <div className="w-full max-w-[180px] mb-5">
-              <div className="rounded-[1.6rem] bg-black p-1.5 shadow-xl">
-                <img
-                  src={step.img}
-                  alt={step.alt}
-                  className="w-full rounded-[1.3rem] aspect-[9/19] object-cover object-top"
-                  loading="lazy"
-                />
+      <div className="space-y-16 sm:space-y-24">
+        {HOW_STEPS.map((step, i) => {
+          const imgFirst = step.imgSide === 'left';
+          return (
+            <div
+              key={step.num}
+              className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12 items-center animate-fade-in"
+              style={{ animationDelay: `${100 + i * 120}ms` }}
+            >
+              {/* Image column */}
+              <div className={cn('flex justify-center', imgFirst ? 'md:order-1' : 'md:order-2')}>
+                <div className="w-full max-w-[320px] sm:max-w-[360px]">
+                  <div className="rounded-[2.2rem] bg-black p-2 shadow-2xl">
+                    <img
+                      src={step.img}
+                      alt={step.alt}
+                      className="w-full rounded-[1.8rem] aspect-[9/19] object-cover object-top"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+              </div>
+              {/* Copy column */}
+              <div className={cn('text-center md:text-left', imgFirst ? 'md:order-2' : 'md:order-1')}>
+                <div className="text-xs font-semibold text-black/30 tracking-widest mb-3">STEP {step.num}</div>
+                <h3 className="font-serif text-2xl sm:text-3xl text-black mb-3 leading-tight tracking-tight">{step.title}</h3>
+                <p className="text-[15px] sm:text-base text-black/55 leading-relaxed max-w-md mx-auto md:mx-0">{step.desc}</p>
               </div>
             </div>
-            <h3 className="font-serif text-lg sm:text-xl text-black mb-1.5">{step.title}</h3>
-            <p className="text-sm text-black/50 leading-relaxed max-w-[20ch]">{step.desc}</p>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
