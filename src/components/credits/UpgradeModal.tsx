@@ -24,6 +24,7 @@ export function UpgradeModal() {
   const displayCurrency = useMemo(() => detectDisplayCurrency(), []);
   const showUsdDisclaimer = isNonUsdDisplay(displayCurrency);
   const isAudioCap = upgradeReason === 'audio_cap';
+  const isMultiVoice = upgradeReason === 'multi_voice';
   const isGuestUpgrade = !user;
   const priceFor = (tier: PlanTier): string => {
     if (tier === 'free') return PLAN_DETAILS.free.price;
@@ -121,7 +122,20 @@ export function UpgradeModal() {
           <div className="relative z-10 p-6 sm:p-8">
             {/* Header */}
             <div className="text-center mb-6">
-              {isAudioCap ? (
+              {isMultiVoice ? (
+                <>
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-purple-500/15 mb-3">
+                    <Sparkles size={22} className="text-purple-300" />
+                  </div>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-500/15 border border-purple-400/20 text-[10px] font-bold uppercase tracking-wider text-purple-300 mb-2">
+                    Beta · Writer early access
+                  </div>
+                  <h2 className="text-xl font-serif font-semibold text-white">A voice for every character</h2>
+                  <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
+                    Writer subscribers get early access to multi-voice narration — each character speaks with their own xAI voice, auto-cast by role and gender. Plus everything else in Writer · $10/mo, 7 days free.
+                  </p>
+                </>
+              ) : isAudioCap ? (
                 <>
                   <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
                     <Headphones size={22} className="text-white/80" />

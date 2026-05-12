@@ -7,11 +7,12 @@
 // docs/MULTI_VOICE.md for the full design and lib/character-voices.ts for
 // the assignment algorithm.
 
-import { useEffect, useMemo } from 'react';
-import { X, Mic, Users, Sparkles, Check, Lock } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { X, Mic, Users, Sparkles, Check, Lock, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAudioStore } from '../../store/audio';
 import { useCanonStore } from '../../store/canon';
 import { useAuthStore } from '../../store/auth';
+import { useCreditsStore } from '../../store/credits';
 import {
   assignVoicesForProject,
   getVoiceLabel,
@@ -62,6 +63,7 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
   const user = useAuthStore((s) => s.user);
   const multiVoiceUnlocked = isPaidPlan(user?.plan);
   const multiVoiceActive = multiVoiceUnlocked && audioStore.multiVoice;
+  const [narratorExpanded, setNarratorExpanded] = useState(false);
 
   // When multi-voice is on, the narrator MUST be Leo — every other voice in
   // the pool is claimed by a character slot, so letting the user pick one of
@@ -136,6 +138,62 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
         </div>
 
         <div className="overflow-y-auto px-6 py-4 space-y-5 flex-1">
+          {/* Multi-voice toggle — top of the modal so it's the first decision
+              the user makes. Toggling it changes the narrator section below
+              (locks to Leo when on, full picker when off). */}
+          <section
+            className={`flex items-center justify-between p-3 rounded-xl border ${
+              multiVoiceUnlocked ? 'bg-black/[0.02] border-black/5' : 'bg-amber-50/40 border-amber-200/60 cursor-pointer'
+            }`}
+            onClick={() => {
+              if (!multiVoiceUnlocked) {
+                // Close this modal first so the UpgradeModal (z-[60]) isn't
+                // rendered behind us (z-[80]). The user is interrupting voice
+                // confirmation to upgrade — they'll re-enter the flow after.
+                onCancel();
+                useCreditsStore.getState().setShowUpgradeModal(true, 'multi_voice');
+              }
+            }}
+          >
+            <div className="flex items-start gap-2.5 flex-1 min-w-0">
+              {multiVoiceUnlocked ? (
+                <Users size={14} className="text-text-tertiary mt-0.5 shrink-0" />
+              ) : (
+                <Lock size={14} className="text-amber-600 mt-0.5 shrink-0" />
+              )}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="text-sm font-semibold text-text-primary">Multi-voice characters</div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                    Beta
+                  </span>
+                  {!multiVoiceUnlocked && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-200/70 text-amber-900">
+                      Writer+
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-text-tertiary mt-0.5">
+                  {multiVoiceUnlocked
+                    ? 'Up to 16 characters get their own voice — auto-assigned by role and gender. Everyone else stays in the narrator voice.'
+                    : 'Give each character their own voice. Writer subscribers get early access to beta features like this one.'}
+                </div>
+              </div>
+            </div>
+            <Toggle
+              checked={multiVoiceUnlocked && audioStore.multiVoice}
+              disabled={!multiVoiceUnlocked}
+              onChange={(v) => {
+                if (!multiVoiceUnlocked) {
+                  onCancel();
+                  useCreditsStore.getState().setShowUpgradeModal(true, 'multi_voice');
+                  return;
+                }
+                audioStore.setMultiVoice(v);
+              }}
+            />
+          </section>
+
           {/* Narrator voice */}
           <section>
             <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold uppercase tracking-wider text-text-tertiary">
@@ -155,62 +213,56 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
                 </div>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {NARRATOR_OPTIONS.map((v) => {
-                  const selected = audioStore.narratorVoice === v.id;
-                  return (
-                    <button
-                      key={v.id}
-                      onClick={() => audioStore.setNarratorVoice(v.id as ElevenLabsVoice)}
-                      className={`text-left p-3 rounded-xl border transition-colors ${
-                        selected
-                          ? 'border-text-primary bg-black/[0.04]'
-                          : 'border-black/5 bg-white hover:bg-black/[0.02]'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-sm font-semibold text-text-primary truncate">{v.name}</div>
-                        {selected && <Check size={13} className="text-text-primary shrink-0" />}
-                      </div>
-                      <div className="text-[11px] text-text-tertiary mt-0.5 truncate">{v.desc}</div>
-                    </button>
-                  );
-                })}
-              </div>
+              <>
+                {/* Collapsed by default: show top 4 + selected if not in top 4.
+                    "See more" expands the rest. 17 voices in a single grid was
+                    too overwhelming on the chapter-gen path. */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {(() => {
+                    const top = NARRATOR_OPTIONS.slice(0, 4);
+                    const rest = NARRATOR_OPTIONS.slice(4);
+                    const selectedInRest = rest.find((v) => v.id === audioStore.narratorVoice);
+                    const visible = narratorExpanded
+                      ? NARRATOR_OPTIONS
+                      : selectedInRest
+                        ? [...top, selectedInRest]
+                        : top;
+                    return visible.map((v) => {
+                      const selected = audioStore.narratorVoice === v.id;
+                      return (
+                        <button
+                          key={v.id}
+                          onClick={() => audioStore.setNarratorVoice(v.id as ElevenLabsVoice)}
+                          className={`text-left p-3 rounded-xl border transition-colors ${
+                            selected
+                              ? 'border-text-primary bg-black/[0.04]'
+                              : 'border-black/5 bg-white hover:bg-black/[0.02]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-semibold text-text-primary truncate">{v.name}</div>
+                            {selected && <Check size={13} className="text-text-primary shrink-0" />}
+                          </div>
+                          <div className="text-[11px] text-text-tertiary mt-0.5 truncate">{v.desc}</div>
+                        </button>
+                      );
+                    });
+                  })()}
+                </div>
+                {NARRATOR_OPTIONS.length > 4 && (
+                  <button
+                    onClick={() => setNarratorExpanded((v) => !v)}
+                    className="mt-2 w-full flex items-center justify-center gap-1 text-[12px] font-medium text-text-secondary hover:text-text-primary py-2 rounded-lg hover:bg-black/[0.02] transition-colors"
+                  >
+                    {narratorExpanded ? (
+                      <>Hide accents <ChevronUp size={12} /></>
+                    ) : (
+                      <>See {NARRATOR_OPTIONS.length - 4} more accents <ChevronDown size={12} /></>
+                    )}
+                  </button>
+                )}
+              </>
             )}
-          </section>
-
-          {/* Multi-voice toggle — Writer+ only */}
-          <section className={`flex items-center justify-between p-3 rounded-xl border ${
-            multiVoiceUnlocked ? 'bg-black/[0.02] border-black/5' : 'bg-amber-50/40 border-amber-200/60'
-          }`}>
-            <div className="flex items-start gap-2.5">
-              {multiVoiceUnlocked ? (
-                <Users size={14} className="text-text-tertiary mt-0.5 shrink-0" />
-              ) : (
-                <Lock size={14} className="text-amber-600 mt-0.5 shrink-0" />
-              )}
-              <div>
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-semibold text-text-primary">Multi-voice characters</div>
-                  {!multiVoiceUnlocked && (
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-200/70 text-amber-900">
-                      Writer+
-                    </span>
-                  )}
-                </div>
-                <div className="text-[11px] text-text-tertiary mt-0.5">
-                  {multiVoiceUnlocked
-                    ? 'Up to 16 characters get their own voice — auto-assigned by role and gender. Everyone else stays in the narrator voice.'
-                    : 'Give each character their own voice. Available on Writer ($10/mo) and up.'}
-                </div>
-              </div>
-            </div>
-            <Toggle
-              checked={multiVoiceUnlocked && audioStore.multiVoice}
-              disabled={!multiVoiceUnlocked}
-              onChange={audioStore.setMultiVoice}
-            />
           </section>
 
           {/* Locked character voice assignments — read-only */}

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { UserPlan, CreditTransaction, PlanTier } from '../types/credits';
 import { generateId } from '../lib/utils';
 
-export type UpgradeReason = 'generic' | 'audio_cap';
+export type UpgradeReason = 'generic' | 'audio_cap' | 'multi_voice';
 
 export interface UsageReceipt {
   id: string;
