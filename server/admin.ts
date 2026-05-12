@@ -1902,6 +1902,34 @@ export async function gradeCopy(req: Request, res: Response) {
   }
 }
 
+// GET /api/admin/projects/:projectId/chapters
+// Read-only chapter list (with full prose) for a project. Used for ops
+// tasks like grabbing source prose for landing-page demo audio.
+export async function dumpProjectChapters(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const projectId = String(req.params.projectId || '');
+    const rows = await db
+      .select()
+      .from(chapters)
+      .where(eq(chapters.projectId, projectId));
+    const slim = rows
+      .map((r: any) => ({
+        id: r.id,
+        number: r.number,
+        title: r.title,
+        prose: r.prose || '',
+        wordCount: (r.prose || '').trim().split(/\s+/).filter(Boolean).length,
+      }))
+      .sort((a, b) => (a.number || 0) - (b.number || 0));
+    res.json({ projectId, total: slim.length, chapters: slim });
+  } catch (e: any) {
+    console.error('[Admin] dump-chapters error:', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
+  }
+}
+
 // GET /api/admin/projects/:projectId/canon
 // Read-only canon dump for a project. Used to debug character voice
 // assignment (which characters made the top-4 cut, which fell back to

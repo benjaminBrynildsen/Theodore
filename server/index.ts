@@ -27,7 +27,7 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, GROK_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, getGrokVoicesWithPreviews, getGrokPreviewBuffer, estimateTTSCredits } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, getReferrals } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, dumpProjectChapters, getReferrals } from './admin.js';
 import { readReferrer, writeReferrer, clearReferrer, refResolvesToRealUser } from './referrer.js';
 import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.js';
 import multer from 'multer';
@@ -3352,6 +3352,7 @@ app.post('/api/admin/grade-copy', gradeCopy);
 app.post('/api/admin/concept-to-headlines', conceptToHeadlines);
 app.post('/api/admin/chapters/:chapterId/attribute', attributeChapterEndpoint);
 app.get('/api/admin/projects/:projectId/canon', dumpProjectCanon);
+app.get('/api/admin/projects/:projectId/chapters', dumpProjectChapters);
 
 // ========== Outreach (open tracking + creator pipeline) ==========
 // Pixel route — intentionally public, served on track.theodore.tools
