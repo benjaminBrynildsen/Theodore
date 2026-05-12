@@ -69,6 +69,21 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
   // explanation. Paid tiers can choose any voice in single-voice mode.
   const narratorLockedToLeo = multiVoiceActive || !isPaidPlan(user?.plan);
 
+  // "Bounce" affordance for the locked multi-voice toggle: free users tap it,
+  // it flips ON for ~1s as if it worked, then snaps back OFF as the upgrade
+  // modal opens. Communicates "this control IS active, just not for you yet"
+  // more clearly than a dead disabled control.
+  const [lockedToggleBouncing, setLockedToggleBouncing] = useState(false);
+  const triggerLockedUpgrade = () => {
+    if (lockedToggleBouncing) return;
+    setLockedToggleBouncing(true);
+    setTimeout(() => {
+      setLockedToggleBouncing(false);
+      onCancel();
+      useCreditsStore.getState().setShowUpgradeModal(true, 'multi_voice');
+    }, 1000);
+  };
+
   // Force-correct narrator to Leo whenever the picker is locked (multi-voice
   // on, OR free tier where the server coerces anyway). Without this a stale
   // store value from a previous paid session could carry over after downgrade.
@@ -149,13 +164,7 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
               multiVoiceUnlocked ? 'bg-black/[0.02] border-black/5' : 'bg-amber-50/40 border-amber-200/60 cursor-pointer'
             }`}
             onClick={() => {
-              if (!multiVoiceUnlocked) {
-                // Close this modal first so the UpgradeModal (z-[60]) isn't
-                // rendered behind us (z-[80]). The user is interrupting voice
-                // confirmation to upgrade — they'll re-enter the flow after.
-                onCancel();
-                useCreditsStore.getState().setShowUpgradeModal(true, 'multi_voice');
-              }
+              if (!multiVoiceUnlocked) triggerLockedUpgrade();
             }}
           >
             <div className="flex items-start gap-2.5 flex-1 min-w-0">
@@ -184,12 +193,19 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
               </div>
             </div>
             <Toggle
-              checked={multiVoiceUnlocked && audioStore.multiVoice}
-              disabled={!multiVoiceUnlocked}
+              // Locked users see the toggle briefly bounce to ON before snapping
+              // back. Paid users see real state.
+              checked={
+                multiVoiceUnlocked
+                  ? audioStore.multiVoice
+                  : lockedToggleBouncing
+              }
+              // Locked users CAN interact — the click flips it visually and
+              // routes to the upgrade modal. So pass disabled=false in both
+              // cases; the onChange handler differentiates.
               onChange={(v) => {
                 if (!multiVoiceUnlocked) {
-                  onCancel();
-                  useCreditsStore.getState().setShowUpgradeModal(true, 'multi_voice');
+                  triggerLockedUpgrade();
                   return;
                 }
                 audioStore.setMultiVoice(v);

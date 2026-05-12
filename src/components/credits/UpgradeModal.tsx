@@ -193,10 +193,12 @@ export function UpgradeModal() {
                 const isCurrent = plan.tier === tier;
 
                 return (
-                  <div
-                    key={tier}
-                    className="relative rounded-2xl overflow-hidden"
-                  >
+                  // Outer wrapper does NOT clip — needed so the
+                  // "Recommended" badge hanging above the card stays visible.
+                  // The inner wrapper handles the rounded-corner clip for the
+                  // rotating gradient border.
+                  <div key={tier} className="relative">
+                    <div className="relative rounded-2xl overflow-hidden">
                     {/* Card border glow for recommended */}
                     {recommended && !isCurrent && (
                       <div className="absolute inset-0 rounded-2xl" style={{
@@ -213,14 +215,6 @@ export function UpgradeModal() {
                         recommended && !isCurrent ? 'm-[1px]' : '',
                       )}
                     >
-                      {recommended && !isCurrent && (
-                        <div className="absolute -top-0 left-4 -translate-y-1/2">
-                          <span className="text-[10px] font-semibold text-white px-2.5 py-0.5 rounded-full flex items-center gap-1" style={{ background: 'linear-gradient(90deg, #6366f1, #a855f7)' }}>
-                            <Sparkles size={9} /> Recommended
-                          </span>
-                        </div>
-                      )}
-
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/[0.08]">
@@ -280,6 +274,17 @@ export function UpgradeModal() {
                         </div>
                       )}
                     </div>
+                    </div>
+                    {/* Recommended badge — outside the overflow-hidden wrapper
+                        so it can hang above the card without being clipped.
+                        z-10 keeps it above the rotating border. */}
+                    {recommended && !isCurrent && (
+                      <div className="absolute -top-2 left-4 z-10 pointer-events-none">
+                        <span className="text-[10px] font-semibold text-white px-2.5 py-1 rounded-full flex items-center gap-1 shadow-lg" style={{ background: 'linear-gradient(90deg, #6366f1, #a855f7)' }}>
+                          <Sparkles size={9} /> Recommended
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
