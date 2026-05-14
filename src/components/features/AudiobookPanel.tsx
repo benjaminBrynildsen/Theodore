@@ -8,6 +8,8 @@ import { useAuthStore } from '../../store/auth';
 import { isPaidPlan } from '../../lib/plan';
 import { buildVoiceParams as buildSharedVoiceParams } from '../../lib/voice-params';
 import { useCreditsStore } from '../../store/credits';
+import { track as jTrack } from '../../lib/journey';
+import * as pixel from '../../lib/pixel';
 import { useGenerationStore } from '../../store/generation';
 import { useMusicStore } from '../../store/music';
 import { cn } from '../../lib/utils';
@@ -850,6 +852,8 @@ export function AudiobookPanel() {
     // the actual next step for the user.
     if (e instanceof ApiError && e.status === 429 && isGuest) {
       setShowAudioSignupModal(true);
+      jTrack('guest_signup_modal_shown', { variant: 'audio' });
+      pixel.trackCustom('GuestSignupModalShown', { variant: 'audio' });
       return true;
     }
     return false;

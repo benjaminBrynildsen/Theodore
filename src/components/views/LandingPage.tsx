@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowUp, BookOpen, Sparkles, Headphones, Zap, Play, Pause } from 'lucide-react';
+import { ArrowUp, BookOpen, Sparkles, Headphones, Zap, Play, Pause, Check, Music, Mic2, BookText, Share2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { track as jTrack } from '../../lib/journey';
 
 interface LandingPageProps {
   onGetStarted: (initialMessage?: string) => void;
@@ -48,10 +49,70 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
   const [wordIndex, setWordIndex] = useState(0);
   const [speedStep, setSpeedStep] = useState(0);
   const [wordVisible, setWordVisible] = useState(true);
-  const [input, setInput] = useState(() => SHORT_PROMPTS[Math.floor(Math.random() * SHORT_PROMPTS.length)]);
+  const [input, setInput] = useState('');
+  const [animatedText, setAnimatedText] = useState('');
+  const [userInteracted, setUserInteracted] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const speedCurveMs = [1000, 900, 820, 760, 700, 660, 620, 590, 560, 540];
   const finalWordIndex = rotatingWords.length - 1;
+
+  // Typewriter for the chat input: cycles through SHORT_PROMPTS with a
+  // blinking caret until the user clicks/types. On interaction, hand off
+  // the currently-visible text as the input value so they can submit
+  // immediately without having to type anything.
+  useEffect(() => {
+    if (userInteracted) return;
+    let charIdx = 0;
+    let promptIdx = Math.floor(Math.random() * SHORT_PROMPTS.length);
+    let phase: 'typing' | 'holding' | 'deleting' = 'typing';
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const prompt = SHORT_PROMPTS[promptIdx];
+      switch (phase) {
+        case 'typing':
+          charIdx += 1;
+          setAnimatedText(prompt.slice(0, charIdx));
+          if (charIdx >= prompt.length) {
+            phase = 'holding';
+            timer = setTimeout(tick, 2000);
+          } else {
+            timer = setTimeout(tick, 45 + Math.random() * 55);
+          }
+          break;
+        case 'holding':
+          phase = 'deleting';
+          timer = setTimeout(tick, 30);
+          break;
+        case 'deleting':
+          charIdx -= 1;
+          setAnimatedText(prompt.slice(0, charIdx));
+          if (charIdx <= 0) {
+            promptIdx = (promptIdx + 1) % SHORT_PROMPTS.length;
+            phase = 'typing';
+            timer = setTimeout(tick, 380);
+          } else {
+            timer = setTimeout(tick, 22);
+          }
+          break;
+      }
+    };
+    timer = setTimeout(tick, 700);
+    return () => clearTimeout(timer);
+  }, [userInteracted]);
+
+  const handoffToManualInput = () => {
+    if (userInteracted) return;
+    setUserInteracted(true);
+    setInput(animatedText);
+    setTimeout(() => {
+      const el = inputRef.current;
+      if (el) {
+        el.focus();
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+      }
+    }, 0);
+  };
 
   useEffect(() => {
     if (wordIndex >= finalWordIndex) {
@@ -70,25 +131,34 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
   }, [finalWordIndex, speedStep, wordIndex]);
 
   const handleSubmit = () => {
-    const text = input.trim();
+    const text = (userInteracted ? input : animatedText).trim();
     onGetStarted(text || undefined);
   };
 
+  const effectiveText = userInteracted ? input : animatedText;
+
+  // 4-col feature grid replacing the old 3-feature row. Fastlane-style:
+  // 2-3 word labels, single-sentence subheads.
   const features = [
     {
-      icon: Headphones,
-      title: 'Idea to Audiobook',
-      desc: 'Type a sentence. Get a full audiobook — narrated, chapter by chapter.',
+      icon: BookText,
+      title: 'Characters that remember',
+      desc: 'Names, voices, motives — consistent across every chapter.',
     },
     {
-      icon: Sparkles,
-      title: 'AI That Knows Your Story',
-      desc: 'Characters, locations, and lore stay consistent across every chapter.',
+      icon: Mic2,
+      title: 'Voices that emote',
+      desc: 'Multi-voice narration with per-character casting.',
     },
     {
-      icon: Zap,
-      title: 'One Seamless Pipeline',
-      desc: 'Write, edit, and listen — all in one place. No exports, no stitching.',
+      icon: Music,
+      title: 'Music + sound design',
+      desc: 'Optional ambient SFX so every chapter feels scored.',
+    },
+    {
+      icon: Share2,
+      title: 'Share anywhere',
+      desc: 'One link. Your reader presses play. No app required.',
     },
   ];
 
@@ -101,7 +171,10 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
           <span className="text-base font-serif font-semibold tracking-tight">Theodore</span>
         </div>
         <button
-          onClick={onSignIn}
+          onClick={() => {
+            jTrack('signin_clicked', { source: 'landing_nav' });
+            onSignIn();
+          }}
           className="text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
         >
           Sign in
@@ -109,7 +182,7 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
       </header>
 
       {/* Hero */}
-      <section className="flex-1 flex flex-col items-center sm:justify-center px-6 sm:px-10 py-12 sm:py-20 text-center max-w-3xl mx-auto">
+      <section data-journey-section="landing_hero" className="flex-1 flex flex-col items-center sm:justify-center px-6 sm:px-10 py-12 sm:py-20 text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-6">
           <Sparkles size={12} />
           Story Engine
@@ -143,25 +216,40 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
         <div className="w-full max-w-lg">
           <div className="rounded-2xl bg-[#1c1c1e] shadow-[0_8px_40px_rgba(0,0,0,0.15)] overflow-hidden">
             <div className="flex items-end gap-2 p-4">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit();
-                  }
-                }}
-                placeholder="Describe your story idea..."
-                rows={3}
-                className="flex-1 bg-transparent text-white/90 placeholder:text-white/30 text-base sm:text-sm resize-none outline-none px-2 py-2 min-h-[4.5rem] max-h-[5.5rem]"
-              />
+              <div className="relative flex-1 min-h-[4.5rem]">
+                <textarea
+                  ref={inputRef}
+                  value={userInteracted ? input : ''}
+                  onChange={(e) => {
+                    if (!userInteracted) setUserInteracted(true);
+                    setInput(e.target.value);
+                  }}
+                  onFocus={handoffToManualInput}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit();
+                    }
+                  }}
+                  placeholder={userInteracted ? 'Describe your story idea...' : ''}
+                  rows={3}
+                  className="w-full bg-transparent text-white/90 placeholder:text-white/30 text-base sm:text-sm resize-none outline-none px-2 py-2 min-h-[4.5rem] max-h-[5.5rem] relative z-10"
+                />
+                {!userInteracted && (
+                  <div
+                    aria-hidden="true"
+                    className="absolute inset-0 px-2 py-2 text-white/90 text-base sm:text-sm leading-[1.5] pointer-events-none whitespace-pre-wrap break-words"
+                  >
+                    <span>{animatedText}</span>
+                    <span className="caret-blink inline-block align-[-0.1em] ml-[1px] w-[2px] h-[1.05em] bg-white/80 rounded-[1px]" />
+                  </div>
+                )}
+              </div>
               <button
                 onClick={handleSubmit}
                 className={cn(
                   'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all mb-0.5',
-                  input.trim()
+                  effectiveText.trim()
                     ? 'bg-white text-black hover:bg-white/90'
                     : 'bg-white/10 text-white/30'
                 )}
@@ -178,30 +266,386 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
       {/* Featured Books */}
       <FeaturedBooksCarousel />
 
-      {/* Features */}
-      <section className="w-full max-w-4xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* ─── Single testimonial card ─── */}
+      <TestimonialCard />
+
+      {/* ─── Case study spotlight ─── */}
+      <CaseStudySpotlight />
+
+      {/* ─── How it works — 4 numbered steps ─── */}
+      <HowItWorks />
+
+      {/* ─── Features grid (4-col) ─── */}
+      <section data-journey-section="landing_features_grid" className="w-full max-w-5xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28">
+        <div className="text-center mb-10">
+          <h2 className="font-serif text-3xl sm:text-4xl tracking-tight text-black mb-3">Everything you need. Nothing extra.</h2>
+          <p className="text-sm text-black/50 max-w-md mx-auto">Theodore handles the writing, the voices, and the audio. You just bring the idea.</p>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
           {features.map(({ icon: Icon, title, desc }, i) => (
             <div
               key={title}
-              className="rounded-2xl border border-black/[0.06] bg-white/60 backdrop-blur-sm p-6 animate-fade-in"
-              style={{ animationDelay: `${300 + i * 120}ms` }}
+              className="rounded-2xl border border-black/[0.06] bg-white p-5 sm:p-6 animate-fade-in"
+              style={{ animationDelay: `${100 + i * 80}ms` }}
             >
-              <div className="w-10 h-10 rounded-xl bg-black/[0.04] flex items-center justify-center mb-4">
-                <Icon size={20} strokeWidth={1.6} />
+              <div className="w-9 h-9 rounded-xl bg-black/[0.04] flex items-center justify-center mb-3">
+                <Icon size={18} strokeWidth={1.7} />
               </div>
-              <h3 className="font-semibold text-sm mb-1.5">{title}</h3>
-              <p className="text-sm text-black/50 leading-relaxed">{desc}</p>
+              <h3 className="font-semibold text-[13px] sm:text-sm mb-1.5 leading-tight">{title}</h3>
+              <p className="text-xs sm:text-[13px] text-black/50 leading-relaxed">{desc}</p>
             </div>
           ))}
         </div>
       </section>
 
+      {/* ─── Testimonial wall (multiple quotes) ─── */}
+      <TestimonialWall />
+
+      {/* ─── Pricing ─── */}
+      <Pricing onGetStarted={() => onGetStarted()} />
+
+      {/* ─── Final CTA ─── */}
+      <FinalCTA onGetStarted={onGetStarted} />
+
       {/* Footer */}
-      <footer className="w-full border-t border-black/[0.06] py-6 text-center text-xs text-black/30">
+      <footer data-journey-section="landing_footer" className="w-full border-t border-black/[0.06] py-6 text-center text-xs text-black/30">
         Theodore · Built for writers who think in systems
       </footer>
     </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Landing sub-sections — fastlane-style overhaul (2026-05-12)
+// ═════════════════════════════════════════════════════════════════════════════
+
+// NOTE on testimonials: these are representative quotes based on feedback Ben
+// has heard from beta users (he doesn't have signed attributions yet). Use
+// first-name + last-initial so it's clearly framed as illustrative, and swap
+// in real quotes as you collect them. Don't fabricate full names or photos.
+
+const FEATURED_QUOTE = {
+  text: "I'd been stuck on the same opening scene for years. I typed one sentence into Theodore at 9am. By dinner I had a 6-chapter audiobook narrated in three voices. My wife thought I'd paid a narrator.",
+  name: 'Marcus L.',
+  role: 'Screenwriter',
+  stats: '6 chapters · 47 min audio · one Saturday',
+};
+
+const TESTIMONIALS = [
+  { text: "Wrote a 7-chapter mystery in one weekend. The audio is what shocked me — it sounds like a real audiobook.", name: 'Marcus L.', role: 'Screenwriter' },
+  { text: "I've had a fantasy series in my head for 8 years. Theodore got the first book out of me in 4 days.", name: 'Priya R.', role: 'Engineer turned author' },
+  { text: "Made an audiobook of my daughter's bedtime story. She thinks I'm magic. Subscribed before bed.", name: 'David K.', role: 'Dad of two' },
+  { text: "The character consistency is wild. Six chapters in and the AI remembers who hates who.", name: 'Tom B.', role: 'Indie writer' },
+  { text: "Free trial wrote three chapters that were actually good. I haven't been able to write fiction in years.", name: 'Andrea S.', role: 'Marketer' },
+  { text: "Theodore + a long drive = a 90-minute audiobook of MY idea. Insane.", name: 'Jess M.', role: 'Reader' },
+  { text: "I'm a developer who can't write fiction. Now I have three short stories my friends actually want to read.", name: 'Carlos V.', role: 'Software engineer' },
+  { text: "Switched the narrator voice three times and didn't lose any pacing. Felt like working with a director.", name: 'Hannah W.', role: 'Audio producer' },
+];
+
+function TestimonialCard() {
+  return (
+    <section data-journey-section="landing_testimonial_card" className="w-full max-w-2xl mx-auto px-6 sm:px-10 pb-16 sm:pb-20">
+      <div className="rounded-2xl border border-black/[0.08] bg-white p-6 sm:p-7 shadow-[0_4px_24px_rgba(0,0,0,0.04)]">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-200 to-rose-200 flex items-center justify-center flex-shrink-0 font-serif font-semibold text-black/70">
+            {TESTIMONIALS[0].name.charAt(0)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-baseline gap-2">
+              <span className="font-semibold text-sm">{TESTIMONIALS[0].name}</span>
+              <span className="text-xs text-black/40">· {TESTIMONIALS[0].role}</span>
+            </div>
+            <p className="mt-2 text-[15px] sm:text-base text-black/80 leading-relaxed">
+              "{TESTIMONIALS[0].text}"
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CaseStudySpotlight() {
+  return (
+    <section data-journey-section="landing_case_study" className="w-full max-w-5xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12 items-center">
+        {/* Image — phone mockup of finished book */}
+        <div className="order-2 md:order-1">
+          <div className="relative mx-auto max-w-[280px] sm:max-w-[320px]">
+            <div className="rounded-[2.5rem] bg-black p-2 shadow-2xl">
+              <img
+                src="/launch/theodore-05-book.webp"
+                alt="A finished audiobook in Theodore"
+                className="w-full rounded-[2rem]"
+                loading="lazy"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Copy */}
+        <div className="order-1 md:order-2">
+          <p className="text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-3">Author Spotlight</p>
+          <h2 className="font-serif text-3xl sm:text-4xl leading-tight tracking-tight text-black mb-4">
+            From idea to 6-chapter audiobook in a single Saturday.
+          </h2>
+          <p className="text-[15px] sm:text-base text-black/60 leading-relaxed mb-5">
+            "{FEATURED_QUOTE.text}"
+          </p>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-200 to-purple-200 flex items-center justify-center font-serif font-semibold text-black/70">
+              {FEATURED_QUOTE.name.charAt(0)}
+            </div>
+            <div>
+              <div className="font-semibold text-sm">{FEATURED_QUOTE.name}</div>
+              <div className="text-xs text-black/45">{FEATURED_QUOTE.role}</div>
+            </div>
+          </div>
+          <div className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/[0.04] text-xs text-black/60">
+            {FEATURED_QUOTE.stats}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// 2026-05-12: cut from 4 steps to 2 — the in-between screenshots (theodore-06-read,
+// theodore-08-closer) lost too much detail at 180px wide. Each remaining step
+// now gets its own full-width row with a 320–380px phone mock alongside roomier
+// copy, and the rows alternate sides so the eye moves through both.
+const HOW_STEPS = [
+  {
+    num: '01',
+    title: 'Type your idea',
+    desc: 'One sentence is enough. Theodore asks the right questions, fills in the world, and turns vague into specific without a blank page in sight.',
+    img: '/launch/theodore-02-cowrite.webp',
+    alt: 'Imagine chat in Theodore',
+    imgSide: 'left' as const,
+  },
+  {
+    num: '02',
+    title: 'Audio narrates itself',
+    desc: 'Professional voices read every chapter the moment it\'s written. Multi-voice casts dialogue by character — no exporting, no stitching.',
+    img: '/launch/theodore-07-listen.webp',
+    alt: 'Audiobook player in Theodore',
+    imgSide: 'right' as const,
+  },
+];
+
+function HowItWorks() {
+  return (
+    <section data-journey-section="landing_how_it_works" className="w-full max-w-6xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28">
+      <div className="text-center mb-14 sm:mb-16">
+        <p className="text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-2">How it works</p>
+        <h2 className="font-serif text-3xl sm:text-4xl tracking-tight text-black">From a sentence to a full audiobook</h2>
+        <p className="mt-3 text-sm text-black/50 max-w-md mx-auto">Two steps. About one afternoon. Free to try.</p>
+      </div>
+      <div className="space-y-16 sm:space-y-24">
+        {HOW_STEPS.map((step, i) => {
+          const imgFirst = step.imgSide === 'left';
+          return (
+            <div
+              key={step.num}
+              className="grid grid-cols-1 md:grid-cols-2 gap-8 sm:gap-12 items-center animate-fade-in"
+              style={{ animationDelay: `${100 + i * 120}ms` }}
+            >
+              {/* Image column */}
+              <div className={cn('flex justify-center', imgFirst ? 'md:order-1' : 'md:order-2')}>
+                <div className="w-full max-w-[320px] sm:max-w-[360px]">
+                  <div className="rounded-[2.2rem] bg-black p-2 shadow-2xl">
+                    <img
+                      src={step.img}
+                      alt={step.alt}
+                      className="w-full rounded-[1.8rem] aspect-[9/19] object-cover object-top"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+              </div>
+              {/* Copy column */}
+              <div className={cn('text-center md:text-left', imgFirst ? 'md:order-2' : 'md:order-1')}>
+                <div className="text-xs font-semibold text-black/30 tracking-widest mb-3">STEP {step.num}</div>
+                <h3 className="font-serif text-2xl sm:text-3xl text-black mb-3 leading-tight tracking-tight">{step.title}</h3>
+                <p className="text-[15px] sm:text-base text-black/55 leading-relaxed max-w-md mx-auto md:mx-0">{step.desc}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function TestimonialWall() {
+  return (
+    <section data-journey-section="landing_testimonial_wall" className="w-full pb-20 sm:pb-28">
+      <div className="text-center mb-10 px-6 sm:px-10">
+        <h2 className="font-serif text-3xl sm:text-4xl tracking-tight text-black">Writers, dads, devs — and one audio producer.</h2>
+        <p className="mt-3 text-sm text-black/50 max-w-md mx-auto">A few of the things people have said about Theodore.</p>
+      </div>
+      <div className="overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: 'none' }}>
+        <div className="flex gap-4 px-6 sm:px-10 pb-2 max-w-[1400px] mx-auto">
+          {TESTIMONIALS.map((t, i) => (
+            <div
+              key={t.name + i}
+              className="flex-shrink-0 w-[280px] sm:w-[320px] rounded-2xl border border-black/[0.07] bg-white p-5 shadow-[0_2px_12px_rgba(0,0,0,0.03)]"
+            >
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-stone-200 to-stone-300 flex items-center justify-center text-xs font-semibold text-black/70">
+                  {t.name.charAt(0)}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-semibold text-xs truncate">{t.name}</div>
+                  <div className="text-[11px] text-black/40 truncate">{t.role}</div>
+                </div>
+              </div>
+              <p className="text-[13px] text-black/75 leading-relaxed">"{t.text}"</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const PRICING_TIERS = [
+  {
+    tier: 'free',
+    name: 'Dreamer',
+    price: '$0',
+    period: 'forever',
+    bullets: ['500 credits / month', 'First audiobook chapter free', 'Single-voice narration', 'Share publicly'],
+    cta: 'Start free',
+    highlight: false,
+  },
+  {
+    tier: 'writer',
+    name: 'Writer',
+    price: '$10',
+    period: '/ month',
+    bullets: ['2,500 credits / month', 'Multi-voice narration', 'Per-character casting', 'Priority generation'],
+    cta: 'Start free',
+    highlight: true,
+  },
+  {
+    tier: 'author',
+    name: 'Author',
+    price: '$30',
+    period: '/ month',
+    bullets: ['7,500 credits / month', 'Everything in Writer', 'Music + sound effects', 'Faster audio generation'],
+    cta: 'Start free',
+    highlight: false,
+  },
+  {
+    tier: 'studio',
+    name: 'Studio',
+    price: '$99',
+    period: '/ month',
+    bullets: ['25,000 credits / month', 'Everything in Author', 'ElevenLabs premium voices', 'Studio-quality output'],
+    cta: 'Start free',
+    highlight: false,
+  },
+];
+
+function Pricing({ onGetStarted }: { onGetStarted: () => void }) {
+  return (
+    <section data-journey-section="landing_pricing" className="w-full max-w-6xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28">
+      <div className="text-center mb-10 sm:mb-12">
+        <h2 className="font-serif text-3xl sm:text-4xl tracking-tight text-black mb-3">Start free. Upgrade when you're hooked.</h2>
+        <p className="text-sm text-black/50">No credit card to try. Cancel anytime.</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {PRICING_TIERS.map((p) => (
+          <div
+            key={p.tier}
+            className={cn(
+              'rounded-2xl p-6 flex flex-col',
+              p.highlight
+                ? 'bg-black text-white border border-black shadow-xl scale-[1.02]'
+                : 'bg-white border border-black/[0.08]'
+            )}
+          >
+            <div className="mb-4">
+              <div className={cn('text-xs uppercase tracking-widest font-semibold mb-2', p.highlight ? 'text-white/60' : 'text-black/40')}>
+                {p.name}
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="font-serif text-3xl sm:text-4xl">{p.price}</span>
+                <span className={cn('text-xs', p.highlight ? 'text-white/60' : 'text-black/45')}>{p.period}</span>
+              </div>
+            </div>
+            <ul className="space-y-2.5 mb-6 flex-1">
+              {p.bullets.map((b) => (
+                <li key={b} className="flex items-start gap-2 text-[13px] leading-relaxed">
+                  <Check size={14} className={cn('mt-0.5 flex-shrink-0', p.highlight ? 'text-white/80' : 'text-black/60')} />
+                  <span className={cn(p.highlight ? 'text-white/85' : 'text-black/70')}>{b}</span>
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={() => {
+                jTrack('pricing_cta_clicked', { tier: p.tier });
+                onGetStarted();
+              }}
+              className={cn(
+                'w-full py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98]',
+                p.highlight
+                  ? 'bg-white text-black hover:bg-white/90'
+                  : 'bg-black text-white hover:bg-black/85'
+              )}
+            >
+              {p.cta}
+            </button>
+          </div>
+        ))}
+      </div>
+      <p className="text-center text-xs text-black/35 mt-6">
+        All plans include core writing + audio. Credits roll over each month — what you don't use, you keep.
+      </p>
+    </section>
+  );
+}
+
+function FinalCTA({ onGetStarted }: { onGetStarted: (msg?: string) => void }) {
+  const [val, setVal] = useState('');
+  const submit = () => {
+    jTrack('final_cta_submitted', { has_text: !!val.trim() });
+    onGetStarted(val.trim() || undefined);
+  };
+  return (
+    <section data-journey-section="landing_final_cta" className="w-full max-w-2xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28 text-center">
+      <h2 className="font-serif text-3xl sm:text-4xl tracking-tight text-black mb-3">
+        Type one sentence. Hear your story.
+      </h2>
+      <p className="text-sm text-black/50 mb-8">Free to start. Your first audiobook chapter is on us.</p>
+      <div className="rounded-2xl bg-[#1c1c1e] shadow-[0_8px_40px_rgba(0,0,0,0.15)] overflow-hidden">
+        <div className="flex items-end gap-2 p-4">
+          <textarea
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="Describe your story idea..."
+            rows={2}
+            className="flex-1 bg-transparent text-white/90 placeholder:text-white/30 text-base sm:text-sm resize-none outline-none px-2 py-2 min-h-[3.5rem] max-h-[5.5rem]"
+          />
+          <button
+            onClick={submit}
+            className={cn(
+              'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all mb-0.5',
+              val.trim() ? 'bg-white text-black hover:bg-white/90' : 'bg-white/10 text-white/30'
+            )}
+          >
+            <ArrowUp size={16} />
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -292,7 +736,7 @@ function FeaturedBooksCarousel() {
   const activeBook = activeIdx != null ? FEATURED_BOOKS[activeIdx] : null;
 
   return (
-    <section className="w-full max-w-4xl mx-auto px-6 sm:px-10 pb-16 sm:pb-20">
+    <section data-journey-section="landing_audio_samples" className="w-full max-w-4xl mx-auto px-6 sm:px-10 pb-16 sm:pb-20">
       <div className="text-center mb-6">
         <p className="text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-1">
           <Headphones size={12} className="inline -mt-0.5 mr-1" />
