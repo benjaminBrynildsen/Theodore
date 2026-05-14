@@ -2212,3 +2212,115 @@ export async function getReferrals(req: Request, res: Response) {
     res.status(500).json({ error: 'Internal server error' });
   }
 }
+
+// ========== Free → Paid Conversion Analytics ==========
+// Daily signup-vs-paid cohort + trailing-window conversion rates. The point
+// of this endpoint is to make "paid subs" the daily north star metric, not
+// signups — so the admin dashboard can finally answer "what's our conversion
+// rate this week?" without manual SQL.
+//
+// "Converted" here means: plan != 'free' AND stripeSubscriptionStatus =
+// 'active'. Ben's own test accounts are excluded so the rate isn't inflated
+// by self-tests (those convert at 100% which is meaningless).
+//
+// Conversion bucketing is cohort-based, not time-of-upgrade based: we group
+// users by their signup date and check who is *currently* paid. That answers
+// "of users who signed up in week N, what fraction have converted to paid?"
+// rather than "when did they upgrade?" — the latter would need a plan-change
+// audit log we don't have yet.
+const BEN_OWN_EMAILS = [
+  'benbrynildsen5757@gmail.com',
+  'ben@germaniabrewhaus.com',
+  'test@ben.com',
+  'wolfgangbrynildsen@gmail.com',
+  'ben@wilhelmcoldbrew.com',
+];
+
+export async function getConversionStats(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    // Pull every (non-Ben) user with the columns we need. This is bounded by
+    // the user table — currently ~80, expected to grow into the thousands but
+    // not millions. If/when it gets unwieldy we move the bucketing into SQL.
+    const rows = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        plan: users.plan,
+        stripeSubscriptionStatus: users.stripeSubscriptionStatus,
+        createdAt: users.createdAt,
+      })
+      .from(users);
+
+    const real = rows.filter((u) => !BEN_OWN_EMAILS.includes(u.email));
+    const isPaid = (u: typeof real[number]) =>
+      !!u.plan && u.plan !== 'free' && u.stripeSubscriptionStatus === 'active';
+
+    // ── Snapshot (lifetime) ──
+    const totalSignups = real.length;
+    const paidUsers = real.filter(isPaid);
+    const conversionRate = totalSignups > 0 ? paidUsers.length / totalSignups : 0;
+
+    // ── Daily timeseries: signups + cohort-paid per day (last 60 days) ──
+    const dayMap = new Map<string, { day: string; signups: number; paid: number }>();
+    // Seed the last 60 days with zeros so the chart isn't sparse
+    const today = new Date();
+    for (let i = 60; i >= 0; i--) {
+      const d = new Date(today);
+      d.setUTCDate(d.getUTCDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      dayMap.set(key, { day: key, signups: 0, paid: 0 });
+    }
+    for (const u of real) {
+      if (!u.createdAt) continue;
+      const key = (u.createdAt instanceof Date ? u.createdAt : new Date(u.createdAt as any))
+        .toISOString()
+        .slice(0, 10);
+      const row = dayMap.get(key);
+      if (!row) continue; // older than the 60-day window
+      row.signups += 1;
+      if (isPaid(u)) row.paid += 1;
+    }
+    const daily = Array.from(dayMap.values()).sort((a, b) => a.day.localeCompare(b.day));
+
+    // ── Trailing windows ──
+    const now = Date.now();
+    const trailingFrom = (days: number) => {
+      const cutoff = now - days * 86400000;
+      const cohort = real.filter((u) => {
+        if (!u.createdAt) return false;
+        const t = (u.createdAt instanceof Date ? u.createdAt : new Date(u.createdAt as any)).getTime();
+        return t >= cutoff;
+      });
+      const cohortPaid = cohort.filter(isPaid).length;
+      return {
+        signups: cohort.length,
+        paid: cohortPaid,
+        rate: cohort.length > 0 ? cohortPaid / cohort.length : 0,
+      };
+    };
+
+    res.json({
+      snapshot: {
+        totalSignups,
+        paidUsers: paidUsers.length,
+        conversionRate,
+      },
+      trailing: {
+        d7: trailingFrom(7),
+        d30: trailingFrom(30),
+        d90: trailingFrom(90),
+        all: { signups: totalSignups, paid: paidUsers.length, rate: conversionRate },
+      },
+      daily,
+      paidUsersList: paidUsers
+        .map((u) => ({ email: u.email, plan: u.plan, signedUpAt: u.createdAt }))
+        .sort((a, b) => (b.signedUpAt && a.signedUpAt ? +new Date(b.signedUpAt as any) - +new Date(a.signedUpAt as any) : 0)),
+    });
+  } catch (e: any) {
+    console.error('[Admin] conversion-stats error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
