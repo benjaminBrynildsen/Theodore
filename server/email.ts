@@ -107,10 +107,7 @@ export function wrapHtml(opts: {
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f7f6f1;">
   <tr><td align="center" style="padding:32px 16px;">
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="560" style="max-width:560px;background:#ffffff;border-radius:16px;border:1px solid rgba(0,0,0,0.06);overflow:hidden;">
-      <tr><td style="padding:28px 32px 8px 32px;">
-        <div style="font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:700;letter-spacing:-0.01em;color:#1c1c1e;">Theodore</div>
-      </td></tr>
-      <tr><td style="padding:8px 32px 32px 32px;font-size:15px;color:#1c1c1e;">
+      <tr><td style="padding:32px;font-size:15px;color:#1c1c1e;">
         ${opts.bodyHtml}
       </td></tr>
     </table>
@@ -165,6 +162,13 @@ export async function sendToUser(opts: {
   force?: boolean;
   // Skip persisting a row to transactional_emails (used by the test path).
   skipLog?: boolean;
+  // Plain mode: skip the branded wrapper, open-tracking pixel, and the
+  // List-Unsubscribe headers so the email reads like a one-to-one personal
+  // note. Gmail's Promotions classifier keys on the wrapper structure and
+  // the tracking pixel; bypassing both keeps high-intent outreach in Primary.
+  // Unsubscribe is still appended to the body in plain text to keep us
+  // CAN-SPAM compliant.
+  raw?: boolean;
 }): Promise<{ status: 'sent' | 'skipped-opt-out' | 'failed'; error?: string; id: string }> {
   const id = randomUUID();
   const optedOut = hasOptedOut(opts.user.settings, opts.kind);
@@ -186,25 +190,39 @@ export async function sendToUser(opts: {
   }
 
   const unsubHref = unsubscribeUrl(opts.user.id, opts.kind);
-  const wrappedHtml = wrapHtml({ bodyHtml: opts.bodyHtml, unsubscribeHref: unsubHref, preheader: opts.preheader });
-  // Inject the open-tracking pixel keyed to this email's id. The pixel route
-  // (server/transactional-pixel.ts → /te/:id.gif) logs every hit to
-  // transactional_opens and flips firstOpenedAt on the first non-bot open.
-  const trackedHtml = injectTransactionalPixel(wrappedHtml, id);
+  let finalHtml: string;
+  if (opts.raw) {
+    // Minimal HTML — body as-is plus a single-line plain-text unsubscribe at
+    // the bottom. No wrapper, no pixel.
+    finalHtml = `${opts.bodyHtml}\n<p style="color:#999;font-size:12px;margin-top:24px;">To stop emails like this: ${unsubHref}</p>`;
+  } else {
+    const wrappedHtml = wrapHtml({ bodyHtml: opts.bodyHtml, unsubscribeHref: unsubHref, preheader: opts.preheader });
+    // Inject the open-tracking pixel keyed to this email's id. The pixel route
+    // (server/transactional-pixel.ts → /te/:id.gif) logs every hit to
+    // transactional_opens and flips firstOpenedAt on the first non-bot open.
+    finalHtml = injectTransactionalPixel(wrappedHtml, id);
+  }
 
   try {
     const transporter = getTransporter();
-    await transporter.sendMail({
+    const mailOpts: any = {
       from: `${FROM_NAME} <${SEND_FROM}>`,
       to: opts.user.email,
       subject: opts.subject,
-      html: trackedHtml,
-      text: htmlToText(wrappedHtml), // text part stays pixel-free
-      headers: {
+      html: finalHtml,
+      text: htmlToText(finalHtml),
+    };
+    if (!opts.raw) {
+      // Keep the standard List-Unsubscribe headers for bulk/branded sends.
+      // Skipping them for `raw` mode is intentional — those headers are part of
+      // what tips Gmail's classifier toward Promotions for personal-looking
+      // notes.
+      mailOpts.headers = {
         'List-Unsubscribe': `<${unsubHref}>`,
         'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
-      },
-    });
+      };
+    }
+    await transporter.sendMail(mailOpts);
     if (!opts.skipLog) {
       await db.insert(transactionalEmails).values({
         id,
@@ -213,7 +231,7 @@ export async function sendToUser(opts: {
         fromAddress: `${FROM_NAME} <${SEND_FROM}>`,
         kind: opts.kind,
         subject: opts.subject,
-        bodyHtml: trackedHtml,
+        bodyHtml: finalHtml,
         status: 'sent',
         metadata: opts.metadata || {},
       }).catch((err) => console.warn('[email] log insert failed', err));
@@ -229,7 +247,7 @@ export async function sendToUser(opts: {
         fromAddress: `${FROM_NAME} <${SEND_FROM}>`,
         kind: opts.kind,
         subject: opts.subject,
-        bodyHtml: trackedHtml,
+        bodyHtml: finalHtml,
         status: 'failed',
         errorMessage: e?.message || 'Unknown error',
         metadata: opts.metadata || {},
