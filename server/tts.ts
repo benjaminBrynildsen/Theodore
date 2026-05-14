@@ -1007,10 +1007,19 @@ export function parseDialogue(
     //   1. [Name] tag emitted by the model directly in prose (highest signal)
     //   2. Cached Opus attribution lookup (if provided) — strict, validated
     //   3. Regex heuristic on the surrounding window (fallback)
+    //
+    // The attribution map is built from CLEAN quote bodies (Sonnet sees the
+    // original prose), so we must strip injected xAI audio tags from the
+    // body before normalizing for the lookup. Otherwise every quote with a
+    // tag misses the map and falls back to narrator.
     const taggedSpeaker = taggedSpeakers.get(match.index);
-    const opusSpeaker = attributionMap
-      ? attributionMap.get(match[1].replace(/\s+/g, ' ').trim().toLowerCase())
-      : undefined;
+    const opusLookupKey = match[1]
+      .replace(/<\/?(soft|whisper|loud|build-intensity|decrease-intensity|higher-pitch|lower-pitch|slow|fast|sing-song|singing|laugh-speak|emphasis)>/gi, '')
+      .replace(/\[(pause|long-pause|hum-tune|laugh|chuckle|giggle|cry|tsk|tongue-click|lip-smack|breath|inhale|exhale|sigh)\]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    const opusSpeaker = attributionMap ? attributionMap.get(opusLookupKey) : undefined;
     const speaker = taggedSpeaker
       || opusSpeaker
       || attributeSpeaker(prose, match.index, match[0].length, knownCharacters, characterAliases, mentionIndex, characterGenders);
