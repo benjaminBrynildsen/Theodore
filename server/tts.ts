@@ -1628,7 +1628,13 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     }
     // Parse before stripping — parseDialogue needs the [Name] tags to attribute
     // speakers reliably. The announcement is plain narration, so prepend it.
-    const proseWithAnnouncement = announcement + proseBody;
+    //
+    // Inject xAI audio tags (whisper/laugh/sigh/etc.) on the FULL prose BEFORE
+    // segmenting. The injector reads cues from surrounding narration ("she
+    // whispered") and embeds tags inside each quote — those tags then travel
+    // with the dialogue segment to xAI. Doing this AFTER segmentation would
+    // give the injector only the bare quote body with no cues to read.
+    const proseWithAnnouncement = injectGrokAudioTags(announcement + proseBody);
     let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases, req.characterGenders, attributionMap);
     segments = applyVoiceMap(segments, voiceMap);
 
@@ -1703,13 +1709,26 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     // before the voice changes. Same-voice runs get no extra pause (Grok
     // already handles intra-line pacing). Fixes the "rushed transition"
     // complaint when switching between narrator and dialogue voices.
+    // xAI inline audio tags we must PRESERVE through bracket-stripping.
+    // Speaker tags like [Mara] and direction tags like [whispering] still
+    // need to be stripped — only the xAI-spec set survives.
+    const XAI_INLINE_TAGS = new Set([
+      'pause', 'long-pause', 'hum-tune', 'laugh', 'chuckle', 'giggle', 'cry',
+      'tsk', 'tongue-click', 'lip-smack', 'breath', 'inhale', 'exhale', 'sigh',
+    ]);
+    const stripNonXaiBrackets = (s: string) =>
+      s.replace(/\[([^\]]+)\]/g, (m, tag: string) =>
+        XAI_INLINE_TAGS.has(tag.toLowerCase().trim()) ? m : '',
+      );
+
     let completed = 0;
     const audioBuffers = await Promise.all(
       speechSegs.map(async (seg, idx) => {
-        // Strip remaining bracket tags from the text Grok actually speaks.
-        // Direction tags ([whispering] etc.) and any speaker tags that
-        // survived parseDialogue must not be read aloud.
-        let speakable = seg.text.replace(/\[[^\]]+\]/g, '').trim();
+        // Strip non-xAI bracket tags (speaker tags, direction tags) but keep
+        // xAI audio tags like [laugh] so they actually render in TTS. Tags
+        // were injected onto the prose BEFORE segmentation so the cues
+        // travel inside each dialogue segment.
+        let speakable = stripNonXaiBrackets(seg.text).trim();
         const next = speechSegs[idx + 1];
         if (next && next.voice && next.voice !== seg.voice) {
           // Trailing pause renders at the END of this segment's audio, just

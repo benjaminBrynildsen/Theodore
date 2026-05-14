@@ -114,15 +114,19 @@ export function injectGrokAudioTags(prose: string): string {
     const { wrap, inline } = detectCues(prose.slice(0, start), after);
 
     result += before;
-    if (wrap) {
-      result += `${wrap[0]}${open}${body}${close}${wrap[1]}`;
-    } else {
-      result += `${open}${body}${close}`;
-    }
-    if (inline) {
-      // Insert right after the closing quote so the beat plays after the line.
-      result += ` ${inline}`;
-    }
+
+    // Tags go INSIDE the quote so they survive multi-voice segmentation —
+    // parseDialogue splits prose by quote, and anything OUTSIDE the quote
+    // marks would end up in adjacent narration segments and be silently
+    // stripped before TTS. Inside the quote, the whole tagged body travels
+    // with the dialogue to xAI.
+    //   wrap   → `"<whisper>body</whisper>"`
+    //   inline → `"body [laugh]"`
+    //   both   → `"<whisper>body [laugh]</whisper>"`
+    let taggedBody = body;
+    if (inline) taggedBody = `${taggedBody.trimEnd()} ${inline}`;
+    if (wrap) taggedBody = `${wrap[0]}${taggedBody}${wrap[1]}`;
+    result += `${open}${taggedBody}${close}`;
 
     lastIndex = end;
   }
