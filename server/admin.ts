@@ -2449,6 +2449,11 @@ export async function getPromptsFunnel(req: Request, res: Response) {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
+    // Drizzle's sql template doesn't reliably type-cast a JS array to a
+    // Postgres text[] for ANY(). Expand the whitelist into an IN clause with
+    // each event as its own parameter — verbose but bulletproof and the list
+    // is short enough that the SQL stays small.
+    const eventList = sql.join(PROMPT_EVENTS.map((e) => sql`${e}`), sql`, `);
     const rows = await db.execute(sql`
       SELECT
         event,
@@ -2457,7 +2462,7 @@ export async function getPromptsFunnel(req: Request, res: Response) {
         COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '90 days') AS count_90d,
         COUNT(*) AS count_all
       FROM journey_events
-      WHERE event = ANY(${PROMPT_EVENTS})
+      WHERE event IN (${eventList})
         AND created_at > NOW() - INTERVAL '90 days'
         AND COALESCE((data->>'is_admin')::boolean, false) = false
       GROUP BY event
