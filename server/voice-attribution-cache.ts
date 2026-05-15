@@ -27,6 +27,69 @@ interface CachePayload {
   tokensOut: number;
   proseHash?: string;
   unattributedQuotes?: string[];
+  /** Bump when the roster-builder shape changes so older caches re-attribute. */
+  rosterVersion?: number;
+}
+
+const CURRENT_ROSTER_VERSION = 2;
+
+// Honorifics that should not be treated as a first-name candidate when we
+// split a canonName into tokens. Without this, "Ms. Davenport" → firstName
+// "Ms." which is useless for attribution.
+const TITLE_TOKENS = new Set([
+  'mr', 'mrs', 'ms', 'miss', 'mx',
+  'dr', 'prof', 'professor',
+  'capt', 'cpt', 'captain',
+  'sgt', 'sergeant',
+  'lt', 'lieutenant',
+  'col', 'colonel',
+  'gen', 'general',
+  'sir', 'lady', 'lord', 'dame',
+  'rev', 'reverend',
+  'st', 'saint',
+]);
+
+function isTitleToken(t: string): boolean {
+  return TITLE_TOKENS.has(t.replace(/\.$/, '').toLowerCase());
+}
+
+/**
+ * Builds the alias list passed to the attribution LLM. Pulls from the
+ * character's explicit aliases AND derives first/last name tokens from the
+ * canonName so prose using just "Davenport" or "Madison" still resolves to
+ * "Ms. Davenport". Without this enrichment, Sonnet sees `aliases: []` and
+ * falls back to needs-review on pronoun-heavy text.
+ */
+function buildAliasesForCharacter(c: any): string[] {
+  const data = (c && typeof c.data === 'object' && c.data) ? c.data : {};
+  const canonName = String(c.name || '').trim();
+
+  const explicitAliases: string[] = Array.isArray(data.aliases)
+    ? data.aliases.filter((a: any) => typeof a === 'string' && a.trim().length > 0)
+    : [];
+  const tagAliases: string[] = Array.isArray(c.tags)
+    ? c.tags.filter((t: any) => typeof t === 'string' && t.trim().length > 0)
+    : [];
+
+  // Split canonName into name tokens, skipping titles.
+  const tokens = canonName.split(/\s+/).filter((t: string) => t.length > 0);
+  const meaningful = tokens.filter((t: string) => !isTitleToken(t));
+  const firstName = meaningful[0];
+  const lastName = meaningful.length > 1 ? meaningful[meaningful.length - 1] : undefined;
+
+  const fullName = (typeof data.fullName === 'string' && data.fullName.trim() && data.fullName !== canonName)
+    ? data.fullName.trim()
+    : undefined;
+
+  const all = new Set<string>();
+  for (const a of explicitAliases) all.add(a.trim());
+  for (const t of tagAliases) all.add(t.trim());
+  if (firstName && firstName !== canonName) all.add(firstName);
+  if (lastName && lastName !== canonName && lastName !== firstName) all.add(lastName);
+  if (fullName) all.add(fullName);
+  // Don't repeat the canonName itself — Sonnet already gets that as `canonName`.
+  all.delete(canonName);
+  return Array.from(all);
 }
 
 export interface EnsureResult {
@@ -87,22 +150,35 @@ export async function ensureChapterAttribution(chapterId: string, proseOverride?
   const currentHash = hashProse(proseToAttribute);
   const cached = chapter.voiceAttribution as CachePayload | null;
 
-  // Cache hit — prose matches AND we got a clean result last time.
-  // 'needs-review' results aren't reused; we retry on next gen in case the
-  // model does better with a fresh window of context.
+  // Cache hit — prose matches AND we got a clean result last time AND it was
+  // built against the current roster shape. 'needs-review' results aren't
+  // reused; we retry on next gen in case the model does better with a fresh
+  // window of context. rosterVersion mismatch forces re-attribution after a
+  // roster-builder change (e.g. richer aliases) — older caches were generated
+  // with thin rosters and would have over-attributed to narrator.
   // Note: we only cache for the full-chapter prose (proseOverride absent).
   // Scene-level prose slices are too narrow for the cache to be reusable.
-  if (!proseOverride && cached && cached.proseHash === currentHash && cached.status === 'ok' && Array.isArray(cached.segments) && cached.segments.length > 0) {
+  if (
+    !proseOverride &&
+    cached &&
+    cached.proseHash === currentHash &&
+    cached.status === 'ok' &&
+    Array.isArray(cached.segments) &&
+    cached.segments.length > 0 &&
+    (cached.rosterVersion ?? 1) >= CURRENT_ROSTER_VERSION
+  ) {
     return { segments: cached.segments, source: 'cached', status: 'ok' };
   }
 
-  // Pull roster
+  // Pull roster — enrich aliases with the character's explicit aliases plus
+  // derived first/last-name tokens (with title-prefix stripping), so Sonnet
+  // can resolve "Madison said" or "Davenport snapped" back to "Ms. Davenport".
   const canonChars = await db.select().from(canonEntries).where(
     and(eq(canonEntries.projectId, chapter.projectId), eq(canonEntries.type, 'character')),
   );
   const roster: CharacterRosterEntry[] = canonChars.map((c: any) => ({
     canonName: c.name,
-    aliases: Array.isArray(c.tags) ? c.tags.filter((t: any) => typeof t === 'string') : [],
+    aliases: buildAliasesForCharacter(c),
     gender: (c.data && typeof c.data === 'object' && c.data.gender) ? String(c.data.gender) : '',
   }));
 
@@ -119,6 +195,7 @@ export async function ensureChapterAttribution(chapterId: string, proseOverride?
         tokensIn: 0,
         tokensOut: 0,
         proseHash: currentHash,
+        rosterVersion: CURRENT_ROSTER_VERSION,
       };
       await db.update(chapters).set({ voiceAttribution: payload, updatedAt: new Date() }).where(eq(chapters.id, baseId)).catch(() => {});
     }
@@ -146,6 +223,7 @@ export async function ensureChapterAttribution(chapterId: string, proseOverride?
       tokensIn: result.tokensIn,
       tokensOut: result.tokensOut,
       proseHash: currentHash,
+      rosterVersion: CURRENT_ROSTER_VERSION,
       ...(result.unattributedQuotes ? { unattributedQuotes: result.unattributedQuotes } : {}),
     };
 
