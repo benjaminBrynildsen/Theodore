@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Bell, MousePointerClick, MapPin, AlertCircle } from 'lucide-react';
+import { RefreshCw, Bell, MousePointerClick, MapPin, AlertCircle, BarChart3, Layout } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { PromptsCatalog } from './PromptsCatalog';
 
 interface EventCount {
   event: string;
@@ -15,6 +16,7 @@ interface PromptsResponse {
 }
 
 type Window = 'd7' | 'd30' | 'd90' | 'all';
+type Mode = 'funnel' | 'catalog';
 
 // Group event names into prompt families. Each modal/toast has a _shown event
 // and a follow-up signup/click/dismiss event so we can compute conversion
@@ -99,6 +101,7 @@ export function PromptsTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [window, setWindow] = useState<Window>('d30');
+  const [mode, setMode] = useState<Mode>('funnel');
 
   const load = async () => {
     setLoading(true);
@@ -126,28 +129,55 @@ export function PromptsTab() {
 
   const get = (ev: string) => counts.get(ev) ?? 0;
 
-  if (loading && !data) return <div className="p-8 text-sm text-text-tertiary">Loading prompts funnel…</div>;
-  if (error) {
-    return (
-      <div className="p-8">
-        <p className="text-sm text-rose-700">{error}</p>
-        <button onClick={load} className="mt-3 text-sm text-text-secondary hover:text-text-primary underline">Retry</button>
-      </div>
-    );
-  }
-  if (!data) return null;
-
-  // Sanity check: which events have zero data, suggesting they might not be
-  // firing at all (broken instrumentation rather than just unpopular).
+  // Catalog view doesn't depend on funnel data — only the funnel view does.
+  // Compute the silent-events list only when data is ready; otherwise leave
+  // it empty and the funnel section's own loading/error branch handles it.
   const allEventsConsidered = [
     ...MODAL_FAMILIES.flatMap((f) => [f.shownEvent, ...f.clickEvents, ...(f.dismissEvents || [])]),
     ...CTA_FAMILIES.flatMap((f) => f.clickEvents),
     SECTION_FAMILY.event,
   ].filter(Boolean) as string[];
-  const silentEvents = allEventsConsidered.filter((ev) => (counts.get(ev) ?? 0) === 0);
+  const silentEvents = data ? allEventsConsidered.filter((ev) => (counts.get(ev) ?? 0) === 0) : [];
 
   return (
     <div className="px-4 sm:px-6 py-4 space-y-6">
+      {/* Mode toggle — Funnel (numbers) vs Catalog (visual reference) */}
+      <div className="flex items-center justify-between border-b border-black/5 -mx-4 sm:-mx-6 px-4 sm:px-6 pb-3">
+        <div className="flex items-center gap-1 bg-black/[0.04] rounded-lg p-1">
+          <button
+            onClick={() => setMode('funnel')}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+              mode === 'funnel' ? 'bg-white text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'
+            )}
+          >
+            <BarChart3 size={13} /> Funnel
+          </button>
+          <button
+            onClick={() => setMode('catalog')}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+              mode === 'catalog' ? 'bg-white text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'
+            )}
+          >
+            <Layout size={13} /> Catalog
+          </button>
+        </div>
+      </div>
+
+      {mode === 'catalog' && <PromptsCatalog />}
+
+      {mode === 'funnel' && loading && !data && (
+        <div className="p-8 text-sm text-text-tertiary">Loading prompts funnel…</div>
+      )}
+      {mode === 'funnel' && error && (
+        <div className="p-8">
+          <p className="text-sm text-rose-700">{error}</p>
+          <button onClick={load} className="mt-3 text-sm text-text-secondary hover:text-text-primary underline">Retry</button>
+        </div>
+      )}
+      {mode === 'funnel' && !loading && !error && data && (
+        <>
       {/* Window selector */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -285,6 +315,8 @@ export function PromptsTab() {
             </div>
           </div>
         </section>
+      )}
+        </>
       )}
     </div>
   );
