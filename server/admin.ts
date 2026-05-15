@@ -2404,3 +2404,80 @@ export async function getConversionStats(req: Request, res: Response) {
     res.status(500).json({ error: 'Internal server error' });
   }
 }
+
+// ========== Prompts funnel ==========
+// Per-prompt shown/clicked/converted counts so we can see which conversion
+// mechanics are pulling weight and which aren't worth the surface area they
+// take up. Built directly from journey_events — every prompt component in
+// the app already fires `<prompt>_shown` / `<prompt>_clicked` events, so
+// this is read-only aggregation, no new tracking needed.
+//
+// Grouped into three families on the client:
+//   - Modals/toasts (have both _shown and a follow-up signup/click event)
+//   - One-shot CTAs (no _shown, only click events — pricing, sign-in, etc.)
+//   - Landing-page section visibility (section_reached events for scroll depth)
+//
+// Admin sessions are excluded via the same data->>'is_admin' check the
+// journey list uses.
+const PROMPT_EVENTS = [
+  // UsageReceipt (top-center pill on every gen)
+  'usage_receipt_shown', 'usage_receipt_cta_clicked',
+  // CreditNudge (bottom-right toast at 50/25/10% remaining)
+  'credit_nudge_shown', 'credit_nudge_clicked', 'credit_nudge_dismissed',
+  // GuestSignupModal (novel + audio variants)
+  'guest_signup_modal_shown', 'guest_signup_modal_signup', 'guest_signup_modal_dismissed',
+  // Chat-message signup modal (5 → 3 messages)
+  'guest_chat_signup_modal_shown', 'guest_chat_signup_modal_signup', 'guest_chat_signup_modal_dismissed',
+  // UpgradeModal — inline (credits exhausted)
+  'upgrade_inline_shown', 'upgrade_signup_google', 'upgrade_signup_email', 'upgrade_checkout_redirect',
+  // UpgradeModal — audio cap variant (7-day trial copy)
+  'audio_cap_inline_shown', 'audio_cap_signup_google', 'audio_cap_signup_email', 'audio_cap_checkout_redirect',
+  // Pixel — CompleteRegistration / Subscribe / InitiateCheckout (pure outcome events)
+  // Note: these come through the auto-tracker not as explicit click events; tracked for funnel context.
+  // One-shot CTAs (no _shown, only click)
+  'pricing_cta_clicked', 'final_cta_submitted', 'signin_clicked', 'signup_banner_clicked',
+  // Share-flow events (library page)
+  'share_cta_clicked', 'share_published', 'share_link_copied', 'share_link_opened', 'share_book_listened',
+  // Landing section reached (scroll depth)
+  'section_reached',
+  // Entry events (signup completion, prompt redirect)
+  'prompt_redirect_arrived',
+];
+
+export async function getPromptsFunnel(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const rows = await db.execute(sql`
+      SELECT
+        event,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')  AS count_7d,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS count_30d,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '90 days') AS count_90d,
+        COUNT(*) AS count_all
+      FROM journey_events
+      WHERE event = ANY(${PROMPT_EVENTS})
+        AND created_at > NOW() - INTERVAL '90 days'
+        AND COALESCE((data->>'is_admin')::boolean, false) = false
+      GROUP BY event
+      ORDER BY count_30d DESC NULLS LAST
+    `);
+
+    // Shape the response as a flat list of { event, count_7d, count_30d, count_90d, count_all }.
+    // Grouping into prompt-families happens on the client so the admin UI can
+    // re-bucket without a backend redeploy.
+    const counts = (rows.rows as any[]).map((r) => ({
+      event: String(r.event),
+      d7: Number(r.count_7d) || 0,
+      d30: Number(r.count_30d) || 0,
+      d90: Number(r.count_90d) || 0,
+      all: Number(r.count_all) || 0,
+    }));
+
+    res.json({ counts });
+  } catch (e: any) {
+    console.error('[Admin] prompts-funnel error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
