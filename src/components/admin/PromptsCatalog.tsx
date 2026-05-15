@@ -4,9 +4,21 @@
 // page answers "what does each modal say, when does it appear, and how do I
 // find it in code." Keep the copy strings here in sync with the source files
 // referenced in each card.
+//
+// Cards for under-performing prompts (Usage Receipt, Credit Nudges, Upgrade
+// Modals) render a horizontal carousel: the live "Original" plus 2–3 variant
+// drafts that lean harder on next-tier benefits. The Funnel tab tells us
+// which prompt is worth re-writing; this is the workshop where the rewrites
+// live before any of them ship.
 
-import { Bell, BookOpen, Headphones, Sparkles, X, ArrowUp, Coins } from 'lucide-react';
+import { BookOpen, Headphones, Sparkles, X, ArrowUp, Coins } from 'lucide-react';
 import { cn } from '../../lib/utils';
+
+interface Variant {
+  label: string;       // "Original" | "Variant A" | etc.
+  caption?: string;    // short hypothesis: "5× framing", "loss-aversion", etc.
+  mockup: React.ReactNode;
+}
 
 interface PromptCardProps {
   title: string;
@@ -15,16 +27,21 @@ interface PromptCardProps {
   trigger: string;
   events: string[];
   source: string;
-  mockup: React.ReactNode;
+  mockup?: React.ReactNode;
+  variants?: Variant[];  // when provided, renders carousel instead of single mockup
 }
 
-function PromptCard({ title, category, location, trigger, events, source, mockup }: PromptCardProps) {
+function PromptCard({ title, category, location, trigger, events, source, mockup, variants }: PromptCardProps) {
   return (
     <div className="rounded-2xl border border-black/[0.06] bg-white overflow-hidden flex flex-col">
-      {/* Mockup */}
-      <div className="bg-gradient-to-br from-stone-100 to-stone-200 px-4 py-6 sm:px-6 sm:py-8 flex items-center justify-center min-h-[220px]">
-        {mockup}
-      </div>
+      {/* Mockup or carousel of variants */}
+      {variants && variants.length > 0 ? (
+        <VariantCarousel variants={variants} />
+      ) : (
+        <div className="bg-gradient-to-br from-stone-100 to-stone-200 px-4 py-6 sm:px-6 sm:py-8 flex items-center justify-center min-h-[220px]">
+          {mockup}
+        </div>
+      )}
       {/* Metadata */}
       <div className="px-5 py-4 border-t border-black/[0.06] flex-1 flex flex-col gap-2.5">
         <div className="flex items-start justify-between gap-2">
@@ -63,12 +80,61 @@ function PromptCard({ title, category, location, trigger, events, source, mockup
   );
 }
 
+function VariantCarousel({ variants }: { variants: Variant[] }) {
+  return (
+    <div className="bg-gradient-to-br from-stone-100 to-stone-200">
+      <div
+        className="flex gap-3 overflow-x-auto snap-x snap-mandatory px-4 py-6 sm:px-6 sm:py-8 scrollbar-thin"
+        style={{ scrollbarWidth: 'thin' }}
+      >
+        {variants.map((v, i) => (
+          <div
+            key={i}
+            className="snap-start shrink-0 w-[300px] flex flex-col items-center gap-2"
+          >
+            <div className="flex items-center gap-2 self-start">
+              <span className={cn(
+                'px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide',
+                i === 0
+                  ? 'bg-stone-700 text-white'
+                  : 'bg-indigo-600 text-white',
+              )}>
+                {v.label}
+              </span>
+              {v.caption && (
+                <span className="text-[10px] text-text-tertiary italic">{v.caption}</span>
+              )}
+            </div>
+            <div className="flex-1 w-full flex items-center justify-center min-h-[200px]">
+              {v.mockup}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="px-4 sm:px-6 pb-2 text-[10px] text-text-tertiary italic">
+        Scroll horizontally to compare drafts → Original is leftmost.
+      </div>
+    </div>
+  );
+}
+
 // ── Reusable mock UI snippets ─────────────────────────────────────────────
 
-function MockUsageReceipt({ percentUsed = 47, action = 'Chapter written', credits = 38 }: { percentUsed?: number; action?: string; credits?: number }) {
+function MockUsageReceipt({
+  percentUsed = 47,
+  action = 'Chapter written',
+  credits = 38,
+  ctaCopy,
+}: {
+  percentUsed?: number;
+  action?: string;
+  credits?: number;
+  ctaCopy?: string;
+}) {
   const critical = percentUsed >= 90;
   const low = percentUsed >= 75;
   const halfway = percentUsed >= 50;
+  const defaultCta = critical ? 'Almost out — see plans →' : 'Keep going · See plans →';
   return (
     <div
       className="w-full max-w-[340px] rounded-2xl border border-white/10 shadow-xl"
@@ -88,9 +154,9 @@ function MockUsageReceipt({ percentUsed = 47, action = 'Chapter written', credit
             style={{ width: `${percentUsed}%` }}
           />
         </div>
-        {halfway && (
+        {(halfway || ctaCopy) && (
           <div className={cn('mt-2 text-xs font-medium', critical ? 'text-rose-200' : 'text-indigo-200')}>
-            {critical ? 'Almost out — see plans →' : 'Keep going · See plans →'}
+            {ctaCopy || defaultCta}
           </div>
         )}
       </div>
@@ -169,7 +235,19 @@ function MockChatSignupModal() {
   );
 }
 
-function MockUpgradeModal({ heading, body, ctaLabel }: { heading: string; body: string; ctaLabel: string }) {
+function MockUpgradeModal({
+  heading,
+  body,
+  ctaLabel,
+  bullets,
+  badge = '7 days free · cancel anytime',
+}: {
+  heading: string;
+  body?: string;
+  ctaLabel: string;
+  bullets?: string[];
+  badge?: string;
+}) {
   return (
     <div
       className="w-full max-w-[300px] rounded-3xl shadow-2xl overflow-hidden relative"
@@ -180,10 +258,19 @@ function MockUpgradeModal({ heading, body, ctaLabel }: { heading: string; body: 
       </button>
       <div className="p-5">
         <div className="inline-block px-2 py-0.5 rounded-full bg-white/10 text-[9px] font-semibold uppercase tracking-wide text-white/70 mb-3">
-          7 days free · cancel anytime
+          {badge}
         </div>
         <h2 className="text-base font-serif font-semibold text-white mb-1.5">{heading}</h2>
-        <p className="text-xs text-white/60 leading-relaxed mb-4">{body}</p>
+        {body && <p className="text-xs text-white/60 leading-relaxed mb-3">{body}</p>}
+        {bullets && (
+          <ul className="space-y-1 mb-3">
+            {bullets.map((b) => (
+              <li key={b} className="text-xs text-white/70 flex items-start gap-1.5">
+                <span className="text-emerald-400/80 mt-[1px]">✓</span><span>{b}</span>
+              </li>
+            ))}
+          </ul>
+        )}
         <button className="w-full py-2.5 rounded-xl bg-white text-[#16162a] text-xs font-semibold">{ctaLabel}</button>
         <p className="text-center text-[10px] text-white/40 mt-2">Already have an account? Sign in</p>
       </div>
@@ -233,6 +320,44 @@ export function PromptsCatalog() {
           Each card below is a mockup of the live UI plus its trigger condition and the journey events it fires.
           Cross-reference with the Funnel tab to see which ones are actually pulling weight.
         </p>
+        <p className="text-xs text-text-secondary leading-relaxed mt-2">
+          <strong>Under-performing prompts show a carousel of variant drafts.</strong> Original is leftmost; variants
+          to the right lean harder on the next-tier benefit (Writer = 5× credits, full audio chapters, unlimited
+          projects). Scroll horizontally within a card to compare drafts.
+        </p>
+      </div>
+
+      {/* Writer-tier cheat sheet — informs the variant copy below */}
+      <div className="rounded-2xl border border-indigo-200/60 bg-gradient-to-br from-indigo-50/60 to-purple-50/60 p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles size={14} className="text-indigo-600" />
+          <h2 className="text-sm font-semibold">Free → Writer: what you actually unlock</h2>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="rounded-lg bg-white/60 p-3 border border-white/40">
+            <div className="text-text-tertiary">Credits</div>
+            <div className="font-semibold text-text-primary">500 → <span className="text-indigo-700">2,500</span></div>
+            <div className="text-[10px] text-text-tertiary mt-0.5">5× more</div>
+          </div>
+          <div className="rounded-lg bg-white/60 p-3 border border-white/40">
+            <div className="text-text-tertiary">AI chapters</div>
+            <div className="font-semibold text-text-primary">~3 → <span className="text-indigo-700">~83</span></div>
+            <div className="text-[10px] text-text-tertiary mt-0.5">/month</div>
+          </div>
+          <div className="rounded-lg bg-white/60 p-3 border border-white/40">
+            <div className="text-text-tertiary">Audio</div>
+            <div className="font-semibold text-text-primary">60s preview → <span className="text-indigo-700">~30 full chapters</span></div>
+            <div className="text-[10px] text-text-tertiary mt-0.5">narrated end-to-end</div>
+          </div>
+          <div className="rounded-lg bg-white/60 p-3 border border-white/40">
+            <div className="text-text-tertiary">Projects</div>
+            <div className="font-semibold text-text-primary">1 → <span className="text-indigo-700">Unlimited</span></div>
+            <div className="text-[10px] text-text-tertiary mt-0.5">+ multi-voice (beta)</div>
+          </div>
+        </div>
+        <p className="text-[11px] text-text-tertiary mt-3 italic">
+          $10/mo · 7 days free · cancel anytime — these four numbers are the spine of every variant below.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -268,7 +393,7 @@ export function PromptsCatalog() {
           mockup={<MockGuestBanner />}
         />
 
-        {/* Usage Receipt */}
+        {/* ── Usage Receipt — carousel: original + 3 variants ─────────────── */}
         <PromptCard
           title="Usage Receipt (per-generation pill)"
           category="Toast"
@@ -276,10 +401,31 @@ export function PromptsCatalog() {
           trigger="Fires after every successful generation that consumed credits (chapter / audio / image / outline). Free-tier authed users only. Currently most-shown but lowest converting — needs rethink."
           events={['usage_receipt_shown', 'usage_receipt_cta_clicked']}
           source="src/components/credits/UsageReceipt.tsx"
-          mockup={<MockUsageReceipt />}
+          variants={[
+            {
+              label: 'Original',
+              caption: 'generic "keep going"',
+              mockup: <MockUsageReceipt percentUsed={47} />,
+            },
+            {
+              label: 'Variant A',
+              caption: '5× framing',
+              mockup: <MockUsageReceipt percentUsed={47} ctaCopy="5× more for $10/mo · Writer →" />,
+            },
+            {
+              label: 'Variant B',
+              caption: 'output framing',
+              mockup: <MockUsageReceipt percentUsed={47} ctaCopy="That was ~1 of your 3 free chapters · Writer = ~83 →" />,
+            },
+            {
+              label: 'Variant C',
+              caption: 'audio framing',
+              mockup: <MockUsageReceipt percentUsed={47} ctaCopy="Hear it as an audiobook · Writer →" />,
+            },
+          ]}
         />
 
-        {/* Credit Nudges */}
+        {/* ── Credit Nudge — 50% — carousel ─────────────────────────────── */}
         <PromptCard
           title="Credit Nudge — 50% remaining"
           category="Toast"
@@ -287,12 +433,43 @@ export function PromptsCatalog() {
           trigger="Fires once when a free user's remaining-credit % first drops at or below 50%. Deduped per billing period via localStorage."
           events={['credit_nudge_shown', 'credit_nudge_clicked', 'credit_nudge_dismissed']}
           source="src/components/credits/CreditNudge.tsx:13"
-          mockup={<MockCreditNudge
-            title="Halfway through"
-            body="Half your monthly credits left. Like what you're making? Writer is $10/mo, unlimited chapters."
-          />}
+          variants={[
+            {
+              label: 'Original',
+              caption: '"unlimited chapters" — vague',
+              mockup: <MockCreditNudge
+                title="Halfway through"
+                body="Half your monthly credits left. Like what you're making? Writer is $10/mo, unlimited chapters."
+              />,
+            },
+            {
+              label: 'Variant A',
+              caption: '5× framing',
+              mockup: <MockCreditNudge
+                title="5× more for $10"
+                body="Writer gets you 2,500 credits — ~83 chapters and full audiobook narration. 7 days free."
+              />,
+            },
+            {
+              label: 'Variant B',
+              caption: 'output framing',
+              mockup: <MockCreditNudge
+                title="~250 free credits to go"
+                body="Writer adds 2,500 more credits, unlimited projects, and ~30 full audio chapters. $10/mo."
+              />,
+            },
+            {
+              label: 'Variant C',
+              caption: 'next-step framing',
+              mockup: <MockCreditNudge
+                title="Halfway through your 500"
+                body="Writer = 2,500 credits + ~30 full audio chapters + unlimited projects. $10/mo, 7 days free."
+              />,
+            },
+          ]}
         />
 
+        {/* ── Credit Nudge — 25% — carousel ─────────────────────────────── */}
         <PromptCard
           title="Credit Nudge — 25% remaining"
           category="Toast"
@@ -300,12 +477,43 @@ export function PromptsCatalog() {
           trigger="Fires once when remaining-credit % first drops at or below 25%. Same dedup mechanism."
           events={['credit_nudge_shown', 'credit_nudge_clicked', 'credit_nudge_dismissed']}
           source="src/components/credits/CreditNudge.tsx:17"
-          mockup={<MockCreditNudge
-            title="25% left"
-            body="You're using Theodore a lot — let's keep it flowing. Writer plan = $10/mo, no caps."
-          />}
+          variants={[
+            {
+              label: 'Original',
+              caption: '"no caps" — vague',
+              mockup: <MockCreditNudge
+                title="25% left"
+                body="You're using Theodore a lot — let's keep it flowing. Writer plan = $10/mo, no caps."
+              />,
+            },
+            {
+              label: 'Variant A',
+              caption: 'concrete credits-left',
+              mockup: <MockCreditNudge
+                title="~125 credits left"
+                body="That's ~4 more chapters. Writer adds 2,500 credits, ~30 audio chapters, and unlimited projects — $10/mo."
+              />,
+            },
+            {
+              label: 'Variant B',
+              caption: 'loss-aversion',
+              mockup: <MockCreditNudge
+                title="Running low"
+                body="Don't stop a draft mid-arc. Writer = 5× the credits + full audiobooks + unlimited projects. 7 days free."
+              />,
+            },
+            {
+              label: 'Variant C',
+              caption: 'audio hook',
+              mockup: <MockCreditNudge
+                title="75% in — and only 60s of audio"
+                body="Writer unlocks full audiobook narration for every chapter. Plus 2,500 credits, $10/mo, 7 days free."
+              />,
+            },
+          ]}
         />
 
+        {/* ── Credit Nudge — 10% — carousel ─────────────────────────────── */}
         <PromptCard
           title="Credit Nudge — 10% remaining (last warning)"
           category="Toast"
@@ -313,13 +521,43 @@ export function PromptsCatalog() {
           trigger="Fires once when remaining-credit % first drops at or below 10%. Final warning before the wall."
           events={['credit_nudge_shown', 'credit_nudge_clicked', 'credit_nudge_dismissed']}
           source="src/components/credits/CreditNudge.tsx:21"
-          mockup={<MockCreditNudge
-            title="Almost out — 10% left"
-            body="Don't lose momentum. Upgrade to keep generating chapters and audio."
-          />}
+          variants={[
+            {
+              label: 'Original',
+              caption: 'defensive "don\'t lose momentum"',
+              mockup: <MockCreditNudge
+                title="Almost out — 10% left"
+                body="Don't lose momentum. Upgrade to keep generating chapters and audio."
+              />,
+            },
+            {
+              label: 'Variant A',
+              caption: 'concrete "one chapter left"',
+              mockup: <MockCreditNudge
+                title="One chapter left"
+                body="Writer adds 2,500 credits — ~83 more chapters, ~30 full audio chapters, unlimited projects. $10/mo, 7 days free."
+              />,
+            },
+            {
+              label: 'Variant B',
+              caption: 'value-restated',
+              mockup: <MockCreditNudge
+                title="~50 credits left"
+                body="Writer = 5× the credits, full audiobook chapters, unlimited projects. $10/mo, 7 days free."
+              />,
+            },
+            {
+              label: 'Variant C',
+              caption: 'cliffhanger',
+              mockup: <MockCreditNudge
+                title="Your next chapter is on the other side"
+                body="Writer unlocks 2,500 credits + ~30 full audio chapters + unlimited projects — for $10/mo."
+              />,
+            },
+          ]}
         />
 
-        {/* Guest Signup Modals */}
+        {/* Guest Signup Modals — converters, no variants */}
         <PromptCard
           title="Guest Signup Modal — Novel variant"
           category="Modal"
@@ -340,7 +578,7 @@ export function PromptsCatalog() {
           mockup={<MockGuestSignupModal variant="audio" />}
         />
 
-        {/* Chat signup modal */}
+        {/* Chat signup modal — top performer (69%), no variants */}
         <PromptCard
           title="Chat Signup Modal (3-message threshold)"
           category="Modal"
@@ -351,7 +589,7 @@ export function PromptsCatalog() {
           mockup={<MockChatSignupModal />}
         />
 
-        {/* Upgrade Modals */}
+        {/* ── Upgrade Modal — generic — carousel ─────────────────────────── */}
         <PromptCard
           title="Upgrade Modal — out of credits (generic)"
           category="Modal"
@@ -359,13 +597,57 @@ export function PromptsCatalog() {
           trigger="Server returns 402 on any credit-gated endpoint (text gen, image, music, SFX) — the user has insufficient credits to continue."
           events={['upgrade_inline_shown', 'upgrade_signup_google', 'upgrade_signup_email', 'upgrade_checkout_redirect']}
           source="src/components/credits/UpgradeModal.tsx (reason='generic')"
-          mockup={<MockUpgradeModal
-            heading="Unlock more of Theodore"
-            body="Keep writing, narrating, and listening. Writer · $10/mo, 7 days free."
-            ctaLabel="Start 7-day trial · Writer"
-          />}
+          variants={[
+            {
+              label: 'Original',
+              caption: '"more credits, more chapters" — abstract',
+              mockup: <MockUpgradeModal
+                heading="Unlock more of Theodore"
+                body="More credits, more chapters, more audiobooks. Writer · $10/mo, 7 days free."
+                ctaLabel="Start 7-day trial · Writer"
+              />,
+            },
+            {
+              label: 'Variant A',
+              caption: '5× framing + bulleted',
+              mockup: <MockUpgradeModal
+                heading="5× more for $10"
+                bullets={[
+                  '2,500 credits/mo (was 500)',
+                  '~30 full audio chapters',
+                  'Unlimited projects',
+                  'Multi-voice narration (beta)',
+                ]}
+                ctaLabel="Start 7-day trial · Writer"
+              />,
+            },
+            {
+              label: 'Variant B',
+              caption: 'feature-list',
+              mockup: <MockUpgradeModal
+                heading="What Writer unlocks"
+                bullets={[
+                  '2,500 credits — ~83 chapters',
+                  'Full audio chapters, not 60s previews',
+                  'Unlimited projects',
+                  'Early access: multi-voice cast',
+                ]}
+                ctaLabel="Start 7-day trial · $10/mo"
+              />,
+            },
+            {
+              label: 'Variant C',
+              caption: 'next-chapter hook',
+              mockup: <MockUpgradeModal
+                heading="Your next chapter is one click away"
+                body="Writer = 5× the credits, full audiobook chapters, unlimited projects. $10/mo, 7 days free."
+                ctaLabel="Start 7-day trial · Writer"
+              />,
+            },
+          ]}
         />
 
+        {/* ── Upgrade Modal — audio cap — carousel ─────────────────────── */}
         <PromptCard
           title="Upgrade Modal — audio cap variant"
           category="Modal"
@@ -373,13 +655,51 @@ export function PromptsCatalog() {
           trigger="TTS returns 402 with needsUpgrade:true — they listened to their free audiobook chapter and want more. Specifically tuned 'Like what you heard?' framing."
           events={['audio_cap_inline_shown', 'audio_cap_signup_google', 'audio_cap_signup_email', 'audio_cap_checkout_redirect']}
           source="src/components/credits/UpgradeModal.tsx (reason='audio_cap')"
-          mockup={<MockUpgradeModal
-            heading="Like what you heard?"
-            body="Finish this chapter and ~29 more. Writer · $10/mo, 7 days free."
-            ctaLabel="Start 7-day trial · Writer"
-          />}
+          variants={[
+            {
+              label: 'Original',
+              caption: '"~29 more" — decent baseline',
+              mockup: <MockUpgradeModal
+                heading="Like what you heard?"
+                body="Finish this chapter and ~29 more. Writer · $10/mo, 7 days free."
+                ctaLabel="Start 7-day trial · Writer"
+              />,
+            },
+            {
+              label: 'Variant A',
+              caption: 'specificity-focused',
+              mockup: <MockUpgradeModal
+                heading="Don't stop at 60 seconds"
+                body="Writer unlocks ~30 full audiobook chapters per month — yours, narrated end-to-end."
+                ctaLabel="Start 7-day trial · Writer $10/mo"
+              />,
+            },
+            {
+              label: 'Variant B',
+              caption: 'value-stack',
+              mockup: <MockUpgradeModal
+                heading="60 seconds isn't a chapter"
+                bullets={[
+                  '~30 full audio chapters/mo',
+                  '2,500 credits — ~83 chapters of prose',
+                  'Unlimited projects',
+                ]}
+                ctaLabel="Start 7-day trial · Writer"
+              />,
+            },
+            {
+              label: 'Variant C',
+              caption: 'completion framing',
+              mockup: <MockUpgradeModal
+                heading="Finish the chapter, then the book"
+                body="Writer = ~30 full audio chapters, 5× the credits, unlimited projects. $10/mo, 7 days free."
+                ctaLabel="Start 7-day trial · Writer"
+              />,
+            },
+          ]}
         />
 
+        {/* ── Upgrade Modal — multi-voice — carousel ────────────────────── */}
         <PromptCard
           title="Upgrade Modal — multi-voice variant"
           category="Modal"
@@ -387,18 +707,66 @@ export function PromptsCatalog() {
           trigger="Free user toggles the multi-voice option in the audio confirm modal. Frames as early-access Writer perk."
           events={['upgrade_inline_shown variant=multi_voice', 'upgrade_signup_*']}
           source="src/components/credits/UpgradeModal.tsx (reason='multi_voice')"
-          mockup={<MockUpgradeModal
-            heading="A voice for every character"
-            body="Writer subscribers get early access to multi-voice narration — each character speaks with their own xAI voice, auto-cast by role and gender. Plus everything else in Writer · $10/mo, 7 days free."
-            ctaLabel="Sign up & continue · Writer $10/mo"
-          />}
+          variants={[
+            {
+              label: 'Original',
+              caption: 'feature-led, paragraph form',
+              mockup: <MockUpgradeModal
+                heading="A voice for every character"
+                body="Writer subscribers get early access to multi-voice narration — each character speaks with their own xAI voice, auto-cast by role and gender. Plus everything else in Writer · $10/mo, 7 days free."
+                ctaLabel="Sign up & continue · Writer $10/mo"
+                badge="Beta · Writer early access"
+              />,
+            },
+            {
+              label: 'Variant A',
+              caption: 'casting metaphor',
+              mockup: <MockUpgradeModal
+                heading="Cast every character"
+                bullets={[
+                  'A distinct xAI voice for each character',
+                  'Auto-cast by role and gender',
+                  '~30 full audio chapters/mo',
+                  '2,500 credits + unlimited projects',
+                ]}
+                ctaLabel="Start 7-day trial · Writer"
+                badge="Beta · Writer early access"
+              />,
+            },
+            {
+              label: 'Variant B',
+              caption: 'value-stack',
+              mockup: <MockUpgradeModal
+                heading="Your audiobook, fully cast"
+                bullets={[
+                  'Multi-voice narration (beta)',
+                  '~30 full audio chapters/mo',
+                  '2,500 credits/mo',
+                  'Unlimited projects',
+                ]}
+                ctaLabel="Sign up & continue · $10/mo"
+                badge="Beta · Writer early access"
+              />,
+            },
+            {
+              label: 'Variant C',
+              caption: 'production framing',
+              mockup: <MockUpgradeModal
+                heading="From novel to full production"
+                body="Writer unlocks multi-voice casting + ~30 full audio chapters + 2,500 credits + unlimited projects. $10/mo, 7 days free."
+                ctaLabel="Start 7-day trial · Writer"
+                badge="Beta · Writer early access"
+              />,
+            },
+          ]}
         />
       </div>
 
       <div className="rounded-2xl border border-dashed border-black/10 bg-white/40 p-4 text-xs text-text-tertiary">
         <strong className="text-text-secondary">Note:</strong> The mockups above are CSS-only reproductions —
-        cross-reference the source files for the live components. If a copy string here disagrees with what
-        renders in the app, the live component wins; update this catalog to match.
+        cross-reference the source files for the live components. Originals on the leftmost slide match the
+        live copy; variants to the right are drafts not yet shipped. To promote a variant, copy its strings
+        into the source file referenced at the bottom of the card.
       </div>
     </div>
   );
