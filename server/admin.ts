@@ -2302,6 +2302,85 @@ export async function getConversionStats(req: Request, res: Response) {
       };
     };
 
+    // ── Engagement (session-time stats from journey_events) ──
+    // Computed in a separate try/catch so a failure here can't break the
+    // primary conversion response. The query mirrors the existing journey-list
+    // pattern (group by session_id, derive duration from min/max created_at).
+    // Bouncers are sessions with duration <60s; engaged are 60s+. The
+    // 15min+ rate is the headline metric to compare against Suno (20-27 min
+    // avg) and Character.AI (17-25 min avg).
+    let engagement: unknown = null;
+    try {
+      const sessionStats = await db.execute(sql`
+        WITH sessions AS (
+          SELECT
+            session_id,
+            window_label,
+            EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at)))::int AS duration_s,
+            BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin
+          FROM (
+            SELECT *, '7d' AS window_label FROM journey_events
+              WHERE created_at > NOW() - INTERVAL '7 days'
+            UNION ALL
+            SELECT *, '30d' AS window_label FROM journey_events
+              WHERE created_at > NOW() - INTERVAL '30 days'
+            UNION ALL
+            SELECT *, '90d' AS window_label FROM journey_events
+              WHERE created_at > NOW() - INTERVAL '90 days'
+          ) je
+          GROUP BY session_id, window_label
+        )
+        SELECT
+          window_label,
+          COUNT(*) AS total_sessions,
+          COUNT(*) FILTER (WHERE duration_s >= 900) AS over_15min,
+          COUNT(*) FILTER (WHERE duration_s >= 60 AND duration_s < 900) AS engaged,
+          COUNT(*) FILTER (WHERE duration_s < 60) AS bouncers,
+          COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_s) FILTER (WHERE duration_s >= 30), 0)::int AS median_s,
+          COALESCE(AVG(duration_s) FILTER (WHERE duration_s >= 30), 0)::int AS avg_engaged_s
+        FROM sessions
+        WHERE NOT is_admin
+        GROUP BY window_label
+      `);
+
+      const byWindow: Record<string, any> = {};
+      for (const r of sessionStats.rows as any[]) {
+        const total = Number(r.total_sessions) || 0;
+        const over15 = Number(r.over_15min) || 0;
+        const engaged = Number(r.engaged) || 0;
+        const bouncers = Number(r.bouncers) || 0;
+        byWindow[r.window_label] = {
+          totalSessions: total,
+          bouncers,
+          engagedShort: engaged, // 60s-15min
+          engagedDeep: over15,    // 15min+
+          deepRate: total > 0 ? over15 / total : 0,
+          engagedRate: total > 0 ? (engaged + over15) / total : 0,
+          medianEngagedSeconds: Number(r.median_s) || 0,
+          avgEngagedSeconds: Number(r.avg_engaged_s) || 0,
+        };
+      }
+      // Industry benchmarks for the UI to display alongside ours. Numbers
+      // from public sources (Business of Apps, SQ Magazine, Similarweb 2025-26).
+      // Stable enough that hardcoding is fine — refresh quarterly if it drifts.
+      engagement = {
+        windows: {
+          d7: byWindow.d7 || null,
+          d30: byWindow.d30 || null,
+          d90: byWindow.d90 || null,
+        },
+        benchmarks: {
+          chatgpt: { label: 'ChatGPT', avgSeconds: 540 },        // ~9 min
+          theodoreTarget: { label: 'Goal', avgSeconds: 900 },    // 15 min
+          suno: { label: 'Suno', avgSeconds: 1380 },             // ~23 min
+          characterAi: { label: 'Character.AI', avgSeconds: 1260 }, // ~21 min
+        },
+      };
+    } catch (e: any) {
+      console.warn('[Admin] conversion-stats engagement query failed:', e?.message || e);
+      engagement = null; // fall through, primary response unaffected
+    }
+
     res.json({
       snapshot: {
         totalSignups,
@@ -2318,6 +2397,7 @@ export async function getConversionStats(req: Request, res: Response) {
       paidUsersList: paidUsers
         .map((u) => ({ email: u.email, plan: u.plan, signedUpAt: u.createdAt }))
         .sort((a, b) => (b.signedUpAt && a.signedUpAt ? +new Date(b.signedUpAt as any) - +new Date(a.signedUpAt as any) : 0)),
+      engagement,
     });
   } catch (e: any) {
     console.error('[Admin] conversion-stats error:', e);

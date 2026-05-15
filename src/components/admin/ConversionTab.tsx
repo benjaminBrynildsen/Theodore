@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, TrendingUp, Users as UsersIcon, DollarSign } from 'lucide-react';
+import { RefreshCw, TrendingUp, Users as UsersIcon, DollarSign, Clock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface Snapshot {
@@ -26,6 +26,36 @@ interface PaidUser {
   signedUpAt: string | null;
 }
 
+interface EngagementWindow {
+  totalSessions: number;
+  bouncers: number;
+  engagedShort: number;
+  engagedDeep: number;
+  deepRate: number;
+  engagedRate: number;
+  medianEngagedSeconds: number;
+  avgEngagedSeconds: number;
+}
+
+interface Benchmark {
+  label: string;
+  avgSeconds: number;
+}
+
+interface EngagementBlock {
+  windows: {
+    d7: EngagementWindow | null;
+    d30: EngagementWindow | null;
+    d90: EngagementWindow | null;
+  };
+  benchmarks: {
+    chatgpt: Benchmark;
+    theodoreTarget: Benchmark;
+    suno: Benchmark;
+    characterAi: Benchmark;
+  };
+}
+
 interface ConversionResponse {
   snapshot: Snapshot;
   trailing: {
@@ -36,6 +66,16 @@ interface ConversionResponse {
   };
   daily: DailyRow[];
   paidUsersList: PaidUser[];
+  engagement?: EngagementBlock | null;
+}
+
+function fmtDuration(seconds: number): string {
+  if (!seconds || !isFinite(seconds)) return '—';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = seconds / 60;
+  if (m < 60) return `${m.toFixed(m < 10 ? 1 : 0)}m`;
+  const h = m / 60;
+  return `${h.toFixed(1)}h`;
 }
 
 function fmtPct(n: number): string {
@@ -144,6 +184,11 @@ export function ConversionTab() {
         </button>
       </div>
 
+      {/* Engagement — session-time metrics vs industry benchmarks */}
+      {data.engagement && data.engagement.windows.d30 && (
+        <EngagementSection engagement={data.engagement} />
+      )}
+
       {/* Daily signups vs paid — last 30 days bar chart */}
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wider text-text-tertiary mb-3">
@@ -226,6 +271,119 @@ export function ConversionTab() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function EngagementSection({ engagement }: { engagement: EngagementBlock }) {
+  const d30 = engagement.windows.d30!;
+  const d7 = engagement.windows.d7;
+  const benchmarks = [
+    { ...engagement.benchmarks.chatgpt, color: 'bg-stone-300' },
+    { ...engagement.benchmarks.theodoreTarget, color: 'bg-amber-300', isTarget: true },
+    { ...engagement.benchmarks.suno, color: 'bg-stone-300' },
+    { ...engagement.benchmarks.characterAi, color: 'bg-stone-300' },
+  ];
+  const theodoreAvg = d30.avgEngagedSeconds;
+  const maxBenchmark = Math.max(theodoreAvg, ...benchmarks.map((b) => b.avgSeconds));
+
+  return (
+    <section>
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+        Engagement
+      </h2>
+      <div className="rounded-2xl border border-black/[0.06] bg-white p-5 space-y-5">
+        {/* 3 KPI cards — engaged session % (deep) trailing 7d/30d + median session time */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <EngagementKpi
+            label="Deep sessions (>15min) — last 30d"
+            value={`${(d30.deepRate * 100).toFixed(1)}%`}
+            sub={`${d30.engagedDeep} of ${d30.totalSessions} sessions`}
+          />
+          <EngagementKpi
+            label="Engaged sessions (>1min) — last 30d"
+            value={`${(d30.engagedRate * 100).toFixed(1)}%`}
+            sub={`${d30.engagedShort + d30.engagedDeep} of ${d30.totalSessions}`}
+          />
+          <EngagementKpi
+            label="Median engaged session"
+            value={fmtDuration(d30.medianEngagedSeconds)}
+            sub={`avg ${fmtDuration(d30.avgEngagedSeconds)} · 7d avg ${d7 ? fmtDuration(d7.avgEngagedSeconds) : '—'}`}
+          />
+        </div>
+
+        {/* Theodore vs industry benchmark bars */}
+        <div>
+          <div className="text-xs uppercase tracking-wider text-text-tertiary mb-3">
+            Average engaged session vs industry
+          </div>
+          <div className="space-y-2">
+            <BenchmarkBar
+              label="Theodore (30d)"
+              seconds={theodoreAvg}
+              max={maxBenchmark}
+              color="bg-emerald-500"
+              accent
+            />
+            {benchmarks.map((b) => (
+              <BenchmarkBar
+                key={b.label}
+                label={b.label}
+                seconds={b.avgSeconds}
+                max={maxBenchmark}
+                color={b.color}
+                accent={b.isTarget}
+              />
+            ))}
+          </div>
+          <p className="text-[11px] text-text-tertiary mt-3 leading-relaxed">
+            Industry numbers from Business of Apps, SQ Magazine, and Similarweb 2025-26 reports.
+            Theodore's average is computed across non-admin sessions with &gt;30s on-page.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EngagementKpi({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="rounded-xl border border-black/[0.05] bg-white/40 p-3.5">
+      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-text-tertiary mb-1">
+        <Clock size={11} />
+        {label}
+      </div>
+      <div className="text-xl font-serif font-semibold tabular-nums">{value}</div>
+      <div className="text-[11px] text-text-tertiary mt-0.5">{sub}</div>
+    </div>
+  );
+}
+
+function BenchmarkBar({
+  label,
+  seconds,
+  max,
+  color,
+  accent,
+}: {
+  label: string;
+  seconds: number;
+  max: number;
+  color: string;
+  accent?: boolean;
+}) {
+  const pct = max > 0 ? (seconds / max) * 100 : 0;
+  return (
+    <div className="flex items-center gap-3">
+      <div className={cn('w-32 text-xs flex-shrink-0', accent ? 'font-semibold text-text-primary' : 'text-text-secondary')}>
+        {label}
+      </div>
+      <div className="flex-1 h-6 bg-black/[0.04] rounded-md overflow-hidden">
+        <div className={cn('h-full rounded-md transition-all', color)} style={{ width: `${pct}%` }} />
+      </div>
+      <div className={cn('w-14 text-right text-xs tabular-nums flex-shrink-0', accent ? 'font-semibold' : 'text-text-secondary')}>
+        {fmtDuration(seconds)}
+      </div>
     </div>
   );
 }
