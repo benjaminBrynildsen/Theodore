@@ -14,6 +14,7 @@ import { EmailTab } from './EmailTab';
 import { CopyGraderTab } from './CopyGraderTab';
 import { ReferralsTab } from './ReferralsTab';
 import { ConversionTab } from './ConversionTab';
+import { PromptsTab } from './PromptsTab';
 import { JourneyDetailView } from './JourneyDetailView';
 
 const API = '/api/admin';
@@ -204,7 +205,7 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email' | 'copy-grader' | 'referrals' | 'conversion';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email' | 'copy-grader' | 'referrals' | 'conversion' | 'prompts';
 
 interface JourneySession {
   session_id: string;
@@ -410,6 +411,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'journey', label: 'Journey', icon: TrendingUp },
     { id: 'conversion', label: 'Conversion', icon: TrendingUp },
+    { id: 'prompts', label: 'Prompts', icon: Bell },
     { id: 'referrals', label: 'Referrals', icon: Share2 },
     { id: 'creators', label: 'Creators', icon: Film },
     { id: 'outreach', label: 'Outreach', icon: Mail },
@@ -1268,6 +1270,8 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {view === 'referrals' && <ReferralsTab />}
 
         {view === 'conversion' && <ConversionTab />}
+
+        {view === 'prompts' && <PromptsTab />}
 
         {/* ========== Grok image-reference probe ========== */}
         {view === 'grok-probe' && <GrokProbePanel />}

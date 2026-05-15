@@ -2302,6 +2302,85 @@ export async function getConversionStats(req: Request, res: Response) {
       };
     };
 
+    // ── Engagement (session-time stats from journey_events) ──
+    // Computed in a separate try/catch so a failure here can't break the
+    // primary conversion response. The query mirrors the existing journey-list
+    // pattern (group by session_id, derive duration from min/max created_at).
+    // Bouncers are sessions with duration <60s; engaged are 60s+. The
+    // 15min+ rate is the headline metric to compare against Suno (20-27 min
+    // avg) and Character.AI (17-25 min avg).
+    let engagement: unknown = null;
+    try {
+      const sessionStats = await db.execute(sql`
+        WITH sessions AS (
+          SELECT
+            session_id,
+            window_label,
+            EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at)))::int AS duration_s,
+            BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin
+          FROM (
+            SELECT *, '7d' AS window_label FROM journey_events
+              WHERE created_at > NOW() - INTERVAL '7 days'
+            UNION ALL
+            SELECT *, '30d' AS window_label FROM journey_events
+              WHERE created_at > NOW() - INTERVAL '30 days'
+            UNION ALL
+            SELECT *, '90d' AS window_label FROM journey_events
+              WHERE created_at > NOW() - INTERVAL '90 days'
+          ) je
+          GROUP BY session_id, window_label
+        )
+        SELECT
+          window_label,
+          COUNT(*) AS total_sessions,
+          COUNT(*) FILTER (WHERE duration_s >= 900) AS over_15min,
+          COUNT(*) FILTER (WHERE duration_s >= 60 AND duration_s < 900) AS engaged,
+          COUNT(*) FILTER (WHERE duration_s < 60) AS bouncers,
+          COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_s) FILTER (WHERE duration_s >= 30), 0)::int AS median_s,
+          COALESCE(AVG(duration_s) FILTER (WHERE duration_s >= 30), 0)::int AS avg_engaged_s
+        FROM sessions
+        WHERE NOT is_admin
+        GROUP BY window_label
+      `);
+
+      const byWindow: Record<string, any> = {};
+      for (const r of sessionStats.rows as any[]) {
+        const total = Number(r.total_sessions) || 0;
+        const over15 = Number(r.over_15min) || 0;
+        const engaged = Number(r.engaged) || 0;
+        const bouncers = Number(r.bouncers) || 0;
+        byWindow[r.window_label] = {
+          totalSessions: total,
+          bouncers,
+          engagedShort: engaged, // 60s-15min
+          engagedDeep: over15,    // 15min+
+          deepRate: total > 0 ? over15 / total : 0,
+          engagedRate: total > 0 ? (engaged + over15) / total : 0,
+          medianEngagedSeconds: Number(r.median_s) || 0,
+          avgEngagedSeconds: Number(r.avg_engaged_s) || 0,
+        };
+      }
+      // Industry benchmarks for the UI to display alongside ours. Numbers
+      // from public sources (Business of Apps, SQ Magazine, Similarweb 2025-26).
+      // Stable enough that hardcoding is fine — refresh quarterly if it drifts.
+      engagement = {
+        windows: {
+          d7: byWindow.d7 || null,
+          d30: byWindow.d30 || null,
+          d90: byWindow.d90 || null,
+        },
+        benchmarks: {
+          chatgpt: { label: 'ChatGPT', avgSeconds: 540 },        // ~9 min
+          theodoreTarget: { label: 'Goal', avgSeconds: 900 },    // 15 min
+          suno: { label: 'Suno', avgSeconds: 1380 },             // ~23 min
+          characterAi: { label: 'Character.AI', avgSeconds: 1260 }, // ~21 min
+        },
+      };
+    } catch (e: any) {
+      console.warn('[Admin] conversion-stats engagement query failed:', e?.message || e);
+      engagement = null; // fall through, primary response unaffected
+    }
+
     res.json({
       snapshot: {
         totalSignups,
@@ -2318,9 +2397,87 @@ export async function getConversionStats(req: Request, res: Response) {
       paidUsersList: paidUsers
         .map((u) => ({ email: u.email, plan: u.plan, signedUpAt: u.createdAt }))
         .sort((a, b) => (b.signedUpAt && a.signedUpAt ? +new Date(b.signedUpAt as any) - +new Date(a.signedUpAt as any) : 0)),
+      engagement,
     });
   } catch (e: any) {
     console.error('[Admin] conversion-stats error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// ========== Prompts funnel ==========
+// Per-prompt shown/clicked/converted counts so we can see which conversion
+// mechanics are pulling weight and which aren't worth the surface area they
+// take up. Built directly from journey_events — every prompt component in
+// the app already fires `<prompt>_shown` / `<prompt>_clicked` events, so
+// this is read-only aggregation, no new tracking needed.
+//
+// Grouped into three families on the client:
+//   - Modals/toasts (have both _shown and a follow-up signup/click event)
+//   - One-shot CTAs (no _shown, only click events — pricing, sign-in, etc.)
+//   - Landing-page section visibility (section_reached events for scroll depth)
+//
+// Admin sessions are excluded via the same data->>'is_admin' check the
+// journey list uses.
+const PROMPT_EVENTS = [
+  // UsageReceipt (top-center pill on every gen)
+  'usage_receipt_shown', 'usage_receipt_cta_clicked',
+  // CreditNudge (bottom-right toast at 50/25/10% remaining)
+  'credit_nudge_shown', 'credit_nudge_clicked', 'credit_nudge_dismissed',
+  // GuestSignupModal (novel + audio variants)
+  'guest_signup_modal_shown', 'guest_signup_modal_signup', 'guest_signup_modal_dismissed',
+  // Chat-message signup modal (5 → 3 messages)
+  'guest_chat_signup_modal_shown', 'guest_chat_signup_modal_signup', 'guest_chat_signup_modal_dismissed',
+  // UpgradeModal — inline (credits exhausted)
+  'upgrade_inline_shown', 'upgrade_signup_google', 'upgrade_signup_email', 'upgrade_checkout_redirect',
+  // UpgradeModal — audio cap variant (7-day trial copy)
+  'audio_cap_inline_shown', 'audio_cap_signup_google', 'audio_cap_signup_email', 'audio_cap_checkout_redirect',
+  // Pixel — CompleteRegistration / Subscribe / InitiateCheckout (pure outcome events)
+  // Note: these come through the auto-tracker not as explicit click events; tracked for funnel context.
+  // One-shot CTAs (no _shown, only click)
+  'pricing_cta_clicked', 'final_cta_submitted', 'signin_clicked', 'signup_banner_clicked',
+  // Share-flow events (library page)
+  'share_cta_clicked', 'share_published', 'share_link_copied', 'share_link_opened', 'share_book_listened',
+  // Landing section reached (scroll depth)
+  'section_reached',
+  // Entry events (signup completion, prompt redirect)
+  'prompt_redirect_arrived',
+];
+
+export async function getPromptsFunnel(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const rows = await db.execute(sql`
+      SELECT
+        event,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')  AS count_7d,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS count_30d,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '90 days') AS count_90d,
+        COUNT(*) AS count_all
+      FROM journey_events
+      WHERE event = ANY(${PROMPT_EVENTS})
+        AND created_at > NOW() - INTERVAL '90 days'
+        AND COALESCE((data->>'is_admin')::boolean, false) = false
+      GROUP BY event
+      ORDER BY count_30d DESC NULLS LAST
+    `);
+
+    // Shape the response as a flat list of { event, count_7d, count_30d, count_90d, count_all }.
+    // Grouping into prompt-families happens on the client so the admin UI can
+    // re-bucket without a backend redeploy.
+    const counts = (rows.rows as any[]).map((r) => ({
+      event: String(r.event),
+      d7: Number(r.count_7d) || 0,
+      d30: Number(r.count_30d) || 0,
+      d90: Number(r.count_90d) || 0,
+      all: Number(r.count_all) || 0,
+    }));
+
+    res.json({ counts });
+  } catch (e: any) {
+    console.error('[Admin] prompts-funnel error:', e);
     res.status(500).json({ error: 'Internal server error' });
   }
 }
