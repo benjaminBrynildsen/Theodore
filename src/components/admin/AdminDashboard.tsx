@@ -205,6 +205,21 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Compact duration formatter for the user-detail Time Spent card. Picks the
+// two largest non-zero units so totals stay legible in a tight stat tile.
+// 0s → "0s", 45s → "45s", 8m → "8m", 1h 12m → "1h 12m", 2d 4h → "2d 4h".
+function formatDurationCompact(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '0s';
+  const d = Math.floor(totalSeconds / 86400);
+  const h = Math.floor((totalSeconds % 86400) / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = Math.floor(totalSeconds % 60);
+  if (d > 0) return h > 0 ? `${d}d ${h}h` : `${d}d`;
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  return `${s}s`;
+}
+
 type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email' | 'copy-grader' | 'referrals' | 'conversion' | 'prompts';
 
 interface JourneySession {
@@ -928,20 +943,46 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                 <PlanBadge plan={userDetail.user.plan} />
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div className="glass-pill rounded-xl p-3 text-center">
-                  <div className="text-lg font-semibold">{userDetail.user.creditsRemaining}</div>
-                  <div className="text-[10px] text-text-tertiary">Credits Left</div>
-                </div>
-                <div className="glass-pill rounded-xl p-3 text-center">
-                  <div className="text-lg font-semibold">{userDetail.totalCreditsUsed.toLocaleString()}</div>
-                  <div className="text-[10px] text-text-tertiary">Total Used</div>
-                </div>
-                <div className="glass-pill rounded-xl p-3 text-center">
-                  <div className="text-lg font-semibold">{userDetail.projects.length}</div>
-                  <div className="text-[10px] text-text-tertiary">Projects</div>
-                </div>
-              </div>
+              {(() => {
+                // Sum duration_seconds across every linked journey session.
+                // userJourneys loads async after the main detail; show "—"
+                // until it arrives so the card doesn't flash "0s".
+                const totalSeconds = userJourneys.reduce((acc, s) => acc + (s.duration_seconds || 0), 0);
+                const timeLabel = userJourneys.length === 0
+                  ? '—'
+                  : formatDurationCompact(totalSeconds);
+                const timeSubLabel = userJourneys.length === 0
+                  ? 'loading…'
+                  : `across ${userJourneys.length} session${userJourneys.length === 1 ? '' : 's'}`;
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="glass-pill rounded-xl p-3 text-center">
+                      <div className="text-lg font-semibold">{userDetail.user.creditsRemaining}</div>
+                      <div className="text-[10px] text-text-tertiary">Credits Left</div>
+                    </div>
+                    <div className="glass-pill rounded-xl p-3 text-center">
+                      <div className="text-lg font-semibold">{userDetail.totalCreditsUsed.toLocaleString()}</div>
+                      <div className="text-[10px] text-text-tertiary">Total Used</div>
+                    </div>
+                    <div className="glass-pill rounded-xl p-3 text-center">
+                      <div className="text-lg font-semibold">{userDetail.projects.length}</div>
+                      <div className="text-[10px] text-text-tertiary">Projects</div>
+                    </div>
+                    <div
+                      className="glass-pill rounded-xl p-3 text-center"
+                      title={
+                        userJourneys.length === 0
+                          ? 'Loading session data…'
+                          : `Sum of journey-session durations (MAX − MIN event time per session, bounded by activity events — idle gaps don't count).`
+                      }
+                    >
+                      <div className="text-lg font-semibold tabular-nums">{timeLabel}</div>
+                      <div className="text-[10px] text-text-tertiary">Time Spent</div>
+                      <div className="text-[9px] text-text-tertiary mt-0.5">{timeSubLabel}</div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {userDetail.user.stripeSubscriptionId && (
                 <div className="mt-3 text-xs text-text-tertiary">
