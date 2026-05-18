@@ -40,6 +40,24 @@ export function UpgradeModal() {
     }
   }, [showUpgradeModal]);
 
+  // Fire the "shown" event whenever the modal opens, for EVERY user (guest
+  // or signed-in). Previously this only fired inside the guest-only
+  // GuestCapInline subcomponent, so the funnel dashboard reported ~0
+  // impressions for the 15 call sites that open the modal for signed-in
+  // free users (402 errors, multi-voice toggle, credit nudges, settings,
+  // etc.). Tag with variant + is_guest so the funnel can slice both ways.
+  useEffect(() => {
+    if (!showUpgradeModal) return;
+    const variant = isAudioCap ? 'audio_cap' : isMultiVoice ? 'multi_voice' : 'generic';
+    const evt = isAudioCap ? 'audio_cap_inline_shown' : 'upgrade_inline_shown';
+    const pix = isAudioCap ? 'AudioCapInlineShown' : 'UpgradeInlineShown';
+    jTrack(evt, { variant, is_guest: !user });
+    pixel.trackCustom(pix, { variant, is_guest: !user });
+    // Intentionally only depend on the open-flip so we fire once per open,
+    // not on every variant prop tweak while the modal is already visible.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showUpgradeModal]);
+
   // Reset stuck "Redirecting..." state when the browser restores this page
   // from bfcache after a back-nav from Stripe. Without this the CTA stays
   // disabled and the user can't retry checkout.
@@ -342,12 +360,9 @@ function GuestCapInline({
   const [googleReady, setGoogleReady] = useState(false);
   const googleBtnRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const evt = isAudioCap ? 'audio_cap_inline_shown' : 'upgrade_inline_shown';
-    const pix = isAudioCap ? 'AudioCapInlineShown' : 'UpgradeInlineShown';
-    jTrack(evt);
-    pixel.trackCustom(pix);
-  }, [isAudioCap]);
+  // Removed: was a duplicate of the top-level fire in UpgradeModal. Kept here
+  // only for guests previously — but the parent's useEffect now fires for all
+  // users (with is_guest tag), so this would double-count guests.
 
   // bfcache restore from Stripe back-nav — clear the stuck "Redirecting…" state
   useEffect(() => {
