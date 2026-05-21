@@ -7,6 +7,7 @@ import { FREE_TIER_CREDITS, FREE_TIER_RESET_INTERVAL_MS } from './billing.js';
 
 const SESSION_COOKIE = 'theodore_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+const HANDOFF_TTL_MS = 1000 * 60 * 5; // 5 minutes
 
 type DbUser = typeof users.$inferSelect;
 type DbSession = typeof sessions.$inferSelect;
@@ -146,6 +147,37 @@ export async function createSession(userId: string, req: Request, res: Response)
   // Also return token in header for mobile clients (React Native can't use HttpOnly cookies)
   res.setHeader('X-Session-Token', rawToken);
   return rawToken;
+}
+
+/**
+ * Mints a short-lived (5 min) session token used to hand off authentication
+ * from the mobile app to the web. The mobile app sends the user to
+ * /handoff?t=<token>, the redeem endpoint rotates this into a full-length
+ * cookie session and deletes the handoff row.
+ */
+export async function createHandoffToken(userId: string): Promise<string> {
+  const rawToken = randomBytes(48).toString('base64url');
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + HANDOFF_TTL_MS);
+  await db.insert(sessions).values({
+    id: randomUUID(),
+    userId,
+    tokenHash,
+    ipAddress: null,
+    userAgent: 'handoff',
+    expiresAt,
+    lastUsedAt: new Date(),
+  });
+  return rawToken;
+}
+
+export async function consumeHandoffToken(rawToken: string): Promise<string | null> {
+  const tokenHash = hashToken(rawToken);
+  const [session] = await db.select().from(sessions).where(eq(sessions.tokenHash, tokenHash));
+  if (!session) return null;
+  await db.delete(sessions).where(eq(sessions.id, session.id));
+  if (session.expiresAt.getTime() <= Date.now()) return null;
+  return session.userId;
 }
 
 async function resolveAuthContext(req: Request): Promise<AuthContext | null> {

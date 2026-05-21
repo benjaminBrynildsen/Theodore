@@ -102,6 +102,7 @@ export default function App() {
   const { user, initialized, bootstrap } = useAuthStore();
   const hydrateCreditsFromUser = useCreditsStore((s) => s.hydrateFromUser);
   const setCreditTransactions = useCreditsStore((s) => s.setTransactions);
+  const setShowUpgradeModal = useCreditsStore((s) => s.setShowUpgradeModal);
   const { showSettingsView } = useSettingsStore();
   const { activeEntryId, getEntry, setActiveEntry, loadEntries } = useCanonStore();
   const activeCanonEntry = activeEntryId ? getEntry(activeEntryId) : undefined;
@@ -210,6 +211,17 @@ export default function App() {
   useEffect(() => {
     bootstrap();
   }, [bootstrap]);
+
+  // Handle ?upgrade=1 deeplink (used by Theodore mobile upgrade CTAs)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('upgrade') === '1') {
+      setShowUpgradeModal(true);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('upgrade');
+      window.history.replaceState({}, '', url.pathname + url.search);
+    }
+  }, [setShowUpgradeModal]);
 
   // Handle Stripe billing redirect
   useEffect(() => {
