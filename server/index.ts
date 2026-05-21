@@ -10,6 +10,8 @@ import { projects, chapters, canonEntries, users, creditTransactions, audioGener
 import crypto from 'crypto';
 import {
   clearAllUserSessions,
+  consumeHandoffToken,
+  createHandoffToken,
   createSession,
   destroySession,
   getAuth,
@@ -1148,6 +1150,37 @@ app.post('/api/auth/logout', async (req, res) => {
     res.json({ ok: true });
   } catch (e: any) {
     respondInternalError(res, 'auth.logout', e);
+  }
+});
+
+// Mobile -> web auth handoff. Mobile calls this with a Bearer session to mint
+// a short-lived (5 min) token, then opens /handoff?t=... on the web so the
+// browser lands signed in.
+app.post('/api/auth/handoff', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const token = await createHandoffToken(auth.user.id);
+    res.json({ token });
+  } catch (e: any) {
+    respondInternalError(res, 'auth.handoff', e);
+  }
+});
+
+// Redeem the handoff token: rotate it into a normal cookie session, then
+// redirect into the SPA. ?next= is an in-app path (must start with /).
+app.get('/handoff', async (req, res) => {
+  try {
+    const token = typeof req.query.t === 'string' ? req.query.t : '';
+    const rawNext = typeof req.query.next === 'string' ? req.query.next : '/';
+    const next = rawNext.startsWith('/') ? rawNext : '/';
+    if (!token) return res.redirect(302, '/');
+    const userId = await consumeHandoffToken(token);
+    if (!userId) return res.redirect(302, '/?handoff=expired');
+    await createSession(userId, req, res);
+    res.redirect(302, next);
+  } catch (e: any) {
+    respondInternalError(res, 'auth.handoff.redeem', e);
   }
 });
 
