@@ -3421,6 +3421,58 @@ app.post('/api/admin/chapters/:chapterId/attribute', attributeChapterEndpoint);
 app.get('/api/admin/projects/:projectId/canon', dumpProjectCanon);
 app.get('/api/admin/projects/:projectId/chapters', dumpProjectChapters);
 
+// Debug: inspect audio_generations for a project (by id or slug). Returns
+// per-row info plus counts via projectId vs chapterId matches vs userId — so
+// we can tell whether audio is missing, orphaned, or just keyed wrong.
+app.get('/api/admin/audio-debug/:projectIdOrSlug', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const isAdmin = String(auth.user.email || '').toLowerCase() === 'benbrynildsen5757@gmail.com'
+      || (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(s => s.trim()).includes(String(auth.user.email || '').toLowerCase());
+    if (!isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+    const key = req.params.projectIdOrSlug;
+    const [project] = await db.select().from(projects)
+      .where(or(eq(projects.id, key), eq(projects.slug, key))).limit(1);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const projChapters = await db.select({ id: chapters.id, number: chapters.number })
+      .from(chapters).where(eq(chapters.projectId, project.id));
+    const chapterIds = new Set(projChapters.map(c => c.id));
+
+    const allUserAudio = await db.select().from(audioGenerations)
+      .where(eq(audioGenerations.userId, project.userId));
+
+    const byProjectId = allUserAudio.filter(a => a.projectId === project.id);
+    const byChapterId = allUserAudio.filter(a => {
+      const prefix = (a.chapterId || '').split('-scene-')[0];
+      return chapterIds.has(a.chapterId) || chapterIds.has(prefix);
+    });
+
+    res.json({
+      project: { id: project.id, slug: project.slug, title: project.title, userId: project.userId },
+      chapterCount: projChapters.length,
+      audio: {
+        totalForUser: allUserAudio.length,
+        matchedByProjectId: byProjectId.length,
+        matchedByChapterId: byChapterId.length,
+        sampleRows: allUserAudio.slice(0, 8).map(a => ({
+          id: a.id,
+          projectId: a.projectId,
+          chapterId: a.chapterId,
+          sceneId: a.sceneId,
+          isActive: a.isActive,
+          createdAt: a.createdAt,
+          hasUrl: !!a.audioUrl,
+        })),
+      },
+    });
+  } catch (e: any) {
+    respondInternalError(res, 'admin.audio-debug', e);
+  }
+});
+
 // Backfill categories for already-published books that don't have one.
 // One-shot — run after rolling the feature out.
 app.post('/api/admin/backfill-categories', async (req, res) => {
