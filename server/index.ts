@@ -3452,11 +3452,8 @@ app.get('/api/admin/projects/:projectId/chapters', dumpProjectChapters);
 // "<chapterUUID>-scene-<sceneUUID>-v<ver>" shape). Admin-gated.
 app.post('/api/admin/backfill-audio-from-jobs', async (req, res) => {
   try {
-    const auth = await requireAuth(req, res);
-    if (!auth) return;
-    const isAdmin = String(auth.user.email || '').toLowerCase() === 'benbrynildsen5757@gmail.com'
-      || (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(s => s.trim()).includes(String(auth.user.email || '').toLowerCase());
-    if (!isAdmin) return res.status(403).json({ error: 'Admin only' });
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const limit = Math.min(500, Math.max(1, Number(req.body?.limit) || 200));
     const completedJobs = await db.select()
@@ -3558,11 +3555,8 @@ app.post('/api/admin/backfill-audio-from-jobs', async (req, res) => {
 // we can tell whether audio is missing, orphaned, or just keyed wrong.
 app.get('/api/admin/audio-debug/:projectIdOrSlug', async (req, res) => {
   try {
-    const auth = await requireAuth(req, res);
-    if (!auth) return;
-    const isAdmin = String(auth.user.email || '').toLowerCase() === 'benbrynildsen5757@gmail.com'
-      || (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(s => s.trim()).includes(String(auth.user.email || '').toLowerCase());
-    if (!isAdmin) return res.status(403).json({ error: 'Admin only' });
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const key = req.params.projectIdOrSlug;
     const [project] = await db.select().from(projects)
@@ -3636,11 +3630,8 @@ app.get('/api/admin/audio-debug/:projectIdOrSlug', async (req, res) => {
 // One-shot — run after rolling the feature out.
 app.post('/api/admin/backfill-categories', async (req, res) => {
   try {
-    const auth = await requireAuth(req, res);
-    if (!auth) return;
-    const isAdmin = String(auth.user.email || '').toLowerCase() === 'benbrynildsen5757@gmail.com'
-      || (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(s => s.trim()).includes(String(auth.user.email || '').toLowerCase());
-    if (!isAdmin) return res.status(403).json({ error: 'Admin only' });
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
 
     const limit = Math.min(50, Math.max(1, Number(req.body?.limit) || 25));
     const targets = await db
