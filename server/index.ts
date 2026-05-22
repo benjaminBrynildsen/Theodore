@@ -2504,35 +2504,58 @@ async function runTTSJob(jobId: string) {
         },
       });
 
-      // Save audio generation record for persistence
-      const isScene = spec.chapterId.startsWith('scene-');
-      const realChapterId = isScene ? undefined : spec.chapterId;
-      const sceneId = isScene ? spec.chapterId.replace('scene-', '') : undefined;
+      // Resolve the (chapterId, sceneId) pair from spec.chapterId.
+      // The client sends a few shapes:
+      //   1. <chapterUUID>                                  — full-chapter audio
+      //   2. scene-<sceneUUID>                              — legacy scene-only id
+      //   3. <chapterUUID>-scene-<sceneUUID>[-v<ver>]       — current scene id
+      // Until 2026-05-22 only #1 and #2 were parsed; #3 fell through and the
+      // audio_generations insert was silently skipped (credits still charged).
+      let realChapterId: string | undefined;
+      let sceneId: string | undefined;
+      if (spec.chapterId.startsWith('scene-')) {
+        sceneId = spec.chapterId.slice('scene-'.length);
+      } else if (spec.chapterId.includes('-scene-')) {
+        const [chId, rest] = spec.chapterId.split('-scene-');
+        realChapterId = chId;
+        sceneId = rest.split('-v')[0]; // strip trailing -v<timestamp> if present
+      } else {
+        realChapterId = spec.chapterId;
+      }
+
       let projectId = '';
       if (realChapterId) {
         const [ch] = await db.select({ projectId: chapters.projectId }).from(chapters).where(eq(chapters.id, realChapterId));
         projectId = ch?.projectId || '';
-      } else if (sceneId) {
-        const userChapters = await db.select().from(chapters);
+      }
+      if (!projectId && sceneId) {
+        // Last-resort scene lookup (legacy): scan the user's chapters for the
+        // scene id. Cheap-ish since we scope to this user.
+        const userChapters = await db.select().from(chapters)
+          .where(sql`${chapters.projectId} IN (SELECT id FROM projects WHERE user_id = ${row.userId})`);
         for (const ch of userChapters) {
           const scenes = (ch.scenes || []) as any[];
           if (scenes.some((s: any) => s.id === sceneId)) {
             projectId = ch.projectId;
+            realChapterId = realChapterId || ch.id;
             break;
           }
         }
       }
+
       if (projectId) {
-        await db.update(audioGenerations).set({ isActive: false }).where(eq(audioGenerations.chapterId, spec.chapterId));
+        const insertChapterId = realChapterId || spec.chapterId;
+        await db.update(audioGenerations).set({ isActive: false })
+          .where(and(eq(audioGenerations.chapterId, insertChapterId), sceneId ? eq(audioGenerations.sceneId, sceneId) : sql`${audioGenerations.sceneId} IS NULL`));
         const existing = await db.select({ version: audioGenerations.version })
           .from(audioGenerations)
-          .where(eq(audioGenerations.chapterId, spec.chapterId))
+          .where(eq(audioGenerations.chapterId, insertChapterId))
           .orderBy(audioGenerations.version);
         const nextVersion = existing.length > 0 ? Math.max(...existing.map(e => e.version)) + 1 : 1;
         await db.insert(audioGenerations).values({
           userId: row.userId,
           projectId,
-          chapterId: spec.chapterId,
+          chapterId: insertChapterId,
           sceneId: sceneId || null,
           version: nextVersion,
           audioUrl: result.audioUrl,
@@ -2543,6 +2566,8 @@ async function runTTSJob(jobId: string) {
           creditsUsed: result.creditsUsed,
           isActive: true,
         });
+      } else {
+        console.warn(`[TTS] audio_generations insert skipped for job ${jobId} — could not resolve projectId from chapterId=${spec.chapterId}`);
       }
 
       const [userRow] = await db.select({ credits: users.creditsRemaining }).from(users).where(eq(users.id, row.userId));
@@ -3420,6 +3445,113 @@ app.post('/api/admin/concept-to-headlines', conceptToHeadlines);
 app.post('/api/admin/chapters/:chapterId/attribute', attributeChapterEndpoint);
 app.get('/api/admin/projects/:projectId/canon', dumpProjectCanon);
 app.get('/api/admin/projects/:projectId/chapters', dumpProjectChapters);
+
+// Backfill audio_generations from completed tts_jobs whose audio never made
+// it into the canonical table (the parser bug shipped before 2026-05-22
+// silently dropped audio for any TTS job whose chapterId was the compound
+// "<chapterUUID>-scene-<sceneUUID>-v<ver>" shape). Admin-gated.
+app.post('/api/admin/backfill-audio-from-jobs', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const isAdmin = String(auth.user.email || '').toLowerCase() === 'benbrynildsen5757@gmail.com'
+      || (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(s => s.trim()).includes(String(auth.user.email || '').toLowerCase());
+    if (!isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+    const limit = Math.min(500, Math.max(1, Number(req.body?.limit) || 200));
+    const completedJobs = await db.select()
+      .from(ttsJobsTable)
+      .where(eq(ttsJobsTable.status, 'complete'))
+      .orderBy(desc(ttsJobsTable.createdAt))
+      .limit(limit);
+
+    let created = 0;
+    let skippedAlreadyExists = 0;
+    let skippedNoUserId = 0;
+    let skippedNoProject = 0;
+    let skippedNoAudio = 0;
+    const failures: Array<{ jobId: string; reason: string }> = [];
+
+    for (const job of completedJobs) {
+      const spec: any = job.spec || {};
+      const result: any = job.result || {};
+      if (!job.userId) { skippedNoUserId++; continue; }
+      if (!result?.audioUrl) { skippedNoAudio++; continue; }
+
+      const specChapterId = String(spec.chapterId || '');
+      let realChapterId: string | undefined;
+      let sceneId: string | undefined;
+      if (specChapterId.startsWith('scene-')) {
+        sceneId = specChapterId.slice('scene-'.length);
+      } else if (specChapterId.includes('-scene-')) {
+        const [chId, rest] = specChapterId.split('-scene-');
+        realChapterId = chId;
+        sceneId = rest.split('-v')[0];
+      } else {
+        realChapterId = specChapterId;
+      }
+
+      let projectId = '';
+      if (realChapterId) {
+        const [ch] = await db.select({ projectId: chapters.projectId }).from(chapters).where(eq(chapters.id, realChapterId));
+        projectId = ch?.projectId || '';
+      }
+      if (!projectId) { skippedNoProject++; failures.push({ jobId: job.id, reason: `no project for chapterId=${specChapterId}` }); continue; }
+
+      const insertChapterId = realChapterId || specChapterId;
+      const dupe = await db.select({ id: audioGenerations.id })
+        .from(audioGenerations)
+        .where(and(
+          eq(audioGenerations.userId, job.userId),
+          eq(audioGenerations.chapterId, insertChapterId),
+          sceneId ? eq(audioGenerations.sceneId, sceneId) : sql`${audioGenerations.sceneId} IS NULL`,
+          eq(audioGenerations.audioUrl, String(result.audioUrl)),
+        ))
+        .limit(1);
+      if (dupe.length > 0) { skippedAlreadyExists++; continue; }
+
+      const existing = await db.select({ version: audioGenerations.version })
+        .from(audioGenerations)
+        .where(eq(audioGenerations.chapterId, insertChapterId));
+      const nextVersion = existing.length > 0 ? Math.max(...existing.map(e => e.version)) + 1 : 1;
+
+      await db.insert(audioGenerations).values({
+        userId: job.userId,
+        projectId,
+        chapterId: insertChapterId,
+        sceneId: sceneId || null,
+        version: nextVersion,
+        audioUrl: String(result.audioUrl),
+        durationSeconds: typeof result.durationEstimate === 'number' ? result.durationEstimate : null,
+        segments: typeof result.segments === 'number' ? result.segments : null,
+        voiceConfig: {
+          provider: spec.provider || 'elevenlabs',
+          narratorVoice: spec.narratorVoice,
+          model: spec.model,
+          speed: spec.speed,
+          multiVoice: spec.multiVoice,
+        },
+        sfxConfig: spec.sceneSFX || [],
+        creditsUsed: typeof result.creditsUsed === 'number' ? result.creditsUsed : 0,
+        isActive: true,
+        createdAt: job.createdAt,
+      });
+      created++;
+    }
+
+    res.json({
+      scanned: completedJobs.length,
+      created,
+      skippedAlreadyExists,
+      skippedNoUserId,
+      skippedNoAudio,
+      skippedNoProject,
+      sampleFailures: failures.slice(0, 8),
+    });
+  } catch (e: any) {
+    respondInternalError(res, 'admin.backfill-audio-from-jobs', e);
+  }
+});
 
 // Debug: inspect audio_generations for a project (by id or slug). Returns
 // per-row info plus counts via projectId vs chapterId matches vs userId — so
