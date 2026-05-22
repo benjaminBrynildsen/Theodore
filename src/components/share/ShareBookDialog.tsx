@@ -3,6 +3,12 @@ import { X, Copy, Check, Globe, Lock } from 'lucide-react';
 import { useAuthStore } from '../../store/auth';
 import { track as jTrack } from '../../lib/journey';
 
+const CATEGORIES = [
+  'Fantasy', 'Sci-Fi', 'Romance', 'Thriller', 'Mystery', 'Horror',
+  'Literary', 'Historical Fiction', 'Adventure', 'Young Adult',
+  "Children's", 'Action', 'Drama', 'Comedy', 'Memoir', 'Non-Fiction',
+] as const;
+
 interface Props {
   projectId: string;
   projectTitle: string;
@@ -24,6 +30,8 @@ interface ShareStatus {
     authorDisplayName?: string;
   };
   listens: number;
+  category?: string | null;
+  tags?: string[];
 }
 
 function libraryUrl(slug: string, ref?: string | null): string {
@@ -46,6 +54,8 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, defaultDesc
   const [authorDisplayName, setAuthorDisplayName] = useState('');
   const [allowAllChapters, setAllowAllChapters] = useState(true);
   const [allowedIds, setAllowedIds] = useState<Set<string>>(new Set());
+  const [category, setCategory] = useState<string>('');
+  const [tagsInput, setTagsInput] = useState<string>('');
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/share-status`, { credentials: 'include' })
@@ -58,6 +68,8 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, defaultDesc
         setAllowAudio(cfg.allowAudio !== false);
         setDescription(cfg.description || defaultDescription || '');
         setAuthorDisplayName(cfg.authorDisplayName || defaultAuthorName || '');
+        setCategory(s.category || '');
+        setTagsInput((s.tags || []).join(', '));
         if (cfg.allowedChapterIds == null) {
           setAllowAllChapters(true);
           setAllowedIds(new Set(chapters.map(c => c.id)));
@@ -71,12 +83,19 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, defaultDesc
   const publish = async () => {
     setLoading(true);
     setError(null);
+    const parsedTags = tagsInput
+      .split(',')
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0 && t.length <= 30)
+      .slice(0, 3);
     const body = {
       allowText,
       allowAudio,
       description,
       authorDisplayName: authorDisplayName || undefined,
       allowedChapterIds: allowAllChapters ? null : Array.from(allowedIds),
+      category: category || undefined,
+      tags: parsedTags,
     };
     try {
       const r = await fetch(`/api/projects/${projectId}/publish`, {
@@ -190,6 +209,31 @@ export function ShareBookDialog({ projectId, projectTitle, chapters, defaultDesc
               rows={3}
               className="mt-1.5 w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm resize-none"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Category</label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="mt-1.5 w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white"
+              >
+                <option value="">Auto-detect</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Tags (up to 3)</label>
+              <input
+                value={tagsInput}
+                onChange={(e) => setTagsInput(e.target.value)}
+                placeholder="dragons, coming-of-age"
+                className="mt-1.5 w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
           </div>
 
           <div className="flex gap-6">

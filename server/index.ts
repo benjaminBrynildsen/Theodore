@@ -38,6 +38,8 @@ import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
 import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN } from './billing.js';
+import { isValidCategory, normalizeTags } from './categories.js';
+import { categorizeProject } from './categorize.js';
 import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './meta-capi.js';
 import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail, getUserJourneys } from './journey.js';
 import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
@@ -3419,6 +3421,53 @@ app.post('/api/admin/chapters/:chapterId/attribute', attributeChapterEndpoint);
 app.get('/api/admin/projects/:projectId/canon', dumpProjectCanon);
 app.get('/api/admin/projects/:projectId/chapters', dumpProjectChapters);
 
+// Backfill categories for already-published books that don't have one.
+// One-shot — run after rolling the feature out.
+app.post('/api/admin/backfill-categories', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const isAdmin = String(auth.user.email || '').toLowerCase() === 'benbrynildsen5757@gmail.com'
+      || (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(s => s.trim()).includes(String(auth.user.email || '').toLowerCase());
+    if (!isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+    const limit = Math.min(50, Math.max(1, Number(req.body?.limit) || 25));
+    const targets = await db
+      .select({ id: projects.id, title: projects.title, userId: projects.userId, shareConfig: projects.shareConfig })
+      .from(projects)
+      .where(and(eq(projects.isPublic, true), sql`${projects.category} IS NULL`))
+      .limit(limit);
+
+    const results: Array<{ id: string; title: string; category: string | null; tags: string[]; ok: boolean }> = [];
+    for (const p of targets) {
+      const firstChapter = await db
+        .select({ prose: chapters.prose })
+        .from(chapters)
+        .where(eq(chapters.projectId, p.id))
+        .orderBy(chapters.timelinePosition)
+        .limit(1);
+      const r = await categorizeProject({
+        userId: p.userId,
+        projectId: p.id,
+        title: p.title,
+        description: (p.shareConfig as any)?.description || '',
+        proseSample: firstChapter[0]?.prose || '',
+      });
+      if (r.category) {
+        await db.update(projects).set({
+          category: r.category,
+          tags: r.tags,
+          updatedAt: new Date(),
+        }).where(eq(projects.id, p.id));
+      }
+      results.push({ id: p.id, title: p.title, category: r.category, tags: r.tags, ok: !!r.category });
+    }
+    res.json({ processed: results.length, results });
+  } catch (e: any) {
+    respondInternalError(res, 'admin.backfill-categories', e);
+  }
+});
+
 // ========== Outreach (open tracking + creator pipeline) ==========
 // Pixel route — intentionally public, served on track.theodore.tools
 // (custom domain → same Render service). Works on any host so testing
@@ -4136,6 +4185,8 @@ function publicProjectPayload(p: typeof projects.$inferSelect) {
     allowText: cfg.allowText !== false,
     allowAudio: cfg.allowAudio !== false,
     publishedAt: p.publishedAt,
+    category: p.category || null,
+    tags: Array.isArray(p.tags) ? p.tags : [],
   };
 }
 
@@ -4272,19 +4323,42 @@ app.get('/api/public/projects', async (req, res) => {
     const countMap = new Map(chapterCounts.map(c => [c.projectId, c.count]));
 
     // Map chapter -> project for the candidate set, then ask audio_generations
-    // hasAudio lookup: a project is "listenable" if any audio_generations row
-    // exists for its projectId. Uses the direct projectId column rather than
-    // joining through chapters — the chapter-id join missed audio whose
-    // chapterId no longer matched a live chapter row (regenerated chapters,
-    // scene-naming variants, etc.) and caused other authors' books to look
-    // text-only on Discover.
+    // hasAudio lookup. Try two paths because the data is inconsistent:
+    //   1. Direct audio_generations.projectId match (canonical, but null/stale on older rows).
+    //   2. audio_generations.chapterId joins back to a chapter in the project
+    //      (catches rows where projectId is null but the chapter linkage is fine).
+    // Without #2, every author whose audio predates the projectId backfill
+    // looks text-only on Discover.
     const audioByProject = new Set<string>();
-    const audioRows = await db
+    const projectIdSet = new Set(projectIds);
+
+    const audioRowsByPid = await db
       .selectDistinct({ projectId: audioGenerations.projectId })
       .from(audioGenerations)
       .where(sql`${audioGenerations.projectId} IN (${sql.join(projectIds.map(id => sql`${id}`), sql`, `)})`);
-    for (const row of audioRows) {
-      if (row.projectId) audioByProject.add(row.projectId);
+    for (const row of audioRowsByPid) {
+      if (row.projectId && projectIdSet.has(row.projectId)) audioByProject.add(row.projectId);
+    }
+
+    const projectChapterRows = await db
+      .select({ id: chapters.id, projectId: chapters.projectId })
+      .from(chapters)
+      .where(sql`${chapters.projectId} IN (${sql.join(projectIds.map(id => sql`${id}`), sql`, `)})`);
+    const chapterToProject = new Map(projectChapterRows.map(c => [c.id, c.projectId]));
+    const candidateChapterIds = projectChapterRows.map(c => c.id);
+    if (candidateChapterIds.length > 0) {
+      const audioRowsByChapter = await db
+        .selectDistinct({ chapterId: audioGenerations.chapterId })
+        .from(audioGenerations)
+        .where(or(
+          sql`${audioGenerations.chapterId} IN (${sql.join(candidateChapterIds.map(id => sql`${id}`), sql`, `)})`,
+          ...candidateChapterIds.map(id => sql`${audioGenerations.chapterId} LIKE ${id + '-scene-%'}`),
+        ));
+      for (const row of audioRowsByChapter) {
+        const prefix = (row.chapterId || '').split('-scene-')[0];
+        const projId = chapterToProject.get(row.chapterId) || chapterToProject.get(prefix);
+        if (projId) audioByProject.add(projId);
+      }
     }
 
     const items = rows.map(p => ({
@@ -4327,12 +4401,19 @@ app.get('/api/public/book/:slug', async (req, res) => {
       .filter(c => chapterIsAllowed(cfg, c.id))
       .sort((a, b) => a.timelinePosition - b.timelinePosition);
 
-    // Pull all audio rows for the project via the direct projectId link, then
-    // let collectAudioForChapter() match per-chapter. The old chapter-id
-    // prefix join missed audio whose chapterId didn't line up with a current
-    // chapter row (regenerated chapters, scene-naming variants).
+    // Pull all audio rows that might belong to this project: either by direct
+    // projectId, or by chapterId (catches rows where projectId is null/stale).
+    const chapterIdsForProject = sortedChapters.map(c => c.id);
     const audioRows = await db.select().from(audioGenerations)
-      .where(eq(audioGenerations.projectId, project.id));
+      .where(or(
+        eq(audioGenerations.projectId, project.id),
+        ...(chapterIdsForProject.length
+          ? [
+              sql`${audioGenerations.chapterId} IN (${sql.join(chapterIdsForProject.map(id => sql`${id}`), sql`, `)})`,
+              ...chapterIdsForProject.map(id => sql`${audioGenerations.chapterId} LIKE ${id + '-scene-%'}`),
+            ]
+          : []),
+      ));
     const filteredAudio = audioRows;
 
     res.json({
@@ -4366,11 +4447,13 @@ app.get('/api/public/book/:slug/chapter/:chapterId', async (req, res) => {
     const [chapter] = await db.select().from(chapters).where(and(eq(chapters.id, chapterId), eq(chapters.projectId, project.id))).limit(1);
     if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
 
-    // Pull all audio for the project, let collectAudioForChapter() do the
-    // per-chapter match. Loading by projectId catches audio whose chapterId
-    // doesn't line up with current chapter rows.
+    // Pull audio rows for this chapter via projectId or direct chapterId match.
     const audioRows = await db.select().from(audioGenerations)
-      .where(eq(audioGenerations.projectId, project.id));
+      .where(or(
+        eq(audioGenerations.projectId, project.id),
+        eq(audioGenerations.chapterId, chapter.id),
+        sql`${audioGenerations.chapterId} LIKE ${chapter.id + '-scene-%'}`,
+      ));
     const { segments, totalDuration } = collectAudioForChapter(chapter, audioRows);
 
     const audio = (cfg.allowAudio !== false && segments.length > 0) ? {
@@ -4423,6 +4506,8 @@ app.post('/api/projects/:id/publish', async (req, res) => {
       allowedChapterIds?: string[] | null;
       description?: string;
       authorDisplayName?: string;
+      category?: string;
+      tags?: string[];
     };
 
     let slug = project.slug;
@@ -4436,15 +4521,53 @@ app.post('/api/projects/:id/publish', async (req, res) => {
       authorDisplayName: body.authorDisplayName ?? (project.shareConfig as any)?.authorDisplayName ?? (auth.user.name || 'A Theodore author'),
     };
 
+    const explicitCategory = isValidCategory(body.category) ? body.category : null;
+    const explicitTags = body.tags !== undefined ? normalizeTags(body.tags) : null;
+    const nextCategory = explicitCategory ?? project.category ?? null;
+    const nextTags = explicitTags ?? (Array.isArray(project.tags) ? project.tags : []);
+
     await db.update(projects).set({
       isPublic: true,
       slug,
       publishedAt: project.publishedAt || new Date(),
       shareConfig,
+      category: nextCategory,
+      tags: nextTags,
       updatedAt: new Date(),
     }).where(eq(projects.id, id));
 
-    res.json({ ok: true, slug, shareConfig });
+    // If we still don't have a category, kick off async auto-categorize so
+    // the book gets one shortly without blocking the publish response.
+    if (!nextCategory) {
+      void (async () => {
+        try {
+          const firstChapter = await db
+            .select({ prose: chapters.prose })
+            .from(chapters)
+            .where(eq(chapters.projectId, id))
+            .orderBy(chapters.timelinePosition)
+            .limit(1);
+          const result = await categorizeProject({
+            userId: auth.user.id,
+            projectId: id,
+            title: project.title,
+            description: shareConfig.description,
+            proseSample: firstChapter[0]?.prose || '',
+          });
+          if (result.category) {
+            await db.update(projects).set({
+              category: result.category,
+              tags: result.tags,
+              updatedAt: new Date(),
+            }).where(eq(projects.id, id));
+          }
+        } catch (e: any) {
+          console.error('[publish.categorize] failed:', e?.message || e);
+        }
+      })();
+    }
+
+    res.json({ ok: true, slug, shareConfig, category: nextCategory, tags: nextTags });
   } catch (e: any) {
     respondInternalError(res, 'publish', e);
   }
@@ -4480,6 +4603,8 @@ app.get('/api/projects/:id/share-status', async (req, res) => {
       publishedAt: project.publishedAt,
       shareConfig: project.shareConfig || {},
       listens: project.listens || 0,
+      category: project.category || null,
+      tags: Array.isArray(project.tags) ? project.tags : [],
     });
   } catch (e: any) {
     respondInternalError(res, 'share-status', e);
@@ -4819,6 +4944,8 @@ async function ensureAdditiveSchema() {
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS published_at timestamp`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS share_config jsonb DEFAULT '{}'::jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS listens integer NOT NULL DEFAULT 0`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS category text`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tags jsonb DEFAULT '[]'::jsonb`,
     `DO $$ BEGIN
        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'projects_slug_unique') THEN
          BEGIN

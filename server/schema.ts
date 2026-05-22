@@ -73,6 +73,8 @@ export const projects = pgTable('projects', {
     description?: string;
   }>().default({}),
   listens: integer('listens').notNull().default(0),
+  category: text('category'),
+  tags: jsonb('tags').$type<string[]>().default([]),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
