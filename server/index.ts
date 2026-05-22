@@ -3450,6 +3450,20 @@ app.get('/api/admin/audio-debug/:projectIdOrSlug', async (req, res) => {
       return chapterIds.has(a.chapterId) || chapterIds.has(prefix);
     });
 
+    // Also look at tts_jobs — when projectId resolution fails at
+    // audio_generations insert time, the audio still lives in tts_jobs.result.
+    const userTtsJobs = await db.select().from(ttsJobsTable)
+      .where(eq(ttsJobsTable.userId, project.userId))
+      .orderBy(desc(ttsJobsTable.createdAt))
+      .limit(20);
+    const completedJobs = userTtsJobs.filter(j => j.status === 'complete' && (j.result as any)?.audioUrl);
+    const jobsForThisProject = completedJobs.filter(j => {
+      const spec: any = j.spec || {};
+      const cid = String(spec.chapterId || '');
+      const prefix = cid.split('-scene-')[0];
+      return chapterIds.has(cid) || chapterIds.has(prefix);
+    });
+
     res.json({
       project: { id: project.id, slug: project.slug, title: project.title, userId: project.userId },
       chapterCount: projChapters.length,
@@ -3465,6 +3479,19 @@ app.get('/api/admin/audio-debug/:projectIdOrSlug', async (req, res) => {
           isActive: a.isActive,
           createdAt: a.createdAt,
           hasUrl: !!a.audioUrl,
+        })),
+      },
+      ttsJobs: {
+        totalForUser: userTtsJobs.length,
+        completedForUser: completedJobs.length,
+        completedForThisProject: jobsForThisProject.length,
+        sampleSpecs: completedJobs.slice(0, 8).map(j => ({
+          id: j.id,
+          status: j.status,
+          chapterId: (j.spec as any)?.chapterId,
+          chapterIdMatchesProjectChapter: chapterIds.has((j.spec as any)?.chapterId || ''),
+          hasAudioUrl: !!(j.result as any)?.audioUrl,
+          createdAt: j.createdAt,
         })),
       },
     });
