@@ -28,10 +28,12 @@ export interface AuthUser {
     ctaPath?: string;
     setAt?: string;
   } | null;
-  // iOS launch announcement gating. iosLaunchSeen flips true after the user
-  // dismisses or opts in; iosLaunchOptInAt records when they joined the waitlist.
+  // Legacy "Coming to iOS" teaser tracking.
   iosLaunchSeen?: boolean;
   iosLaunchOptInAt?: string | null;
+  // Post-launch "Theodore is now on iPhone" announcement. Separate flag so
+  // users who dismissed the teaser still see the launch popup once.
+  appStoreLaunchSeen?: boolean;
 }
 
 interface AuthState {

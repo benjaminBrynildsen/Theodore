@@ -4979,6 +4979,26 @@ app.post('/api/users/me/ios-launch-notify', async (req, res) => {
   }
 });
 
+// Mark the App Store launch popup as seen. Separate flag from the older
+// "iosLaunchSeen" so users who dismissed the pre-launch teaser still see the
+// post-launch announcement once.
+app.post('/api/users/me/app-store-launch-dismiss', async (req, res) => {
+  try {
+    const auth = await getAuth(req);
+    if (!auth?.user) return res.status(401).json({ error: 'Unauthorized' });
+    const cur = (auth.user.settings as Record<string, any>) || {};
+    if (cur.appStoreLaunchSeen) return res.json({ ok: true });
+    const now = new Date().toISOString();
+    await db.update(users)
+      .set({ settings: { ...cur, appStoreLaunchSeen: true, appStoreLaunchSeenAt: now }, updatedAt: new Date() })
+      .where(eq(users.id, auth.user.id));
+    res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[users/me/app-store-launch-dismiss]', e);
+    res.status(500).json({ error: 'Failed to dismiss' });
+  }
+});
+
 // Mark the iOS launch modal as seen (dismissed without opting in). Idempotent.
 app.post('/api/users/me/ios-launch-dismiss', async (req, res) => {
   try {

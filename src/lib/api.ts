@@ -60,6 +60,7 @@ export const api = {
   dismissNotice: () => request<{ ok: boolean }>('/users/me/dismiss-notice', { method: 'POST' }),
   iosLaunchNotify: () => request<{ ok: boolean; alreadyOptedIn?: boolean }>('/users/me/ios-launch-notify', { method: 'POST' }),
   iosLaunchDismiss: () => request<{ ok: boolean }>('/users/me/ios-launch-dismiss', { method: 'POST' }),
+  appStoreLaunchDismiss: () => request<{ ok: boolean }>('/users/me/app-store-launch-dismiss', { method: 'POST' }),
 
   // ========== Projects ==========
   listProjects: (_userId?: string) => request<any[]>('/projects'),

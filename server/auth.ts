@@ -103,6 +103,7 @@ export function toSafeUser(user: DbUser) {
       | undefined) ?? null,
     iosLaunchSeen: Boolean((user.settings as any)?.iosLaunchSeen),
     iosLaunchOptInAt: ((user.settings as any)?.iosLaunchOptInAt as string | undefined) ?? null,
+    appStoreLaunchSeen: Boolean((user.settings as any)?.appStoreLaunchSeen),
     emailOptOut: ((user.settings as any)?.emailOptOut as Record<string, boolean> | undefined) ?? {},
   };
 }

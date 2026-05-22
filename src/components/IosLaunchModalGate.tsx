@@ -23,7 +23,7 @@ export function IosLaunchModalGate() {
 
   useEffect(() => {
     if (!user || resolved || open) return;
-    if (user.iosLaunchSeen) return;
+    if (user.appStoreLaunchSeen) return;
     if (isAndroid) return;
     const t = setTimeout(() => setOpen(true), 600);
     return () => clearTimeout(t);
@@ -31,27 +31,27 @@ export function IosLaunchModalGate() {
 
   if (!user || isAndroid) return null;
   if (resolved && !open) return null;
-  if (user.iosLaunchSeen && !open) return null;
+  if (user.appStoreLaunchSeen && !open) return null;
 
   const markServerSeen = () => {
     useAuthStore.setState((s) => (
       s.user
-        ? { user: { ...s.user, iosLaunchSeen: true } }
+        ? { user: { ...s.user, appStoreLaunchSeen: true } }
         : s
     ));
   };
 
   const handleGetApp = async () => {
     markServerSeen();
-    api.iosLaunchDismiss().catch((e) => console.warn('[ios-launch-dismiss] failed', e));
+    api.appStoreLaunchDismiss().catch((e) => console.warn('[app-store-launch-dismiss] failed', e));
   };
 
   const handleClose = () => {
     setOpen(false);
     setResolved(true);
-    if (!user.iosLaunchSeen) {
+    if (!user.appStoreLaunchSeen) {
       markServerSeen();
-      api.iosLaunchDismiss().catch((e) => console.warn('[ios-launch-dismiss] failed', e));
+      api.appStoreLaunchDismiss().catch((e) => console.warn('[app-store-launch-dismiss] failed', e));
     }
   };
 
