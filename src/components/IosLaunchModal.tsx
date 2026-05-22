@@ -1,18 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, Bell, Check, Apple, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Apple, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export type IosLaunchScreenshot = { src: string; alt: string };
+
+export const APP_STORE_URL = 'https://apps.apple.com/app/id6762391179';
 
 export type IosLaunchModalProps = {
   open: boolean;
   onClose: () => void;
-  onNotifyMe: () => Promise<void> | void;
-  /** Pre-set the modal into the post-opt-in confirmation state (for the test page). */
-  initialOptedIn?: boolean;
-  /** Email shown in the confirmation copy. Falls back to a generic line. */
-  email?: string | null;
-  /** Friday display string, e.g. "Friday, May 8". */
-  launchLabel?: string;
+  /** Called when the user taps "Get it on the App Store". Used to mark seen on the server. */
+  onGetApp: () => Promise<void> | void;
   /** Phone-framed screenshots for the carousel. */
   screenshots?: IosLaunchScreenshot[];
 };
@@ -31,20 +28,11 @@ const DEFAULT_SCREENSHOTS: IosLaunchScreenshot[] = [
 export function IosLaunchModal({
   open,
   onClose,
-  onNotifyMe,
-  initialOptedIn = false,
-  email,
-  launchLabel = 'this Friday',
+  onGetApp,
   screenshots = DEFAULT_SCREENSHOTS,
 }: IosLaunchModalProps) {
-  const [optedIn, setOptedIn] = useState(initialOptedIn);
-  const [busy, setBusy] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (open) setOptedIn(initialOptedIn);
-  }, [open, initialOptedIn]);
 
   // Track which slide is centered for the dot indicator.
   useEffect(() => {
@@ -70,15 +58,11 @@ export function IosLaunchModal({
 
   if (!open) return null;
 
-  const handleNotify = async () => {
-    if (busy || optedIn) return;
-    setBusy(true);
-    try {
-      await onNotifyMe();
-      setOptedIn(true);
-    } finally {
-      setBusy(false);
-    }
+  const handleGetApp = () => {
+    // Fire-and-forget: mark seen on the server, open the App Store, close.
+    void onGetApp();
+    window.open(APP_STORE_URL, '_blank', 'noopener');
+    onClose();
   };
 
   const scrollToIndex = (i: number) => {
@@ -109,7 +93,7 @@ export function IosLaunchModal({
           <div className="flex items-center justify-center gap-2 mb-5">
             <Apple size={14} className="text-white/70" />
             <span className="text-[10px] uppercase tracking-[0.2em] text-white/60 font-semibold">
-              Coming to iOS
+              Now on iOS
             </span>
           </div>
 
@@ -173,53 +157,28 @@ export function IosLaunchModal({
 
         {/* Copy + CTAs */}
         <div className="px-6 sm:px-8 py-6 sm:py-7 flex flex-col items-center text-center overflow-y-auto">
-          {!optedIn ? (
-            <>
-              <h2 className="text-2xl sm:text-3xl font-serif font-bold text-text-primary leading-tight mb-2">
-                Theodore is coming to iPhone
-              </h2>
-              <p className="text-sm text-text-secondary leading-relaxed mb-5">
-                Live on the App Store <span className="font-semibold text-text-primary">{launchLabel}</span>.
-                Write stories from anywhere — your projects sync automatically.
-              </p>
+          <h2 className="text-2xl sm:text-3xl font-serif font-bold text-text-primary leading-tight mb-2">
+            Theodore is now on iPhone
+          </h2>
+          <p className="text-sm text-text-secondary leading-relaxed mb-5">
+            Live on the App Store today. Write, narrate, and listen on the go — your projects sync automatically.
+          </p>
 
-              <div className="flex flex-col sm:flex-row gap-2 w-full">
-                <button
-                  onClick={onClose}
-                  disabled={busy}
-                  className="flex-1 py-3 rounded-xl border border-black/10 text-sm font-semibold text-text-primary hover:bg-black/5 transition-colors disabled:opacity-50 order-2 sm:order-1"
-                >
-                  Maybe later
-                </button>
-                <button
-                  onClick={handleNotify}
-                  disabled={busy}
-                  className="flex-1 py-3 rounded-xl bg-text-primary text-white text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 inline-flex items-center justify-center gap-2 order-1 sm:order-2"
-                >
-                  <Bell size={15} />
-                  {busy ? 'Saving…' : 'Notify me when it’s live'}
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mb-3">
-                <Check size={22} className="text-emerald-600" />
-              </div>
-              <h2 className="text-xl sm:text-2xl font-serif font-bold text-text-primary mb-2">
-                You’re on the list
-              </h2>
-              <p className="text-sm text-text-secondary leading-relaxed mb-5">
-                We’ll email you{email ? <> at <span className="font-semibold text-text-primary">{email}</span></> : null} the moment Theodore goes live on the App Store.
-              </p>
-              <button
-                onClick={onClose}
-                className="w-full py-3 rounded-xl bg-text-primary text-white text-sm font-semibold hover:opacity-90 transition-opacity"
-              >
-                Close
-              </button>
-            </>
-          )}
+          <div className="flex flex-col sm:flex-row gap-2 w-full">
+            <button
+              onClick={onClose}
+              className="flex-1 py-3 rounded-xl border border-black/10 text-sm font-semibold text-text-primary hover:bg-black/5 transition-colors order-2 sm:order-1"
+            >
+              Maybe later
+            </button>
+            <button
+              onClick={handleGetApp}
+              className="flex-1 py-3 rounded-xl bg-text-primary text-white text-sm font-semibold hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-2 order-1 sm:order-2"
+            >
+              <Apple size={15} />
+              Get it on the App Store
+            </button>
+          </div>
         </div>
       </div>
     </div>

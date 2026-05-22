@@ -3,36 +3,33 @@ import { useAuthStore } from '../store/auth';
 import { api } from '../lib/api';
 import { IosLaunchModal } from './IosLaunchModal';
 
+const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
+
 /**
- * Decides whether to show the iOS launch announcement and wires the modal's
- * Notify-me / Dismiss actions to the server. Mount once at the root.
- *
- * Visibility lifecycle: once the modal is opened for a session it stays
- * mounted until the user closes it — even after we mark it seen on the
- * server — so the post-opt-in confirmation state remains visible.
+ * Shows the "Theodore is now on iOS" announcement once per user and wires
+ * the App Store CTA to the seen-tracking endpoint. Hidden on Android, since
+ * the app is iPhone-only and the popup would just frustrate them.
  */
 export function IosLaunchModalGate() {
   const user = useAuthStore((s) => s.user);
   const [open, setOpen] = useState(false);
   // True once the user has resolved the modal in this browser session.
-  // Prevents reopening if a stale /me refetch returns iosLaunchSeen=false.
   const [resolved, setResolved] = useState(false);
 
-  // Reset on user change (logout/login).
   useEffect(() => {
     setOpen(false);
     setResolved(false);
   }, [user?.id]);
 
-  // Open shortly after the user is known and hasn't seen it yet.
   useEffect(() => {
     if (!user || resolved || open) return;
     if (user.iosLaunchSeen) return;
+    if (isAndroid) return;
     const t = setTimeout(() => setOpen(true), 600);
     return () => clearTimeout(t);
   }, [user, resolved, open]);
 
-  if (!user) return null;
+  if (!user || isAndroid) return null;
   if (resolved && !open) return null;
   if (user.iosLaunchSeen && !open) return null;
 
@@ -44,26 +41,15 @@ export function IosLaunchModalGate() {
     ));
   };
 
-  const handleNotify = async () => {
-    const optInAt = new Date().toISOString();
-    try {
-      await api.iosLaunchNotify();
-    } catch (e) {
-      console.warn('[ios-launch-notify] failed', e);
-    }
-    useAuthStore.setState((s) => (
-      s.user
-        ? { user: { ...s.user, iosLaunchSeen: true, iosLaunchOptInAt: optInAt } }
-        : s
-    ));
-    // IosLaunchModal flips into its confirmation state when this resolves —
-    // keep `open` true so the user can read it. Closing happens via X / Close.
+  const handleGetApp = async () => {
+    markServerSeen();
+    api.iosLaunchDismiss().catch((e) => console.warn('[ios-launch-dismiss] failed', e));
   };
 
   const handleClose = () => {
     setOpen(false);
     setResolved(true);
-    if (!user.iosLaunchOptInAt && !user.iosLaunchSeen) {
+    if (!user.iosLaunchSeen) {
       markServerSeen();
       api.iosLaunchDismiss().catch((e) => console.warn('[ios-launch-dismiss] failed', e));
     }
@@ -73,9 +59,7 @@ export function IosLaunchModalGate() {
     <IosLaunchModal
       open={open}
       onClose={handleClose}
-      onNotifyMe={handleNotify}
-      email={user.email}
-      launchLabel="Friday, May 8"
+      onGetApp={handleGetApp}
     />
   );
 }

@@ -90,10 +90,7 @@ export function IosLaunchTest() {
       <IosLaunchModal
         open={open}
         onClose={() => setOpen(false)}
-        onNotifyMe={handleNotify}
-        initialOptedIn={forceOptedIn}
-        email={email}
-        launchLabel={launchLabel}
+        onGetApp={handleNotify}
       />
     </div>
   );
