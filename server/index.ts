@@ -4272,37 +4272,19 @@ app.get('/api/public/projects', async (req, res) => {
     const countMap = new Map(chapterCounts.map(c => [c.projectId, c.count]));
 
     // Map chapter -> project for the candidate set, then ask audio_generations
-    // which chapters (full or scene-level) have rows. One indexed query each.
-    const projectChapterRows = await db
-      .select({ id: chapters.id, projectId: chapters.projectId })
-      .from(chapters)
-      .where(sql`${chapters.projectId} IN (${sql.join(projectIds.map(id => sql`${id}`), sql`, `)})`);
-    const chapterToProject = new Map(projectChapterRows.map(c => [c.id, c.projectId]));
-    const candidateChapterIds = projectChapterRows.map(c => c.id);
-
+    // hasAudio lookup: a project is "listenable" if any audio_generations row
+    // exists for its projectId. Uses the direct projectId column rather than
+    // joining through chapters — the chapter-id join missed audio whose
+    // chapterId no longer matched a live chapter row (regenerated chapters,
+    // scene-naming variants, etc.) and caused other authors' books to look
+    // text-only on Discover.
     const audioByProject = new Set<string>();
-    if (candidateChapterIds.length > 0) {
-      // Full-chapter audio: audioGenerations.chapterId === chapter.id
-      const fullAudio = await db
-        .selectDistinct({ chapterId: audioGenerations.chapterId })
-        .from(audioGenerations)
-        .where(sql`${audioGenerations.chapterId} IN (${sql.join(candidateChapterIds.map(id => sql`${id}`), sql`, `)})`);
-      for (const a of fullAudio) {
-        const projId = chapterToProject.get(a.chapterId);
-        if (projId) audioByProject.add(projId);
-      }
-      // Scene-level audio: audioGenerations.chapterId LIKE `${chapter.id}-scene-%`
-      const sceneAudio = await db
-        .selectDistinct({ chapterId: audioGenerations.chapterId })
-        .from(audioGenerations)
-        .where(or(
-          ...candidateChapterIds.map(id => sql`${audioGenerations.chapterId} LIKE ${id + '-scene-%'}`),
-        ));
-      for (const a of sceneAudio) {
-        const prefix = (a.chapterId || '').split('-scene-')[0];
-        const projId = chapterToProject.get(prefix);
-        if (projId) audioByProject.add(projId);
-      }
+    const audioRows = await db
+      .selectDistinct({ projectId: audioGenerations.projectId })
+      .from(audioGenerations)
+      .where(sql`${audioGenerations.projectId} IN (${sql.join(projectIds.map(id => sql`${id}`), sql`, `)})`);
+    for (const row of audioRows) {
+      if (row.projectId) audioByProject.add(row.projectId);
     }
 
     const items = rows.map(p => ({
@@ -4345,24 +4327,13 @@ app.get('/api/public/book/:slug', async (req, res) => {
       .filter(c => chapterIsAllowed(cfg, c.id))
       .sort((a, b) => a.timelinePosition - b.timelinePosition);
 
-    // Match by chapterId prefix — older audios may have missing/stale
-    // projectId values, and isActive may not be consistent across scenes.
-    // We rely on chapterId ownership (prefix match) for safety.
-    const chapterIdSet = new Set(sortedChapters.map(c => c.id));
-    const audioRows = sortedChapters.length
-      ? await db.select().from(audioGenerations)
-          .where(or(
-            ...sortedChapters.flatMap(c => [
-              eq(audioGenerations.chapterId, c.id),
-              sql`${audioGenerations.chapterId} LIKE ${c.id + '-scene-%'}`,
-            ])
-          ))
-      : [];
-    // Safety filter in case the OR expands to something unexpected
-    const filteredAudio = audioRows.filter(a => {
-      const prefix = (a.chapterId || '').split('-scene-')[0];
-      return chapterIdSet.has(prefix) || chapterIdSet.has(a.chapterId);
-    });
+    // Pull all audio rows for the project via the direct projectId link, then
+    // let collectAudioForChapter() match per-chapter. The old chapter-id
+    // prefix join missed audio whose chapterId didn't line up with a current
+    // chapter row (regenerated chapters, scene-naming variants).
+    const audioRows = await db.select().from(audioGenerations)
+      .where(eq(audioGenerations.projectId, project.id));
+    const filteredAudio = audioRows;
 
     res.json({
       book: publicProjectPayload(project),
@@ -4395,11 +4366,11 @@ app.get('/api/public/book/:slug/chapter/:chapterId', async (req, res) => {
     const [chapter] = await db.select().from(chapters).where(and(eq(chapters.id, chapterId), eq(chapters.projectId, project.id))).limit(1);
     if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
 
+    // Pull all audio for the project, let collectAudioForChapter() do the
+    // per-chapter match. Loading by projectId catches audio whose chapterId
+    // doesn't line up with current chapter rows.
     const audioRows = await db.select().from(audioGenerations)
-      .where(or(
-        eq(audioGenerations.chapterId, chapter.id),
-        sql`${audioGenerations.chapterId} LIKE ${chapter.id + '-scene-%'}`,
-      ));
+      .where(eq(audioGenerations.projectId, project.id));
     const { segments, totalDuration } = collectAudioForChapter(chapter, audioRows);
 
     const audio = (cfg.allowAudio !== false && segments.length > 0) ? {
