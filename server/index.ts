@@ -2520,7 +2520,9 @@ async function runTTSJob(jobId: string) {
         realChapterId = chId;
         sceneId = rest.split('-v')[0]; // strip trailing -v<timestamp> if present
       } else {
-        realChapterId = spec.chapterId;
+        // Strip a trailing -v<timestamp> on full-chapter ids (mobile sends
+        // these as a cache-bust when prose changes).
+        realChapterId = spec.chapterId.replace(/-v\d+$/, '');
       }
 
       let projectId = '';
