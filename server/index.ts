@@ -543,83 +543,101 @@ app.get('/api/billing/status', async (req, res) => {
   }
 });
 
+type CheckoutResult =
+  | { kind: 'ok'; url: string; sessionId: string }
+  | { kind: 'invalid_tier' }
+  | { kind: 'stripe_unconfigured' };
+
+async function buildStripeCheckoutSession(opts: {
+  user: typeof users.$inferSelect;
+  tier: string;
+  reason: string;
+  req: express.Request;
+}): Promise<CheckoutResult> {
+  const tierConfig = getPaidTierConfig(opts.tier);
+  if (!tierConfig) return { kind: 'invalid_tier' };
+
+  const isAudioCapTrial = opts.reason === 'audio_cap';
+
+  const stripe = await getStripeClient();
+  if (!stripe) return { kind: 'stripe_unconfigured' };
+
+  let customerId = opts.user.stripeCustomerId;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: opts.user.email,
+      name: opts.user.name || undefined,
+      metadata: { userId: opts.user.id },
+    });
+    customerId = customer.id;
+    await db.update(users).set({
+      stripeCustomerId: customerId,
+      updatedAt: new Date(),
+    }).where(eq(users.id, opts.user.id));
+  }
+
+  const origin = resolveFrontendOrigin(opts.req);
+  const successUrl = process.env.STRIPE_CHECKOUT_SUCCESS_URL || `${origin}/?billing=success&session_id={CHECKOUT_SESSION_ID}`;
+  const cancelUrl = process.env.STRIPE_CHECKOUT_CANCEL_URL || `${origin}/?billing=cancel`;
+  const stripePriceId = getStripePriceIdForTier(tierConfig.tier);
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    customer: customerId,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    allow_promotion_codes: true,
+    line_items: stripePriceId
+      ? [{ price: stripePriceId, quantity: 1 }]
+      : [{
+          price_data: {
+            currency: 'usd',
+            unit_amount: tierConfig.priceCents,
+            recurring: { interval: 'month' },
+            product_data: {
+              name: `Theodore ${tierConfig.name}`,
+              description: `${tierConfig.credits.toLocaleString()} credits/month`,
+            },
+          },
+          quantity: 1,
+        }],
+    metadata: {
+      userId: opts.user.id,
+      tier: tierConfig.tier,
+    },
+    payment_method_collection: 'always',
+    subscription_data: {
+      metadata: {
+        userId: opts.user.id,
+        tier: tierConfig.tier,
+        credits: String(tierConfig.credits),
+        ...(isAudioCapTrial ? { trial_source: 'audio_cap' } : {}),
+      },
+      ...(isAudioCapTrial ? { trial_period_days: 7 } : {}),
+    },
+  });
+
+  trackCheckoutInitiated(opts.req as any, opts.user.email);
+  return { kind: 'ok', url: session.url || '', sessionId: session.id };
+}
+
 app.post('/api/billing/checkout', async (req, res) => {
   try {
     const auth = await requireAuth(req, res);
     if (!auth) return;
-    const tier = String(req.body?.tier || '');
-    const reason = String(req.body?.reason || '');
-    const tierConfig = getPaidTierConfig(tier);
-    if (!tierConfig) return res.status(400).json({ error: 'Invalid tier. Use writer, author, studio, or publisher.' });
-
-    // 7-day free trial when the upgrade is triggered by the audio cap. Card
-    // is required up front (payment_method_collection defaults to 'if_required'
-    // in older APIs; we set it explicitly to 'always' to be safe across
-    // versions). Other upgrade paths keep the original no-trial flow.
-    const isAudioCapTrial = reason === 'audio_cap';
-
-    const stripe = await getStripeClient();
-    if (!stripe) {
+    const result = await buildStripeCheckoutSession({
+      user: auth.user,
+      tier: String(req.body?.tier || ''),
+      reason: String(req.body?.reason || ''),
+      req,
+    });
+    if (result.kind === 'invalid_tier') {
+      return res.status(400).json({ error: 'Invalid tier. Use writer, author, studio, or publisher.' });
+    }
+    if (result.kind === 'stripe_unconfigured') {
       return res.status(503).json({ error: 'Stripe is not configured. Set STRIPE_SECRET_KEY and install stripe.' });
     }
-
-    let customerId = auth.user.stripeCustomerId;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: auth.user.email,
-        name: auth.user.name || undefined,
-        metadata: { userId: auth.user.id },
-      });
-      customerId = customer.id;
-      await db.update(users).set({
-        stripeCustomerId: customerId,
-        updatedAt: new Date(),
-      }).where(eq(users.id, auth.user.id));
-    }
-
-    const origin = resolveFrontendOrigin(req);
-    const successUrl = process.env.STRIPE_CHECKOUT_SUCCESS_URL || `${origin}/?billing=success&session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = process.env.STRIPE_CHECKOUT_CANCEL_URL || `${origin}/?billing=cancel`;
-    const stripePriceId = getStripePriceIdForTier(tierConfig.tier);
-
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: customerId,
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      allow_promotion_codes: true,
-      line_items: stripePriceId
-        ? [{ price: stripePriceId, quantity: 1 }]
-        : [{
-            price_data: {
-              currency: 'usd',
-              unit_amount: tierConfig.priceCents,
-              recurring: { interval: 'month' },
-              product_data: {
-                name: `Theodore ${tierConfig.name}`,
-                description: `${tierConfig.credits.toLocaleString()} credits/month`,
-              },
-            },
-            quantity: 1,
-          }],
-      metadata: {
-        userId: auth.user.id,
-        tier: tierConfig.tier,
-      },
-      payment_method_collection: 'always',
-      subscription_data: {
-        metadata: {
-          userId: auth.user.id,
-          tier: tierConfig.tier,
-          credits: String(tierConfig.credits),
-          ...(isAudioCapTrial ? { trial_source: 'audio_cap' } : {}),
-        },
-        ...(isAudioCapTrial ? { trial_period_days: 7 } : {}),
-      },
-    });
-
-    trackCheckoutInitiated(req as any, auth.user.email);
-    res.json({ url: session.url, sessionId: session.id });
+    res.json({ url: result.url, sessionId: result.sessionId });
   } catch (e: any) {
     respondInternalError(res, 'billing.checkout', e);
   }
@@ -1169,15 +1187,27 @@ app.post('/api/auth/handoff', async (req, res) => {
 
 // Redeem the handoff token: rotate it into a normal cookie session, then
 // redirect into the SPA. ?next= is an in-app path (must start with /).
+// If ?tier= is set (writer|author|studio|publisher), skip the SPA and 302
+// straight into a fresh Stripe checkout session for that tier.
 app.get('/handoff', async (req, res) => {
   try {
     const token = typeof req.query.t === 'string' ? req.query.t : '';
     const rawNext = typeof req.query.next === 'string' ? req.query.next : '/';
     const next = rawNext.startsWith('/') ? rawNext : '/';
+    const tier = typeof req.query.tier === 'string' ? req.query.tier : '';
+    const reason = typeof req.query.reason === 'string' ? req.query.reason : '';
     if (!token) return res.redirect(302, '/');
     const userId = await consumeHandoffToken(token);
     if (!userId) return res.redirect(302, '/?handoff=expired');
     await createSession(userId, req, res);
+
+    if (tier && isPaidPlanTier(tier)) {
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (user) {
+        const result = await buildStripeCheckoutSession({ user, tier, reason, req });
+        if (result.kind === 'ok' && result.url) return res.redirect(302, result.url);
+      }
+    }
     res.redirect(302, next);
   } catch (e: any) {
     respondInternalError(res, 'auth.handoff.redeem', e);
