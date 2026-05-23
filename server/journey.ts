@@ -62,17 +62,22 @@ export async function receiveJourneyEvents(req: Request, res: Response) {
     // events carrying the same cookie, regardless of ip_hash drift.
     const guestSessionId = ensureGuestSessionId(req, res);
 
-    const rows = events.map((e: any) => ({
-      sessionId: String(e.sessionId || 'unknown'),
-      event: String(e.event || 'unknown'),
-      data: { ...(e.data || {}), guest_session_id: guestSessionId },
-      ipHash,
-      city: e.city ? String(e.city) : null,
-      region: e.region ? String(e.region) : null,
-      country: e.country ? String(e.country) : null,
-      userAgent: ua.slice(0, 300),
-      page: e.page ? String(e.page) : null,
-    }));
+    const rows = events.map((e: any) => {
+      const rawPlatform = String(e.platform || e.data?.platform || '').toLowerCase();
+      const platform = rawPlatform === 'ios' || rawPlatform === 'android' ? rawPlatform : 'web';
+      return {
+        sessionId: String(e.sessionId || 'unknown'),
+        event: String(e.event || 'unknown'),
+        data: { ...(e.data || {}), guest_session_id: guestSessionId, platform },
+        ipHash,
+        city: e.city ? String(e.city) : null,
+        region: e.region ? String(e.region) : null,
+        country: e.country ? String(e.country) : null,
+        userAgent: ua.slice(0, 300),
+        page: e.page ? String(e.page) : null,
+        platform,
+      };
+    });
 
     await db.insert(journeyEvents).values(rows);
     res.json({ ok: true, count: rows.length });
@@ -119,6 +124,7 @@ export async function getJourneys(req: Request, res: Response) {
         MAX(region) AS region,
         MAX(country) AS country,
         MAX(ip_hash) AS ip_hash,
+        MAX(platform) AS platform,
         ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))))::int AS duration_seconds,
         ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
         BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin
@@ -223,6 +229,7 @@ export async function getUserJourneys(req: Request, res: Response) {
         MAX(region) AS region,
         MAX(country) AS country,
         MAX(ip_hash) AS ip_hash,
+        MAX(platform) AS platform,
         ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))))::int AS duration_seconds,
         ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
         BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin,
@@ -298,6 +305,7 @@ export async function getUserJourneys(req: Request, res: Response) {
             MAX(region) AS region,
             MAX(country) AS country,
             MAX(ip_hash) AS ip_hash,
+            MAX(platform) AS platform,
             ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))))::int AS duration_seconds,
             ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
             BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin,
@@ -340,6 +348,7 @@ export async function getUserJourneys(req: Request, res: Response) {
             MAX(region) AS region,
             MAX(country) AS country,
             MAX(ip_hash) AS ip_hash,
+            MAX(platform) AS platform,
             ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))))::int AS duration_seconds,
             ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
             BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin,
@@ -502,6 +511,7 @@ export async function getJourneyDetail(req: Request, res: Response) {
       region: first.region,
       country: first.country,
       ipHash: first.ipHash,
+      platform: (first as any).platform || 'web',
       startedAt: first.createdAt,
       durationSeconds,
       eventCount: events.length,

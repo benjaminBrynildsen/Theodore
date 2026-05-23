@@ -26,6 +26,7 @@ export type JourneyDetail = {
   region: string | null;
   country: string | null;
   ipHash: string | null;
+  platform: 'web' | 'ios' | 'android' | string | null;
   startedAt: string;
   durationSeconds: number;
   eventCount: number;
@@ -323,7 +324,7 @@ export function JourneyDetailView({
         />
         <StatCard icon={<Clock size={12} />} label="Duration" value={formatDuration(detail.durationSeconds)} />
         <StatCard icon={<Activity size={12} />} label="Events" value={String(detail.eventCount)} />
-        <StatCard icon={<Layers size={12} />} label="Pages" value={String(pageRuns.length)} />
+        <StatCard icon={<Layers size={12} />} label="Platform" value={(detail.platform || 'web').toUpperCase()} />
       </div>
 
       {/* Timeline ribbon */}

@@ -238,6 +238,7 @@ export const journeyEvents = pgTable('journey_events', {
   country: text('country'),
   userAgent: text('user_agent'),
   page: text('page'),            // '/go/' or '/' or view name
+  platform: text('platform').default('web').notNull(), // 'web' | 'ios' | 'android'
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
