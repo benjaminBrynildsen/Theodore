@@ -2486,3 +2486,147 @@ export async function getPromptsFunnel(req: Request, res: Response) {
     res.status(500).json({ error: 'Internal server error' });
   }
 }
+
+// GET /api/admin/engagement-funnel — "where do users bounce?"
+//
+// Returns:
+// - audio_gen_distribution: how many free users have 0, 1, 2, 3, 4, 5+ audio gens
+// - chapter_distribution: same shape, chapter writes
+// - reached_pct: cumulative — what % of free users reach the Nth audio gen
+// - median_minutes_to_nth_audio: time from signup to Nth audio gen (median)
+// - bounce_after_nth_audio: of users who reached gen N, how many never returned for N+1
+//
+// "Free" = plan='free' to keep paid users from skewing the bounce numbers
+// (their journey continues past the paywall, so they look like outliers).
+// Admin / Ben accounts excluded by email list.
+export async function getEngagementFunnel(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const excludeEmails = [
+      'benbrynildsen5757@gmail.com',
+      'ben@germaniabrewhaus.com',
+      'test@ben.com',
+      'wolfgangbrynildsen@gmail.com',
+      'ben@wilhelmcoldbrew.com',
+    ];
+    const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
+
+    // Per-user audio generation counts and timestamps.
+    const perUser = await db.execute(sql`
+      WITH user_pool AS (
+        SELECT id, created_at
+        FROM users
+        WHERE plan = 'free'
+          AND email <> ALL(${excludeLit}::text[])
+      ),
+      audio_ranked AS (
+        SELECT
+          ag.user_id,
+          ag.created_at,
+          ROW_NUMBER() OVER (PARTITION BY ag.user_id ORDER BY ag.created_at) AS gen_n
+        FROM audio_generations ag
+        JOIN user_pool up ON up.id = ag.user_id
+      ),
+      chapter_counts AS (
+        SELECT p.user_id, COUNT(c.id)::int AS chapter_count
+        FROM projects p
+        JOIN user_pool up ON up.id = p.user_id
+        LEFT JOIN chapters c ON c.project_id = p.id
+          AND length(trim(c.prose)) > 50  -- non-empty chapter prose
+        GROUP BY p.user_id
+      )
+      SELECT
+        up.id AS user_id,
+        up.created_at AS signup_at,
+        COALESCE((SELECT COUNT(*)::int FROM audio_ranked ar WHERE ar.user_id = up.id), 0) AS audio_gens,
+        (SELECT MIN(created_at) FROM audio_ranked ar WHERE ar.user_id = up.id) AS first_audio_at,
+        (SELECT MAX(created_at) FROM audio_ranked ar WHERE ar.user_id = up.id) AS last_audio_at,
+        COALESCE((SELECT chapter_count FROM chapter_counts cc WHERE cc.user_id = up.id), 0) AS chapters
+      FROM user_pool up
+      ORDER BY up.created_at DESC
+    `);
+
+    // Median minutes from signup to the Nth audio gen.
+    const timing = await db.execute(sql`
+      WITH user_pool AS (
+        SELECT id, created_at
+        FROM users
+        WHERE plan = 'free'
+          AND email <> ALL(${excludeLit}::text[])
+      ),
+      audio_ranked AS (
+        SELECT
+          ag.user_id,
+          ag.created_at,
+          up.created_at AS signup_at,
+          ROW_NUMBER() OVER (PARTITION BY ag.user_id ORDER BY ag.created_at) AS gen_n
+        FROM audio_generations ag
+        JOIN user_pool up ON up.id = ag.user_id
+      )
+      SELECT
+        gen_n,
+        COUNT(*)::int AS users_reaching,
+        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (created_at - signup_at))/60))::int AS median_minutes_from_signup
+      FROM audio_ranked
+      WHERE gen_n <= 10
+      GROUP BY gen_n
+      ORDER BY gen_n
+    `);
+
+    const rows = perUser.rows as Array<{
+      user_id: string;
+      signup_at: string;
+      audio_gens: number;
+      first_audio_at: string | null;
+      last_audio_at: string | null;
+      chapters: number;
+    }>;
+
+    const totalFree = rows.length;
+
+    // Build distributions: count of users with exactly N audio gens (clamped at 10+).
+    const audioBuckets: Record<string, number> = {};
+    const chapterBuckets: Record<string, number> = {};
+    for (const r of rows) {
+      const ab = r.audio_gens >= 10 ? '10+' : String(r.audio_gens);
+      audioBuckets[ab] = (audioBuckets[ab] || 0) + 1;
+      const cb = r.chapters >= 10 ? '10+' : String(r.chapters);
+      chapterBuckets[cb] = (chapterBuckets[cb] || 0) + 1;
+    }
+
+    // Reached %: % of free users who reached at least N audio gens.
+    const reachedPct: Array<{ gen_n: number; users: number; pct: number }> = [];
+    for (let n = 1; n <= 10; n++) {
+      const users = rows.filter((r) => r.audio_gens >= n).length;
+      reachedPct.push({ gen_n: n, users, pct: totalFree > 0 ? users / totalFree : 0 });
+    }
+
+    // Bounce after N: of users who reached N gens, how many didn't reach N+1.
+    const bounceAfter: Array<{ gen_n: number; reached_n: number; bounced: number; bounce_rate: number }> = [];
+    for (let n = 1; n <= 9; n++) {
+      const reachedN = rows.filter((r) => r.audio_gens >= n).length;
+      const reachedNext = rows.filter((r) => r.audio_gens >= n + 1).length;
+      const bounced = reachedN - reachedNext;
+      bounceAfter.push({
+        gen_n: n,
+        reached_n: reachedN,
+        bounced,
+        bounce_rate: reachedN > 0 ? bounced / reachedN : 0,
+      });
+    }
+
+    res.json({
+      total_free_users: totalFree,
+      audio_gen_distribution: audioBuckets,
+      chapter_distribution: chapterBuckets,
+      reached_pct: reachedPct,
+      bounce_after_nth_audio: bounceAfter,
+      timing_per_nth_audio: timing.rows,
+    });
+  } catch (e: any) {
+    console.error('[Admin] engagement-funnel error:', e?.message || e, e?.stack);
+    res.status(500).json({ error: 'Internal server error', detail: e?.message });
+  }
+}
