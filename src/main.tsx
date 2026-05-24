@@ -6,6 +6,7 @@ import { AppErrorBoundary } from './components/app/AppErrorBoundary'
 import { init as initJourney } from './lib/journey'
 import { isLibraryHost } from './library/api'
 import { LibraryApp } from './library/LibraryApp'
+import { AppStoreBanner } from './components/layout/AppStoreBanner'
 
 // Start journey tracking immediately (before React renders)
 initJourney();
@@ -15,6 +16,7 @@ const Root = isLibraryHost() ? LibraryApp : App;
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppErrorBoundary>
+      <AppStoreBanner />
       <Root />
     </AppErrorBoundary>
   </StrictMode>,
