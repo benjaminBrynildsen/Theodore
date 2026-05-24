@@ -10,15 +10,14 @@ const BANNER_HEIGHT = 56;
 function shouldShow(): boolean {
   if (typeof window === 'undefined') return false;
   if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent || '';
 
-  // iPhone only — iPad and Android skipped (no Android app, iPad is tablet-ish).
-  const isIPhone = /iPhone/i.test(ua);
-  if (!isIPhone) return false;
+  // Show on every device — desktop visitors get the apps.apple.com landing
+  // page with QR + send-to-phone affordances built in by Apple.
 
   // Standalone PWA mode means the user already added Theodore to home screen
   // and is effectively treating the web app as their app — don't pester.
   if ((navigator as any).standalone === true) return false;
+  if (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) return false;
 
   // Suppress if dismissed within SUPPRESS_DAYS.
   try {
@@ -78,7 +77,7 @@ export function AppStoreBanner() {
         T
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-semibold leading-tight truncate">Theodore NOW on the IOS App Store</div>
+        <div className="text-[13px] font-semibold leading-tight truncate">Theodore NOW on the App Store</div>
         <div className="text-[11px] text-white/70 leading-tight truncate">Voice Mode + Seamless Mobile Experience.</div>
       </div>
       <a
