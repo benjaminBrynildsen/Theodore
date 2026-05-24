@@ -78,7 +78,7 @@ export function AppStoreBanner() {
         T
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-semibold leading-tight truncate">Theodore on iPhone</div>
+        <div className="text-[13px] font-semibold leading-tight truncate">Theodore on the App Store</div>
         <div className="text-[11px] text-white/70 leading-tight truncate">Audiobook + voice mode, hands-free</div>
       </div>
       <a
@@ -86,7 +86,7 @@ export function AppStoreBanner() {
         onClick={openAppStore}
         className="px-3 py-1.5 rounded-full bg-white text-text-primary text-xs font-semibold flex-shrink-0"
       >
-        Open
+        App Store
       </a>
       <button
         onClick={dismiss}
