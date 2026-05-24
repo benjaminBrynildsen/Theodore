@@ -78,8 +78,8 @@ export function AppStoreBanner() {
         T
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-semibold leading-tight truncate">Theodore on the App Store</div>
-        <div className="text-[11px] text-white/70 leading-tight truncate">Audiobook + voice mode, hands-free</div>
+        <div className="text-[13px] font-semibold leading-tight truncate">Theodore NOW on the IOS App Store</div>
+        <div className="text-[11px] text-white/70 leading-tight truncate">Voice Mode + Seamless Mobile Experience.</div>
       </div>
       <a
         href={APPSTORE_URL}
