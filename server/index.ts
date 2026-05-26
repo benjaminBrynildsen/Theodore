@@ -2214,6 +2214,19 @@ app.post('/api/generate/image', async (req, res) => {
       }).where(eq(canonEntries.id, targetId));
     }
 
+    // If target is a cover, write it to project.coverUrl server-side. The
+    // client used to be the only path that persisted this (via a follow-up
+    // PATCH after the gen response), which silently dropped the URL on the
+    // floor whenever the second request failed — leaving the cover gen
+    // server-side but the DB row null. ~33% of projects had null covers as a
+    // result. Writing here makes the cover land atomically with the gen.
+    if (target === 'cover' && projectId && auth?.user) {
+      await db.update(projects).set({
+        coverUrl: result.imageUrl,
+        updatedAt: new Date(),
+      }).where(and(eq(projects.id, projectId), eq(projects.userId, auth.user.id)));
+    }
+
     // If target is a page (children's book), update chapter imageUrl
     if (target === 'page' && targetId) {
       await db.update(chapters).set({
