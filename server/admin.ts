@@ -2655,6 +2655,12 @@ export async function getPlaybackFunnel(req: Request, res: Response) {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
+    // ?days=N filters the user pool to signups in the last N days.
+    // Useful when the product UX changed and older cohorts aren't comparable.
+    // Omit to include all free users.
+    const daysParam = Number(req.query.days);
+    const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.floor(daysParam) : 0;
+
     const excludeEmails = [
       'benbrynildsen5757@gmail.com',
       'ben@germaniabrewhaus.com',
@@ -2663,6 +2669,7 @@ export async function getPlaybackFunnel(req: Request, res: Response) {
       'ben@wilhelmcoldbrew.com',
     ];
     const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
+    const sinceClause = days > 0 ? sql`AND u.created_at > NOW() - (${days} || ' days')::interval` : sql``;
 
     // Per-user: total play events, distinct chapters played, first/last play.
     const perUser = await db.execute(sql`
@@ -2671,6 +2678,7 @@ export async function getPlaybackFunnel(req: Request, res: Response) {
         FROM users u
         WHERE u.plan = 'free'
           AND u.email <> ALL(${excludeLit}::text[])
+          ${sinceClause}
       ),
       play_events AS (
         SELECT
@@ -2713,6 +2721,7 @@ export async function getPlaybackFunnel(req: Request, res: Response) {
         FROM users u
         WHERE u.plan = 'free'
           AND u.email <> ALL(${excludeLit}::text[])
+          ${sinceClause}
       ),
       first_play_per_chapter AS (
         SELECT
@@ -2788,6 +2797,7 @@ export async function getPlaybackFunnel(req: Request, res: Response) {
     }
 
     res.json({
+      window_days: days || null,
       total_free_users: total,
       distinct_chapters_played_distribution: distinctBuckets,
       play_starts_distribution: startsBuckets,
