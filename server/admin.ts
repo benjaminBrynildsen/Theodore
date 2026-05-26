@@ -2638,6 +2638,169 @@ export async function getEngagementFunnel(req: Request, res: Response) {
   }
 }
 
+// GET /api/admin/playback-funnel — the REAL audio engagement funnel
+//
+// Audio generation is automatic on "Create Book" so credit_transactions rows
+// exist for nearly every user — they don't measure engagement. Playback events
+// (audio_play_started in journey_events) measure who actually pressed play.
+//
+// Reports:
+// - distribution of audio_play_started counts per user
+// - distribution of DISTINCT chapters played (the user's actual listening breadth)
+// - reach % at each Nth distinct chapter played
+// - bounce after each Nth chapter
+// - median minutes from signup to Nth chapter played
+export async function getPlaybackFunnel(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const excludeEmails = [
+      'benbrynildsen5757@gmail.com',
+      'ben@germaniabrewhaus.com',
+      'test@ben.com',
+      'wolfgangbrynildsen@gmail.com',
+      'ben@wilhelmcoldbrew.com',
+    ];
+    const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
+
+    // Per-user: total play events, distinct chapters played, first/last play.
+    const perUser = await db.execute(sql`
+      WITH user_pool AS (
+        SELECT u.id, u.created_at
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.email <> ALL(${excludeLit}::text[])
+      ),
+      play_events AS (
+        SELECT
+          je.data->>'user_id' AS user_id,
+          je.data->>'chapter_id' AS chapter_id,
+          je.created_at,
+          je.event
+        FROM journey_events je
+        WHERE je.event IN ('audio_play_started','audio_play_ended')
+          AND je.data->>'user_id' IS NOT NULL
+      ),
+      per_user_play AS (
+        SELECT
+          pe.user_id,
+          COUNT(*) FILTER (WHERE pe.event = 'audio_play_started')::int AS play_starts,
+          COUNT(*) FILTER (WHERE pe.event = 'audio_play_ended')::int AS play_ends,
+          COUNT(DISTINCT pe.chapter_id) FILTER (WHERE pe.event = 'audio_play_started' AND pe.chapter_id IS NOT NULL)::int AS distinct_chapters_played,
+          MIN(pe.created_at) FILTER (WHERE pe.event = 'audio_play_started') AS first_play_at,
+          MAX(pe.created_at) FILTER (WHERE pe.event = 'audio_play_started') AS last_play_at
+        FROM play_events pe
+        WHERE pe.user_id IN (SELECT id FROM user_pool)
+        GROUP BY pe.user_id
+      )
+      SELECT
+        up.id AS user_id,
+        up.created_at AS signup_at,
+        COALESCE(pup.play_starts, 0) AS play_starts,
+        COALESCE(pup.play_ends, 0) AS play_ends,
+        COALESCE(pup.distinct_chapters_played, 0) AS distinct_chapters_played,
+        pup.first_play_at,
+        pup.last_play_at
+      FROM user_pool up
+      LEFT JOIN per_user_play pup ON pup.user_id = up.id
+    `);
+
+    // Time from signup to Nth distinct chapter played.
+    const timing = await db.execute(sql`
+      WITH user_pool AS (
+        SELECT u.id, u.created_at
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.email <> ALL(${excludeLit}::text[])
+      ),
+      first_play_per_chapter AS (
+        SELECT
+          je.data->>'user_id' AS user_id,
+          je.data->>'chapter_id' AS chapter_id,
+          MIN(je.created_at) AS first_played_at
+        FROM journey_events je
+        JOIN user_pool up ON up.id = je.data->>'user_id'
+        WHERE je.event = 'audio_play_started'
+          AND je.data->>'chapter_id' IS NOT NULL
+        GROUP BY 1, 2
+      ),
+      ranked AS (
+        SELECT
+          fpc.user_id,
+          fpc.chapter_id,
+          fpc.first_played_at,
+          up.created_at AS signup_at,
+          ROW_NUMBER() OVER (PARTITION BY fpc.user_id ORDER BY fpc.first_played_at) AS chapter_n
+        FROM first_play_per_chapter fpc
+        JOIN user_pool up ON up.id = fpc.user_id
+      )
+      SELECT
+        chapter_n,
+        COUNT(*)::int AS users_reaching,
+        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_played_at - signup_at))/60))::int AS median_minutes_from_signup
+      FROM ranked
+      WHERE chapter_n <= 10
+      GROUP BY chapter_n
+      ORDER BY chapter_n
+    `);
+
+    const rows = perUser.rows as Array<{
+      user_id: string;
+      signup_at: string;
+      play_starts: number;
+      play_ends: number;
+      distinct_chapters_played: number;
+      first_play_at: string | null;
+      last_play_at: string | null;
+    }>;
+
+    const total = rows.length;
+
+    const distinctBuckets: Record<string, number> = {};
+    const startsBuckets: Record<string, number> = {};
+    for (const r of rows) {
+      const d = r.distinct_chapters_played >= 10 ? '10+' : String(r.distinct_chapters_played);
+      distinctBuckets[d] = (distinctBuckets[d] || 0) + 1;
+      const s = r.play_starts >= 10 ? '10+' : String(r.play_starts);
+      startsBuckets[s] = (startsBuckets[s] || 0) + 1;
+    }
+
+    // Reach %: % of free users who played at least N distinct chapters.
+    const reachedPct: Array<{ chapter_n: number; users: number; pct: number }> = [];
+    for (let n = 1; n <= 10; n++) {
+      const users = rows.filter((r) => r.distinct_chapters_played >= n).length;
+      reachedPct.push({ chapter_n: n, users, pct: total > 0 ? users / total : 0 });
+    }
+
+    // Bounce: of those who played N distinct chapters, how many didn't get to N+1.
+    const bounceAfter: Array<{ chapter_n: number; reached_n: number; bounced: number; bounce_rate: number }> = [];
+    for (let n = 1; n <= 9; n++) {
+      const reachedN = rows.filter((r) => r.distinct_chapters_played >= n).length;
+      const reachedNext = rows.filter((r) => r.distinct_chapters_played >= n + 1).length;
+      const bounced = reachedN - reachedNext;
+      bounceAfter.push({
+        chapter_n: n,
+        reached_n: reachedN,
+        bounced,
+        bounce_rate: reachedN > 0 ? bounced / reachedN : 0,
+      });
+    }
+
+    res.json({
+      total_free_users: total,
+      distinct_chapters_played_distribution: distinctBuckets,
+      play_starts_distribution: startsBuckets,
+      reached_pct: reachedPct,
+      bounce_after_nth_chapter: bounceAfter,
+      timing_per_nth_chapter: timing.rows,
+    });
+  } catch (e: any) {
+    console.error('[Admin] playback-funnel error:', e?.message || e, e?.stack);
+    res.status(500).json({ error: 'Internal server error', detail: e?.message });
+  }
+}
+
 // GET /api/admin/no-audio-cohort — what do the never-tried-audio users actually do?
 //
 // Free users with zero audio generations: how long do their sessions last,
