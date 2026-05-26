@@ -2514,6 +2514,11 @@ export async function getEngagementFunnel(req: Request, res: Response) {
     const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
 
     // Per-user audio generation counts and timestamps.
+    // SOURCE: credit_transactions where action='generate-audio' — this is the
+    // universal write path for TTS. The audio_generations table has missing
+    // rows for pre-2026-05-22 scene-id formats (silent skip bug noted in
+    // server/index.ts:2510-2513). credit_transactions captures every gen,
+    // including free first-samples (with credits_used=0).
     const perUser = await db.execute(sql`
       WITH user_pool AS (
         SELECT id, created_at
@@ -2523,11 +2528,12 @@ export async function getEngagementFunnel(req: Request, res: Response) {
       ),
       audio_ranked AS (
         SELECT
-          ag.user_id,
-          ag.created_at,
-          ROW_NUMBER() OVER (PARTITION BY ag.user_id ORDER BY ag.created_at) AS gen_n
-        FROM audio_generations ag
-        JOIN user_pool up ON up.id = ag.user_id
+          ct.user_id,
+          ct.created_at,
+          ROW_NUMBER() OVER (PARTITION BY ct.user_id ORDER BY ct.created_at) AS gen_n
+        FROM credit_transactions ct
+        JOIN user_pool up ON up.id = ct.user_id
+        WHERE ct.action = 'generate-audio'
       ),
       chapter_counts AS (
         SELECT p.user_id, COUNT(c.id)::int AS chapter_count
@@ -2558,12 +2564,13 @@ export async function getEngagementFunnel(req: Request, res: Response) {
       ),
       audio_ranked AS (
         SELECT
-          ag.user_id,
-          ag.created_at,
+          ct.user_id,
+          ct.created_at,
           up.created_at AS signup_at,
-          ROW_NUMBER() OVER (PARTITION BY ag.user_id ORDER BY ag.created_at) AS gen_n
-        FROM audio_generations ag
-        JOIN user_pool up ON up.id = ag.user_id
+          ROW_NUMBER() OVER (PARTITION BY ct.user_id ORDER BY ct.created_at) AS gen_n
+        FROM credit_transactions ct
+        JOIN user_pool up ON up.id = ct.user_id
+        WHERE ct.action = 'generate-audio'
       )
       SELECT
         gen_n,
@@ -2658,7 +2665,7 @@ export async function getNoAudioCohort(req: Request, res: Response) {
         FROM users u
         WHERE u.plan = 'free'
           AND u.email <> ALL(${excludeLit}::text[])
-          AND NOT EXISTS (SELECT 1 FROM audio_generations ag WHERE ag.user_id = u.id)
+          AND NOT EXISTS (SELECT 1 FROM credit_transactions ct WHERE ct.user_id = u.id AND ct.action = 'generate-audio')
       ),
       user_sessions AS (
         SELECT
@@ -2705,7 +2712,7 @@ export async function getNoAudioCohort(req: Request, res: Response) {
         FROM users u
         WHERE u.plan = 'free'
           AND u.email <> ALL(${excludeLit}::text[])
-          AND NOT EXISTS (SELECT 1 FROM audio_generations ag WHERE ag.user_id = u.id)
+          AND NOT EXISTS (SELECT 1 FROM credit_transactions ct WHERE ct.user_id = u.id AND ct.action = 'generate-audio')
       )
       SELECT
         event,
