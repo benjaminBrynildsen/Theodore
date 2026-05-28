@@ -59,6 +59,16 @@ const MODAL_FAMILIES: PromptFamily[] = [
     clickEvents: ['upgrade_signup_google', 'upgrade_signup_email', 'upgrade_checkout_redirect'],
   },
   {
+    label: 'Upgrade Modal — Hormozi · stacked anchor (ChatGPT/Audible/Spotify)',
+    shownEvent: 'upgrade_inline_shown_anchor_stacked',
+    clickEvents: ['upgrade_checkout_redirect_anchor_stacked'],
+  },
+  {
+    label: 'Upgrade Modal — Hormozi · Audible flip ($14.95 listen vs $10 write)',
+    shownEvent: 'upgrade_inline_shown_anchor_audible',
+    clickEvents: ['upgrade_checkout_redirect_anchor_audible'],
+  },
+  {
     label: 'Upgrade Modal — audio cap (7-day trial copy)',
     shownEvent: 'audio_cap_inline_shown',
     clickEvents: ['audio_cap_signup_google', 'audio_cap_signup_email', 'audio_cap_checkout_redirect'],
