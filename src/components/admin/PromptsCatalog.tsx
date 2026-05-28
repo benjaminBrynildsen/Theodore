@@ -647,6 +647,55 @@ export function PromptsCatalog() {
           ]}
         />
 
+        {/* ── Upgrade Modal — Hormozi A/B (live) ───────────────────────── */}
+        <PromptCard
+          title="Upgrade Modal — Hormozi value stack + anchor A/B (live)"
+          category="Modal"
+          location="Center overlay — replaces the generic header when reason='generic'"
+          trigger="Same as the generic modal — server 402 on any credit-gated endpoint. Currently the only path that fires (audio_cap and multi_voice variants are separate)."
+          events={[
+            'upgrade_inline_shown_anchor_stacked',
+            'upgrade_inline_shown_anchor_audible',
+            'upgrade_checkout_redirect_anchor_stacked',
+            'upgrade_checkout_redirect_anchor_audible',
+          ]}
+          source="src/components/credits/UpgradeModal.tsx (reason='generic' branch — added 2026-05-28)"
+          variants={[
+            {
+              label: 'Stacked anchor',
+              caption: 'ChatGPT $20 / Audible $15 / Spotify $12 vs Theodore $10',
+              mockup: <MockUpgradeModal
+                heading="Your finished audiobook — this weekend."
+                body="Narration, character voices, AI cover, export-ready audio. Same account, same project."
+                bullets={[
+                  'Unlimited audio narration',
+                  'Multi-voice character casting',
+                  'AI cover design',
+                  'Voice Mode — talk through your story hands-free',
+                  'Export-ready for Audible / Spotify / podcast',
+                ]}
+                ctaLabel="Unlock my audiobook · $10"
+              />,
+            },
+            {
+              label: 'Audible flip',
+              caption: '$14.95 to listen vs $10 to write your own',
+              mockup: <MockUpgradeModal
+                heading="Your finished audiobook — this weekend."
+                body="Audible is $14.95/mo to listen. Theodore Writer is $10/mo to write your own."
+                bullets={[
+                  'Unlimited audio narration',
+                  'Multi-voice character casting',
+                  'AI cover design',
+                  'Voice Mode hands-free',
+                  'Export-ready for Audible / Spotify',
+                ]}
+                ctaLabel="Unlock my audiobook · $10"
+              />,
+            },
+          ]}
+        />
+
         {/* ── Upgrade Modal — audio cap — carousel ─────────────────────── */}
         <PromptCard
           title="Upgrade Modal — audio cap variant"

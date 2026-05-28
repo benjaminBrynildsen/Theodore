@@ -15,6 +15,28 @@ import {
 
 const GOOGLE_CLIENT_ID = '296594825511-3m0g5t2l0ombm3j8cdc5ncqe673obg4d.apps.googleusercontent.com';
 
+// Hormozi-style A/B for the generic upgrade modal anchor:
+//   'stacked'  — three subscription benchmarks (ChatGPT/Audible/Spotify) vs $10
+//   'audible'  — single consumer→creator flip (Audible $14.95 listen vs $10 write)
+// Stable per-visitor via localStorage so the same user always sees the same
+// variant. Tracked via data.anchor_variant on upgrade_inline_shown +
+// upgrade_checkout_redirect, AND via dedicated event names so the Prompts
+// dashboard shows the split without extra backend work.
+type AnchorVariant = 'stacked' | 'audible';
+const ANCHOR_VARIANT_KEY = 'theodore_anchor_variant_v1';
+function getAnchorVariant(): AnchorVariant {
+  if (typeof window === 'undefined') return 'stacked';
+  try {
+    const cached = localStorage.getItem(ANCHOR_VARIANT_KEY);
+    if (cached === 'stacked' || cached === 'audible') return cached;
+    const assigned: AnchorVariant = Math.random() < 0.5 ? 'stacked' : 'audible';
+    localStorage.setItem(ANCHOR_VARIANT_KEY, assigned);
+    return assigned;
+  } catch {
+    return 'stacked';
+  }
+}
+
 export function UpgradeModal() {
   const { showUpgradeModal, setShowUpgradeModal, plan, upgradeReason } = useCreditsStore();
   const user = useAuthStore((s) => s.user);
@@ -26,6 +48,8 @@ export function UpgradeModal() {
   const isAudioCap = upgradeReason === 'audio_cap';
   const isMultiVoice = upgradeReason === 'multi_voice';
   const isGuestUpgrade = !user;
+  const isGeneric = !isAudioCap && !isMultiVoice;
+  const anchorVariant = useMemo(() => getAnchorVariant(), []);
   const priceFor = (tier: PlanTier): string => {
     if (tier === 'free') return PLAN_DETAILS.free.price;
     const usd = TIER_PRICES_USD[tier as 'writer' | 'author' | 'studio' | 'publisher'];
@@ -51,8 +75,18 @@ export function UpgradeModal() {
     const variant = isAudioCap ? 'audio_cap' : isMultiVoice ? 'multi_voice' : 'generic';
     const evt = isAudioCap ? 'audio_cap_inline_shown' : 'upgrade_inline_shown';
     const pix = isAudioCap ? 'AudioCapInlineShown' : 'UpgradeInlineShown';
-    jTrack(evt, { variant, is_guest: !user });
-    pixel.trackCustom(pix, { variant, is_guest: !user });
+    const data: Record<string, unknown> = { variant, is_guest: !user };
+    if (isGeneric) data.anchor_variant = anchorVariant;
+    jTrack(evt, data);
+    pixel.trackCustom(pix, data);
+    // Dedicated event names per anchor variant so the Prompts dashboard can
+    // show the A/B split as separate rows without backend changes.
+    if (isGeneric) {
+      const anchorEvt = anchorVariant === 'stacked'
+        ? 'upgrade_inline_shown_anchor_stacked'
+        : 'upgrade_inline_shown_anchor_audible';
+      jTrack(anchorEvt, { variant, is_guest: !user });
+    }
     // Intentionally only depend on the open-flip so we fire once per open,
     // not on every variant prop tweak while the modal is already visible.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,6 +126,13 @@ export function UpgradeModal() {
     try {
       const checkout = await api.billingCheckout({ tier, reason: isAudioCap ? 'audio_cap' : undefined });
       if (!checkout?.url) throw new Error('Stripe checkout URL was not returned.');
+      if (isGeneric) {
+        jTrack('upgrade_checkout_redirect', { tier, anchor_variant: anchorVariant });
+        const anchorEvt = anchorVariant === 'stacked'
+          ? 'upgrade_checkout_redirect_anchor_stacked'
+          : 'upgrade_checkout_redirect_anchor_audible';
+        jTrack(anchorEvt, { tier });
+      }
       window.location.href = checkout.url;
     } catch (e: any) {
       setError(e?.message || 'Unable to start checkout.');
@@ -168,17 +209,57 @@ export function UpgradeModal() {
                 </>
               ) : (
                 <>
-                  <h2 className="text-xl font-serif font-semibold text-white">Unlock more of Theodore</h2>
-                  <p className="text-sm text-white/50 mt-1">
-                    {plan.creditsRemaining <= 0
-                      ? "You've used all your free credits. Upgrade to keep creating."
-                      : 'More credits, more chapters, more audiobooks.'}
+                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
+                    <Headphones size={22} className="text-white/80" />
+                  </div>
+                  <h2 className="text-xl font-serif font-semibold text-white">Your finished audiobook — this weekend.</h2>
+                  <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
+                    Narration, character voices, AI cover, export-ready audio. Same account. Same project. Pick up where you stopped.
                   </p>
-                  {plan.tier === 'free' && (
-                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.06] border border-white/10 text-xs text-white/60">
-                      <span className="font-semibold text-white/80">{plan.creditsRemaining}</span> of {plan.creditsTotal} free credits remaining
+
+                  {/* Value stack */}
+                  <ul className="mt-4 space-y-1.5 text-left max-w-sm mx-auto">
+                    {[
+                      'Unlimited audio narration',
+                      'Multi-voice character casting',
+                      'AI cover design',
+                      'Voice Mode — talk through your story hands-free',
+                      'Export-ready for Audible / Spotify / podcast',
+                    ].map((bullet) => (
+                      <li key={bullet} className="flex items-start gap-2 text-[13px] text-white/80">
+                        <Check size={12} className="mt-1 flex-shrink-0 text-emerald-400/90" />
+                        <span>{bullet}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {/* Anchor — A/B between stacked benchmarks vs Audible flip */}
+                  {anchorVariant === 'stacked' ? (
+                    <div className="mt-5 rounded-xl bg-white/[0.05] border border-white/10 px-4 py-3 max-w-sm mx-auto text-left">
+                      <div className="text-[11px] uppercase tracking-wider text-white/40 font-semibold mb-1.5">What you already pay for</div>
+                      <div className="grid grid-cols-2 gap-y-1 text-[13px]">
+                        <span className="text-white/60">ChatGPT Plus</span><span className="text-white/80 text-right">$20/mo</span>
+                        <span className="text-white/60">Audible Premium</span><span className="text-white/80 text-right">$15/mo</span>
+                        <span className="text-white/60">Spotify Premium</span><span className="text-white/80 text-right">$12/mo</span>
+                        <span className="text-white font-semibold pt-1.5 border-t border-white/10 mt-1.5">Theodore Writer</span><span className="text-white font-semibold text-right pt-1.5 border-t border-white/10 mt-1.5">$10/mo</span>
+                      </div>
+                      <div className="text-[12px] text-white/60 mt-2">…and you walk away with a finished audiobook, not just access.</div>
+                    </div>
+                  ) : (
+                    <div className="mt-5 rounded-xl bg-white/[0.05] border border-white/10 px-4 py-3 max-w-sm mx-auto text-left">
+                      <div className="text-[13px] text-white/70">
+                        Audible is <span className="text-white font-semibold">$14.95/mo to listen</span> to one audiobook.
+                      </div>
+                      <div className="text-[13px] text-white mt-1.5">
+                        Theodore Writer is <span className="font-semibold">$10/mo to write your own.</span>
+                      </div>
                     </div>
                   )}
+
+                  {/* Risk reversal */}
+                  <div className="mt-3 text-[11px] text-white/50 max-w-sm mx-auto">
+                    Don't love it after 7 days? Refund, no questions. Keep the audio you've already generated.
+                  </div>
                 </>
               )}
             </div>
