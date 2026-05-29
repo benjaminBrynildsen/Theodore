@@ -221,8 +221,10 @@ export function UpgradeModal() {
                     Picture it. Your best friend, your book in their hands, your audiobook on the speaker. The look on their face is everything.
                   </p>
 
-                  {/* Value stack — Author tier offer */}
-                  <ul className="mt-4 space-y-1.5 text-left max-w-sm mx-auto">
+                  {/* Value stack — Author tier offer. Bullets enlarged and
+                      brightened so the offer reads at a glance instead of
+                      blending into the body. */}
+                  <ul className="mt-5 space-y-2.5 text-left max-w-sm mx-auto">
                     {[
                       'Studio Grade Finished Audiobook',
                       'Paperback (1st print included)',
@@ -231,35 +233,12 @@ export function UpgradeModal() {
                       'Export-ready for Audible / Spotify / podcast',
                       'Multi-voice character casting',
                     ].map((bullet) => (
-                      <li key={bullet} className="flex items-start gap-2 text-[13px] text-white/80">
-                        <Check size={12} className="mt-1 flex-shrink-0 text-emerald-400/90" />
+                      <li key={bullet} className="flex items-start gap-2.5 text-[15px] font-medium text-white">
+                        <Check size={16} className="mt-1 flex-shrink-0 text-emerald-400" />
                         <span>{bullet}</span>
                       </li>
                     ))}
                   </ul>
-
-                  {/* Anchor — A/B between stacked benchmarks vs Audible flip */}
-                  {anchorVariant === 'stacked' ? (
-                    <div className="mt-5 rounded-xl bg-white/[0.05] border border-white/10 px-4 py-3 max-w-sm mx-auto text-left">
-                      <div className="text-[11px] uppercase tracking-wider text-white/40 font-semibold mb-1.5">What you already pay for</div>
-                      <div className="grid grid-cols-2 gap-y-1 text-[13px]">
-                        <span className="text-white/60">ChatGPT Plus</span><span className="text-white/80 text-right">$20/mo</span>
-                        <span className="text-white/60">Audible Premium</span><span className="text-white/80 text-right">$15/mo</span>
-                        <span className="text-white/60">Spotify Premium</span><span className="text-white/80 text-right">$12/mo</span>
-                        <span className="text-white font-semibold pt-1.5 border-t border-white/10 mt-1.5">Theodore Writer</span><span className="text-white font-semibold text-right pt-1.5 border-t border-white/10 mt-1.5">$10/mo</span>
-                      </div>
-                      <div className="text-[12px] text-white/60 mt-2">…and you walk away with a finished audiobook, not just access.</div>
-                    </div>
-                  ) : (
-                    <div className="mt-5 rounded-xl bg-white/[0.05] border border-white/10 px-4 py-3 max-w-sm mx-auto text-left">
-                      <div className="text-[13px] text-white/70">
-                        Audible is <span className="text-white font-semibold">$14.95/mo to listen</span> to one audiobook.
-                      </div>
-                      <div className="text-[13px] text-white mt-1.5">
-                        Theodore Writer is <span className="font-semibold">$10/mo to write your own.</span>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Risk reversal */}
                   <div className="mt-3 text-[11px] text-white/50 max-w-sm mx-auto">
