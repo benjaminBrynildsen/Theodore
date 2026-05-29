@@ -230,7 +230,7 @@ export function UpgradeModal() {
                       'Studio Grade Audiobook',
                       'Cover Design',
                       'Voice Mode',
-                      'Files Ready',
+                      'Files Ready For Audible / Spotify / Podcast upload',
                       'Multi-voice character casting',
                     ].map((bullet) => (
                       <li key={bullet} className="flex items-start gap-2.5 text-[15px] font-medium text-white">
