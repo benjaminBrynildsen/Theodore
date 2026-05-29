@@ -179,6 +179,131 @@ export function UpgradeModal() {
     { tier: 'studio', icon: Headphones },
   ];
 
+  // Tier-card renderer — extracted so we can render the Author card hoisted
+  // above the dream-offer hook (price anchor first) AND the Writer/Studio
+  // cards below the value stack in the normal slot.
+  const renderTierCard = ({ tier, icon: Icon, recommended }: typeof tiers[number]) => {
+    const details = PLAN_DETAILS[tier];
+    const isCurrent = plan.tier === tier;
+    return (
+      // Outer wrapper does NOT clip — needed so the "Recommended" badge
+      // hanging above the card stays visible. The inner wrapper handles the
+      // rounded-corner clip for the rotating gradient border.
+      <div key={tier} className="relative">
+        <div className="relative rounded-2xl overflow-hidden">
+        {/* Card border glow for recommended */}
+        {recommended && !isCurrent && (
+          <div className="absolute inset-0 rounded-2xl" style={{
+            background: 'conic-gradient(from var(--angle, 0deg), transparent 30%, rgba(99,102,241,0.4) 45%, rgba(255,255,255,0.15) 50%, rgba(99,102,241,0.4) 55%, transparent 70%)',
+            animation: 'rotateBorder 4s linear infinite',
+            padding: '1px',
+          }} />
+        )}
+        <div
+          className={cn(
+            'relative rounded-2xl p-5 transition-all',
+            isCurrent ? 'bg-white/[0.12]' : 'bg-white/[0.06] hover:bg-white/[0.08]',
+            recommended && !isCurrent ? 'm-[1px]' : '',
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/[0.08]">
+                <Icon size={18} className="text-white/70" />
+              </div>
+              <div>
+                <div className="font-semibold text-white">{details.name}</div>
+                <div className="text-xs text-white/40">{details.description}</div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xl font-bold text-white">{priceFor(tier)}</div>
+              <div className="text-[10px] text-white/30">/month</div>
+            </div>
+          </div>
+
+          {/* Features — Author and Writer share the same three differentiator
+              rows so users can compare at a glance. Author marks them ✓,
+              Writer marks them ✗, both add a credit-count row. Studio +
+              Publisher fall back to their PLAN_DETAILS feature list. */}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
+            {(() => {
+              if (tier === 'author' || tier === 'writer') {
+                const credits = (details.credits ?? 0).toLocaleString();
+                const rows = [
+                  ...DREAM_OFFER_DIFFERENTIATORS.map((label) => ({ label, included: tier === 'author' })),
+                  { label: `${credits} credits/month`, included: true },
+                ];
+                return rows.map(({ label, included }) => (
+                  <div key={label} className="flex items-center gap-1.5 text-xs text-white/60">
+                    {included ? (
+                      <Check size={11} className="flex-shrink-0 text-emerald-400/80" />
+                    ) : (
+                      <X size={11} className="flex-shrink-0 text-rose-400/70" />
+                    )}
+                    <span>{label}</span>
+                  </div>
+                ));
+              }
+              return details.features.slice(0, 4).map((feature) => (
+                <div key={feature} className="flex items-center gap-1.5 text-xs text-white/60">
+                  <Check size={11} className="flex-shrink-0 text-emerald-400/80" />
+                  <span>{feature}</span>
+                </div>
+              ));
+            })()}
+          </div>
+
+          {/* CTA */}
+          {isCurrent ? (
+            <div className="mt-3 text-xs text-center py-2 rounded-xl bg-white/[0.06] text-white/40">Current Plan</div>
+          ) : (
+            <div className="mt-3 relative p-[1px] rounded-xl overflow-hidden">
+              {recommended && (
+                <div className="absolute inset-0 rounded-xl" style={{
+                  background: 'linear-gradient(90deg, #6366f1, #a855f7, #6366f1)',
+                  backgroundSize: '200% 100%',
+                  animation: 'stripeFlow 3s linear infinite',
+                }} />
+              )}
+              <button
+                onClick={() => handleUpgrade(tier)}
+                disabled={busyTier !== null}
+                className={cn(
+                  'relative w-full py-2.5 rounded-[11px] text-sm font-semibold transition-all active:scale-[0.98]',
+                  busyTier !== null
+                    ? 'bg-white/10 text-white/30 cursor-not-allowed'
+                    : recommended
+                    ? 'bg-[#16162a] text-white hover:bg-[#1a1a35]'
+                    : 'bg-white/[0.08] text-white hover:bg-white/[0.12]'
+                )}
+              >
+                {busyTier === tier
+                  ? 'Redirecting...'
+                  : isAudioCap && recommended
+                  ? `Start 7-day trial · ${details.name}`
+                  : tier === 'author'
+                  ? `Become an author · ${priceFor('author')}`
+                  : `Choose ${details.name}`}
+              </button>
+            </div>
+          )}
+        </div>
+        </div>
+        {/* Recommended badge — outside the overflow-hidden wrapper so it can
+            hang above the card without being clipped. z-10 keeps it above
+            the rotating border. */}
+        {recommended && !isCurrent && (
+          <div className="absolute -top-2 left-4 z-10 pointer-events-none">
+            <span className="text-[10px] font-semibold text-white px-2.5 py-1 rounded-full flex items-center gap-1 shadow-lg" style={{ background: 'linear-gradient(90deg, #6366f1, #a855f7)' }}>
+              <Sparkles size={9} /> Recommended
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowUpgradeModal(false)} />
@@ -212,6 +337,29 @@ export function UpgradeModal() {
           </button>
 
           <div className="relative z-10 p-6 sm:p-8">
+            {/* Credit-state pill (generic only) — surfaces the diagnostic
+                up front so the modal answers "why am I seeing this?" for
+                every tier. Shown above the Author card per Ben's call so
+                the flag → price-anchor → hook flow lands. */}
+            {isGeneric && (
+              <div className="text-center mb-4">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-400/20">
+                  <span className="text-[11px] font-semibold text-rose-300 uppercase tracking-wider">Not enough credits</span>
+                  <span className="text-[11px] text-rose-300/50">·</span>
+                  <span className="text-[11px] text-rose-200/80">{plan.creditsRemaining} / {plan.creditsTotal} remaining</span>
+                </div>
+              </div>
+            )}
+
+            {/* Hoisted Author card — sits between the pill and the hook so
+                users see the price + recommended badge BEFORE the dream-offer
+                copy. Only for generic + signed-in (or guest after expand). */}
+            {isGeneric && (!isGuestUpgrade || showAllPlans) && (
+              <div className="mb-6">
+                {renderTierCard({ tier: 'author', icon: BookOpen, recommended: true })}
+              </div>
+            )}
+
             {/* Header */}
             <div className="text-center mb-6">
               {isMultiVoice ? (
@@ -283,15 +431,6 @@ export function UpgradeModal() {
                 </>
               ) : (
                 <>
-                  {/* Top chip — always surface the credit state so the modal
-                      answers "why am I seeing this?" up front, regardless of
-                      tier. A Studio user hitting the wall still gets the
-                      same diagnostic. */}
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-400/20 mb-3">
-                    <span className="text-[11px] font-semibold text-rose-300 uppercase tracking-wider">Not enough credits</span>
-                    <span className="text-[11px] text-rose-300/50">·</span>
-                    <span className="text-[11px] text-rose-200/80">{plan.creditsRemaining} / {plan.creditsTotal} remaining</span>
-                  </div>
                   <h2 className="text-xl font-serif font-semibold text-white">Physical copy of your book. Shipped to you by next week. Seriously.</h2>
                   <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
                     Picture it. Your best friend, your book in their hands, your audiobook on the speaker. The look on their face is everything.
@@ -343,135 +482,14 @@ export function UpgradeModal() {
               </div>
             )}
 
-            {/* Tier cards — hidden for guest upgrade flow unless they expand */}
+            {/* Tier cards — hidden for guest upgrade flow unless they expand.
+                For the generic Dream Offer flow we filter Author out here
+                because it's already hoisted above the hook. Other variants
+                (multi-voice, audio-cap) keep showing all three. */}
             {(!isGuestUpgrade || showAllPlans) && (
             <>
             <div className="space-y-3">
-              {tiers.map(({ tier, icon: Icon, recommended }) => {
-                const details = PLAN_DETAILS[tier];
-                const isCurrent = plan.tier === tier;
-
-                return (
-                  // Outer wrapper does NOT clip — needed so the
-                  // "Recommended" badge hanging above the card stays visible.
-                  // The inner wrapper handles the rounded-corner clip for the
-                  // rotating gradient border.
-                  <div key={tier} className="relative">
-                    <div className="relative rounded-2xl overflow-hidden">
-                    {/* Card border glow for recommended */}
-                    {recommended && !isCurrent && (
-                      <div className="absolute inset-0 rounded-2xl" style={{
-                        background: 'conic-gradient(from var(--angle, 0deg), transparent 30%, rgba(99,102,241,0.4) 45%, rgba(255,255,255,0.15) 50%, rgba(99,102,241,0.4) 55%, transparent 70%)',
-                        animation: 'rotateBorder 4s linear infinite',
-                        padding: '1px',
-                      }} />
-                    )}
-
-                    <div
-                      className={cn(
-                        'relative rounded-2xl p-5 transition-all',
-                        isCurrent ? 'bg-white/[0.12]' : 'bg-white/[0.06] hover:bg-white/[0.08]',
-                        recommended && !isCurrent ? 'm-[1px]' : '',
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-white/[0.08]">
-                            <Icon size={18} className="text-white/70" />
-                          </div>
-                          <div>
-                            <div className="font-semibold text-white">{details.name}</div>
-                            <div className="text-xs text-white/40">{details.description}</div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-xl font-bold text-white">{priceFor(tier)}</div>
-                          <div className="text-[10px] text-white/30">/month</div>
-                        </div>
-                      </div>
-
-                      {/* Features — Author and Writer share the same three
-                          differentiator rows so users can compare at a glance.
-                          Author marks them ✓, Writer marks them ✗, both add
-                          a credit-count row. Studio + Publisher fall back to
-                          their PLAN_DETAILS feature list. */}
-                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
-                        {(() => {
-                          if (tier === 'author' || tier === 'writer') {
-                            const credits = (details.credits ?? 0).toLocaleString();
-                            const rows = [
-                              ...DREAM_OFFER_DIFFERENTIATORS.map((label) => ({ label, included: tier === 'author' })),
-                              { label: `${credits} credits/month`, included: true },
-                            ];
-                            return rows.map(({ label, included }) => (
-                              <div key={label} className="flex items-center gap-1.5 text-xs text-white/60">
-                                {included ? (
-                                  <Check size={11} className="flex-shrink-0 text-emerald-400/80" />
-                                ) : (
-                                  <X size={11} className="flex-shrink-0 text-rose-400/70" />
-                                )}
-                                <span>{label}</span>
-                              </div>
-                            ));
-                          }
-                          return details.features.slice(0, 4).map((feature) => (
-                            <div key={feature} className="flex items-center gap-1.5 text-xs text-white/60">
-                              <Check size={11} className="flex-shrink-0 text-emerald-400/80" />
-                              <span>{feature}</span>
-                            </div>
-                          ));
-                        })()}
-                      </div>
-
-                      {/* CTA */}
-                      {isCurrent ? (
-                        <div className="mt-3 text-xs text-center py-2 rounded-xl bg-white/[0.06] text-white/40">Current Plan</div>
-                      ) : (
-                        <div className="mt-3 relative p-[1px] rounded-xl overflow-hidden">
-                          {recommended && (
-                            <div className="absolute inset-0 rounded-xl" style={{
-                              background: 'linear-gradient(90deg, #6366f1, #a855f7, #6366f1)',
-                              backgroundSize: '200% 100%',
-                              animation: 'stripeFlow 3s linear infinite',
-                            }} />
-                          )}
-                          <button
-                            onClick={() => handleUpgrade(tier)}
-                            disabled={busyTier !== null}
-                            className={cn(
-                              'relative w-full py-2.5 rounded-[11px] text-sm font-semibold transition-all active:scale-[0.98]',
-                              busyTier !== null
-                                ? 'bg-white/10 text-white/30 cursor-not-allowed'
-                                : recommended
-                                ? 'bg-[#16162a] text-white hover:bg-[#1a1a35]'
-                                : 'bg-white/[0.08] text-white hover:bg-white/[0.12]'
-                            )}
-                          >
-                            {busyTier === tier
-                              ? 'Redirecting...'
-                              : isAudioCap && recommended
-                              ? `Start 7-day trial · ${details.name}`
-                              : tier === 'author'
-                              ? `Become an author · ${priceFor('author')}`
-                              : `Choose ${details.name}`}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    </div>
-                    {/* Recommended badge — outside the overflow-hidden wrapper
-                        so it can hang above the card without being clipped.
-                        z-10 keeps it above the rotating border. */}
-                    {recommended && !isCurrent && (
-                      <div className="absolute -top-2 left-4 z-10 pointer-events-none">
-                        <span className="text-[10px] font-semibold text-white px-2.5 py-1 rounded-full flex items-center gap-1 shadow-lg" style={{ background: 'linear-gradient(90deg, #6366f1, #a855f7)' }}>
-                          <Sparkles size={9} /> Recommended
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {tiers.filter((t) => !(isGeneric && t.tier === 'author')).map(renderTierCard)}
             </div>
 
             {/* Publisher tier — only show if not already on Publisher.
