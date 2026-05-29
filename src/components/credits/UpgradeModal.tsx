@@ -158,13 +158,14 @@ export function UpgradeModal() {
     }
   };
 
-  // Author is the hero tier now — printed-book Hormozi offer needs the
-  // unit-economics of $30+. Writer becomes a small footnote link below the
-  // cards for users who just want the audiobook. Studio stays as a card so
-  // power users still have an in-card upgrade path. Publisher continues as
-  // a small text link.
+  // Author is the hero tier — printed-book Dream Offer needs the unit
+  // economics of $30+. Writer sits below Author as the lighter option
+  // ("more credits to finish your book" but no paperback / premium models).
+  // Studio is the power-user upsell. Publisher continues as a small text
+  // link below the cards.
   const tiers: { tier: PlanTier; icon: typeof Sparkles; recommended?: boolean }[] = [
     { tier: 'author', icon: BookOpen, recommended: true },
+    { tier: 'writer', icon: Sparkles },
     { tier: 'studio', icon: Headphones },
   ];
 
@@ -272,20 +273,15 @@ export function UpgradeModal() {
                 </>
               ) : (
                 <>
-                  {/* Top chip — for free users, surface the actual credit
-                      state so the modal answers "why am I seeing this?" up
-                      front. Paid users (rare) get the neutral book icon. */}
-                  {plan.tier === 'free' ? (
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-400/20 mb-3">
-                      <span className="text-[11px] font-semibold text-rose-300 uppercase tracking-wider">Not enough credits</span>
-                      <span className="text-[11px] text-rose-300/50">·</span>
-                      <span className="text-[11px] text-rose-200/80">{plan.creditsRemaining} / {plan.creditsTotal} remaining</span>
-                    </div>
-                  ) : (
-                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
-                      <BookOpen size={22} className="text-white/80" />
-                    </div>
-                  )}
+                  {/* Top chip — always surface the credit state so the modal
+                      answers "why am I seeing this?" up front, regardless of
+                      tier. A Studio user hitting the wall still gets the
+                      same diagnostic. */}
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-400/20 mb-3">
+                    <span className="text-[11px] font-semibold text-rose-300 uppercase tracking-wider">Not enough credits</span>
+                    <span className="text-[11px] text-rose-300/50">·</span>
+                    <span className="text-[11px] text-rose-200/80">{plan.creditsRemaining} / {plan.creditsTotal} remaining</span>
+                  </div>
                   <h2 className="text-xl font-serif font-semibold text-white">Physical copy of your book. Shipped to you by next week. Seriously.</h2>
                   <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
                     Picture it. Your best friend, your book in their hands, your audiobook on the speaker. The look on their face is everything.
@@ -445,25 +441,15 @@ export function UpgradeModal() {
               })}
             </div>
 
-            {/* Publisher tier — only show if not already on Publisher */}
+            {/* Publisher tier — only show if not already on Publisher.
+                Writer is now a full card above so the footnote-link version
+                was removed; only Publisher remains as a small text link. */}
             {plan.tier !== 'publisher' && (
               <button
                 onClick={() => handleUpgrade('publisher')}
                 className="mt-3 w-full text-center text-xs text-white/30 hover:text-white/60 transition-colors"
               >
                 Need more? See Publisher plan ({priceFor('publisher')}/mo) →
-              </button>
-            )}
-
-            {/* Writer footnote — only show if currently on free (paid users
-                are already at Writer's value or above). The hero offer is
-                Author; Writer is the lighter option for audiobook-only users. */}
-            {plan.tier === 'free' && (
-              <button
-                onClick={() => handleUpgrade('writer')}
-                className="mt-2 w-full text-center text-xs text-white/30 hover:text-white/60 transition-colors"
-              >
-                Just want the audiobook? Start with Writer ({priceFor('writer')}/mo) →
               </button>
             )}
             </>
