@@ -251,21 +251,22 @@ export function UpgradeModal() {
               ) : (
                 <>
                   <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
-                    <Headphones size={22} className="text-white/80" />
+                    <BookOpen size={22} className="text-white/80" />
                   </div>
-                  <h2 className="text-xl font-serif font-semibold text-white">Your finished audiobook — this weekend.</h2>
+                  <h2 className="text-xl font-serif font-semibold text-white">Physical copy of your book. Shipped to you by next week. Seriously.</h2>
                   <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
-                    Narration, character voices, AI cover, export-ready audio. Same account. Same project. Pick up where you stopped.
+                    Picture it. Your best friend, your book in their hands, your audiobook on the speaker. The look on their face is everything.
                   </p>
 
-                  {/* Value stack */}
+                  {/* Value stack — Author tier offer */}
                   <ul className="mt-4 space-y-1.5 text-left max-w-sm mx-auto">
                     {[
-                      'Unlimited audio narration',
-                      'Multi-voice character casting',
-                      'AI cover design',
-                      'Voice Mode — talk through your story hands-free',
+                      'Studio Grade Finished Audiobook',
+                      'Paperback (1st print included)',
+                      'Cover Design',
+                      'Voice Mode: Talk through your story with Theodore',
                       'Export-ready for Audible / Spotify / podcast',
+                      'Multi-voice character casting',
                     ].map((bullet) => (
                       <li key={bullet} className="flex items-start gap-2 text-[13px] text-white/80">
                         <Check size={12} className="mt-1 flex-shrink-0 text-emerald-400/90" />
@@ -299,7 +300,7 @@ export function UpgradeModal() {
 
                   {/* Risk reversal */}
                   <div className="mt-3 text-[11px] text-white/50 max-w-sm mx-auto">
-                    Don't love it after 7 days? Refund, no questions. Keep the audio you've already generated.
+                    No actual risk. If you don't finish your book, just ask. We'll refund you. No problem.
                   </div>
                 </>
               )}
