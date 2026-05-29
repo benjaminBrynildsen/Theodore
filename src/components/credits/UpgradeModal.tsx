@@ -79,8 +79,22 @@ export function UpgradeModal() {
     if (isGeneric) data.anchor_variant = anchorVariant;
     jTrack(evt, data);
     pixel.trackCustom(pix, data);
-    // Dedicated event names per anchor variant so the Prompts dashboard can
-    // show the A/B split as separate rows without backend changes.
+    // Dedicated "Dream Offer" event name for the generic variant. This is the
+    // Hormozi value-stack rebuild (paperback + audiobook + Author tier hero).
+    // Fired alongside upgrade_inline_shown so historical comparison is intact
+    // but Prompts admin can now slice the dream-offer impressions cleanly.
+    if (isGeneric) {
+      jTrack('dream_offer_shown', {
+        is_guest: !user,
+        credits_remaining: plan.creditsRemaining,
+        credits_total: plan.creditsTotal,
+        tier: plan.tier,
+      });
+      pixel.trackCustom('DreamOfferShown', { is_guest: !user });
+    }
+    // Anchor-A/B events still fire (localStorage variant assignment kept) so
+    // historical data continuity holds; the visual anchor block was removed
+    // but the infrastructure is intact in case we revive it.
     if (isGeneric) {
       const anchorEvt = anchorVariant === 'stacked'
         ? 'upgrade_inline_shown_anchor_stacked'
@@ -128,6 +142,10 @@ export function UpgradeModal() {
       if (!checkout?.url) throw new Error('Stripe checkout URL was not returned.');
       if (isGeneric) {
         jTrack('upgrade_checkout_redirect', { tier, anchor_variant: anchorVariant });
+        // Dedicated Dream Offer conversion event so the Prompts admin shows
+        // a clean shown→checkout funnel for the Hormozi rebuild.
+        jTrack('dream_offer_checkout_redirect', { tier });
+        pixel.trackCustom('DreamOfferCheckoutRedirect', { tier });
         const anchorEvt = anchorVariant === 'stacked'
           ? 'upgrade_checkout_redirect_anchor_stacked'
           : 'upgrade_checkout_redirect_anchor_audible';
