@@ -22,6 +22,16 @@ const GOOGLE_CLIENT_ID = '296594825511-3m0g5t2l0ombm3j8cdc5ncqe673obg4d.apps.goo
 // variant. Tracked via data.anchor_variant on upgrade_inline_shown +
 // upgrade_checkout_redirect, AND via dedicated event names so the Prompts
 // dashboard shows the split without extra backend work.
+// The three Author-tier differentiators shown side-by-side in the tier cards.
+// Author shows these as ✓ (included); Writer shows them as ✗ (not included)
+// to make the Author-vs-Writer trade-off obvious at a glance. Studio + Publisher
+// use their default PLAN_DETAILS features list.
+const DREAM_OFFER_DIFFERENTIATORS = [
+  'Printed Paperback',
+  'Studio Grade Audiobook',
+  'Cover Design',
+];
+
 type AnchorVariant = 'stacked' | 'audible';
 const ANCHOR_VARIANT_KEY = 'theodore_anchor_variant_v1';
 function getAnchorVariant(): AnchorVariant {
@@ -292,7 +302,7 @@ export function UpgradeModal() {
                       blending into the body. */}
                   <ul className="mt-5 space-y-2.5 text-left max-w-sm mx-auto">
                     {[
-                      'Paperback (1st Print Included)',
+                      'Printed Paperback (1st Print Included)',
                       'Studio Grade Audiobook',
                       'Cover Design',
                       'Voice Mode',
@@ -380,14 +390,37 @@ export function UpgradeModal() {
                         </div>
                       </div>
 
-                      {/* Features */}
+                      {/* Features — Author and Writer share the same three
+                          differentiator rows so users can compare at a glance.
+                          Author marks them ✓, Writer marks them ✗, both add
+                          a credit-count row. Studio + Publisher fall back to
+                          their PLAN_DETAILS feature list. */}
                       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
-                        {details.features.slice(0, 4).map((feature) => (
-                          <div key={feature} className="flex items-center gap-1.5 text-xs text-white/60">
-                            <Check size={11} className="flex-shrink-0 text-emerald-400/80" />
-                            <span>{feature}</span>
-                          </div>
-                        ))}
+                        {(() => {
+                          if (tier === 'author' || tier === 'writer') {
+                            const credits = (details.credits ?? 0).toLocaleString();
+                            const rows = [
+                              ...DREAM_OFFER_DIFFERENTIATORS.map((label) => ({ label, included: tier === 'author' })),
+                              { label: `${credits} credits/month`, included: true },
+                            ];
+                            return rows.map(({ label, included }) => (
+                              <div key={label} className="flex items-center gap-1.5 text-xs text-white/60">
+                                {included ? (
+                                  <Check size={11} className="flex-shrink-0 text-emerald-400/80" />
+                                ) : (
+                                  <X size={11} className="flex-shrink-0 text-rose-400/70" />
+                                )}
+                                <span>{label}</span>
+                              </div>
+                            ));
+                          }
+                          return details.features.slice(0, 4).map((feature) => (
+                            <div key={feature} className="flex items-center gap-1.5 text-xs text-white/60">
+                              <Check size={11} className="flex-shrink-0 text-emerald-400/80" />
+                              <span>{feature}</span>
+                            </div>
+                          ));
+                        })()}
                       </div>
 
                       {/* CTA */}
