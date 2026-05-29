@@ -267,11 +267,11 @@ export function UpgradeModal() {
                       blending into the body. */}
                   <ul className="mt-5 space-y-2.5 text-left max-w-sm mx-auto">
                     {[
-                      'Studio Grade Finished Audiobook',
-                      'Paperback (1st print included)',
+                      'Paperback (1st Print Included)',
+                      'Studio Grade Audiobook',
                       'Cover Design',
-                      'Voice Mode: Talk through your story with Theodore',
-                      'Export-ready for Audible / Spotify / podcast',
+                      'Voice Mode',
+                      'Files Ready',
                       'Multi-voice character casting',
                     ].map((bullet) => (
                       <li key={bullet} className="flex items-start gap-2.5 text-[15px] font-medium text-white">
