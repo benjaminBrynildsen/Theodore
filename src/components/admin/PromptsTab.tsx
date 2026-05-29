@@ -54,19 +54,14 @@ const MODAL_FAMILIES: PromptFamily[] = [
     dismissEvents: ['guest_chat_signup_modal_dismissed'],
   },
   {
-    label: 'Upgrade Modal — out of credits',
+    label: 'Dream Offer (Author tier · printed book + audiobook)',
+    shownEvent: 'dream_offer_shown',
+    clickEvents: ['dream_offer_checkout_redirect'],
+  },
+  {
+    label: 'Upgrade Modal — all variants (historical rollup)',
     shownEvent: 'upgrade_inline_shown',
     clickEvents: ['upgrade_signup_google', 'upgrade_signup_email', 'upgrade_checkout_redirect'],
-  },
-  {
-    label: 'Upgrade Modal — Hormozi · stacked anchor (ChatGPT/Audible/Spotify)',
-    shownEvent: 'upgrade_inline_shown_anchor_stacked',
-    clickEvents: ['upgrade_checkout_redirect_anchor_stacked'],
-  },
-  {
-    label: 'Upgrade Modal — Hormozi · Audible flip ($14.95 listen vs $10 write)',
-    shownEvent: 'upgrade_inline_shown_anchor_audible',
-    clickEvents: ['upgrade_checkout_redirect_anchor_audible'],
   },
   {
     label: 'Upgrade Modal — audio cap (7-day trial copy)',
