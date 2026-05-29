@@ -254,9 +254,20 @@ export function UpgradeModal() {
                 </>
               ) : (
                 <>
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
-                    <BookOpen size={22} className="text-white/80" />
-                  </div>
+                  {/* Top chip — for free users, surface the actual credit
+                      state so the modal answers "why am I seeing this?" up
+                      front. Paid users (rare) get the neutral book icon. */}
+                  {plan.tier === 'free' ? (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-400/20 mb-3">
+                      <span className="text-[11px] font-semibold text-rose-300 uppercase tracking-wider">Not enough credits</span>
+                      <span className="text-[11px] text-rose-300/50">·</span>
+                      <span className="text-[11px] text-rose-200/80">{plan.creditsRemaining} / {plan.creditsTotal} remaining</span>
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
+                      <BookOpen size={22} className="text-white/80" />
+                    </div>
+                  )}
                   <h2 className="text-xl font-serif font-semibold text-white">Physical copy of your book. Shipped to you by next week. Seriously.</h2>
                   <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
                     Picture it. Your best friend, your book in their hands, your audiobook on the speaker. The look on their face is everything.
