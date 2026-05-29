@@ -140,9 +140,13 @@ export function UpgradeModal() {
     }
   };
 
+  // Author is the hero tier now — printed-book Hormozi offer needs the
+  // unit-economics of $30+. Writer becomes a small footnote link below the
+  // cards for users who just want the audiobook. Studio stays as a card so
+  // power users still have an in-card upgrade path. Publisher continues as
+  // a small text link.
   const tiers: { tier: PlanTier; icon: typeof Sparkles; recommended?: boolean }[] = [
-    { tier: 'writer', icon: Sparkles, recommended: true },
-    { tier: 'author', icon: BookOpen },
+    { tier: 'author', icon: BookOpen, recommended: true },
     { tier: 'studio', icon: Headphones },
   ];
 
@@ -369,6 +373,8 @@ export function UpgradeModal() {
                               ? 'Redirecting...'
                               : isAudioCap && recommended
                               ? `Start 7-day trial · ${details.name}`
+                              : tier === 'author'
+                              ? `Become an author · ${priceFor('author')}`
                               : `Choose ${details.name}`}
                           </button>
                         </div>
@@ -390,13 +396,27 @@ export function UpgradeModal() {
               })}
             </div>
 
-            {/* Publisher tier */}
-            <button
-              onClick={() => handleUpgrade('publisher')}
-              className="mt-3 w-full text-center text-xs text-white/30 hover:text-white/60 transition-colors"
-            >
-              Need more? See Publisher plan ({priceFor('publisher')}/mo) →
-            </button>
+            {/* Publisher tier — only show if not already on Publisher */}
+            {plan.tier !== 'publisher' && (
+              <button
+                onClick={() => handleUpgrade('publisher')}
+                className="mt-3 w-full text-center text-xs text-white/30 hover:text-white/60 transition-colors"
+              >
+                Need more? See Publisher plan ({priceFor('publisher')}/mo) →
+              </button>
+            )}
+
+            {/* Writer footnote — only show if currently on free (paid users
+                are already at Writer's value or above). The hero offer is
+                Author; Writer is the lighter option for audiobook-only users. */}
+            {plan.tier === 'free' && (
+              <button
+                onClick={() => handleUpgrade('writer')}
+                className="mt-2 w-full text-center text-xs text-white/30 hover:text-white/60 transition-colors"
+              >
+                Just want the audiobook? Start with Writer ({priceFor('writer')}/mo) →
+              </button>
+            )}
             </>
             )}
 
