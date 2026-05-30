@@ -2958,3 +2958,227 @@ export async function getNoAudioCohort(req: Request, res: Response) {
     res.status(500).json({ error: 'Internal server error', detail: e?.message });
   }
 }
+
+// GET /api/admin/no-credits-cohort — users who signed up and spent ZERO credits.
+//
+// The deepest leak in the funnel: signed up, never used a single credit. Could
+// mean they (a) signed up out of curiosity and bounced, (b) hit a wall before
+// any action that costs credits (e.g., stuck in project planning / chat),
+// (c) got their first-chapter freebie and walked away, or (d) the UI never
+// surfaced a credit-spending action to them.
+//
+// Returns: cohort size + % of free, time on site, activity depth, top events.
+// ?days=N optional to limit to recent cohort.
+export async function getNoCreditsCohort(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const daysParam = Number(req.query.days);
+    const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.floor(daysParam) : 0;
+
+    const excludeEmails = [
+      'benbrynildsen5757@gmail.com',
+      'ben@germaniabrewhaus.com',
+      'test@ben.com',
+      'wolfgangbrynildsen@gmail.com',
+      'ben@wilhelmcoldbrew.com',
+    ];
+    const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
+    const sinceClause = days > 0 ? sql`AND u.created_at > NOW() - (${days} || ' days')::interval` : sql``;
+
+    // Per-user session aggregates for free users who haven't spent ANY credits.
+    // "No spend" = credits_remaining = credits_total AND no credit_transactions
+    // rows. Belt + suspenders since transactions can have creditsUsed=0 for
+    // free-sample audio.
+    const perUser = await db.execute(sql`
+      WITH no_credits_users AS (
+        SELECT u.id, u.created_at AS signup_at, u.credits_remaining, u.credits_total
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.credits_remaining = u.credits_total
+          AND u.email <> ALL(${excludeLit}::text[])
+          AND NOT EXISTS (
+            SELECT 1 FROM credit_transactions ct
+            WHERE ct.user_id = u.id AND ct.credits_used > 0
+          )
+          ${sinceClause}
+      ),
+      user_sessions AS (
+        SELECT
+          je.data->>'user_id' AS user_id,
+          je.session_id,
+          MIN(je.created_at) AS started_at,
+          MAX(je.created_at) AS ended_at,
+          COUNT(*)::int AS events_in_session
+        FROM journey_events je
+        WHERE je.data->>'user_id' IN (SELECT id FROM no_credits_users)
+        GROUP BY je.data->>'user_id', je.session_id
+      ),
+      user_chapter_counts AS (
+        SELECT p.user_id, COUNT(c.id)::int AS chapter_count
+        FROM projects p
+        LEFT JOIN chapters c ON c.project_id = p.id
+          AND length(trim(c.prose)) > 50
+        WHERE p.user_id IN (SELECT id FROM no_credits_users)
+        GROUP BY p.user_id
+      ),
+      user_project_counts AS (
+        SELECT user_id, COUNT(*)::int AS project_count
+        FROM projects
+        WHERE user_id IN (SELECT id FROM no_credits_users)
+        GROUP BY user_id
+      )
+      SELECT
+        ncu.id AS user_id,
+        ncu.signup_at,
+        ncu.credits_remaining,
+        ncu.credits_total,
+        COALESCE(SUM(EXTRACT(EPOCH FROM (us.ended_at - us.started_at))/60), 0)::numeric AS total_minutes,
+        COALESCE(SUM(us.events_in_session), 0)::int AS total_events,
+        COALESCE(COUNT(DISTINCT us.session_id), 0)::int AS session_count,
+        COALESCE((SELECT chapter_count FROM user_chapter_counts cc WHERE cc.user_id = ncu.id), 0) AS chapters,
+        COALESCE((SELECT project_count FROM user_project_counts pc WHERE pc.user_id = ncu.id), 0) AS projects
+      FROM no_credits_users ncu
+      LEFT JOIN user_sessions us ON us.user_id = ncu.id
+      GROUP BY ncu.id, ncu.signup_at, ncu.credits_remaining, ncu.credits_total
+    `);
+
+    // Top events across the cohort + last event per user.
+    const topEvents = await db.execute(sql`
+      WITH no_credits_users AS (
+        SELECT u.id
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.credits_remaining = u.credits_total
+          AND u.email <> ALL(${excludeLit}::text[])
+          AND NOT EXISTS (
+            SELECT 1 FROM credit_transactions ct
+            WHERE ct.user_id = u.id AND ct.credits_used > 0
+          )
+          ${sinceClause}
+      )
+      SELECT
+        event,
+        COUNT(*)::int AS total,
+        COUNT(DISTINCT data->>'user_id')::int AS unique_users
+      FROM journey_events
+      WHERE data->>'user_id' IN (SELECT id FROM no_credits_users)
+      GROUP BY event
+      ORDER BY total DESC
+      LIMIT 30
+    `);
+
+    // Last event fired per user — what was the final thing they saw / did
+    // before bouncing? This is the single highest-leverage diagnostic.
+    const lastEvents = await db.execute(sql`
+      WITH no_credits_users AS (
+        SELECT u.id
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.credits_remaining = u.credits_total
+          AND u.email <> ALL(${excludeLit}::text[])
+          AND NOT EXISTS (
+            SELECT 1 FROM credit_transactions ct
+            WHERE ct.user_id = u.id AND ct.credits_used > 0
+          )
+          ${sinceClause}
+      ),
+      ranked AS (
+        SELECT
+          je.data->>'user_id' AS user_id,
+          je.event,
+          je.created_at,
+          ROW_NUMBER() OVER (PARTITION BY je.data->>'user_id' ORDER BY je.created_at DESC) AS rn
+        FROM journey_events je
+        WHERE je.data->>'user_id' IN (SELECT id FROM no_credits_users)
+      )
+      SELECT event, COUNT(*)::int AS users
+      FROM ranked
+      WHERE rn = 1
+      GROUP BY event
+      ORDER BY users DESC
+      LIMIT 20
+    `);
+
+    // Free user totals for the % calc.
+    const totalsRows = await db.execute(sql`
+      SELECT COUNT(*)::int AS total_free
+      FROM users u
+      WHERE u.plan = 'free'
+        AND u.email <> ALL(${excludeLit}::text[])
+        ${sinceClause}
+    `);
+    const totalFree = (totalsRows.rows[0] as any)?.total_free || 0;
+
+    const rows = perUser.rows as Array<{
+      user_id: string;
+      signup_at: string;
+      credits_remaining: number;
+      credits_total: number;
+      total_minutes: string | number;
+      total_events: number;
+      session_count: number;
+      chapters: number;
+      projects: number;
+    }>;
+
+    const total = rows.length;
+    const minutes = rows.map((r) => Number(r.total_minutes) || 0).sort((a, b) => a - b);
+    const eventsArr = rows.map((r) => r.total_events).sort((a, b) => a - b);
+    const median = (arr: number[]) =>
+      arr.length === 0 ? 0 : arr.length % 2 === 1 ? arr[(arr.length - 1) / 2] : (arr[arr.length / 2 - 1] + arr[arr.length / 2]) / 2;
+
+    const timeBuckets: Record<string, number> = {
+      '0 min (no events)': 0,
+      '<1 min': 0,
+      '1–5 min': 0,
+      '5–15 min': 0,
+      '15–30 min': 0,
+      '30–60 min': 0,
+      '60+ min': 0,
+    };
+    for (const m of minutes) {
+      if (m === 0) timeBuckets['0 min (no events)']++;
+      else if (m < 1) timeBuckets['<1 min']++;
+      else if (m < 5) timeBuckets['1–5 min']++;
+      else if (m < 15) timeBuckets['5–15 min']++;
+      else if (m < 30) timeBuckets['15–30 min']++;
+      else if (m < 60) timeBuckets['30–60 min']++;
+      else timeBuckets['60+ min']++;
+    }
+
+    const activity = {
+      no_events: rows.filter((r) => r.total_events === 0).length,
+      events_only_no_project: rows.filter((r) => r.total_events > 0 && r.projects === 0).length,
+      project_no_chapter: rows.filter((r) => r.projects > 0 && r.chapters === 0).length,
+      one_chapter: rows.filter((r) => r.chapters === 1).length,
+      two_plus_chapters: rows.filter((r) => r.chapters >= 2).length,
+    };
+
+    // Credit-cap mix — how many at 250 vs 500 (cohort spans the tier change).
+    const creditCapMix: Record<string, number> = {};
+    for (const r of rows) {
+      const key = `${r.credits_total} cap`;
+      creditCapMix[key] = (creditCapMix[key] || 0) + 1;
+    }
+
+    res.json({
+      window_days: days || null,
+      total_free_users: totalFree,
+      cohort_size: total,
+      cohort_pct: totalFree > 0 ? total / totalFree : 0,
+      median_minutes_per_user: Math.round(median(minutes) * 10) / 10,
+      mean_minutes_per_user: total > 0 ? Math.round((minutes.reduce((a, b) => a + b, 0) / total) * 10) / 10 : 0,
+      median_events_per_user: Math.round(median(eventsArr)),
+      credit_cap_mix: creditCapMix,
+      time_spent_distribution: timeBuckets,
+      activity_depth: activity,
+      top_events: topEvents.rows,
+      last_events: lastEvents.rows,
+    });
+  } catch (e: any) {
+    console.error('[Admin] no-credits-cohort error:', e?.message || e, e?.stack);
+    res.status(500).json({ error: 'Internal server error', detail: e?.message });
+  }
+}
