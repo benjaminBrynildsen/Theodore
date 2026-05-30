@@ -390,7 +390,7 @@ export function UpgradeModal() {
                 </>
               ) : (
                 <>
-                  <h2 className="text-xl font-serif font-semibold text-white">A real, printed copy of your book. In your hands by next week. Seriously.</h2>
+                  <h2 className="text-xl font-serif font-semibold text-white">A real, PRINTED COPY of your book. In your hands by next week. Seriously.</h2>
                   <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
                     Picture it. Your best friend, your book in their hands, your audiobook on the speaker. The look on their face is everything.
                   </p>
