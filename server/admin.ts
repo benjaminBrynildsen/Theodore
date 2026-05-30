@@ -2514,6 +2514,11 @@ export async function getEngagementFunnel(req: Request, res: Response) {
     const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
 
     // Per-user audio generation counts and timestamps.
+    // SOURCE: credit_transactions where action='generate-audio' — this is the
+    // universal write path for TTS. The audio_generations table has missing
+    // rows for pre-2026-05-22 scene-id formats (silent skip bug noted in
+    // server/index.ts:2510-2513). credit_transactions captures every gen,
+    // including free first-samples (with credits_used=0).
     const perUser = await db.execute(sql`
       WITH user_pool AS (
         SELECT id, created_at
@@ -2523,11 +2528,12 @@ export async function getEngagementFunnel(req: Request, res: Response) {
       ),
       audio_ranked AS (
         SELECT
-          ag.user_id,
-          ag.created_at,
-          ROW_NUMBER() OVER (PARTITION BY ag.user_id ORDER BY ag.created_at) AS gen_n
-        FROM audio_generations ag
-        JOIN user_pool up ON up.id = ag.user_id
+          ct.user_id,
+          ct.created_at,
+          ROW_NUMBER() OVER (PARTITION BY ct.user_id ORDER BY ct.created_at) AS gen_n
+        FROM credit_transactions ct
+        JOIN user_pool up ON up.id = ct.user_id
+        WHERE ct.action = 'generate-audio'
       ),
       chapter_counts AS (
         SELECT p.user_id, COUNT(c.id)::int AS chapter_count
@@ -2558,12 +2564,13 @@ export async function getEngagementFunnel(req: Request, res: Response) {
       ),
       audio_ranked AS (
         SELECT
-          ag.user_id,
-          ag.created_at,
+          ct.user_id,
+          ct.created_at,
           up.created_at AS signup_at,
-          ROW_NUMBER() OVER (PARTITION BY ag.user_id ORDER BY ag.created_at) AS gen_n
-        FROM audio_generations ag
-        JOIN user_pool up ON up.id = ag.user_id
+          ROW_NUMBER() OVER (PARTITION BY ct.user_id ORDER BY ct.created_at) AS gen_n
+        FROM credit_transactions ct
+        JOIN user_pool up ON up.id = ct.user_id
+        WHERE ct.action = 'generate-audio'
       )
       SELECT
         gen_n,
@@ -2627,6 +2634,551 @@ export async function getEngagementFunnel(req: Request, res: Response) {
     });
   } catch (e: any) {
     console.error('[Admin] engagement-funnel error:', e?.message || e, e?.stack);
+    res.status(500).json({ error: 'Internal server error', detail: e?.message });
+  }
+}
+
+// GET /api/admin/playback-funnel — the REAL audio engagement funnel
+//
+// Audio generation is automatic on "Create Book" so credit_transactions rows
+// exist for nearly every user — they don't measure engagement. Playback events
+// (audio_play_started in journey_events) measure who actually pressed play.
+//
+// Reports:
+// - distribution of audio_play_started counts per user
+// - distribution of DISTINCT chapters played (the user's actual listening breadth)
+// - reach % at each Nth distinct chapter played
+// - bounce after each Nth chapter
+// - median minutes from signup to Nth chapter played
+export async function getPlaybackFunnel(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    // ?days=N filters the user pool to signups in the last N days.
+    // Useful when the product UX changed and older cohorts aren't comparable.
+    // Omit to include all free users.
+    const daysParam = Number(req.query.days);
+    const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.floor(daysParam) : 0;
+
+    const excludeEmails = [
+      'benbrynildsen5757@gmail.com',
+      'ben@germaniabrewhaus.com',
+      'test@ben.com',
+      'wolfgangbrynildsen@gmail.com',
+      'ben@wilhelmcoldbrew.com',
+    ];
+    const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
+    const sinceClause = days > 0 ? sql`AND u.created_at > NOW() - (${days} || ' days')::interval` : sql``;
+
+    // Per-user: total play events, distinct chapters played, first/last play.
+    const perUser = await db.execute(sql`
+      WITH user_pool AS (
+        SELECT u.id, u.created_at
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.email <> ALL(${excludeLit}::text[])
+          ${sinceClause}
+      ),
+      play_events AS (
+        SELECT
+          je.data->>'user_id' AS user_id,
+          je.data->>'chapter_id' AS chapter_id,
+          je.created_at,
+          je.event
+        FROM journey_events je
+        WHERE je.event IN ('audio_play_started','audio_play_ended')
+          AND je.data->>'user_id' IS NOT NULL
+      ),
+      per_user_play AS (
+        SELECT
+          pe.user_id,
+          COUNT(*) FILTER (WHERE pe.event = 'audio_play_started')::int AS play_starts,
+          COUNT(*) FILTER (WHERE pe.event = 'audio_play_ended')::int AS play_ends,
+          COUNT(DISTINCT pe.chapter_id) FILTER (WHERE pe.event = 'audio_play_started' AND pe.chapter_id IS NOT NULL)::int AS distinct_chapters_played,
+          MIN(pe.created_at) FILTER (WHERE pe.event = 'audio_play_started') AS first_play_at,
+          MAX(pe.created_at) FILTER (WHERE pe.event = 'audio_play_started') AS last_play_at
+        FROM play_events pe
+        WHERE pe.user_id IN (SELECT id FROM user_pool)
+        GROUP BY pe.user_id
+      )
+      SELECT
+        up.id AS user_id,
+        up.created_at AS signup_at,
+        COALESCE(pup.play_starts, 0) AS play_starts,
+        COALESCE(pup.play_ends, 0) AS play_ends,
+        COALESCE(pup.distinct_chapters_played, 0) AS distinct_chapters_played,
+        pup.first_play_at,
+        pup.last_play_at
+      FROM user_pool up
+      LEFT JOIN per_user_play pup ON pup.user_id = up.id
+    `);
+
+    // Time from signup to Nth distinct chapter played.
+    const timing = await db.execute(sql`
+      WITH user_pool AS (
+        SELECT u.id, u.created_at
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.email <> ALL(${excludeLit}::text[])
+          ${sinceClause}
+      ),
+      first_play_per_chapter AS (
+        SELECT
+          je.data->>'user_id' AS user_id,
+          je.data->>'chapter_id' AS chapter_id,
+          MIN(je.created_at) AS first_played_at
+        FROM journey_events je
+        JOIN user_pool up ON up.id = je.data->>'user_id'
+        WHERE je.event = 'audio_play_started'
+          AND je.data->>'chapter_id' IS NOT NULL
+        GROUP BY 1, 2
+      ),
+      ranked AS (
+        SELECT
+          fpc.user_id,
+          fpc.chapter_id,
+          fpc.first_played_at,
+          up.created_at AS signup_at,
+          ROW_NUMBER() OVER (PARTITION BY fpc.user_id ORDER BY fpc.first_played_at) AS chapter_n
+        FROM first_play_per_chapter fpc
+        JOIN user_pool up ON up.id = fpc.user_id
+      )
+      SELECT
+        chapter_n,
+        COUNT(*)::int AS users_reaching,
+        ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_played_at - signup_at))/60))::int AS median_minutes_from_signup
+      FROM ranked
+      WHERE chapter_n <= 10
+      GROUP BY chapter_n
+      ORDER BY chapter_n
+    `);
+
+    const rows = perUser.rows as Array<{
+      user_id: string;
+      signup_at: string;
+      play_starts: number;
+      play_ends: number;
+      distinct_chapters_played: number;
+      first_play_at: string | null;
+      last_play_at: string | null;
+    }>;
+
+    const total = rows.length;
+
+    const distinctBuckets: Record<string, number> = {};
+    const startsBuckets: Record<string, number> = {};
+    for (const r of rows) {
+      const d = r.distinct_chapters_played >= 10 ? '10+' : String(r.distinct_chapters_played);
+      distinctBuckets[d] = (distinctBuckets[d] || 0) + 1;
+      const s = r.play_starts >= 10 ? '10+' : String(r.play_starts);
+      startsBuckets[s] = (startsBuckets[s] || 0) + 1;
+    }
+
+    // Reach %: % of free users who played at least N distinct chapters.
+    const reachedPct: Array<{ chapter_n: number; users: number; pct: number }> = [];
+    for (let n = 1; n <= 10; n++) {
+      const users = rows.filter((r) => r.distinct_chapters_played >= n).length;
+      reachedPct.push({ chapter_n: n, users, pct: total > 0 ? users / total : 0 });
+    }
+
+    // Bounce: of those who played N distinct chapters, how many didn't get to N+1.
+    const bounceAfter: Array<{ chapter_n: number; reached_n: number; bounced: number; bounce_rate: number }> = [];
+    for (let n = 1; n <= 9; n++) {
+      const reachedN = rows.filter((r) => r.distinct_chapters_played >= n).length;
+      const reachedNext = rows.filter((r) => r.distinct_chapters_played >= n + 1).length;
+      const bounced = reachedN - reachedNext;
+      bounceAfter.push({
+        chapter_n: n,
+        reached_n: reachedN,
+        bounced,
+        bounce_rate: reachedN > 0 ? bounced / reachedN : 0,
+      });
+    }
+
+    res.json({
+      window_days: days || null,
+      total_free_users: total,
+      distinct_chapters_played_distribution: distinctBuckets,
+      play_starts_distribution: startsBuckets,
+      reached_pct: reachedPct,
+      bounce_after_nth_chapter: bounceAfter,
+      timing_per_nth_chapter: timing.rows,
+    });
+  } catch (e: any) {
+    console.error('[Admin] playback-funnel error:', e?.message || e, e?.stack);
+    res.status(500).json({ error: 'Internal server error', detail: e?.message });
+  }
+}
+
+// GET /api/admin/no-audio-cohort — what do the never-tried-audio users actually do?
+//
+// Free users with zero audio generations: how long do their sessions last,
+// how many events do they fire, what kind of events dominate, and how far
+// do they get on chapter writing? Answers "are they planning and bouncing,
+// or doing nothing at all?"
+export async function getNoAudioCohort(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const excludeEmails = [
+      'benbrynildsen5757@gmail.com',
+      'ben@germaniabrewhaus.com',
+      'test@ben.com',
+      'wolfgangbrynildsen@gmail.com',
+      'ben@wilhelmcoldbrew.com',
+    ];
+    const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
+
+    // Per-user session aggregates across all their journey sessions.
+    const perUser = await db.execute(sql`
+      WITH no_audio_users AS (
+        SELECT u.id, u.created_at AS signup_at
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.email <> ALL(${excludeLit}::text[])
+          AND NOT EXISTS (SELECT 1 FROM credit_transactions ct WHERE ct.user_id = u.id AND ct.action = 'generate-audio')
+      ),
+      user_sessions AS (
+        SELECT
+          je.data->>'user_id' AS user_id,
+          je.session_id,
+          MIN(je.created_at) AS started_at,
+          MAX(je.created_at) AS ended_at,
+          COUNT(*)::int AS events_in_session
+        FROM journey_events je
+        WHERE je.data->>'user_id' IN (SELECT id FROM no_audio_users)
+        GROUP BY je.data->>'user_id', je.session_id
+      ),
+      user_chapter_counts AS (
+        SELECT p.user_id, COUNT(c.id)::int AS chapter_count
+        FROM projects p
+        LEFT JOIN chapters c ON c.project_id = p.id
+          AND length(trim(c.prose)) > 50
+        WHERE p.user_id IN (SELECT id FROM no_audio_users)
+        GROUP BY p.user_id
+      ),
+      user_project_counts AS (
+        SELECT user_id, COUNT(*)::int AS project_count
+        FROM projects
+        WHERE user_id IN (SELECT id FROM no_audio_users)
+        GROUP BY user_id
+      )
+      SELECT
+        nau.id AS user_id,
+        nau.signup_at,
+        COALESCE(SUM(EXTRACT(EPOCH FROM (us.ended_at - us.started_at))/60), 0)::numeric AS total_minutes,
+        COALESCE(SUM(us.events_in_session), 0)::int AS total_events,
+        COALESCE(COUNT(DISTINCT us.session_id), 0)::int AS session_count,
+        COALESCE((SELECT chapter_count FROM user_chapter_counts cc WHERE cc.user_id = nau.id), 0) AS chapters,
+        COALESCE((SELECT project_count FROM user_project_counts pc WHERE pc.user_id = nau.id), 0) AS projects
+      FROM no_audio_users nau
+      LEFT JOIN user_sessions us ON us.user_id = nau.id
+      GROUP BY nau.id, nau.signup_at
+    `);
+
+    // Top event types across the cohort.
+    const topEvents = await db.execute(sql`
+      WITH no_audio_users AS (
+        SELECT u.id
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.email <> ALL(${excludeLit}::text[])
+          AND NOT EXISTS (SELECT 1 FROM credit_transactions ct WHERE ct.user_id = u.id AND ct.action = 'generate-audio')
+      )
+      SELECT
+        event,
+        COUNT(*)::int AS total,
+        COUNT(DISTINCT data->>'user_id')::int AS unique_users
+      FROM journey_events
+      WHERE data->>'user_id' IN (SELECT id FROM no_audio_users)
+      GROUP BY event
+      ORDER BY total DESC
+      LIMIT 30
+    `);
+
+    const rows = perUser.rows as Array<{
+      user_id: string;
+      signup_at: string;
+      total_minutes: string | number;
+      total_events: number;
+      session_count: number;
+      chapters: number;
+      projects: number;
+    }>;
+
+    const total = rows.length;
+    const minutes = rows.map((r) => Number(r.total_minutes) || 0);
+    minutes.sort((a, b) => a - b);
+    const median = (arr: number[]) =>
+      arr.length === 0 ? 0 : arr.length % 2 === 1 ? arr[(arr.length - 1) / 2] : (arr[arr.length / 2 - 1] + arr[arr.length / 2]) / 2;
+
+    const eventsArr = rows.map((r) => r.total_events).sort((a, b) => a - b);
+
+    const timeBuckets: Record<string, number> = {
+      '0 min (no events)': 0,
+      '<1 min': 0,
+      '1–5 min': 0,
+      '5–15 min': 0,
+      '15–30 min': 0,
+      '30–60 min': 0,
+      '60+ min': 0,
+    };
+    for (const m of minutes) {
+      if (m === 0) timeBuckets['0 min (no events)']++;
+      else if (m < 1) timeBuckets['<1 min']++;
+      else if (m < 5) timeBuckets['1–5 min']++;
+      else if (m < 15) timeBuckets['5–15 min']++;
+      else if (m < 30) timeBuckets['15–30 min']++;
+      else if (m < 60) timeBuckets['30–60 min']++;
+      else timeBuckets['60+ min']++;
+    }
+
+    // Activity depth — what's the deepest each user got?
+    const activity = {
+      no_events: rows.filter((r) => r.total_events === 0).length,
+      events_only_no_project: rows.filter((r) => r.total_events > 0 && r.projects === 0).length,
+      project_no_chapter: rows.filter((r) => r.projects > 0 && r.chapters === 0).length,
+      one_chapter: rows.filter((r) => r.chapters === 1).length,
+      two_plus_chapters: rows.filter((r) => r.chapters >= 2).length,
+    };
+
+    res.json({
+      cohort_size: total,
+      median_minutes_per_user: Math.round(median(minutes) * 10) / 10,
+      mean_minutes_per_user: total > 0 ? Math.round((minutes.reduce((a, b) => a + b, 0) / total) * 10) / 10 : 0,
+      median_events_per_user: Math.round(median(eventsArr)),
+      time_spent_distribution: timeBuckets,
+      activity_depth: activity,
+      top_events: topEvents.rows,
+    });
+  } catch (e: any) {
+    console.error('[Admin] no-audio-cohort error:', e?.message || e, e?.stack);
+    res.status(500).json({ error: 'Internal server error', detail: e?.message });
+  }
+}
+
+// GET /api/admin/no-credits-cohort — users who signed up and spent ZERO credits.
+//
+// The deepest leak in the funnel: signed up, never used a single credit. Could
+// mean they (a) signed up out of curiosity and bounced, (b) hit a wall before
+// any action that costs credits (e.g., stuck in project planning / chat),
+// (c) got their first-chapter freebie and walked away, or (d) the UI never
+// surfaced a credit-spending action to them.
+//
+// Returns: cohort size + % of free, time on site, activity depth, top events.
+// ?days=N optional to limit to recent cohort.
+export async function getNoCreditsCohort(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const daysParam = Number(req.query.days);
+    const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.floor(daysParam) : 0;
+
+    const excludeEmails = [
+      'benbrynildsen5757@gmail.com',
+      'ben@germaniabrewhaus.com',
+      'test@ben.com',
+      'wolfgangbrynildsen@gmail.com',
+      'ben@wilhelmcoldbrew.com',
+    ];
+    const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
+    const sinceClause = days > 0 ? sql`AND u.created_at > NOW() - (${days} || ' days')::interval` : sql``;
+
+    // Per-user session aggregates for free users who haven't spent ANY credits.
+    // "No spend" = credits_remaining = credits_total AND no credit_transactions
+    // rows. Belt + suspenders since transactions can have creditsUsed=0 for
+    // free-sample audio.
+    const perUser = await db.execute(sql`
+      WITH no_credits_users AS (
+        SELECT u.id, u.created_at AS signup_at, u.credits_remaining, u.credits_total
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.credits_remaining = u.credits_total
+          AND u.email <> ALL(${excludeLit}::text[])
+          AND NOT EXISTS (
+            SELECT 1 FROM credit_transactions ct
+            WHERE ct.user_id = u.id AND ct.credits_used > 0
+          )
+          ${sinceClause}
+      ),
+      user_sessions AS (
+        SELECT
+          je.data->>'user_id' AS user_id,
+          je.session_id,
+          MIN(je.created_at) AS started_at,
+          MAX(je.created_at) AS ended_at,
+          COUNT(*)::int AS events_in_session
+        FROM journey_events je
+        WHERE je.data->>'user_id' IN (SELECT id FROM no_credits_users)
+        GROUP BY je.data->>'user_id', je.session_id
+      ),
+      user_chapter_counts AS (
+        SELECT p.user_id, COUNT(c.id)::int AS chapter_count
+        FROM projects p
+        LEFT JOIN chapters c ON c.project_id = p.id
+          AND length(trim(c.prose)) > 50
+        WHERE p.user_id IN (SELECT id FROM no_credits_users)
+        GROUP BY p.user_id
+      ),
+      user_project_counts AS (
+        SELECT user_id, COUNT(*)::int AS project_count
+        FROM projects
+        WHERE user_id IN (SELECT id FROM no_credits_users)
+        GROUP BY user_id
+      )
+      SELECT
+        ncu.id AS user_id,
+        ncu.signup_at,
+        ncu.credits_remaining,
+        ncu.credits_total,
+        COALESCE(SUM(EXTRACT(EPOCH FROM (us.ended_at - us.started_at))/60), 0)::numeric AS total_minutes,
+        COALESCE(SUM(us.events_in_session), 0)::int AS total_events,
+        COALESCE(COUNT(DISTINCT us.session_id), 0)::int AS session_count,
+        COALESCE((SELECT chapter_count FROM user_chapter_counts cc WHERE cc.user_id = ncu.id), 0) AS chapters,
+        COALESCE((SELECT project_count FROM user_project_counts pc WHERE pc.user_id = ncu.id), 0) AS projects
+      FROM no_credits_users ncu
+      LEFT JOIN user_sessions us ON us.user_id = ncu.id
+      GROUP BY ncu.id, ncu.signup_at, ncu.credits_remaining, ncu.credits_total
+    `);
+
+    // Top events across the cohort + last event per user.
+    const topEvents = await db.execute(sql`
+      WITH no_credits_users AS (
+        SELECT u.id
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.credits_remaining = u.credits_total
+          AND u.email <> ALL(${excludeLit}::text[])
+          AND NOT EXISTS (
+            SELECT 1 FROM credit_transactions ct
+            WHERE ct.user_id = u.id AND ct.credits_used > 0
+          )
+          ${sinceClause}
+      )
+      SELECT
+        event,
+        COUNT(*)::int AS total,
+        COUNT(DISTINCT data->>'user_id')::int AS unique_users
+      FROM journey_events
+      WHERE data->>'user_id' IN (SELECT id FROM no_credits_users)
+      GROUP BY event
+      ORDER BY total DESC
+      LIMIT 30
+    `);
+
+    // Last event fired per user — what was the final thing they saw / did
+    // before bouncing? This is the single highest-leverage diagnostic.
+    const lastEvents = await db.execute(sql`
+      WITH no_credits_users AS (
+        SELECT u.id
+        FROM users u
+        WHERE u.plan = 'free'
+          AND u.credits_remaining = u.credits_total
+          AND u.email <> ALL(${excludeLit}::text[])
+          AND NOT EXISTS (
+            SELECT 1 FROM credit_transactions ct
+            WHERE ct.user_id = u.id AND ct.credits_used > 0
+          )
+          ${sinceClause}
+      ),
+      ranked AS (
+        SELECT
+          je.data->>'user_id' AS user_id,
+          je.event,
+          je.created_at,
+          ROW_NUMBER() OVER (PARTITION BY je.data->>'user_id' ORDER BY je.created_at DESC) AS rn
+        FROM journey_events je
+        WHERE je.data->>'user_id' IN (SELECT id FROM no_credits_users)
+      )
+      SELECT event, COUNT(*)::int AS users
+      FROM ranked
+      WHERE rn = 1
+      GROUP BY event
+      ORDER BY users DESC
+      LIMIT 20
+    `);
+
+    // Free user totals for the % calc.
+    const totalsRows = await db.execute(sql`
+      SELECT COUNT(*)::int AS total_free
+      FROM users u
+      WHERE u.plan = 'free'
+        AND u.email <> ALL(${excludeLit}::text[])
+        ${sinceClause}
+    `);
+    const totalFree = (totalsRows.rows[0] as any)?.total_free || 0;
+
+    const rows = perUser.rows as Array<{
+      user_id: string;
+      signup_at: string;
+      credits_remaining: number;
+      credits_total: number;
+      total_minutes: string | number;
+      total_events: number;
+      session_count: number;
+      chapters: number;
+      projects: number;
+    }>;
+
+    const total = rows.length;
+    const minutes = rows.map((r) => Number(r.total_minutes) || 0).sort((a, b) => a - b);
+    const eventsArr = rows.map((r) => r.total_events).sort((a, b) => a - b);
+    const median = (arr: number[]) =>
+      arr.length === 0 ? 0 : arr.length % 2 === 1 ? arr[(arr.length - 1) / 2] : (arr[arr.length / 2 - 1] + arr[arr.length / 2]) / 2;
+
+    const timeBuckets: Record<string, number> = {
+      '0 min (no events)': 0,
+      '<1 min': 0,
+      '1–5 min': 0,
+      '5–15 min': 0,
+      '15–30 min': 0,
+      '30–60 min': 0,
+      '60+ min': 0,
+    };
+    for (const m of minutes) {
+      if (m === 0) timeBuckets['0 min (no events)']++;
+      else if (m < 1) timeBuckets['<1 min']++;
+      else if (m < 5) timeBuckets['1–5 min']++;
+      else if (m < 15) timeBuckets['5–15 min']++;
+      else if (m < 30) timeBuckets['15–30 min']++;
+      else if (m < 60) timeBuckets['30–60 min']++;
+      else timeBuckets['60+ min']++;
+    }
+
+    const activity = {
+      no_events: rows.filter((r) => r.total_events === 0).length,
+      events_only_no_project: rows.filter((r) => r.total_events > 0 && r.projects === 0).length,
+      project_no_chapter: rows.filter((r) => r.projects > 0 && r.chapters === 0).length,
+      one_chapter: rows.filter((r) => r.chapters === 1).length,
+      two_plus_chapters: rows.filter((r) => r.chapters >= 2).length,
+    };
+
+    // Credit-cap mix — how many at 250 vs 500 (cohort spans the tier change).
+    const creditCapMix: Record<string, number> = {};
+    for (const r of rows) {
+      const key = `${r.credits_total} cap`;
+      creditCapMix[key] = (creditCapMix[key] || 0) + 1;
+    }
+
+    res.json({
+      window_days: days || null,
+      total_free_users: totalFree,
+      cohort_size: total,
+      cohort_pct: totalFree > 0 ? total / totalFree : 0,
+      median_minutes_per_user: Math.round(median(minutes) * 10) / 10,
+      mean_minutes_per_user: total > 0 ? Math.round((minutes.reduce((a, b) => a + b, 0) / total) * 10) / 10 : 0,
+      median_events_per_user: Math.round(median(eventsArr)),
+      credit_cap_mix: creditCapMix,
+      time_spent_distribution: timeBuckets,
+      activity_depth: activity,
+      top_events: topEvents.rows,
+      last_events: lastEvents.rows,
+    });
+  } catch (e: any) {
+    console.error('[Admin] no-credits-cohort error:', e?.message || e, e?.stack);
     res.status(500).json({ error: 'Internal server error', detail: e?.message });
   }
 }
