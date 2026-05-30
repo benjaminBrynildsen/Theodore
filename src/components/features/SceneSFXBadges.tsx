@@ -4,7 +4,8 @@
 import { useState, useRef } from 'react';
 import { Volume2, VolumeX, Plus, X, Loader2, Pause } from 'lucide-react';
 import { useStore } from '../../store';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
+import { useCreditsStore } from '../../store/credits';
 import { cn } from '../../lib/utils';
 import type { SceneSFX } from '../../types';
 
@@ -89,6 +90,12 @@ export function SceneSFXBadges({ chapterId, sceneId, sfx }: Props) {
       }
     } catch (e: any) {
       console.error('SFX generation failed:', e);
+      // Credit-out → open the upgrade modal so the user knows why nothing
+      // happened. Previously this just console.errored and the SFX silently
+      // never appeared.
+      if (e instanceof ApiError && e.status === 402) {
+        useCreditsStore.getState().setShowUpgradeModal(true);
+      }
     } finally {
       setGenerating(null);
     }

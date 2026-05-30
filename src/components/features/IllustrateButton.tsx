@@ -53,7 +53,15 @@ export function IllustrateButton({ target, targetId, projectId, currentImageUrl,
       onImageGenerated?.(result.imageUrl);
       setShowOptions(false);
     } catch (e: any) {
-      setError(e.message);
+      // The image-gen lib already opens the upgrade modal on
+      // INSUFFICIENT_CREDITS — suppress the inline error in that case so we
+      // don't show both the modal and a redundant red banner.
+      const msg = e?.message || '';
+      if (/not enough credits/i.test(msg)) {
+        setError(null);
+      } else {
+        setError(msg || 'Image generation failed.');
+      }
     } finally {
       setGenerating(false);
     }
