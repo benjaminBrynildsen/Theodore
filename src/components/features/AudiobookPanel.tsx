@@ -546,7 +546,12 @@ export function AudiobookPanel() {
       });
     } catch (e: any) {
       console.error('Music generation failed:', e);
-      audioStore.setError(`Music generation failed: ${e.message}`);
+      // Credit-out → route to the upgrade modal instead of a raw banner.
+      if (e instanceof ApiError && e.status === 402) {
+        useCreditsStore.getState().setShowUpgradeModal(true);
+      } else {
+        audioStore.setError(`Music generation failed: ${e.message}`);
+      }
     } finally {
       setGeneratingMusic(null);
       musicStore.setGenerating(null);
@@ -600,7 +605,12 @@ export function AudiobookPanel() {
       });
     } catch (e: any) {
       console.error('Chapter music generation failed:', e);
-      audioStore.setError(`Music generation failed: ${e.message}`);
+      // Credit-out → route to the upgrade modal instead of a raw banner.
+      if (e instanceof ApiError && e.status === 402) {
+        useCreditsStore.getState().setShowUpgradeModal(true);
+      } else {
+        audioStore.setError(`Music generation failed: ${e.message}`);
+      }
     } finally {
       setGeneratingMusic(null);
       musicStore.setGenerating(null);
@@ -2032,8 +2042,11 @@ export function AudiobookPanel() {
                                                   );
                                                   useStore.getState().updateScene(ch.id, scene.id, { sfx: updatedSfx });
                                                 }
-                                              } catch (e) {
+                                              } catch (e: any) {
                                                 console.error('SFX generation failed:', e);
+                                                if (e instanceof ApiError && e.status === 402) {
+                                                  useCreditsStore.getState().setShowUpgradeModal(true);
+                                                }
                                                 return;
                                               }
                                             }

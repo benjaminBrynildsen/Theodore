@@ -26,7 +26,7 @@ import { tagDialogue } from '../../lib/dialogue-tagger';
 import { tagSFX } from '../../lib/sfx-tagger';
 import { useCreditsStore } from '../../store/credits';
 import { FEATURES } from '../../lib/feature-flags';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 // Post-generation pipeline imported dynamically where needed
 import { cn, generateId } from '../../lib/utils';
@@ -1233,8 +1233,11 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             break;
           }
         }
-      }).catch(err => {
+      }).catch((err: any) => {
         console.error(`[SFX] Generation failed for "${tagValue}":`, err);
+        if (err instanceof ApiError && err.status === 402) {
+          useCreditsStore.getState().setShowUpgradeModal(true);
+        }
       }).finally(() => {
         tagEl.classList.remove('animate-pulse');
       });
