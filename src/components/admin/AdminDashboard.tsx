@@ -28,6 +28,8 @@ interface Overview {
   recentSignups: number;
   monthlySignups: number;
   mrr: number;
+  totalRevenue: number | null;
+  invoicesPaid: number | null;
   funnel?: {
     signedUp: number;
     guestsUsedChat?: number;
@@ -543,7 +545,16 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
             {/* Top stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <StatCard label="Total Users" value={overview.totalUsers} sub={`+${overview.recentSignups} this week`} icon={Users} onClick={() => setView('users')} />
-              <StatCard label="MRR" value={`$${overview.mrr}`} sub={`${overview.planBreakdown.filter(p => p.plan !== 'free').reduce((a, b) => a + b.count, 0)} paid`} icon={CreditCard} />
+              <StatCard
+                label="MRR"
+                value={`$${overview.mrr}`}
+                sub={
+                  overview.totalRevenue !== null
+                    ? `$${overview.totalRevenue.toLocaleString()} lifetime · ${overview.invoicesPaid ?? 0} invoices`
+                    : `${overview.planBreakdown.filter(p => p.plan !== 'free').reduce((a, b) => a + b.count, 0)} paid`
+                }
+                icon={CreditCard}
+              />
               <StatCard label="Credits Used" value={overview.totalCreditsUsed.toLocaleString()} icon={Zap} />
               <StatCard label="Projects" value={overview.totalProjects} sub={`${overview.totalChapters} chapters`} icon={BookOpen} />
             </div>
@@ -661,6 +672,11 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                   <div className="bg-green-50 rounded-xl p-3">
                     <div className="text-[10px] font-medium text-green-700 uppercase tracking-wider">Revenue (MRR)</div>
                     <div className="text-lg font-bold text-green-800">${overview.mrr}</div>
+                    {overview.totalRevenue !== null && (
+                      <div className="text-[10px] text-green-700/70 mt-0.5">
+                        ${overview.totalRevenue.toLocaleString()} lifetime
+                      </div>
+                    )}
                   </div>
                   <div className="bg-red-50 rounded-xl p-3">
                     <div className="text-[10px] font-medium text-red-700 uppercase tracking-wider">Total Cost</div>
