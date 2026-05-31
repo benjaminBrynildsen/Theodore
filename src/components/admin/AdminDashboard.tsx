@@ -917,19 +917,23 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                         : 'glass-pill hover:bg-white/60',
                     )}
                   >
-                    <div className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center text-xs font-semibold text-text-tertiary">
+                    <div className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center text-xs font-semibold text-text-tertiary flex-shrink-0">
                       {(u.name || u.email)?.[0]?.toUpperCase() || '?'}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-text-primary truncate">{u.name || u.email}</div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-sm font-medium text-text-primary truncate">{u.name || u.email}</span>
+                        <PlanBadge plan={u.plan} />
+                      </div>
                       <div className="text-[11px] text-text-tertiary truncate">{u.email}</div>
                     </div>
-                    <PlanBadge plan={u.plan} />
-                    <div className="text-right hidden sm:block">
+                    {/* Credits + time — always visible (was hidden on mobile,
+                        which made the credit count invisible on phones). */}
+                    <div className="text-right flex-shrink-0">
                       <div className={cn('text-xs', isEngaged ? 'text-emerald-800 font-semibold' : 'text-text-secondary')}>{used}/{u.creditsTotal}</div>
                       <div className="text-[10px] text-text-tertiary">{timeAgo(u.createdAt)}</div>
                     </div>
-                    <ChevronRight size={14} className="text-text-tertiary" />
+                    <ChevronRight size={14} className="text-text-tertiary flex-shrink-0" />
                   </button>
                 );
               })}
