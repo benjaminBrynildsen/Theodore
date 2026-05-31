@@ -9,6 +9,7 @@ import { sql, eq, desc, count, sum, gt, and, inArray, isNotNull, ne } from 'driz
 import { getAuth } from './auth.js';
 import { sendPushToTokens } from './push.js';
 import { sendToUser, getTemplate, setTemplate, DEFAULT_TEMPLATES, substituteVars, type EmailKind, APP_URL } from './email.js';
+import { getStripeClient } from './billing.js';
 
 // Must match the hashing in server/index.ts so the admin's own IP
 // resolves to the same prefix shown in the guest activity feed.
@@ -110,6 +111,39 @@ export async function getOverview(_req: Request, res: Response) {
 
     // Audio generations count
     const [{ value: totalAudioGens }] = await db.select({ value: count() }).from(audioGenerations);
+
+    // ========== Total Lifetime Revenue (Stripe) ==========
+    // Sum of every paid invoice ever. Catches churned subscribers too —
+    // MRR only counts active. Wrapped in try/catch so a Stripe outage
+    // can't break the overview response; UI shows '—' when null.
+    let totalRevenue: number | null = null;
+    let invoicesPaid: number | null = null;
+    try {
+      const stripe = await getStripeClient();
+      if (stripe) {
+        let totalCents = 0;
+        let invCount = 0;
+        let startingAfter: string | undefined = undefined;
+        // Cap pagination at 20 pages = 2000 invoices for safety.
+        for (let i = 0; i < 20; i++) {
+          const page: any = await stripe.invoices.list({
+            status: 'paid',
+            limit: 100,
+            ...(startingAfter ? { starting_after: startingAfter } : {}),
+          });
+          for (const inv of page.data || []) {
+            totalCents += inv.amount_paid || 0;
+            invCount += 1;
+          }
+          if (!page.has_more || !page.data?.length) break;
+          startingAfter = page.data[page.data.length - 1].id;
+        }
+        totalRevenue = Math.round(totalCents / 100 * 100) / 100; // cents → USD, 2dp
+        invoicesPaid = invCount;
+      }
+    } catch (e: any) {
+      console.warn('[Admin] failed to fetch total revenue from Stripe:', e?.message || e);
+    }
 
     // ========== Monthly Usage & Cost ==========
     const monthStart = new Date();
@@ -284,6 +318,8 @@ export async function getOverview(_req: Request, res: Response) {
       recentSignups,
       monthlySignups,
       mrr,
+      totalRevenue,
+      invoicesPaid,
       planBreakdown: planBreakdown.map(p => ({ plan: p.plan, count: p.count })),
       creditsByAction: creditsByAction.map(c => ({
         action: c.action,
