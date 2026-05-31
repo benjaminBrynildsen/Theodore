@@ -898,27 +898,41 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
           <div className="max-w-5xl mx-auto">
             <div className="text-xs text-text-tertiary mb-3">{usersList.total} total users</div>
             <div className="space-y-1">
-              {usersList.users.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => loadUserDetail(u.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl glass-pill hover:bg-white/60 transition-all text-left"
-                >
-                  <div className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center text-xs font-semibold text-text-tertiary">
-                    {(u.name || u.email)?.[0]?.toUpperCase() || '?'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-text-primary truncate">{u.name || u.email}</div>
-                    <div className="text-[11px] text-text-tertiary truncate">{u.email}</div>
-                  </div>
-                  <PlanBadge plan={u.plan} />
-                  <div className="text-right hidden sm:block">
-                    <div className="text-xs text-text-secondary">{u.creditsRemaining}/{u.creditsTotal}</div>
-                    <div className="text-[10px] text-text-tertiary">{timeAgo(u.createdAt)}</div>
-                  </div>
-                  <ChevronRight size={14} className="text-text-tertiary" />
-                </button>
-              ))}
+              {usersList.users.map((u) => {
+                // Show used/total instead of remaining/total — easier visual
+                // scan for engagement. Green tint when >75% used (engaged
+                // user about to hit the wall = high-value Dream Offer
+                // impression incoming).
+                const used = Math.max(0, (u.creditsTotal || 0) - (u.creditsRemaining || 0));
+                const usedPct = (u.creditsTotal || 0) > 0 ? used / u.creditsTotal : 0;
+                const isEngaged = usedPct > 0.75;
+                return (
+                  <button
+                    key={u.id}
+                    onClick={() => loadUserDetail(u.id)}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-left',
+                      isEngaged
+                        ? 'bg-emerald-100/70 hover:bg-emerald-100 border border-emerald-200/60'
+                        : 'glass-pill hover:bg-white/60',
+                    )}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-black/5 flex items-center justify-center text-xs font-semibold text-text-tertiary">
+                      {(u.name || u.email)?.[0]?.toUpperCase() || '?'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-text-primary truncate">{u.name || u.email}</div>
+                      <div className="text-[11px] text-text-tertiary truncate">{u.email}</div>
+                    </div>
+                    <PlanBadge plan={u.plan} />
+                    <div className="text-right hidden sm:block">
+                      <div className={cn('text-xs', isEngaged ? 'text-emerald-800 font-semibold' : 'text-text-secondary')}>{used}/{u.creditsTotal}</div>
+                      <div className="text-[10px] text-text-tertiary">{timeAgo(u.createdAt)}</div>
+                    </div>
+                    <ChevronRight size={14} className="text-text-tertiary" />
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
