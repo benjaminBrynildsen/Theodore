@@ -2468,6 +2468,12 @@ const PROMPT_EVENTS = [
   'upgrade_inline_shown', 'upgrade_signup_google', 'upgrade_signup_email', 'upgrade_checkout_redirect',
   // UpgradeModal — audio cap variant (7-day trial copy)
   'audio_cap_inline_shown', 'audio_cap_signup_google', 'audio_cap_signup_email', 'audio_cap_checkout_redirect',
+  // Dream Offer (relabeled generic upgrade — Author tier, printed book + audiobook)
+  'dream_offer_shown', 'dream_offer_checkout_redirect',
+  // Anchor A/B (Hormozi stacked vs Audible-flip) — visual block removed but
+  // the tracking still fires so we can revive if needed.
+  'upgrade_inline_shown_anchor_stacked', 'upgrade_checkout_redirect_anchor_stacked',
+  'upgrade_inline_shown_anchor_audible', 'upgrade_checkout_redirect_anchor_audible',
   // Pixel — CompleteRegistration / Subscribe / InitiateCheckout (pure outcome events)
   // Note: these come through the auto-tracker not as explicit click events; tracked for funnel context.
   // One-shot CTAs (no _shown, only click)
