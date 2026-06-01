@@ -971,13 +971,27 @@ export function AudioPlayerBar() {
               </div>
             ) : currentChapter ? (
               <>
-                <div className="text-sm font-medium truncate text-white">
-                  Ch. {currentChapter.number}: {currentChapter.title}
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-sm font-medium truncate text-white">
+                    Ch. {currentChapter.number}: {currentChapter.title}
+                  </span>
+                  {/* Subtle indicator that more scenes are still rendering in
+                      the background. The play/pause controls remain fully
+                      functional — this is a hint, not a loading-block. */}
+                  {generating && (
+                    <Loader2 size={11} className="animate-spin text-white/40 flex-shrink-0" />
+                  )}
                 </div>
                 <div className="text-[11px] text-white/50 truncate">
                   {project.title}
                   <span className="mx-1.5">·</span>
                   {formatTime(currentTime)} / {formatTime(duration || currentAudio?.durationEstimate || 0)}
+                  {generating && (
+                    <>
+                      <span className="mx-1.5">·</span>
+                      <span className="text-white/40">more rendering…</span>
+                    </>
+                  )}
                 </div>
               </>
             ) : null}
