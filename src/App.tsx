@@ -223,6 +223,43 @@ export default function App() {
     }
   }, [setShowUpgradeModal]);
 
+  // Handle ?project=…&chapter=… deeplink — used by the "audiobook-ready"
+  // email's "Open in Theodore" button. Server builds the URL in
+  // server/index.ts:2618 as `${APP_URL}/?project=X&chapter=Y`. Until now there
+  // was no client handler so the button was silently dead — landed users on
+  // the homepage with the params ignored. Wait for auth + projects to load,
+  // then open the target project + chapter and clean the URL.
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get('project');
+    const chapterId = params.get('chapter');
+    if (!projectId) return;
+    // Make sure the target project is in the user's loaded list before opening
+    // (otherwise activeProjectId points at nothing and ProjectView errors).
+    const projects = useStore.getState().projects;
+    if (projects.length === 0) return; // wait for project list to hydrate
+    const target = projects.find((p) => p.id === projectId);
+    if (!target) {
+      // Project not owned by this user OR not yet synced — strip params anyway
+      // so a refresh doesn't keep retrying.
+      const url = new URL(window.location.href);
+      url.searchParams.delete('project');
+      url.searchParams.delete('chapter');
+      window.history.replaceState({}, '', url.pathname + url.search);
+      return;
+    }
+    useStore.setState({ activeProjectId: projectId, currentView: 'project' });
+    if (chapterId) {
+      useStore.getState().setActiveChapter(chapterId);
+    }
+    jTrack('audiobook_deeplink_opened', { project_id: projectId, chapter_id: chapterId || null });
+    const url = new URL(window.location.href);
+    url.searchParams.delete('project');
+    url.searchParams.delete('chapter');
+    window.history.replaceState({}, '', url.pathname + url.search);
+  }, [user, useStore((s) => s.projects.length)]);
+
   // Handle Stripe billing redirect
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
