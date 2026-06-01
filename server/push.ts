@@ -31,22 +31,33 @@ export interface PushSendResult {
  * Sends an Expo push to an explicit set of tokens. Batches into Expo's 100-message
  * chunks and prunes tokens that come back as DeviceNotRegistered. Returns per-token
  * tickets so callers (e.g. the admin push tab) can show what landed and what didn't.
+ *
+ * `perToken` optionally overrides title/body/data on a per-token basis — used by
+ * the admin push tab to personalize "printed copy of {{bookTitle}}"-style hooks
+ * with each user's actual project. If a token is in the map but its overrides
+ * resolve to null, that token is dropped (e.g. user has no project to reference).
  */
 export async function sendPushToTokens(
   tokens: string[],
-  payload: { title: string; body: string; data?: Record<string, any> }
+  payload: { title: string; body: string; data?: Record<string, any> },
+  perToken?: Map<string, { title?: string; body?: string; data?: Record<string, any> } | null>,
 ): Promise<PushSendResult> {
   const unique = Array.from(new Set(tokens.filter(Boolean)));
-  if (unique.length === 0) return { sent: 0, pruned: 0, tickets: [] };
+  // Drop tokens whose personalization explicitly resolved to null (no book to hook on).
+  const filtered = perToken ? unique.filter((t) => perToken.get(t) !== null) : unique;
+  if (filtered.length === 0) return { sent: 0, pruned: 0, tickets: [] };
 
-  const messages: ExpoPushMessage[] = unique.map((to) => ({
-    to,
-    title: payload.title,
-    body: payload.body,
-    data: payload.data || {},
-    sound: 'default',
-    channelId: 'default',
-  }));
+  const messages: ExpoPushMessage[] = filtered.map((to) => {
+    const override = perToken?.get(to) || undefined;
+    return {
+      to,
+      title: override?.title ?? payload.title,
+      body: override?.body ?? payload.body,
+      data: override?.data ?? payload.data ?? {},
+      sound: 'default',
+      channelId: 'default',
+    };
+  });
 
   let sent = 0;
   const dead: string[] = [];

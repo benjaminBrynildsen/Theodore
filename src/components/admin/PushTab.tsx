@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, Send, RefreshCw, Smartphone, CheckCircle2, AlertCircle, Users as UsersIcon, Home, Compass, Settings, BookOpen, Headphones, Sparkles, Wand2, FileText } from 'lucide-react';
+import { Bell, Send, RefreshCw, Smartphone, CheckCircle2, AlertCircle, Users as UsersIcon, Home, Compass, Settings, BookOpen, Headphones, Sparkles, Wand2, FileText, Package } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const API = '/api/admin';
@@ -114,6 +114,15 @@ const PRESETS: Preset[] = [
     title: 'Theodore misses you',
     body: 'Your characters need their author. Two minutes is all it takes.',
     data: {},
+  },
+  {
+    id: 'printed-copy-hook',
+    label: 'Printed copy hook',
+    description: 'Personalized per user. Skips users with no project.',
+    icon: Package,
+    title: 'A printed copy of {{bookTitle}}',
+    body: 'What if your book was in your hands by next week? Tap to keep writing.',
+    data: { path: '/project/{{projectId}}' },
   },
 ];
 
@@ -286,6 +295,9 @@ export function PushTab() {
         </div>
         <div className="text-[11px] text-text-tertiary">
           Tap routing requires mobile build with the notification handler (lib/push.ts &middot; <code className="bg-black/5 px-1 rounded">attachNotificationTapHandler</code>). Older builds will just open the app.
+        </div>
+        <div className="text-[11px] text-text-tertiary">
+          Personalize per recipient with <code className="bg-black/5 px-1 rounded">{`{{bookTitle}}`}</code> and <code className="bg-black/5 px-1 rounded">{`{{projectId}}`}</code> — each user's most recent active project fills in. Users with no project are skipped.
         </div>
       </div>
 

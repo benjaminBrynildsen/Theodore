@@ -824,11 +824,79 @@ export async function sendAdminPush(req: Request, res: Response) {
       return res.json({ sent: 0, pruned: 0, tickets: [], note: 'No matching tokens.' });
     }
 
-    const result = await sendPushToTokens(tokens, {
-      title: title.trim(),
-      body: body.trim(),
-      data: data && typeof data === 'object' ? data : undefined,
-    });
+    // Template personalization — {{bookTitle}} and {{projectId}} expand to each
+    // recipient's most recent active project. Tokens belonging to users with no
+    // project are dropped (no hook to anchor the message on).
+    const rawTitle = title.trim();
+    const rawBody = body.trim();
+    const dataObj = data && typeof data === 'object' ? data : undefined;
+    const dataStr = dataObj ? JSON.stringify(dataObj) : '';
+    const needsPersonalization = /\{\{(bookTitle|projectId)\}\}/.test(`${rawTitle}\n${rawBody}\n${dataStr}`);
+
+    let perToken: Map<string, { title?: string; body?: string; data?: Record<string, any> } | null> | undefined;
+    let droppedNoProject = 0;
+
+    if (needsPersonalization) {
+      const ownerRows = await db
+        .select({ token: pushTokens.token, userId: pushTokens.userId })
+        .from(pushTokens)
+        .where(inArray(pushTokens.token, tokens));
+      const userIdToTokens = new Map<string, string[]>();
+      for (const row of ownerRows) {
+        const arr = userIdToTokens.get(row.userId) || [];
+        arr.push(row.token);
+        userIdToTokens.set(row.userId, arr);
+      }
+      const userIds = Array.from(userIdToTokens.keys());
+
+      // Most recent active project per user — sorted by createdAt desc, dedup
+      // by userId. status='active' filters out deleted/archived books.
+      const projectRows = userIds.length === 0 ? [] : await db
+        .select({ id: projects.id, title: projects.title, userId: projects.userId, createdAt: projects.createdAt })
+        .from(projects)
+        .where(and(inArray(projects.userId, userIds), eq(projects.status, 'active')))
+        .orderBy(desc(projects.createdAt));
+      const projectByUser = new Map<string, { id: string; title: string }>();
+      for (const p of projectRows) {
+        if (!projectByUser.has(p.userId)) projectByUser.set(p.userId, { id: p.id, title: p.title });
+      }
+
+      perToken = new Map();
+      const substitute = (s: string, vars: Record<string, string>) =>
+        s.replace(/\{\{(bookTitle|projectId)\}\}/g, (_m, k) => vars[k] ?? '');
+
+      for (const [userId, userTokens] of userIdToTokens.entries()) {
+        const proj = projectByUser.get(userId);
+        if (!proj) {
+          // No book → drop these tokens. Marking with `null` signals
+          // sendPushToTokens to skip them entirely.
+          droppedNoProject += userTokens.length;
+          for (const t of userTokens) perToken.set(t, null);
+          continue;
+        }
+        const vars = { bookTitle: proj.title || 'your book', projectId: proj.id };
+        const personalizedData = dataObj
+          ? JSON.parse(substitute(JSON.stringify(dataObj), vars))
+          : undefined;
+        const override = {
+          title: substitute(rawTitle, vars),
+          body: substitute(rawBody, vars),
+          data: personalizedData,
+        };
+        for (const t of userTokens) perToken.set(t, override);
+      }
+    }
+
+    const result = await sendPushToTokens(
+      tokens,
+      { title: rawTitle, body: rawBody, data: dataObj },
+      perToken,
+    );
+
+    if (droppedNoProject > 0) {
+      const baseNote = result.note ? `${result.note} · ` : '';
+      result.note = `${baseNote}${droppedNoProject} skipped (no project to reference)`;
+    }
     res.json(result);
   } catch (e: any) {
     console.error('[Admin] send push error:', e);
