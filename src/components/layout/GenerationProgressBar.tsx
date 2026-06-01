@@ -27,6 +27,26 @@ export function GenerationProgressBar() {
     return;
   }, [phase, end]);
 
+  // Countdown specifically for audio gen — chapter text already shows
+  // "X / Y words" so it doesn't need a timer. Audio's subtitle is a
+  // generic "Synthesizing…" which gives no sense of how long the wait
+  // will be, and the bounce-during-wait is the leak we're trying to fix.
+  // Mirrors the mobile bar's 64s timer.
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (kind === 'generate-audio' && startedAt === null) {
+      setStartedAt(Date.now());
+    } else if (kind !== 'generate-audio' && startedAt !== null) {
+      setStartedAt(null);
+    }
+  }, [kind, startedAt]);
+  useEffect(() => {
+    if (kind !== 'generate-audio' || phase === 'done') return;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [kind, phase]);
+
   if (!kind || hideAfterDone) return null;
 
   const displayPct =
@@ -56,6 +76,12 @@ export function GenerationProgressBar() {
       : subtitle;
 
   const isDone = phase === 'done';
+
+  const audioElapsedSec = kind === 'generate-audio' && startedAt !== null ? (now - startedAt) / 1000 : 0;
+  const audioRemainingSec = Math.max(0, 64 - audioElapsedSec);
+  const audioCountdown = kind === 'generate-audio' && !isDone
+    ? (audioRemainingSec > 0 ? `~${Math.ceil(audioRemainingSec)}s` : 'almost done')
+    : null;
 
   return (
     <div className="fixed top-12 sm:top-16 inset-x-0 z-[60] pointer-events-none flex justify-center px-3 animate-fade-in">
@@ -131,8 +157,15 @@ export function GenerationProgressBar() {
               <Loader2 size={18} className="animate-spin text-white/80 flex-shrink-0" />
             )}
             <div className="flex-1 min-w-0">
-              <div className="text-[11px] sm:text-sm font-semibold text-white truncate">
-                {verb} {label}
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="text-[11px] sm:text-sm font-semibold text-white truncate flex-1">
+                  {verb} {label}
+                </div>
+                {audioCountdown && (
+                  <div className="text-[11px] sm:text-xs font-semibold text-white/70 tabular-nums flex-shrink-0">
+                    {audioCountdown}
+                  </div>
+                )}
               </div>
               {displaySubtitle && (
                 <div className="text-[9px] sm:text-xs text-white/50 truncate mt-0.5">{displaySubtitle}</div>
