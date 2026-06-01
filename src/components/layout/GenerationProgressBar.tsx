@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Check } from 'lucide-react';
 import { useGenerationStore, type GenerationKind } from '../../store/generation';
+import { useAudioStore } from '../../store/audio';
 import { cn } from '../../lib/utils';
 
 /**
@@ -9,10 +10,17 @@ import { cn } from '../../lib/utils';
  */
 export function GenerationProgressBar() {
   const { kind, label, subtitle, progressPct, indeterminate, phase, end } = useGenerationStore();
+  const audioGenerating = useAudioStore((s) => s.generating);
   const [hideAfterDone, setHideAfterDone] = useState(false);
 
+  // For audio gen, the audio store's `generating` flag is the source of truth —
+  // it stays set through the entire multi-scene loop and only clears in the
+  // finally of generateAndPlay. Use it to keep the bar up through the whole
+  // gen, ignoring premature phase=done signals from intermediate paths.
+  const audioGenInFlight = kind === 'generate-audio' && !!audioGenerating;
+
   useEffect(() => {
-    if (phase === 'done') {
+    if (phase === 'done' && !audioGenInFlight) {
       setHideAfterDone(false);
       // Linger the "Complete" state for a beat so users actually see it —
       // 1.5s was short enough that people thought the bar had just vanished
@@ -25,7 +33,7 @@ export function GenerationProgressBar() {
     }
     setHideAfterDone(false);
     return;
-  }, [phase, end]);
+  }, [phase, end, audioGenInFlight]);
 
   // Countdown specifically for audio gen — chapter text already shows
   // "X / Y words" so it doesn't need a timer. Audio's subtitle is a
@@ -75,7 +83,9 @@ export function GenerationProgressBar() {
       ? 'Starting…'
       : subtitle;
 
-  const isDone = phase === 'done';
+  // While audio gen is still in flight (per audio store), suppress "done"
+  // visuals — the bar should look "in progress" until every scene lands.
+  const isDone = phase === 'done' && !audioGenInFlight;
 
   const audioElapsedSec = kind === 'generate-audio' && startedAt !== null ? (now - startedAt) / 1000 : 0;
   const audioRemainingSec = Math.max(0, 64 - audioElapsedSec);
