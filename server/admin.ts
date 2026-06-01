@@ -3001,6 +3001,139 @@ export async function getNoAudioCohort(req: Request, res: Response) {
   }
 }
 
+// GET /api/admin/audio-gen-bounce — measures the gen-wait bounce rate.
+//
+// Compares audio_auto_dispatched events (server started rendering audio) with
+// audio_play_started events (user actually heard playback) per user-chapter.
+// Users who hit dispatch but never play are the "bounced during gen wait"
+// cohort — the leak Ben's been worried about.
+//
+// Returns:
+// - cohort size + bounce rate (per-dispatch and per-user)
+// - time-to-play distribution (how long after dispatch users pressed play)
+// - median + p90 wait times
+//
+// ?days=N filters to events in the last N days. Defaults to 30.
+export async function getAudioGenBounce(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const daysParam = Number(req.query.days);
+    const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.floor(daysParam) : 30;
+
+    const excludeEmails = [
+      'benbrynildsen5757@gmail.com',
+      'ben@germaniabrewhaus.com',
+      'test@ben.com',
+      'wolfgangbrynildsen@gmail.com',
+      'ben@wilhelmcoldbrew.com',
+    ];
+    const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
+
+    const rows = await db.execute(sql`
+      WITH eligible_users AS (
+        SELECT id FROM users WHERE email <> ALL(${excludeLit}::text[])
+      ),
+      dispatches AS (
+        SELECT
+          data->>'user_id' AS user_id,
+          data->>'chapter_id' AS chapter_id,
+          MIN(created_at) AS dispatched_at
+        FROM journey_events
+        WHERE event = 'audio_auto_dispatched'
+          AND created_at > NOW() - (${days} || ' days')::interval
+          AND data->>'user_id' IN (SELECT id FROM eligible_users)
+          AND data->>'chapter_id' IS NOT NULL
+        GROUP BY 1, 2
+      ),
+      plays AS (
+        SELECT
+          data->>'user_id' AS user_id,
+          data->>'chapter_id' AS chapter_id,
+          MIN(created_at) AS played_at
+        FROM journey_events
+        WHERE event = 'audio_play_started'
+          AND data->>'user_id' IN (SELECT id FROM eligible_users)
+          AND data->>'chapter_id' IS NOT NULL
+        GROUP BY 1, 2
+      )
+      SELECT
+        d.user_id,
+        d.chapter_id,
+        d.dispatched_at,
+        p.played_at,
+        CASE WHEN p.played_at IS NULL THEN NULL
+             ELSE EXTRACT(EPOCH FROM (p.played_at - d.dispatched_at))
+        END AS wait_seconds
+      FROM dispatches d
+      LEFT JOIN plays p ON p.user_id = d.user_id AND p.chapter_id = d.chapter_id
+    `);
+
+    const data = rows.rows as Array<{
+      user_id: string;
+      chapter_id: string;
+      dispatched_at: string;
+      played_at: string | null;
+      wait_seconds: string | number | null;
+    }>;
+
+    const totalDispatches = data.length;
+    const played = data.filter((r) => r.played_at !== null);
+    const bounced = data.filter((r) => r.played_at === null);
+
+    const userDispatches = new Map<string, number>();
+    const userPlays = new Map<string, number>();
+    for (const r of data) {
+      userDispatches.set(r.user_id, (userDispatches.get(r.user_id) || 0) + 1);
+      if (r.played_at !== null) userPlays.set(r.user_id, (userPlays.get(r.user_id) || 0) + 1);
+    }
+    const usersWithDispatch = userDispatches.size;
+    const usersWithAnyPlay = userPlays.size;
+    const usersNoPlay = usersWithDispatch - usersWithAnyPlay;
+
+    const waitBuckets: Record<string, number> = {
+      '<5s': 0, '5–15s': 0, '15–30s': 0, '30–60s': 0,
+      '60–120s': 0, '2–5min': 0, '5–30min': 0, '30min–24h': 0, '>24h': 0,
+    };
+    const waitSecs: number[] = [];
+    for (const r of played) {
+      const s = Number(r.wait_seconds) || 0;
+      waitSecs.push(s);
+      if (s < 5) waitBuckets['<5s']++;
+      else if (s < 15) waitBuckets['5–15s']++;
+      else if (s < 30) waitBuckets['15–30s']++;
+      else if (s < 60) waitBuckets['30–60s']++;
+      else if (s < 120) waitBuckets['60–120s']++;
+      else if (s < 300) waitBuckets['2–5min']++;
+      else if (s < 1800) waitBuckets['5–30min']++;
+      else if (s < 86400) waitBuckets['30min–24h']++;
+      else waitBuckets['>24h']++;
+    }
+    waitSecs.sort((a, b) => a - b);
+    const medianWait = waitSecs.length ? waitSecs[Math.floor(waitSecs.length / 2)] : 0;
+    const p90Wait = waitSecs.length ? waitSecs[Math.floor(waitSecs.length * 0.9)] : 0;
+
+    res.json({
+      window_days: days,
+      total_dispatches: totalDispatches,
+      played_dispatches: played.length,
+      bounced_dispatches: bounced.length,
+      bounce_rate_per_dispatch: totalDispatches > 0 ? bounced.length / totalDispatches : 0,
+      users_with_dispatch: usersWithDispatch,
+      users_with_any_play: usersWithAnyPlay,
+      users_no_play_at_all: usersNoPlay,
+      user_bounce_rate: usersWithDispatch > 0 ? usersNoPlay / usersWithDispatch : 0,
+      median_wait_seconds: Math.round(medianWait * 10) / 10,
+      p90_wait_seconds: Math.round(p90Wait * 10) / 10,
+      wait_distribution: waitBuckets,
+    });
+  } catch (e: any) {
+    console.error('[Admin] audio-gen-bounce error:', e?.message || e, e?.stack);
+    res.status(500).json({ error: 'Internal server error', detail: e?.message });
+  }
+}
+
 // GET /api/admin/no-credits-cohort — users who signed up and spent ZERO credits.
 //
 // The deepest leak in the funnel: signed up, never used a single credit. Could
