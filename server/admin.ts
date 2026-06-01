@@ -392,11 +392,16 @@ export async function getUsers(req: Request, res: Response) {
     const userIds = rows.map((r) => r.id);
     const platformMap = new Map<string, string[]>();
     if (userIds.length > 0) {
+      // Build a PG text[] literal — `${jsArray}` via Drizzle's sql template
+      // doesn't always get the cast right (caused 500s on /admin/users when
+      // PG couldn't infer the array element type). The literal pattern
+      // matches the audio-gen-bounce endpoint and other admin queries.
+      const userIdsLit = `{${userIds.map((id) => `"${id.replace(/"/g, '\\"')}"`).join(',')}}`;
       const platformRows = await db.execute(sql`
         SELECT data->>'user_id' AS user_id,
                array_agg(DISTINCT platform) AS platforms
         FROM journey_events
-        WHERE data->>'user_id' = ANY(${userIds})
+        WHERE data->>'user_id' = ANY(${userIdsLit}::text[])
           AND platform IN ('web', 'ios', 'android')
         GROUP BY data->>'user_id'
       `);
