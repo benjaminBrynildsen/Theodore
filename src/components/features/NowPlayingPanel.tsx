@@ -363,14 +363,12 @@ export function NowPlayingPanel() {
           </button>
           <button
             onClick={() => {
-              if (currentChapterId) setPlaying(!playing);
+              if (currentChapterId) window.dispatchEvent(new CustomEvent('theodore:togglePlayback'));
             }}
-            disabled={!currentChapterId || !!generating}
+            disabled={!currentChapterId}
             className="w-10 h-10 rounded-full bg-text-primary text-text-inverse flex items-center justify-center hover:scale-105 disabled:opacity-40 transition-all shadow-md"
           >
-            {generating ? (
-              <Loader2 size={20} className="animate-spin" />
-            ) : playing ? (
+            {playing ? (
               <Pause size={20} />
             ) : (
               <Play size={20} className="ml-0.5" fill="currentColor" />
