@@ -99,6 +99,12 @@ export function AudioPlayerBar() {
   // the current scene's progress.
   const sceneStartOffsetRef = useRef(0);
   const pendingPlayRef = useRef<string | null>(null); // URL queued for play (iOS fallback)
+  // Tracks whether the user explicitly paused. Set true when the toggle
+  // handler pauses, false when they play again. Scene-completion auto-resume
+  // (lines ~626 / ~733) checks this so a freshly-rendered scene doesn't
+  // override an intentional pause — that was the bug behind "play button
+  // not pausing" on web.
+  const userPausedRef = useRef(false);
 
   // ========== Audio element setup (attach to hidden DOM <audio>) ==========
   useEffect(() => {
@@ -492,10 +498,12 @@ export function AudioPlayerBar() {
       if (!audio.src || audio.src === window.location.href) return;
 
       if (audio.paused) {
+        userPausedRef.current = false;
         audio.play().then(() => console.log('[AudioPlayer] Toggle play succeeded'))
           .catch((err) => console.error('[AudioPlayer] Toggle play failed:', err));
         setPlaying(true);
       } else {
+        userPausedRef.current = true;
         audio.pause();
         setPlaying(false);
       }
@@ -620,7 +628,10 @@ export function AudioPlayerBar() {
           // Only auto-play if nothing is currently playing — don't cut off
           // a chapter the user is already listening to.
           const alreadyPlaying = playing && !audio.paused && audio.currentTime > 0;
-          if (!alreadyPlaying) {
+          // ...and don't override an intentional user pause. Without this
+          // check, a scene that finishes rendering after the user hit pause
+          // would yank them back into playback ("pause button not working").
+          if (!alreadyPlaying && !userPausedRef.current) {
             audio.src = result.audioUrl;
             audio.load();
             audio.play().then(() => {
@@ -727,7 +738,10 @@ export function AudioPlayerBar() {
         const audio = audioRef.current;
         if (audio) {
           const alreadyPlaying = playing && !audio.paused && audio.currentTime > 0;
-          if (!alreadyPlaying) {
+          // Respect intentional user pause — see comment above the toggle
+          // handler. Without this, single-shot full-chapter audio completion
+          // would yank a paused listener back into playback.
+          if (!alreadyPlaying && !userPausedRef.current) {
             audio.src = result.audioUrl;
             audio.load();
             audio.play().then(() => {
@@ -841,15 +855,20 @@ export function AudioPlayerBar() {
 
       if (state.currentChapterId === chapterId) {
         if (state.playing) {
+          userPausedRef.current = true;
           audio.pause();
           setPlaying(false);
         } else {
+          userPausedRef.current = false;
           audio.play().catch(() => {});
           setPlaying(true);
         }
         return;
       }
 
+      // Switching to a different chapter — fresh playback intent, clear any
+      // prior pause flag so scene gen auto-resume works for this new session.
+      userPausedRef.current = false;
       sceneIndexRef.current = 0;
       sceneStartOffsetRef.current = 0;
       const url = cached.sceneAudioUrls?.[0] || cached.audioUrl;
