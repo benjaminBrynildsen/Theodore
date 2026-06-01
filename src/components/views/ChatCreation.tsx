@@ -1453,6 +1453,25 @@ ${childrensRule}`,
                     await (runSceneDecomposition as any)(ch1.id);
                   } catch { /* non-fatal */ }
                 }
+
+                // Auto-fire chapter 1 audio gen so the user hits the wow
+                // moment without a second click. Matches the pattern in
+                // ChapterView.tsx:430. Novels only (kids books skip audio).
+                // Same word-count gate (>= 200) as the regular path.
+                const ch1Words = ch1Prose.trim().split(/\s+/).filter(Boolean).length;
+                if (!isChildrens && ch1Words >= 200) {
+                  try {
+                    jTrack('audio_auto_dispatched', {
+                      chapter_id: ch1.id,
+                      chapter_number: 1,
+                      source: 'project_creation',
+                      words: ch1Words,
+                    });
+                    window.dispatchEvent(new CustomEvent('theodore:generateAudio', { detail: { chapterId: ch1.id } }));
+                  } catch (e) {
+                    console.warn('[Creation] Auto-audio dispatch failed (non-fatal):', e);
+                  }
+                }
               }
             }
           } catch (e) {
