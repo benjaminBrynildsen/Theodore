@@ -1557,8 +1557,12 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
           {project?.subtype !== 'childrens-book' && (chapter.prose?.trim() || generating) && (() => {
             const hasAudio = !!chapterAudio[chapter.id]?.audioUrl;
             const isAudioGen = audioGenerating === chapter.id;
+            // While audio is generating, hide this inline button — the global
+            // top progress bar (GenerationProgressBar) already shows the same
+            // status with a 64s countdown, so showing both is redundant noise.
+            // Re-renders as "▶ Play audiobook" once gen completes.
+            if (isAudioGen) return null;
             const handleListenClick = () => {
-              if (isAudioGen) return;
               if (hasAudio) playExistingAudio(chapter.id, 'chapter-bar');
               else triggerListen(chapter.id, 'chapter-bar');
             };
