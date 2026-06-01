@@ -962,7 +962,7 @@ export function AudioPlayerBar() {
 
           {/* Track info */}
           <div className="flex-1 min-w-0 mr-2">
-            {generating ? (
+            {generating && !currentAudio?.audioUrl ? (
               <div className="flex items-center gap-2">
                 <Loader2 size={14} className="animate-spin text-white/60" />
                 <span className="text-sm text-white/70 truncate">
@@ -988,7 +988,7 @@ export function AudioPlayerBar() {
           <div className="flex items-center gap-1">
             <button
               onClick={skipPrev}
-              disabled={chapterIdx <= 0 || !!generating}
+              disabled={chapterIdx <= 0 || (!!generating && !currentAudio?.audioUrl)}
               className="p-2 rounded-full text-white/60 hover:text-white disabled:opacity-30 transition-colors"
             >
               <SkipBack size={16} />
@@ -1008,7 +1008,7 @@ export function AudioPlayerBar() {
             </button>
             <button
               onClick={skipNext}
-              disabled={chapterIdx >= chapters.length - 1 || !!generating}
+              disabled={chapterIdx >= chapters.length - 1 || (!!generating && !currentAudio?.audioUrl)}
               className="p-2 rounded-full text-white/60 hover:text-white disabled:opacity-30 transition-colors"
             >
               <SkipForward size={16} />
