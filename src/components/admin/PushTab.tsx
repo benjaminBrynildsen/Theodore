@@ -118,11 +118,11 @@ const PRESETS: Preset[] = [
   {
     id: 'printed-copy-hook',
     label: 'Printed copy hook',
-    description: 'Personalized per user. Skips users with no project.',
+    description: 'Personalized · opens Dream Offer over their book',
     icon: Package,
     title: 'A printed copy of {{bookTitle}}',
-    body: 'What if your book was in your hands by next week? Tap to keep writing.',
-    data: { path: '/project/{{projectId}}' },
+    body: 'What if your book was in your hands by next week? Tap to see how.',
+    data: { action: 'open-upgrade', path: '/project/{{projectId}}' },
   },
 ];
 
