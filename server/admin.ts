@@ -386,9 +386,32 @@ export async function getUsers(req: Request, res: Response) {
       .limit(limit)
       .offset(offset);
 
+    // Per-user platforms — derived from journey_events.platform, keyed by the
+    // user_id stored in data jsonb. Only includes 'web' / 'ios' / 'android';
+    // returned as a deduped string array so the admin UI can render tags.
+    const userIds = rows.map((r) => r.id);
+    const platformMap = new Map<string, string[]>();
+    if (userIds.length > 0) {
+      const platformRows = await db.execute(sql`
+        SELECT data->>'user_id' AS user_id,
+               array_agg(DISTINCT platform) AS platforms
+        FROM journey_events
+        WHERE data->>'user_id' = ANY(${userIds})
+          AND platform IN ('web', 'ios', 'android')
+        GROUP BY data->>'user_id'
+      `);
+      for (const row of platformRows.rows as Array<{ user_id: string; platforms: string[] }>) {
+        platformMap.set(row.user_id, row.platforms || []);
+      }
+    }
+    const rowsWithPlatforms = rows.map((r) => ({
+      ...r,
+      platforms: platformMap.get(r.id) || [],
+    }));
+
     const [{ value: total }] = await db.select({ value: count() }).from(users);
 
-    res.json({ users: rows, total, limit, offset });
+    res.json({ users: rowsWithPlatforms, total, limit, offset });
   } catch (e: any) {
     console.error('[Admin] users error:', e);
     res.status(500).json({ error: 'Internal server error' });
@@ -455,8 +478,16 @@ export async function getUserDetail(req: Request, res: Response) {
         gt(creditTransactions.creditsUsed, 0),
       ));
 
+    const platformRows = await db.execute(sql`
+      SELECT array_agg(DISTINCT platform) AS platforms
+      FROM journey_events
+      WHERE data->>'user_id' = ${userId}
+        AND platform IN ('web', 'ios', 'android')
+    `);
+    const platforms: string[] = (platformRows.rows[0] as any)?.platforms || [];
+
     res.json({
-      user,
+      user: { ...user, platforms },
       projects: userProjects,
       recentTransactions: recentTx,
       totalCreditsUsed: Number(totalUsed) || 0,

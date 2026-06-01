@@ -70,6 +70,7 @@ interface UserRow {
   stripeSubscriptionStatus: string | null;
   createdAt: string;
   updatedAt: string;
+  platforms?: string[];
 }
 
 interface ActivityRow {
@@ -112,7 +113,7 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 interface UserDetail {
-  user: UserRow & { stripeCustomerId: string | null; stripeSubscriptionId: string | null; stripeCancelAtPeriodEnd: boolean };
+  user: UserRow & { stripeCustomerId: string | null; stripeSubscriptionId: string | null; stripeCancelAtPeriodEnd: boolean; platforms?: string[] };
   projects: { id: string; title: string; type: string; status: string; createdAt: string }[];
   recentTransactions: any[];
   totalCreditsUsed: number;
@@ -188,6 +189,36 @@ function PlanBadge({ plan }: { plan: string }) {
     <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider', PLAN_COLORS[plan] || PLAN_COLORS.free)}>
       {PLAN_LABELS[plan] || plan}
     </span>
+  );
+}
+
+const PLATFORM_COLORS: Record<string, string> = {
+  web: 'bg-sky-100 text-sky-700',
+  ios: 'bg-zinc-200 text-zinc-800',
+  android: 'bg-green-100 text-green-700',
+};
+const PLATFORM_LABELS: Record<string, string> = {
+  web: 'Web',
+  ios: 'iOS',
+  android: 'Android',
+};
+
+function PlatformBadges({ platforms }: { platforms?: string[] }) {
+  if (!platforms || platforms.length === 0) return null;
+  // Stable order: web, ios, android.
+  const order = ['web', 'ios', 'android'];
+  const sorted = [...platforms].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  return (
+    <>
+      {sorted.map((p) => (
+        <span
+          key={p}
+          className={cn('px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider', PLATFORM_COLORS[p] || 'bg-gray-100 text-gray-600')}
+        >
+          {PLATFORM_LABELS[p] || p}
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -940,6 +971,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="text-sm font-medium text-text-primary truncate">{u.name || u.email}</span>
                         <PlanBadge plan={u.plan} />
+                        <PlatformBadges platforms={u.platforms} />
                       </div>
                       <div className="text-[11px] text-text-tertiary truncate">{u.email}</div>
                     </div>
@@ -974,7 +1006,10 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                   <div className="text-sm text-text-tertiary">{userDetail.user.email}</div>
                   <div className="text-[11px] text-text-tertiary mt-1">Joined {formatDate(userDetail.user.createdAt)}</div>
                 </div>
-                <PlanBadge plan={userDetail.user.plan} />
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <PlanBadge plan={userDetail.user.plan} />
+                  <PlatformBadges platforms={userDetail.user.platforms} />
+                </div>
               </div>
 
               {(() => {

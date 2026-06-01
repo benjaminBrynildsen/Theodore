@@ -39,7 +39,8 @@ export function GenerationProgressBar() {
   // "X / Y words" so it doesn't need a timer. Audio's subtitle is a
   // generic "Synthesizing…" which gives no sense of how long the wait
   // will be, and the bounce-during-wait is the leak we're trying to fix.
-  // Mirrors the mobile bar's 64s timer.
+  // 98s mirrors the mobile bar and is calibrated to median real wait
+  // (~84s) plus a small buffer, so the countdown doesn't lie.
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState<number>(() => Date.now());
   useEffect(() => {
@@ -88,7 +89,7 @@ export function GenerationProgressBar() {
   const isDone = phase === 'done' && !audioGenInFlight;
 
   const audioElapsedSec = kind === 'generate-audio' && startedAt !== null ? (now - startedAt) / 1000 : 0;
-  const audioRemainingSec = Math.max(0, 64 - audioElapsedSec);
+  const audioRemainingSec = Math.max(0, 98 - audioElapsedSec);
   const audioCountdown = kind === 'generate-audio' && !isDone
     ? (audioRemainingSec > 0 ? `~${Math.ceil(audioRemainingSec)}s` : 'almost done')
     : null;
