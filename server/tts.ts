@@ -706,11 +706,12 @@ function buildChapterAnnouncement(
         : `Chapter ${number}. (break) (break) (break) (break) `;
     case 'grok':
       // Grok-native pacing. STRICTLY one tag per slot, NEVER adjacent.
-      // Any stack — same tag or mixed — gets read aloud as "a pause" /
-      // "a long pause" by Grok. injectPauseTags will add a single [pause]
-      // on the \n\n before prose, so we don't need a trailing tag here.
+      // No pause between number and title (Ben prefers it to read as one
+      // phrase, e.g. "Chapter 7. Face to Face."). The trailing \n\n
+      // triggers injectPauseTags's paragraph-break rule which inserts a
+      // single [pause] before the first prose line.
       return t
-        ? `Chapter ${number}. [long-pause] ${t}.\n\n`
+        ? `Chapter ${number}. ${t}.\n\n`
         : `Chapter ${number}.\n\n`;
     case 'openai':
       return t
