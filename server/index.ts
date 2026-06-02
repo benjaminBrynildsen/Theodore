@@ -32,6 +32,7 @@ import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_V
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, dumpProjectChapters, getReferrals, getConversionStats, getPromptsFunnel, getEngagementFunnel, getNoAudioCohort, getPlaybackFunnel, getNoCreditsCohort, getAudioGenBounce, getChapterTruncation } from './admin.js';
 import { readReferrer, writeReferrer, clearReferrer, refResolvesToRealUser } from './referrer.js';
 import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.js';
+import { sendPushToUser } from './push.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
@@ -2604,8 +2605,13 @@ async function runTTSJob(jobId: string) {
     });
     console.log(`[TTS] Job ${jobId}: Complete → ${result.audioUrl}`);
 
-    // Audiobook-ready email — chapter-level audio only (skip free-sample one-offs
-    // and scene-level renders so the listener doesn't get spammed mid-flow).
+    // Audiobook-ready notification — chapter-level audio only (skip free-sample
+    // one-offs and scene-level renders so the listener doesn't get spammed
+    // mid-flow). Prefer push to the mobile device when the user has registered
+    // tokens; iOS shows the banner if backgrounded, mobile handler suppresses
+    // it when the app is foregrounded so users staring at the screen don't
+    // get spammed with what they can see. Falls back to email for users with
+    // no registered push tokens (web-only users).
     if (row.userId && !row.isGuest && !spec.isFreeAudioSample && !spec.chapterId.startsWith('scene-')) {
       void (async () => {
         try {
@@ -2614,15 +2620,35 @@ async function runTTSJob(jobId: string) {
           const [ch] = await db.select({ title: chapters.title, projectId: chapters.projectId })
             .from(chapters).where(eq(chapters.id, spec.chapterId)).limit(1);
           if (!ch) return;
-          const baseUrl = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, '') : 'https://theodore.tools';
-          const deepLink = `${baseUrl}/?project=${encodeURIComponent(ch.projectId)}&chapter=${encodeURIComponent(spec.chapterId)}`;
-          await sendAudiobookReady({
-            user: { id: u.id, email: u.email, name: u.name, settings: u.settings },
-            chapterTitle: spec.chapterTitle || ch.title || 'your chapter',
-            deepLink,
-          });
+          const chapterTitle = spec.chapterTitle || ch.title || 'your chapter';
+
+          // Check for any registered push tokens. Even one means mobile-app
+          // user — prefer push over email so they're not getting both.
+          const tokens = await db.select({ token: pushTokens.token })
+            .from(pushTokens)
+            .where(eq(pushTokens.userId, row.userId!))
+            .limit(1);
+
+          if (tokens.length > 0) {
+            await sendPushToUser(row.userId!, {
+              title: '🎧 Audio ready',
+              body: `“${chapterTitle}” is ready to listen.`,
+              data: {
+                type: 'audio-ready',
+                path: `/project/${ch.projectId}/chapter/${spec.chapterId}`,
+              },
+            });
+          } else {
+            const baseUrl = process.env.APP_URL ? process.env.APP_URL.replace(/\/$/, '') : 'https://theodore.tools';
+            const deepLink = `${baseUrl}/?project=${encodeURIComponent(ch.projectId)}&chapter=${encodeURIComponent(spec.chapterId)}`;
+            await sendAudiobookReady({
+              user: { id: u.id, email: u.email, name: u.name, settings: u.settings },
+              chapterTitle,
+              deepLink,
+            });
+          }
         } catch (err: any) {
-          console.warn('[email/audiobook-ready] send failed', err?.message || err);
+          console.warn('[audiobook-ready] send failed', err?.message || err);
         }
       })();
     }
