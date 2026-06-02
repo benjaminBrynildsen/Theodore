@@ -43,23 +43,23 @@ const WRAP_CUES: { re: RegExp; tag: string }[] = [
 // Inline action cues attached to the spoken line. Inserted as `[tag]` after
 // the closing quote so the expression plays out as a beat following the line.
 //
-// v6.5 (2026-06-02): breath/inhale/exhale come back but with a `tight: true`
-// flag. Tight cues only fire when the trigger word is in the IMMEDIATE
-// attribution clause (first ~40 chars after the closing quote — the
-// "said X" zone). The wider 80-char-before + 120-char-after window for
-// laugh/sigh/etc. stays the same.
+// v6.6 (2026-06-02): ALL inline cues are now `tight`. Previously, the wider
+// 80-char-before + 120-char-after window picked up cue words in the NARRATION
+// before the quote — e.g. "He laughed—a dry, bitter sound. 'Stop.'" injected
+// a [laugh] at the end of "Stop", so you'd hear: narrator says "He laughed"
+// (laugh #1, from expressive reading) → character says "Stop" → [laugh] tag
+// fires (laugh #2). Two laughs for one description.
 //
-// v6.4 removed these entirely after they fired on every dialogue line
-// because their trigger words ("breathed", "drew a breath", "gasped"...)
-// appear in normal narration constantly. v6.5 puts them back where they
-// belong — only when explicitly attributed to the speaker.
+// Tight = cue word must be in the IMMEDIATE attribution clause (first ~40
+// chars after the closing quote). Catches "'Why?' she laughed." correctly
+// (cue is in the attribution), skips "She laughed. 'Why?'" (cue is in
+// preceding narration the narrator already voices).
 const INLINE_CUES: { re: RegExp; tag: string; tight?: boolean }[] = [
-  { re: /\bchuckl(ed|ing|es)?\b/i, tag: 'chuckle' },
-  { re: /\bgiggl(ed|ing|es)?\b/i, tag: 'giggle' },
-  { re: /\blaugh(ed|ing|s|ter)?\b/i, tag: 'laugh' },
-  { re: /\bsigh(ed|ing|s)?\b/i, tag: 'sigh' },
-  { re: /\b(sob(bed|bing|s)?|cri(ed|es)|cry(ing)?|weep(ing|ed|s)?|tearful(ly)?)\b/i, tag: 'cry' },
-  // Breath-class cues — tight attribution required.
+  { re: /\bchuckl(ed|ing|es)?\b/i, tag: 'chuckle', tight: true },
+  { re: /\bgiggl(ed|ing|es)?\b/i, tag: 'giggle', tight: true },
+  { re: /\blaugh(ed|ing|s|ter)?\b/i, tag: 'laugh', tight: true },
+  { re: /\bsigh(ed|ing|s)?\b/i, tag: 'sigh', tight: true },
+  { re: /\b(sob(bed|bing|s)?|cri(ed|es)|cry(ing)?|weep(ing|ed|s)?|tearful(ly)?)\b/i, tag: 'cry', tight: true },
   { re: /\b(exhal(ed|ing|es)?|breathed out)\b/i, tag: 'exhale', tight: true },
   { re: /\b(inhal(ed|ing|es)?|breathed in|drew (a |in a )?breath)\b/i, tag: 'inhale', tight: true },
   { re: /\b(breath caught|caught (her|his|their|its) breath|sharp breath|gasped|gasping)\b/i, tag: 'breath', tight: true },
