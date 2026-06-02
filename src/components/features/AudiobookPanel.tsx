@@ -57,12 +57,13 @@ const OPENAI_TTS_VOICES = [
 // The hex-ID voices come from xAI's expanded library — English-speaking
 // only, grouped by accent so users can pick the regional flavor.
 const GROK_VOICES = [
-  // Multilingual flagship voices
+  // Multilingual flagship voices — Leo first (default), Benny second.
+  { id: 'grok:leo', name: 'Leo', desc: 'Authoritative', gender: 'male' },
+  { id: 'grok:mpvhyvvmvvsv', name: 'Benny', desc: 'New voice', gender: 'male' },
   { id: 'grok:eve', name: 'Eve', desc: 'Energetic & bright', gender: 'female' },
   { id: 'grok:ara', name: 'Ara', desc: 'Warm & inviting', gender: 'female' },
   { id: 'grok:rex', name: 'Rex', desc: 'Confident & clear', gender: 'male' },
   { id: 'grok:sal', name: 'Sal', desc: 'Smooth & grounded', gender: 'male' },
-  { id: 'grok:leo', name: 'Leo', desc: 'Authoritative', gender: 'male' },
   // American English
   { id: 'grok:6a41d324', name: 'Liam', desc: 'American · steady', gender: 'male' },
   { id: 'grok:d11249e6', name: 'Emma', desc: 'American · mature & wise', gender: 'female' },
@@ -80,8 +81,6 @@ const GROK_VOICES = [
   { id: 'grok:78a495fdbb39', name: 'James', desc: 'English · youthful', gender: 'male' },
   { id: 'grok:f8cf5c2c78d4', name: 'Grace', desc: 'English · young & bright', gender: 'female' },
   { id: 'grok:79f3a8b96d43', name: 'Claire', desc: 'English · poised', gender: 'female' },
-  // Newly added 2026-06-02 — rename + set gender after previewing.
-  { id: 'grok:mpvhyvvmvvsv', name: 'Benny', desc: 'New voice', gender: 'male' },
 ] as const;
 
 const FISH_AUDIO_VOICES = [

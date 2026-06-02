@@ -293,6 +293,7 @@ export interface GrokVoiceInfo {
 //   - src/lib/character-voices.ts → GROK_VOICE_META
 export const GROK_VOICES: GrokVoiceInfo[] = [
   { id: 'grok:leo', voiceId: 'leo', name: 'Leo', desc: 'Authoritative · default', gender: 'male', accent: 'multilingual' },
+  { id: 'grok:mpvhyvvmvvsv', voiceId: 'mpvhyvvmvvsv', name: 'Benny', desc: 'New voice', gender: 'male', accent: 'en' },
   { id: 'grok:sal', voiceId: 'sal', name: 'Sal', desc: 'Smooth & grounded', gender: 'male', accent: 'multilingual' },
   { id: 'grok:rex', voiceId: 'rex', name: 'Rex', desc: 'Confident & clear', gender: 'male', accent: 'multilingual' },
   { id: 'grok:ara', voiceId: 'ara', name: 'Ara', desc: 'Warm & inviting', gender: 'female', accent: 'multilingual' },
@@ -309,8 +310,6 @@ export const GROK_VOICES: GrokVoiceInfo[] = [
   { id: 'grok:78a495fdbb39', voiceId: '78a495fdbb39', name: 'James', desc: 'English · youthful', gender: 'male', accent: 'en' },
   { id: 'grok:f8cf5c2c78d4', voiceId: 'f8cf5c2c78d4', name: 'Grace', desc: 'English · young & bright', gender: 'female', accent: 'en' },
   { id: 'grok:79f3a8b96d43', voiceId: '79f3a8b96d43', name: 'Claire', desc: 'English · poised', gender: 'female', accent: 'en' },
-  // Newly added 2026-06-02 — rename + set gender/accent after previewing.
-  { id: 'grok:mpvhyvvmvvsv', voiceId: 'mpvhyvvmvvsv', name: 'Benny', desc: 'New voice', gender: 'male', accent: 'en' },
 ];
 
 const GROK_VALID_VOICES = new Set(GROK_VOICES.map(v => v.voiceId));
