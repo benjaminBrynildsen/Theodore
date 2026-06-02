@@ -561,12 +561,18 @@ export function AudioPlayerBar() {
       console.info(`[AudioPlayer] ${allScenes.length - scenes.length} empty scenes on chapter ${chapterId}; using chapter.prose to avoid dropped content`);
     }
 
+    // Word count for the countdown estimate (0.08s/word). Sum scene prose
+    // when iterating scenes; fall back to whole chapter.prose otherwise.
+    const audioWordCount = iterateScenes
+      ? scenes.reduce((n, s) => n + (s.prose?.trim() ? s.prose.trim().split(/\s+/).length : 0), 0)
+      : (chapter.prose?.trim() ? chapter.prose.trim().split(/\s+/).length : 0);
     useGenerationStore.getState().start({
       kind: 'generate-audio',
       label: `Ch. ${chapter.number}${chapter.title ? `: ${chapter.title}` : ''}`,
       subtitle: iterateScenes ? `Generating ${scenes.length} scenes…` : 'Generating audio…',
       // TTS server progress is unreliable; show indeterminate motion.
       indeterminate: true,
+      targetWords: audioWordCount > 0 ? audioWordCount : undefined,
     });
 
     try {

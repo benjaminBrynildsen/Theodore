@@ -9,7 +9,7 @@ import { cn } from '../../lib/utils';
  * glow border. Sits at the top of the viewport below TopBar.
  */
 export function GenerationProgressBar() {
-  const { kind, label, subtitle, progressPct, indeterminate, phase, end } = useGenerationStore();
+  const { kind, label, subtitle, progressPct, indeterminate, phase, end, targetWords } = useGenerationStore();
   const audioGenerating = useAudioStore((s) => s.generating);
   const [hideAfterDone, setHideAfterDone] = useState(false);
 
@@ -89,7 +89,12 @@ export function GenerationProgressBar() {
   const isDone = phase === 'done' && !audioGenInFlight;
 
   const audioElapsedSec = kind === 'generate-audio' && startedAt !== null ? (now - startedAt) / 1000 : 0;
-  const audioRemainingSec = Math.max(0, 98 - audioElapsedSec);
+  // Word-based estimate: 0.08s per word (e.g. 1800 words → 144s). Falls
+  // back to a fixed 98s when we don't know the word count.
+  const audioEstimatedSec = kind === 'generate-audio' && targetWords && targetWords > 0
+    ? targetWords * 0.08
+    : 98;
+  const audioRemainingSec = Math.max(0, audioEstimatedSec - audioElapsedSec);
   const audioCountdown = kind === 'generate-audio' && !isDone
     ? (audioRemainingSec > 0 ? `~${Math.ceil(audioRemainingSec)}s` : 'almost done')
     : null;

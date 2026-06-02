@@ -27,12 +27,17 @@ interface GenerationState {
   // claiming a real percentage. Used when we have no good signal.
   indeterminate: boolean;
   phase: GenerationPhase;
+  // Optional total word count for the in-flight operation. The progress bar's
+  // audio-gen countdown uses this to estimate remaining time at 0.08s/word
+  // (~144s for 1800 words). Falls back to a fixed estimate when null.
+  targetWords: number | null;
 
   start: (params: {
     kind: GenerationKind;
     label: string;
     subtitle?: string;
     indeterminate?: boolean;
+    targetWords?: number;
   }) => void;
   setProgress: (pct: number, subtitle?: string) => void;
   setSubtitle: (subtitle: string) => void;
@@ -47,9 +52,10 @@ export const useGenerationStore = create<GenerationState>((set) => ({
   progressPct: 0,
   indeterminate: false,
   phase: 'starting',
+  targetWords: null,
 
-  start: ({ kind, label, subtitle = '', indeterminate = false }) =>
-    set({ kind, label, subtitle, progressPct: 0, indeterminate, phase: 'starting' }),
+  start: ({ kind, label, subtitle = '', indeterminate = false, targetWords }) =>
+    set({ kind, label, subtitle, progressPct: 0, indeterminate, phase: 'starting', targetWords: targetWords ?? null }),
 
   // Same-value guard so a flood of equal-progress updates doesn't churn subscribers.
   setProgress: (pct, subtitle) =>
@@ -72,5 +78,5 @@ export const useGenerationStore = create<GenerationState>((set) => ({
   setPhase: (phase) => set({ phase }),
 
   end: () =>
-    set({ kind: null, label: '', subtitle: '', progressPct: 0, indeterminate: false, phase: 'starting' }),
+    set({ kind: null, label: '', subtitle: '', progressPct: 0, indeterminate: false, phase: 'starting', targetWords: null }),
 }));
