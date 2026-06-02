@@ -140,8 +140,10 @@ export function injectPauseTags(prose: string): string {
   // 0b. Scene breaks — 2× long-pause.
   r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `\n\n${LONG_PAUSE_2}\n\n`);
 
-  // 1. Narration → dialogue: [breath] (audible inhale before speech).
-  r = r.replace(/([.!?])\s+(["“])/g, '$1 [breath] $2');
+  // 1. Narration → dialogue — REMOVED (v6.1). The [breath] before the
+  // opening quote was cutting off the narrative rhythm — readers expect
+  // dialogue to land on the heels of its setup, not after a beat.
+  // Punctuation alone handles the transition.
 
   // 2. Dialogue → narration: 2× pause.
   r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, `$1 ${PAUSE_2} $2`);

@@ -24,7 +24,7 @@ v6 (2026-06-02): xAI's docs explicitly say "Combine tags with punctuation — pr
 |---|---|---|---|
 | 1 | Paragraph break (`\n\n+`) | `nl(10) + — + nl(10)` | `[pause]` × 2 |
 | 2 | Sentence boundary | `snl(8)` | (dropped — punctuation only) |
-| 3 | Narration → dialogue | `nl(10)` before quote | `[breath]` × 1 before quote |
+| 3 | Narration → dialogue | `nl(10)` before quote | (removed v6.1 — cut rhythm) |
 | 4 | Dialogue → narration | `nl(10)` after quote | `[pause]` × 2 after quote |
 | 5 | Speaker change (back-and-forth) | (handled by #3+#4) | `[breath]` × 1 appended to outgoing segment ([tts.ts:1746](../server/tts.ts)) |
 | 6 | Em-dash (`\s*—\s*`) | `nl(8) + — + nl(8)` | `[pause]` × 2 after |
