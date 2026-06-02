@@ -42,15 +42,20 @@ const WRAP_CUES: { re: RegExp; tag: string }[] = [
 
 // Inline action cues attached to the spoken line. Inserted as `[tag]` after
 // the closing quote so the expression plays out as a beat following the line.
+//
+// v6.4 (2026-06-02): removed [breath], [inhale], [exhale]. Their trigger
+// words ("breathed", "inhaled", "drew a breath", "gasped", "breath caught")
+// appear in basically every dialogue paragraph in normal fiction prose, so
+// nearly every dialogue line was getting a breath sound attached. Ben heard
+// "every bit of dialogue" had too much breathing. Speech-character sounds
+// (laugh, chuckle, giggle, sigh, cry) are kept — they're characterful, not
+// raw breath.
 const INLINE_CUES: { re: RegExp; tag: string }[] = [
   { re: /\bchuckl(ed|ing|es)?\b/i, tag: 'chuckle' },
   { re: /\bgiggl(ed|ing|es)?\b/i, tag: 'giggle' },
   { re: /\blaugh(ed|ing|s|ter)?\b/i, tag: 'laugh' },
   { re: /\bsigh(ed|ing|s)?\b/i, tag: 'sigh' },
   { re: /\b(sob(bed|bing|s)?|cri(ed|es)|cry(ing)?|weep(ing|ed|s)?|tearful(ly)?)\b/i, tag: 'cry' },
-  { re: /\b(exhal(ed|ing|es)?|breathed out)\b/i, tag: 'exhale' },
-  { re: /\b(inhal(ed|ing|es)?|breathed in|drew (a |in a )?breath)\b/i, tag: 'inhale' },
-  { re: /\b(breath caught|caught (her|his|their|its) breath|sharp breath|gasped|gasping)\b/i, tag: 'breath' },
 ];
 
 /**

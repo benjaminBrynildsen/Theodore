@@ -1768,10 +1768,11 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         let speakable = stripNonXaiBrackets(seg.text).trim();
         const next = speechSegs[idx + 1];
         if (next && next.voice && next.voice !== seg.voice) {
-          // Trailing breath at end-of-segment before voice change. v6:
-          // [breath] reads as natural conversational handoff (audible
-          // inhale) rather than awkward silence between speakers.
-          speakable = `${speakable} [breath]`;
+          // Trailing pause at end-of-segment before voice change. v6.4:
+          // reverted from [breath] back to [pause] — the breath fired on
+          // every speaker swap, which in dialogue-heavy passages with
+          // rapid back-and-forth sounded like everyone was panting.
+          speakable = `${speakable} [pause]`;
         }
         const buf = await callGrokTTS(speakable, seg.voice);
         completed++;
