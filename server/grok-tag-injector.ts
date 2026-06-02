@@ -131,38 +131,36 @@ export function injectPauseTags(prose: string): string {
   // beats audible. Switched dialogue/speaker-change transitions to
   // [breath] for a more natural conversational rhythm.
 
-  const PAUSE_2 = '[pause] [pause]';
-  // v6.2: NEVER stack [long-pause] — Grok reads stacked occurrences as the
-  // literal phrase "a long pause" (same failure mode as v3/v4). For longer
-  // beats, mix one [long-pause] with a trailing [pause] so the tags are
-  // different (no stacking violation).
-  const LONG_PAUSE_PLUS = '[long-pause] [pause]';
+  // v6.3: STRICTLY one tag per location, NEVER adjacent. Any stack (same
+  // tag or mixed) breaks Grok — it renders the cluster as the literal
+  // phrase ("a pause" / "a long pause" out loud). Per xAI's pattern,
+  // tags should be combined with PUNCTUATION, not with each other.
 
-  // 0a. Chapter intro — em-dash + ≥4 newlines + capital. Single [long-pause]
-  // followed by [pause] for extra duration without stacking same tag.
-  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, `\n\n${LONG_PAUSE_PLUS}\n\n`);
+  // 0a. Chapter intro — em-dash + ≥4 newlines + capital. Replace with a
+  // single [long-pause] and CONSUME the surrounding newlines so the
+  // paragraph-break rule below can't add an adjacent [pause].
+  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, ' [long-pause] ');
 
-  // 0b. Scene breaks — 1× long-pause + 1× pause.
-  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `\n\n${LONG_PAUSE_PLUS}\n\n`);
+  // 0b. Scene breaks — single [long-pause], surrounding newlines consumed.
+  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, ' [long-pause] ');
 
-  // 1. Narration → dialogue — REMOVED (v6.1). The [breath] before the
-  // opening quote was cutting off the narrative rhythm — readers expect
-  // dialogue to land on the heels of its setup, not after a beat.
-  // Punctuation alone handles the transition.
+  // 1. Narration → dialogue — REMOVED (v6.1).
 
-  // 2. Dialogue → narration: 2× pause.
-  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, `$1 ${PAUSE_2} $2`);
+  // 2. Dialogue → narration: single [pause].
+  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, '$1 [pause] $2');
 
-  // 3. Paragraph breaks: 2× pause.
-  r = r.replace(/\n\n+/g, `\n\n${PAUSE_2}\n\n`);
+  // 3. Paragraph breaks: single [pause]. Surrounding newlines preserved
+  // since this is the standard prose-flow rule. Steps 0a/0b above
+  // already consumed their newlines so they can't compound with this.
+  r = r.replace(/\n\n+/g, '\n\n[pause]\n\n');
 
   // 4. Sentence boundaries — DROPPED. Rely on `.` punctuation alone.
   // (This was the highest-density tag location and most likely culprit
   // for cluster confusion. xAI docs explicitly recommend punctuation
   // over tags here.)
 
-  // 5. Em-dash pauses: 2× pause.
-  r = r.replace(/\s*—\s*/g, ` — ${PAUSE_2} `);
+  // 5. Em-dash pauses: single [pause].
+  r = r.replace(/\s*—\s*/g, ' — [pause] ');
 
   // 6. Ellipsis: single [long-pause], with literal dots stripped.
   r = r.replace(/\.{3}/g, ` [long-pause] `);

@@ -705,13 +705,13 @@ function buildChapterAnnouncement(
         ? `Chapter ${number}. (break) (break) (break) ${t}. (break) (break) (break) (break) `
         : `Chapter ${number}. (break) (break) (break) (break) `;
     case 'grok':
-      // Grok-native pacing. Single [long-pause] between title parts. For
-      // the longer beat before prose, mix [long-pause] + [pause] — never
-      // stack the same tag. Grok renders stacked [long-pause] as the
-      // literal phrase "a long pause" out loud (same failure mode as v4).
+      // Grok-native pacing. STRICTLY one tag per slot, NEVER adjacent.
+      // Any stack — same tag or mixed — gets read aloud as "a pause" /
+      // "a long pause" by Grok. injectPauseTags will add a single [pause]
+      // on the \n\n before prose, so we don't need a trailing tag here.
       return t
-        ? `Chapter ${number}. [long-pause] ${t}. [long-pause] [pause]\n\n`
-        : `Chapter ${number}. [long-pause] [pause]\n\n`;
+        ? `Chapter ${number}. [long-pause] ${t}.\n\n`
+        : `Chapter ${number}.\n\n`;
     case 'openai':
       return t
         ? `Chapter ${number}.\n\n\n\n\n\n\n—\n\n\n\n\n\n\n${t}.\n\n\n\n\n\n\n—\n\n\n\n\n\n\n\n`
