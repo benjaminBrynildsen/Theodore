@@ -92,6 +92,65 @@ function detectCues(before: string, after: string): CueMatch {
 }
 
 /**
+ * Inject xAI pause tags ([pause], [long-pause]) at natural prose
+ * boundaries. Pure function. Idempotent-ish — calling twice would
+ * double-up tags, so only call once per chapter at the whole-prose level
+ * before parseDialogue splits it. See docs/tts-pauses.md for the playbook.
+ *
+ * Boundary → tag mapping mirrors the newline scheme in addTTSPacing:
+ *   paragraph break       → [long-pause]
+ *   sentence end          → [pause]
+ *   narration → dialogue  → [pause] before the opening quote
+ *   dialogue → narration  → [pause] after the closing quote
+ *   em-dash mid-sentence  → [pause]
+ *   ellipsis              → [long-pause]
+ *   semicolon             → [pause]
+ *   scene break (*** etc) → [long-pause] before and after
+ */
+export function injectPauseTags(prose: string): string {
+  if (!prose) return prose;
+  let r = prose;
+
+  // 0. Scene breaks first — replace the marker (with its surrounding
+  // newlines) with a strong double pause so the next paragraph reads as
+  // a real reset, not just another paragraph gap.
+  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, '\n\n[long-pause] [long-pause]\n\n');
+
+  // 1. Narration → dialogue. Insert before the opening quote so Grok
+  // pauses the narration line and reattacks for the spoken line. Both
+  // ASCII and curly quotes.
+  r = r.replace(/([.!?])\s+(["“])/g, '$1 [pause] $2');
+
+  // 2. Dialogue → narration. Insert after the closing quote when the
+  // next character is a capital letter starting a new sentence (i.e. not
+  // a "she said" attribution clause).
+  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, '$1 [pause] $2');
+
+  // 3. Paragraph breaks. Use \n placeholders so the regex still matches
+  // after the scene-break expansion above (which inserts \n\n on both
+  // sides). We bound with `+` to be safe against runs of empties.
+  r = r.replace(/\n\n+/g, '\n\n[long-pause]\n\n');
+
+  // 4. Sentence boundaries inside a paragraph: terminal punct + space +
+  // capital. After step 3, paragraph-break sentences already got a
+  // [long-pause] so step 4 only hits within-paragraph sentence flow.
+  r = r.replace(/([.!?])\s+([A-Z])/g, '$1 [pause] $2');
+
+  // 5. Em-dash pauses. Both surrounded and bare em-dashes get a beat
+  // after — they're almost always used for dramatic effect.
+  r = r.replace(/\s*—\s*/g, ' — [pause] ');
+
+  // 6. Ellipsis — both ASCII (`...`) and Unicode (`…`).
+  r = r.replace(/\.{3}/g, '... [long-pause]');
+  r = r.replace(/…/g, '… [long-pause]');
+
+  // 7. Semicolons.
+  r = r.replace(/;\s+/g, '; [pause] ');
+
+  return r;
+}
+
+/**
  * Inject xAI audio tags into prose. Pure function — safe to call on any text.
  * Returns the original string unchanged when the text contains no quoted
  * dialogue (e.g. voice previews, exposition-only chapters).

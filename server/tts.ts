@@ -6,7 +6,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { execFile } from 'child_process';
 import { generateSFX } from './sfx.js';
-import { injectGrokAudioTags } from './grok-tag-injector.js';
+import { injectGrokAudioTags, injectPauseTags } from './grok-tag-injector.js';
 
 // ========== Direction Tag Detection ==========
 
@@ -60,34 +60,45 @@ function addTTSPacing(text: string, voice?: string): string {
   // Sentences get an extra +3 for rushed voices on top of that
   const snl = (count: number) => '\n'.repeat(isRushed ? count * 2 + 5 : count);
 
-  // 0. Strip asterisks (narrator reads them aloud)
+  // 0a. Scene breaks (***  or  ---  or  ___  on their own line). Must run
+  // BEFORE the asterisk strip and the paragraph-break collapse — otherwise
+  // the markers get eaten and the surrounding pause merges with normal
+  // paragraph breaks. Long-pause render: 15nl on each side of an em-dash.
+  result = result.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `${nl(15)}—${nl(15)}`);
+
+  // 0b. Strip remaining asterisks (narrator reads them aloud)
   result = result.replace(/\*/g, '');
 
-  // v1.11 baseline (fable) / v1.12+ for rushed voices (alloy etc.)
-  // 1. Paragraph breaks
-  result = result.replace(/\n\n+/g, `${nl(7)}—${nl(7)}`);
+  // Pause-iteration v2 (2026-06-02) — bumped every boundary one tier so
+  // chapters don't feel rushed. New scene-break rule above; tighter
+  // ellipsis. See docs/tts-pauses.md for the playbook.
+  // 1. Paragraph breaks (was nl(7))
+  result = result.replace(/\n\n+/g, `${nl(10)}—${nl(10)}`);
 
-  // 2. Every sentence boundary — extra pauses for rushed voices
-  result = result.replace(/([.!?])\s+([A-Z])/g, `$1${snl(6)}$2`);
+  // 2. Every sentence boundary (was snl(6))
+  result = result.replace(/([.!?])\s+([A-Z])/g, `$1${snl(8)}$2`);
 
-  // 3. Before dialogue after narration
-  const dlgMatch = isRushed ? 17 : 6; // match the sentence boundary count for regex
-  result = result.replace(new RegExp(`([.!?])${'\n'.repeat(dlgMatch)}([""\\u201C])`, 'g'), `$1${nl(7)}$2`);
+  // 3. Before dialogue after narration (was nl(7))
+  // dlgMatch tracks snl(8) — non-rushed 8, rushed 8*2+5=21.
+  const dlgMatch = isRushed ? 21 : 8;
+  result = result.replace(new RegExp(`([.!?])${'\n'.repeat(dlgMatch)}([""\\u201C])`, 'g'), `$1${nl(10)}$2`);
 
   // 4. After dialogue closing before narration
-  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, `$1${nl(7)}$2`);
+  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, `$1${nl(10)}$2`);
 
   // 5. Dialogue comma attribution
-  result = result.replace(/([""\u201D]),?\s+([a-z])/g, `$1,${nl(6)}$2`);
+  result = result.replace(/([""\u201D]),?\s+([a-z])/g, `$1,${nl(8)}$2`);
 
   // 6. Em dash pauses
-  result = result.replace(/\s*—\s*/g, `${nl(5)}—${nl(5)}`);
+  result = result.replace(/\s*—\s*/g, `${nl(8)}—${nl(8)}`);
 
   // 7. Semicolons
-  result = result.replace(/;\s+/g, `;${nl(6)}`);
+  result = result.replace(/;\s+/g, `;${nl(8)}`);
 
-  // 8. Ellipsis — more dots for rushed voices
-  const dots = isRushed ? '. . . . . . . . . . . . . . . .' : '. . . . . . . .';
+  // 8. Ellipsis — bumped 8→14 dots; rushed 16→22.
+  const dots = isRushed
+    ? '. . . . . . . . . . . . . . . . . . . . . .'
+    : '. . . . . . . . . . . . . .';
   result = result.replace(/\.{3}/g, dots);
   result = result.replace(/…/g, dots);
 
@@ -1643,7 +1654,16 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     // whispered") and embeds tags inside each quote — those tags then travel
     // with the dialogue segment to xAI. Doing this AFTER segmentation would
     // give the injector only the bare quote body with no cues to read.
-    const proseWithAnnouncement = injectGrokAudioTags(announcement + proseBody);
+    // Pause-iteration v2 (2026-06-02): inject [pause]/[long-pause] tags at
+    // paragraph/sentence/em-dash/ellipsis/scene-break boundaries BEFORE
+    // segmentation so the pause-tag travels inside each segment. Then run
+    // the dialogue-cue injector (whisper/laugh/etc.) on the result.
+    // Order matters: pauses first, dialogue tags second. The dialogue
+    // injector walks quotes — adding pauses afterward would land them
+    // inside taggedBody and survive the multi-voice split.
+    const proseWithAnnouncement = injectGrokAudioTags(
+      injectPauseTags(announcement + proseBody),
+    );
     let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases, req.characterGenders, attributionMap);
     segments = applyVoiceMap(segments, voiceMap);
 
