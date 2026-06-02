@@ -3118,6 +3118,121 @@ export async function getNoAudioCohort(req: Request, res: Response) {
 // - median + p90 wait times
 //
 // ?days=N filters to events in the last N days. Defaults to 30.
+// GET /api/admin/chapter-truncation?days=30
+// Detects chapters whose prose looks cut off mid-sentence. Signal: prose
+// doesn't end with terminal punctuation (. ! ? " ') after stripping
+// trailing whitespace. Cleanly-finished prose almost always ends with one
+// of those; truncations end on words like "and", "the", "of", etc.
+//
+// Used to measure how often maxTokens cutoffs are hurting users. The
+// mobile app used maxTokens = words * 1.5, which truncated chapters
+// whose generated word count overshot the target (Claude often does
+// this). After bumping to 2.5x the rate should drop.
+export async function getChapterTruncation(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const daysParam = Number(req.query.days);
+    const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.floor(daysParam) : 30;
+
+    const excludeEmails = [
+      'benbrynildsen5757@gmail.com',
+      'ben@germaniabrewhaus.com',
+      'test@ben.com',
+      'wolfgangbrynildsen@gmail.com',
+      'ben@wilhelmcoldbrew.com',
+    ];
+    const excludeLit = `{${excludeEmails.map((e) => `"${e}"`).join(',')}}`;
+
+    // Pull chapters with non-empty prose from the last N days, joined to
+    // project owner so we can exclude admin accounts.
+    const rows = await db.execute(sql`
+      SELECT c.id, c.title, c.number, c.project_id, c.prose, c.updated_at,
+             p.user_id, u.email
+      FROM chapters c
+      JOIN projects p ON p.id = c.project_id
+      JOIN users u ON u.id = p.user_id
+      WHERE c.prose IS NOT NULL
+        AND LENGTH(c.prose) > 200
+        AND c.updated_at > NOW() - (${days} || ' days')::interval
+        AND u.email <> ALL(${excludeLit}::text[])
+      ORDER BY c.updated_at DESC
+    `);
+    const data = rows.rows as Array<{
+      id: string; title: string; number: number; project_id: string;
+      prose: string; updated_at: string; user_id: string; email: string;
+    }>;
+
+    // A clean chapter ends with terminal punctuation (.!?'") possibly
+    // followed by a closing quote/bracket or trailing whitespace.
+    // A truncated chapter ends mid-word or on a non-terminal token.
+    const TERMINAL_RE = /[.!?'"”’\)\]]\s*$/;
+    const truncated: typeof data = [];
+    let clean = 0;
+    for (const r of data) {
+      const trimmed = (r.prose || '').replace(/\s+$/, '');
+      if (TERMINAL_RE.test(trimmed)) {
+        clean += 1;
+      } else {
+        truncated.push(r);
+      }
+    }
+
+    const trunc = truncated.length;
+    const total = data.length;
+    const truncRate = total > 0 ? trunc / total : 0;
+
+    // Per-day breakdown so we can see if a recent change moved the needle.
+    const byDay = new Map<string, { total: number; trunc: number }>();
+    for (const r of data) {
+      const day = r.updated_at.slice(0, 10);
+      const bucket = byDay.get(day) || { total: 0, trunc: 0 };
+      bucket.total += 1;
+      bucket.trunc += truncated.includes(r) ? 1 : 0;
+      byDay.set(day, bucket);
+    }
+    const daily = Array.from(byDay.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([day, b]) => ({
+        day,
+        total: b.total,
+        truncated: b.trunc,
+        rate: b.total > 0 ? b.trunc / b.total : 0,
+      }));
+
+    // Sample truncated chapters so Ben can eyeball them.
+    const samples = truncated.slice(0, 12).map((r) => {
+      const trimmed = (r.prose || '').replace(/\s+$/, '');
+      const tail = trimmed.slice(-160);
+      return {
+        chapter_id: r.id,
+        chapter_number: r.number,
+        title: r.title,
+        email: r.email,
+        project_id: r.project_id,
+        updated_at: r.updated_at,
+        prose_length_chars: trimmed.length,
+        prose_word_count: trimmed.trim().split(/\s+/).length,
+        last_160_chars: tail,
+      };
+    });
+
+    res.json({
+      window_days: days,
+      total_chapters_with_prose: total,
+      truncated_chapters: trunc,
+      truncation_rate: truncRate,
+      clean_chapters: clean,
+      daily,
+      samples,
+    });
+  } catch (e: any) {
+    console.error('[Admin] chapter-truncation error:', e?.message || e, e?.stack);
+    res.status(500).json({ error: 'Internal server error', detail: e?.message });
+  }
+}
+
 export async function getAudioGenBounce(req: Request, res: Response) {
   try {
     const admin = await requireAdmin(req, res);
