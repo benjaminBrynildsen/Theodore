@@ -1760,11 +1760,10 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         let speakable = stripNonXaiBrackets(seg.text).trim();
         const next = speechSegs[idx + 1];
         if (next && next.voice && next.voice !== seg.voice) {
-          // Trailing pause renders at the END of this segment's audio, just
-          // before the voice change. v4: 6 × [pause] (was 2). Match the
-          // other speaker-boundary counts in injectPauseTags after the
-          // [long-pause] → [pause] swap.
-          speakable = `${speakable} [pause] [pause] [pause] [pause] [pause] [pause]`;
+          // Trailing pause at the end of this segment, before the voice
+          // change. v5: 1 [pause] (was 6). High-density tag clusters
+          // were causing Grok to hallucinate audio.
+          speakable = `${speakable} [pause]`;
         }
         const buf = await callGrokTTS(speakable, seg.voice);
         completed++;

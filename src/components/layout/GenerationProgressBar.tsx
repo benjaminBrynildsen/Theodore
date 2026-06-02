@@ -89,11 +89,13 @@ export function GenerationProgressBar() {
   const isDone = phase === 'done' && !audioGenInFlight;
 
   const audioElapsedSec = kind === 'generate-audio' && startedAt !== null ? (now - startedAt) / 1000 : 0;
-  // Word-based estimate: 0.08s per word (e.g. 1800 words → 144s). Falls
-  // back to a fixed 98s when we don't know the word count.
+  // Word-based estimate: 0.12s per word (e.g. 1800 words → 216s). Falls
+  // back to a fixed 120s when we don't know the word count. 0.08 was too
+  // optimistic once we started injecting pause tags — real waits run
+  // 0.10–0.15 s/word on Grok depending on chapter complexity.
   const audioEstimatedSec = kind === 'generate-audio' && targetWords && targetWords > 0
-    ? targetWords * 0.08
-    : 98;
+    ? targetWords * 0.12
+    : 120;
   const audioRemainingSec = Math.max(0, audioEstimatedSec - audioElapsedSec);
   const audioCountdown = kind === 'generate-audio' && !isDone
     ? (audioRemainingSec > 0 ? `~${Math.ceil(audioRemainingSec)}s` : 'almost done')

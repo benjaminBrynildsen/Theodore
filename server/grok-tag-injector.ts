@@ -118,42 +118,47 @@ export function injectPauseTags(prose: string): string {
   // Ellipsis: removed the preserved dot characters — the dots themselves
   // shouldn't be heard.
 
-  // Repeated [pause] strings, pre-built for clarity.
-  const PAUSE_6 = '[pause] [pause] [pause] [pause] [pause] [pause]';
-  const PAUSE_18 = `${PAUSE_6} ${PAUSE_6} ${PAUSE_6}`;
-  const PAUSE_27 = `${PAUSE_18} ${PAUSE_6} ${PAUSE_6} [pause] [pause] [pause]`;
-  const PAUSE_36 = `${PAUSE_18} ${PAUSE_18}`;
+  // v5 (2026-06-02 — emergency rollback). Symptom: Grok TTS was
+  // hallucinating "Chapter 5" audio at the position of `[pause]` clusters
+  // (replaying buffered context from the announcement) and mumbling
+  // words near dense tag groupings. Cause: 1000+ pause tags per chapter
+  // overwhelmed Grok's parser and bloated chunks past the 15K char limit.
+  //
+  // Strategy: minimize bracket-tag density. One [pause] per location is
+  // sufficient — Grok renders each as a real beat (~0.3s). For longer
+  // pauses (scene break, chapter intro) we cap at 3× so we never have a
+  // dense cluster. Total pause tags per chapter ≈ 150 (vs ~1000+ in v4).
 
-  // 0a. Chapter intro — em-dash + ≥4 newlines + capital letter is the
-  // unique end-of-announcement signature. Biggest pacing reset → 27×.
-  // Drop the em-dash so the regular em-dash rule doesn't compound.
-  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, `\n\n${PAUSE_27}\n\n`);
+  const PAUSE_1 = '[pause]';
+  const PAUSE_3 = '[pause] [pause] [pause]';
 
-  // 0b. Scene breaks — 36×.
-  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `\n\n${PAUSE_36}\n\n`);
+  // 0a. Chapter intro — em-dash + ≥4 newlines + capital. Capped at 3.
+  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, `\n\n${PAUSE_3}\n\n`);
 
-  // 1. Narration → dialogue: 6×.
-  r = r.replace(/([.!?])\s+(["“])/g, `$1 ${PAUSE_6} $2`);
+  // 0b. Scene breaks — 3 (was 36).
+  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `\n\n${PAUSE_3}\n\n`);
 
-  // 2. Dialogue → narration: 6×.
-  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, `$1 ${PAUSE_6} $2`);
+  // 1. Narration → dialogue: 1.
+  r = r.replace(/([.!?])\s+(["“])/g, `$1 ${PAUSE_1} $2`);
 
-  // 3. Paragraph breaks: 18×.
-  r = r.replace(/\n\n+/g, `\n\n${PAUSE_18}\n\n`);
+  // 2. Dialogue → narration: 1.
+  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, `$1 ${PAUSE_1} $2`);
 
-  // 4. Sentence boundaries inside a paragraph: 6×.
-  r = r.replace(/([.!?])\s+([A-Z])/g, `$1 ${PAUSE_6} $2`);
+  // 3. Paragraph breaks: 1.
+  r = r.replace(/\n\n+/g, `\n\n${PAUSE_1}\n\n`);
 
-  // 5. Em-dash pauses: 6× after the em-dash.
-  r = r.replace(/\s*—\s*/g, ` — ${PAUSE_6} `);
+  // 4. Sentence boundaries inside a paragraph: 1.
+  r = r.replace(/([.!?])\s+([A-Z])/g, `$1 ${PAUSE_1} $2`);
 
-  // 6. Ellipsis: 18×, with the literal dots stripped (Ben asked for
-  // these gone a long time ago — we were still preserving them).
-  r = r.replace(/\.{3}/g, ` ${PAUSE_18} `);
-  r = r.replace(/…/g, ` ${PAUSE_18} `);
+  // 5. Em-dash pauses: 1.
+  r = r.replace(/\s*—\s*/g, ` — ${PAUSE_1} `);
 
-  // 7. Semicolons: 6×.
-  r = r.replace(/;\s+/g, `; ${PAUSE_6} `);
+  // 6. Ellipsis: 1 (dots stripped).
+  r = r.replace(/\.{3}/g, ` ${PAUSE_1} `);
+  r = r.replace(/…/g, ` ${PAUSE_1} `);
+
+  // 7. Semicolons: 1.
+  r = r.replace(/;\s+/g, `; ${PAUSE_1} `);
 
   return r;
 }
