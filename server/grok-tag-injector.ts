@@ -111,41 +111,39 @@ export function injectPauseTags(prose: string): string {
   if (!prose) return prose;
   let r = prose;
 
-  // 0. Scene breaks first — replace the marker (with its surrounding
-  // newlines) with a strong double pause so the next paragraph reads as
-  // a real reset, not just another paragraph gap.
-  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, '\n\n[long-pause] [long-pause]\n\n');
+  // v3 (2026-06-02): doubled every tag count, tripled chapter intro.
 
-  // 1. Narration → dialogue. Insert before the opening quote so Grok
-  // pauses the narration line and reattacks for the spoken line. Both
-  // ASCII and curly quotes.
-  r = r.replace(/([.!?])\s+(["“])/g, '$1 [pause] $2');
+  // 0a. Chapter intro — em-dash followed by ≥4 newlines + capital letter
+  // is the unique signature of the announcement → prose transition (the
+  // single biggest pacing reset in a chapter). Replace with 3 ×
+  // [long-pause] and drop the em-dash so the regular em-dash rule
+  // (step 5) doesn't add another beat on top.
+  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, '\n\n[long-pause] [long-pause] [long-pause]\n\n');
 
-  // 2. Dialogue → narration. Insert after the closing quote when the
-  // next character is a capital letter starting a new sentence (i.e. not
-  // a "she said" attribution clause).
-  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, '$1 [pause] $2');
+  // 0b. Scene breaks — 4 × [long-pause] (was 2).
+  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, '\n\n[long-pause] [long-pause] [long-pause] [long-pause]\n\n');
 
-  // 3. Paragraph breaks. Use \n placeholders so the regex still matches
-  // after the scene-break expansion above (which inserts \n\n on both
-  // sides). We bound with `+` to be safe against runs of empties.
-  r = r.replace(/\n\n+/g, '\n\n[long-pause]\n\n');
+  // 1. Narration → dialogue: 2 × [pause].
+  r = r.replace(/([.!?])\s+(["“])/g, '$1 [pause] [pause] $2');
 
-  // 4. Sentence boundaries inside a paragraph: terminal punct + space +
-  // capital. After step 3, paragraph-break sentences already got a
-  // [long-pause] so step 4 only hits within-paragraph sentence flow.
-  r = r.replace(/([.!?])\s+([A-Z])/g, '$1 [pause] $2');
+  // 2. Dialogue → narration: 2 × [pause].
+  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, '$1 [pause] [pause] $2');
 
-  // 5. Em-dash pauses. Both surrounded and bare em-dashes get a beat
-  // after — they're almost always used for dramatic effect.
-  r = r.replace(/\s*—\s*/g, ' — [pause] ');
+  // 3. Paragraph breaks: 2 × [long-pause].
+  r = r.replace(/\n\n+/g, '\n\n[long-pause] [long-pause]\n\n');
 
-  // 6. Ellipsis — both ASCII (`...`) and Unicode (`…`).
-  r = r.replace(/\.{3}/g, '... [long-pause]');
-  r = r.replace(/…/g, '… [long-pause]');
+  // 4. Sentence boundaries inside a paragraph: 2 × [pause].
+  r = r.replace(/([.!?])\s+([A-Z])/g, '$1 [pause] [pause] $2');
 
-  // 7. Semicolons.
-  r = r.replace(/;\s+/g, '; [pause] ');
+  // 5. Em-dash pauses: 2 × [pause].
+  r = r.replace(/\s*—\s*/g, ' — [pause] [pause] ');
+
+  // 6. Ellipsis: 2 × [long-pause].
+  r = r.replace(/\.{3}/g, '... [long-pause] [long-pause]');
+  r = r.replace(/…/g, '… [long-pause] [long-pause]');
+
+  // 7. Semicolons: 2 × [pause].
+  r = r.replace(/;\s+/g, '; [pause] [pause] ');
 
   return r;
 }

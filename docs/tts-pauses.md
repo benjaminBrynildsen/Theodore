@@ -1,6 +1,6 @@
 # TTS Pause Playbook
 
-**Last update:** 2026-06-02 (pause-iteration v2)
+**Last update:** 2026-06-02 (pause-iteration v3)
 **Scope:** server-side prose-to-TTS preprocessing
 **Files:** `server/tts.ts` (`addTTSPacing`), `server/grok-tag-injector.ts` (`injectPauseTags`, `injectGrokAudioTags`)
 
@@ -8,28 +8,30 @@
 
 | Engine | Function | Mechanism |
 |---|---|---|
-| OpenAI / Grok single-voice narrator / Fish | `addTTSPacing` | Stacked `\n` newlines — TTS reads them as breath/silence. |
-| Grok multi-voice (per-segment) | `injectPauseTags` + `injectGrokAudioTags` | Explicit `[pause]` / `[long-pause]` xAI tags. |
+| OpenAI / Fish | `addTTSPacing` | Stacked `\n` newlines — TTS reads them as breath/silence. |
+| **Grok (both narrator-only AND multi-voice)** | `injectPauseTags` + `injectGrokAudioTags` | Explicit `[pause]` / `[long-pause]` xAI tags. |
 | ElevenLabs | (no injector) | Quality is high enough that natural punctuation suffices. |
 
 A given chapter only goes through ONE engine. Don't mix the two pause schemes.
 
-## Boundary table (v2 — current)
+**Note (v3):** Grok narrator-only used to share `addTTSPacing` (newlines) with OpenAI, but the newline approach under-paused on Grok. Now both Grok paths use the same tag-based injector.
 
-Each row is one place we slow down. The number columns are what gets inserted.
+## Boundary table (v3 — current)
 
-| # | Boundary | `addTTSPacing` newlines | Grok tag |
+Each row is one place we slow down. v3 doubled every Grok tag count and tripled the chapter intro.
+
+| # | Boundary | `addTTSPacing` newlines | Grok tags |
 |---|---|---|---|
-| 1 | Paragraph break (`\n\n+`) | `nl(10) + — + nl(10)` | `[long-pause]` |
-| 2 | Sentence boundary (`[.!?]\s+[A-Z]`) | `snl(8)` | `[pause]` |
-| 3 | Narration → dialogue | `nl(10)` before quote | `[pause]` before quote |
-| 4 | Dialogue → narration | `nl(10)` after quote | `[pause]` after quote |
-| 5 | Speaker change (back-and-forth) | (handled by #3+#4) | `[pause]` appended to outgoing segment ([tts.ts:1746](../server/tts.ts)) |
-| 6 | Em-dash (`\s*—\s*`) | `nl(8) + — + nl(8)` | `[pause]` after |
-| 7 | Ellipsis (`...` / `…`) | 14 spaced dots (rushed: 22) | `[long-pause]` after |
-| 8 | Semicolon (`;\s+`) | `nl(8)` | `[pause]` |
-| 9 | Scene break (`***` / `---` / `___` on own line) | `nl(15) + — + nl(15)` | `[long-pause] [long-pause]` |
-| 10 | Chapter intro (between "Chapter N: Title" and prose body) | Falls into #1 (paragraph break) since announcement ends with `\n\n+` | Falls into #1 |
+| 1 | Paragraph break (`\n\n+`) | `nl(10) + — + nl(10)` | `[long-pause]` × 2 |
+| 2 | Sentence boundary (`[.!?]\s+[A-Z]`) | `snl(8)` | `[pause]` × 2 |
+| 3 | Narration → dialogue | `nl(10)` before quote | `[pause]` × 2 before quote |
+| 4 | Dialogue → narration | `nl(10)` after quote | `[pause]` × 2 after quote |
+| 5 | Speaker change (back-and-forth) | (handled by #3+#4) | `[pause]` × 2 appended to outgoing segment ([tts.ts:1746](../server/tts.ts)) |
+| 6 | Em-dash (`\s*—\s*`) | `nl(8) + — + nl(8)` | `[pause]` × 2 after |
+| 7 | Ellipsis (`...` / `…`) | 14 spaced dots (rushed: 22) | `[long-pause]` × 2 after |
+| 8 | Semicolon (`;\s+`) | `nl(8)` | `[pause]` × 2 |
+| 9 | Scene break (`***` / `---` / `___` on own line) | `nl(15) + — + nl(15)` | `[long-pause]` × 4 |
+| 10 | Chapter intro (em-dash + 4+ newlines + capital, end of announcement) | Falls into #1 (paragraph break) | `[long-pause]` × 3 (explicit rule, em-dash dropped) |
 
 Order of operations in `addTTSPacing`:
 1. **Scene break (#9)** — runs BEFORE asterisk strip and paragraph collapse, otherwise the `***` markers get eaten.

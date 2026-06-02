@@ -1761,9 +1761,9 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         const next = speechSegs[idx + 1];
         if (next && next.voice && next.voice !== seg.voice) {
           // Trailing pause renders at the END of this segment's audio, just
-          // before the voice change. `[pause]` is xAI's short beat — enough
-          // breathing room without the conversational drag of [long-pause].
-          speakable = `${speakable} [pause]`;
+          // before the voice change. Doubled to 2 × [pause] in v3 to match
+          // the other speaker-boundary pauses in injectPauseTags.
+          speakable = `${speakable} [pause] [pause]`;
         }
         const buf = await callGrokTTS(speakable, seg.voice);
         completed++;
@@ -1803,9 +1803,12 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     if (req.chapterNumber) {
       proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
     }
-    // Grok takes plain text — our OpenAI-style pacing adds newline pauses
-    // that Grok reads as natural breaths, so reuse it for now.
-    const paced = announcement + addTTSPacing(proseBody, voiceMap.narrator);
+    // Grok narrator path uses xAI's native [pause]/[long-pause] tags
+    // (v3, 2026-06-02) — same tag scheme as the multi-voice path. The old
+    // newline-based addTTSPacing was a port from the OpenAI path and
+    // under-paused on Grok. Chunk on RAW paragraph boundaries first, then
+    // run injectPauseTags per chunk so the splitter sees clean prose.
+    const paced = announcement + proseBody;
 
     // Chunk long text. Keep chunks well below xAI's 15K limit for safety +
     // parallelism. Split on paragraph boundaries first, with sentence-level
@@ -1851,14 +1854,18 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
 
     // Filter out empty/whitespace-only chunks — past Fish bug caused duplicates.
     const validChunks = chunks.filter(c => c.replace(/[.\s,;:!?\-—]/g, '').length > 0);
-    ttsLog(`Grok TTS: ${validChunks.length} chunks for ${paced.length} chars (parallel), voice=${voiceMap.narrator}`);
+    // Inject xAI pause tags per chunk AFTER chunking so the paragraph
+    // splitter saw clean prose. callGrokTTS will then add dialogue-cue
+    // tags (whisper/laugh/etc.) on top.
+    const taggedChunks = validChunks.map((c) => injectPauseTags(c));
+    ttsLog(`Grok TTS: ${taggedChunks.length} chunks for ${paced.length} chars (parallel, tag-based pauses), voice=${voiceMap.narrator}`);
 
     // Generate all chunks in parallel. If any one fails, fail the whole
     // generation — partial audio would silently drop a segment of the chapter.
     const audioBuffers = await Promise.all(
-      validChunks.map(async (chunk, ci) => {
+      taggedChunks.map(async (chunk, ci) => {
         const buf = await callGrokTTS(chunk, voiceMap.narrator);
-        req.onProgress?.(Math.round(((ci + 1) / validChunks.length) * 100));
+        req.onProgress?.(Math.round(((ci + 1) / taggedChunks.length) * 100));
         return buf;
       })
     );
