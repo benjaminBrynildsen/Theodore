@@ -1768,11 +1768,17 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         // travel inside each dialogue segment.
         let speakable = stripNonXaiBrackets(seg.text).trim();
         const next = speechSegs[idx + 1];
-        if (next && next.voice && next.voice !== seg.voice) {
-          // Trailing pause at end-of-segment before voice change. v6.4:
-          // reverted from [breath] back to [pause] — the breath fired on
-          // every speaker swap, which in dialogue-heavy passages with
-          // rapid back-and-forth sounded like everyone was panting.
+        // Trailing pause at end-of-segment before voice change. v6.7:
+        // scoped to dialogue → dialogue ONLY (character A → character B).
+        // Previously fired on every voice change including dialogue ↔
+        // narration, which stacked on top of the [pause] from
+        // injectPauseTags step 2 AND the audio cut between segments —
+        // multi-voice ended up with triple-pauses at every dialogue
+        // boundary vs single-voice's single pause. Limiting to
+        // char→char keeps the back-and-forth handoff readable while
+        // matching single-voice pacing on dialogue ↔ narration.
+        const isCharToChar = seg.type === 'dialogue' && next?.type === 'dialogue';
+        if (next && next.voice && next.voice !== seg.voice && isCharToChar) {
           speakable = `${speakable} [pause]`;
         }
         const buf = await callGrokTTS(speakable, seg.voice);
