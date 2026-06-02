@@ -43,19 +43,26 @@ const WRAP_CUES: { re: RegExp; tag: string }[] = [
 // Inline action cues attached to the spoken line. Inserted as `[tag]` after
 // the closing quote so the expression plays out as a beat following the line.
 //
-// v6.4 (2026-06-02): removed [breath], [inhale], [exhale]. Their trigger
-// words ("breathed", "inhaled", "drew a breath", "gasped", "breath caught")
-// appear in basically every dialogue paragraph in normal fiction prose, so
-// nearly every dialogue line was getting a breath sound attached. Ben heard
-// "every bit of dialogue" had too much breathing. Speech-character sounds
-// (laugh, chuckle, giggle, sigh, cry) are kept — they're characterful, not
-// raw breath.
-const INLINE_CUES: { re: RegExp; tag: string }[] = [
+// v6.5 (2026-06-02): breath/inhale/exhale come back but with a `tight: true`
+// flag. Tight cues only fire when the trigger word is in the IMMEDIATE
+// attribution clause (first ~40 chars after the closing quote — the
+// "said X" zone). The wider 80-char-before + 120-char-after window for
+// laugh/sigh/etc. stays the same.
+//
+// v6.4 removed these entirely after they fired on every dialogue line
+// because their trigger words ("breathed", "drew a breath", "gasped"...)
+// appear in normal narration constantly. v6.5 puts them back where they
+// belong — only when explicitly attributed to the speaker.
+const INLINE_CUES: { re: RegExp; tag: string; tight?: boolean }[] = [
   { re: /\bchuckl(ed|ing|es)?\b/i, tag: 'chuckle' },
   { re: /\bgiggl(ed|ing|es)?\b/i, tag: 'giggle' },
   { re: /\blaugh(ed|ing|s|ter)?\b/i, tag: 'laugh' },
   { re: /\bsigh(ed|ing|s)?\b/i, tag: 'sigh' },
   { re: /\b(sob(bed|bing|s)?|cri(ed|es)|cry(ing)?|weep(ing|ed|s)?|tearful(ly)?)\b/i, tag: 'cry' },
+  // Breath-class cues — tight attribution required.
+  { re: /\b(exhal(ed|ing|es)?|breathed out)\b/i, tag: 'exhale', tight: true },
+  { re: /\b(inhal(ed|ing|es)?|breathed in|drew (a |in a )?breath)\b/i, tag: 'inhale', tight: true },
+  { re: /\b(breath caught|caught (her|his|their|its) breath|sharp breath|gasped|gasping)\b/i, tag: 'breath', tight: true },
 ];
 
 /**
@@ -77,6 +84,14 @@ function detectCues(before: string, after: string): CueMatch {
 
   const haystack = `${beforeWindow} ${afterClause}`;
 
+  // Tight haystack: just the first ~40 chars after the quote (the
+  // immediate attribution zone — "said X" patterns live here). No
+  // before-window. Used for breath-class cues that must be directly
+  // attributed to this specific speaker, not picked up from surrounding
+  // narration.
+  const tightLen = Math.min(40, afterStop >= 0 ? afterStop + 1 : 40);
+  const tightHaystack = ` ${afterWindow.slice(0, tightLen)}`;
+
   let wrap: CueMatch['wrap'];
   for (const cue of WRAP_CUES) {
     if (cue.re.test(haystack)) {
@@ -87,7 +102,8 @@ function detectCues(before: string, after: string): CueMatch {
 
   let inline: CueMatch['inline'];
   for (const cue of INLINE_CUES) {
-    if (cue.re.test(haystack)) {
+    const h = cue.tight ? tightHaystack : haystack;
+    if (cue.re.test(h)) {
       inline = `[${cue.tag}]`;
       break;
     }
