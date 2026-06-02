@@ -16,22 +16,24 @@ A given chapter only goes through ONE engine. Don't mix the two pause schemes.
 
 **Note (v3):** Grok narrator-only used to share `addTTSPacing` (newlines) with OpenAI, but the newline approach under-paused on Grok. Now both Grok paths use the same tag-based injector.
 
-## Boundary table (v3 — current)
+## Boundary table (v4 — current)
 
-Each row is one place we slow down. v3 doubled every Grok tag count and tripled the chapter intro.
+v4 (2026-06-02): dropped `[long-pause]` entirely (Grok was reading it as literal text), tripled every count, and stripped the literal dots from ellipsis output.
 
 | # | Boundary | `addTTSPacing` newlines | Grok tags |
 |---|---|---|---|
-| 1 | Paragraph break (`\n\n+`) | `nl(10) + — + nl(10)` | `[long-pause]` × 2 |
-| 2 | Sentence boundary (`[.!?]\s+[A-Z]`) | `snl(8)` | `[pause]` × 2 |
-| 3 | Narration → dialogue | `nl(10)` before quote | `[pause]` × 2 before quote |
-| 4 | Dialogue → narration | `nl(10)` after quote | `[pause]` × 2 after quote |
-| 5 | Speaker change (back-and-forth) | (handled by #3+#4) | `[pause]` × 2 appended to outgoing segment ([tts.ts:1746](../server/tts.ts)) |
-| 6 | Em-dash (`\s*—\s*`) | `nl(8) + — + nl(8)` | `[pause]` × 2 after |
-| 7 | Ellipsis (`...` / `…`) | 14 spaced dots (rushed: 22) | `[long-pause]` × 2 after |
-| 8 | Semicolon (`;\s+`) | `nl(8)` | `[pause]` × 2 |
-| 9 | Scene break (`***` / `---` / `___` on own line) | `nl(15) + — + nl(15)` | `[long-pause]` × 4 |
-| 10 | Chapter intro (em-dash + 4+ newlines + capital, end of announcement) | Falls into #1 (paragraph break) | `[long-pause]` × 3 (explicit rule, em-dash dropped) |
+| 1 | Paragraph break (`\n\n+`) | `nl(10) + — + nl(10)` | `[pause]` × 18 |
+| 2 | Sentence boundary (`[.!?]\s+[A-Z]`) | `snl(8)` | `[pause]` × 6 |
+| 3 | Narration → dialogue | `nl(10)` before quote | `[pause]` × 6 before quote |
+| 4 | Dialogue → narration | `nl(10)` after quote | `[pause]` × 6 after quote |
+| 5 | Speaker change (back-and-forth) | (handled by #3+#4) | `[pause]` × 6 appended to outgoing segment ([tts.ts:1746](../server/tts.ts)) |
+| 6 | Em-dash (`\s*—\s*`) | `nl(8) + — + nl(8)` | `[pause]` × 6 after |
+| 7 | Ellipsis (`...` / `…`) | `nl(15)` — dots stripped | `[pause]` × 18, dots stripped |
+| 8 | Semicolon (`;\s+`) | `nl(8)` | `[pause]` × 6 |
+| 9 | Scene break (`***` / `---` / `___` on own line) | `nl(15) + — + nl(15)` | `[pause]` × 36 |
+| 10 | Chapter intro (em-dash + 4+ newlines + capital, end of announcement) | Falls into #1 (paragraph break) | `[pause]` × 27 (explicit rule, em-dash dropped) |
+
+**Why no `[long-pause]` anymore:** Ben heard "long pause" being read aloud in Grok output, meaning Grok wasn't recognizing the tag and was reading it as text. Switched to multiple `[pause]` tags everywhere — roughly 3 × `[pause]` ≈ one prior `[long-pause]` in duration. Safer and verified to work.
 
 Order of operations in `addTTSPacing`:
 1. **Scene break (#9)** — runs BEFORE asterisk strip and paragraph collapse, otherwise the `***` markers get eaten.

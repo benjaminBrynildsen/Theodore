@@ -95,12 +95,12 @@ function addTTSPacing(text: string, voice?: string): string {
   // 7. Semicolons
   result = result.replace(/;\s+/g, `;${nl(8)}`);
 
-  // 8. Ellipsis — bumped 8→14 dots; rushed 16→22.
-  const dots = isRushed
-    ? '. . . . . . . . . . . . . . . . . . . . . .'
-    : '. . . . . . . . . . . . . .';
-  result = result.replace(/\.{3}/g, dots);
-  result = result.replace(/…/g, dots);
+  // 8. Ellipsis — v4: strip the literal dots entirely and substitute a
+  // big newline-pause instead. Ben asked us to get rid of audible
+  // ellipses a long time ago; we were still preserving the dots.
+  const ellipsisPause = nl(15);
+  result = result.replace(/\.{3}/g, ellipsisPause);
+  result = result.replace(/…/g, ellipsisPause);
 
   return result;
 }
@@ -1761,9 +1761,10 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         const next = speechSegs[idx + 1];
         if (next && next.voice && next.voice !== seg.voice) {
           // Trailing pause renders at the END of this segment's audio, just
-          // before the voice change. Doubled to 2 × [pause] in v3 to match
-          // the other speaker-boundary pauses in injectPauseTags.
-          speakable = `${speakable} [pause] [pause]`;
+          // before the voice change. v4: 6 × [pause] (was 2). Match the
+          // other speaker-boundary counts in injectPauseTags after the
+          // [long-pause] → [pause] swap.
+          speakable = `${speakable} [pause] [pause] [pause] [pause] [pause] [pause]`;
         }
         const buf = await callGrokTTS(speakable, seg.voice);
         completed++;

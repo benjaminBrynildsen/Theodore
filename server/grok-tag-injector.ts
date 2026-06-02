@@ -111,39 +111,49 @@ export function injectPauseTags(prose: string): string {
   if (!prose) return prose;
   let r = prose;
 
-  // v3 (2026-06-02): doubled every tag count, tripled chapter intro.
+  // v4 (2026-06-02): dropped [long-pause] entirely — Grok was reading it
+  // as literal text. All long durations are now represented as multiple
+  // [pause] tags (3 × [pause] ≈ one prior [long-pause]). Also tripled
+  // all counts per Ben's feedback that pauses weren't audible enough.
+  // Ellipsis: removed the preserved dot characters — the dots themselves
+  // shouldn't be heard.
 
-  // 0a. Chapter intro — em-dash followed by ≥4 newlines + capital letter
-  // is the unique signature of the announcement → prose transition (the
-  // single biggest pacing reset in a chapter). Replace with 3 ×
-  // [long-pause] and drop the em-dash so the regular em-dash rule
-  // (step 5) doesn't add another beat on top.
-  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, '\n\n[long-pause] [long-pause] [long-pause]\n\n');
+  // Repeated [pause] strings, pre-built for clarity.
+  const PAUSE_6 = '[pause] [pause] [pause] [pause] [pause] [pause]';
+  const PAUSE_18 = `${PAUSE_6} ${PAUSE_6} ${PAUSE_6}`;
+  const PAUSE_27 = `${PAUSE_18} ${PAUSE_6} ${PAUSE_6} [pause] [pause] [pause]`;
+  const PAUSE_36 = `${PAUSE_18} ${PAUSE_18}`;
 
-  // 0b. Scene breaks — 4 × [long-pause] (was 2).
-  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, '\n\n[long-pause] [long-pause] [long-pause] [long-pause]\n\n');
+  // 0a. Chapter intro — em-dash + ≥4 newlines + capital letter is the
+  // unique end-of-announcement signature. Biggest pacing reset → 27×.
+  // Drop the em-dash so the regular em-dash rule doesn't compound.
+  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, `\n\n${PAUSE_27}\n\n`);
 
-  // 1. Narration → dialogue: 2 × [pause].
-  r = r.replace(/([.!?])\s+(["“])/g, '$1 [pause] [pause] $2');
+  // 0b. Scene breaks — 36×.
+  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `\n\n${PAUSE_36}\n\n`);
 
-  // 2. Dialogue → narration: 2 × [pause].
-  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, '$1 [pause] [pause] $2');
+  // 1. Narration → dialogue: 6×.
+  r = r.replace(/([.!?])\s+(["“])/g, `$1 ${PAUSE_6} $2`);
 
-  // 3. Paragraph breaks: 2 × [long-pause].
-  r = r.replace(/\n\n+/g, '\n\n[long-pause] [long-pause]\n\n');
+  // 2. Dialogue → narration: 6×.
+  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, `$1 ${PAUSE_6} $2`);
 
-  // 4. Sentence boundaries inside a paragraph: 2 × [pause].
-  r = r.replace(/([.!?])\s+([A-Z])/g, '$1 [pause] [pause] $2');
+  // 3. Paragraph breaks: 18×.
+  r = r.replace(/\n\n+/g, `\n\n${PAUSE_18}\n\n`);
 
-  // 5. Em-dash pauses: 2 × [pause].
-  r = r.replace(/\s*—\s*/g, ' — [pause] [pause] ');
+  // 4. Sentence boundaries inside a paragraph: 6×.
+  r = r.replace(/([.!?])\s+([A-Z])/g, `$1 ${PAUSE_6} $2`);
 
-  // 6. Ellipsis: 2 × [long-pause].
-  r = r.replace(/\.{3}/g, '... [long-pause] [long-pause]');
-  r = r.replace(/…/g, '… [long-pause] [long-pause]');
+  // 5. Em-dash pauses: 6× after the em-dash.
+  r = r.replace(/\s*—\s*/g, ` — ${PAUSE_6} `);
 
-  // 7. Semicolons: 2 × [pause].
-  r = r.replace(/;\s+/g, '; [pause] [pause] ');
+  // 6. Ellipsis: 18×, with the literal dots stripped (Ben asked for
+  // these gone a long time ago — we were still preserving them).
+  r = r.replace(/\.{3}/g, ` ${PAUSE_18} `);
+  r = r.replace(/…/g, ` ${PAUSE_18} `);
+
+  // 7. Semicolons: 6×.
+  r = r.replace(/;\s+/g, `; ${PAUSE_6} `);
 
   return r;
 }
