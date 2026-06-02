@@ -309,6 +309,8 @@ export const GROK_VOICES: GrokVoiceInfo[] = [
   { id: 'grok:78a495fdbb39', voiceId: '78a495fdbb39', name: 'James', desc: 'English · youthful', gender: 'male', accent: 'en' },
   { id: 'grok:f8cf5c2c78d4', voiceId: 'f8cf5c2c78d4', name: 'Grace', desc: 'English · young & bright', gender: 'female', accent: 'en' },
   { id: 'grok:79f3a8b96d43', voiceId: '79f3a8b96d43', name: 'Claire', desc: 'English · poised', gender: 'female', accent: 'en' },
+  // Newly added 2026-06-02 — rename + set gender/accent after previewing.
+  { id: 'grok:mpvhyvvmvvsv', voiceId: 'mpvhyvvmvvsv', name: 'Benny', desc: 'New voice', gender: 'male', accent: 'en' },
 ];
 
 const GROK_VALID_VOICES = new Set(GROK_VOICES.map(v => v.voiceId));
@@ -1760,10 +1762,10 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         let speakable = stripNonXaiBrackets(seg.text).trim();
         const next = speechSegs[idx + 1];
         if (next && next.voice && next.voice !== seg.voice) {
-          // Trailing pause at the end of this segment, before the voice
-          // change. v5: 1 [pause] (was 6). High-density tag clusters
-          // were causing Grok to hallucinate audio.
-          speakable = `${speakable} [pause]`;
+          // Trailing breath at end-of-segment before voice change. v6:
+          // [breath] reads as natural conversational handoff (audible
+          // inhale) rather than awkward silence between speakers.
+          speakable = `${speakable} [breath]`;
         }
         const buf = await callGrokTTS(speakable, seg.voice);
         completed++;

@@ -16,24 +16,35 @@ A given chapter only goes through ONE engine. Don't mix the two pause schemes.
 
 **Note (v3):** Grok narrator-only used to share `addTTSPacing` (newlines) with OpenAI, but the newline approach under-paused on Grok. Now both Grok paths use the same tag-based injector.
 
-## Boundary table (v4 — current)
+## Boundary table (v6 — current)
 
-v4 (2026-06-02): dropped `[long-pause]` entirely (Grok was reading it as literal text), tripled every count, and stripped the literal dots from ellipsis output.
+v6 (2026-06-02): xAI's docs explicitly say "Combine tags with punctuation — produces more natural results than stacking tags." We cap stacks at 2× per location. `[long-pause]` is back as a valid single tag — the v3/v4 failure mode was *stacking* it (which got rendered as the literal phrase "long pause"), not the tag itself. Sentence-boundary and semicolon tag injection are DROPPED; we rely on punctuation alone there per xAI guidance.
 
 | # | Boundary | `addTTSPacing` newlines | Grok tags |
 |---|---|---|---|
-| 1 | Paragraph break (`\n\n+`) | `nl(10) + — + nl(10)` | `[pause]` × 18 |
-| 2 | Sentence boundary (`[.!?]\s+[A-Z]`) | `snl(8)` | `[pause]` × 6 |
-| 3 | Narration → dialogue | `nl(10)` before quote | `[pause]` × 6 before quote |
-| 4 | Dialogue → narration | `nl(10)` after quote | `[pause]` × 6 after quote |
-| 5 | Speaker change (back-and-forth) | (handled by #3+#4) | `[pause]` × 6 appended to outgoing segment ([tts.ts:1746](../server/tts.ts)) |
-| 6 | Em-dash (`\s*—\s*`) | `nl(8) + — + nl(8)` | `[pause]` × 6 after |
-| 7 | Ellipsis (`...` / `…`) | `nl(15)` — dots stripped | `[pause]` × 18, dots stripped |
-| 8 | Semicolon (`;\s+`) | `nl(8)` | `[pause]` × 6 |
-| 9 | Scene break (`***` / `---` / `___` on own line) | `nl(15) + — + nl(15)` | `[pause]` × 36 |
-| 10 | Chapter intro (em-dash + 4+ newlines + capital, end of announcement) | Falls into #1 (paragraph break) | `[pause]` × 27 (explicit rule, em-dash dropped) |
+| 1 | Paragraph break (`\n\n+`) | `nl(10) + — + nl(10)` | `[pause]` × 2 |
+| 2 | Sentence boundary | `snl(8)` | (dropped — punctuation only) |
+| 3 | Narration → dialogue | `nl(10)` before quote | `[breath]` × 1 before quote |
+| 4 | Dialogue → narration | `nl(10)` after quote | `[pause]` × 2 after quote |
+| 5 | Speaker change (back-and-forth) | (handled by #3+#4) | `[breath]` × 1 appended to outgoing segment ([tts.ts:1746](../server/tts.ts)) |
+| 6 | Em-dash (`\s*—\s*`) | `nl(8) + — + nl(8)` | `[pause]` × 2 after |
+| 7 | Ellipsis (`...` / `…`) | `nl(15)` — dots stripped | `[long-pause]` × 2, dots stripped |
+| 8 | Semicolon | `nl(8)` | (dropped — punctuation only) |
+| 9 | Scene break | `nl(15) + — + nl(15)` | `[long-pause]` × 2 |
+| 10 | Chapter intro (em-dash + 4+ newlines + capital, end of announcement) | Falls into #1 | `[long-pause]` × 2 (em-dash dropped) |
 
-**Why no `[long-pause]` anymore:** Ben heard "long pause" being read aloud in Grok output, meaning Grok wasn't recognizing the tag and was reading it as text. Switched to multiple `[pause]` tags everywhere — roughly 3 × `[pause]` ≈ one prior `[long-pause]` in duration. Safer and verified to work.
+**Density:** ~80–100 tags per chapter (vs v4 ~1000+, v5 ~150).
+
+**Why `[breath]` on dialogue transitions:** more natural conversational rhythm than silence. The audible inhale reads as a human speaker preparing to speak / handing off the floor.
+
+## History
+
+- **v1 (pre-2026-06-02):** Boundaries at nl(5–7), no scene break handling, no `[pause]` tags on Grok multi-voice (only dialogue cues + speaker-change pause).
+- **v2 (2026-06-02):** Bumped every newline boundary +2 tier, added scene-break rule, added explicit `[pause]` injection for Grok multi-voice. Ben felt chapters were running fast on both web and iOS.
+- **v3:** Doubled all Grok tag counts, tripled chapter intro. Stacks of 2–3 tags everywhere.
+- **v4:** Dropped `[long-pause]` (heard as literal text), tripled v3 counts (18, 27, 36 per location). Hit the failure mode hard — Grok hallucinated "Chapter 5" audio at every dense `[pause]` cluster and chunks bloated past Grok's 15K char limit.
+- **v5 (emergency rollback):** Cut everything to 1× per location. Solved the hallucinations but pacing felt slightly tight.
+- **v6 (current):** 2× cap per stack, `[long-pause]` re-introduced (single/paired only, never deep stacks), sentence-boundary and semicolon tags dropped per xAI's "use punctuation" guidance, `[breath]` on dialogue/speaker transitions.
 
 Order of operations in `addTTSPacing`:
 1. **Scene break (#9)** — runs BEFORE asterisk strip and paragraph collapse, otherwise the `***` markers get eaten.

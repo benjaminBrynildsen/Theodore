@@ -118,47 +118,50 @@ export function injectPauseTags(prose: string): string {
   // Ellipsis: removed the preserved dot characters — the dots themselves
   // shouldn't be heard.
 
-  // v5 (2026-06-02 — emergency rollback). Symptom: Grok TTS was
-  // hallucinating "Chapter 5" audio at the position of `[pause]` clusters
-  // (replaying buffered context from the announcement) and mumbling
-  // words near dense tag groupings. Cause: 1000+ pause tags per chapter
-  // overwhelmed Grok's parser and bloated chunks past the 15K char limit.
+  // v6 (2026-06-02). xAI's own docs say: "Combine tags with punctuation
+  // — produces more natural results than stacking tags." We cap at 2x
+  // per location (Ben's threshold for "a little more without breaking
+  // Grok"). [long-pause] re-introduced as a single-or-paired tag for
+  // the structural beats — it was the *stacking* that caused the
+  // "Chapter 5" hallucinations in v3/v4, not the tag itself.
   //
-  // Strategy: minimize bracket-tag density. One [pause] per location is
-  // sufficient — Grok renders each as a real beat (~0.3s). For longer
-  // pauses (scene break, chapter intro) we cap at 3× so we never have a
-  // dense cluster. Total pause tags per chapter ≈ 150 (vs ~1000+ in v4).
+  // We also DROP sentence-boundary and semicolon pause-injection
+  // entirely — those rely on punctuation alone (per xAI guidance).
+  // Cuts ~70% of total tag density vs v4 while keeping the structural
+  // beats audible. Switched dialogue/speaker-change transitions to
+  // [breath] for a more natural conversational rhythm.
 
-  const PAUSE_1 = '[pause]';
-  const PAUSE_3 = '[pause] [pause] [pause]';
+  const PAUSE_2 = '[pause] [pause]';
+  const LONG_PAUSE_2 = '[long-pause] [long-pause]';
 
-  // 0a. Chapter intro — em-dash + ≥4 newlines + capital. Capped at 3.
-  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, `\n\n${PAUSE_3}\n\n`);
+  // 0a. Chapter intro — em-dash + ≥4 newlines + capital. 2× long-pause.
+  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, `\n\n${LONG_PAUSE_2}\n\n`);
 
-  // 0b. Scene breaks — 3 (was 36).
-  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `\n\n${PAUSE_3}\n\n`);
+  // 0b. Scene breaks — 2× long-pause.
+  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `\n\n${LONG_PAUSE_2}\n\n`);
 
-  // 1. Narration → dialogue: 1.
-  r = r.replace(/([.!?])\s+(["“])/g, `$1 ${PAUSE_1} $2`);
+  // 1. Narration → dialogue: [breath] (audible inhale before speech).
+  r = r.replace(/([.!?])\s+(["“])/g, '$1 [breath] $2');
 
-  // 2. Dialogue → narration: 1.
-  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, `$1 ${PAUSE_1} $2`);
+  // 2. Dialogue → narration: 2× pause.
+  r = r.replace(/(["”][.!?]?)\s+([A-Z][a-z])/g, `$1 ${PAUSE_2} $2`);
 
-  // 3. Paragraph breaks: 1.
-  r = r.replace(/\n\n+/g, `\n\n${PAUSE_1}\n\n`);
+  // 3. Paragraph breaks: 2× pause.
+  r = r.replace(/\n\n+/g, `\n\n${PAUSE_2}\n\n`);
 
-  // 4. Sentence boundaries inside a paragraph: 1.
-  r = r.replace(/([.!?])\s+([A-Z])/g, `$1 ${PAUSE_1} $2`);
+  // 4. Sentence boundaries — DROPPED. Rely on `.` punctuation alone.
+  // (This was the highest-density tag location and most likely culprit
+  // for cluster confusion. xAI docs explicitly recommend punctuation
+  // over tags here.)
 
-  // 5. Em-dash pauses: 1.
-  r = r.replace(/\s*—\s*/g, ` — ${PAUSE_1} `);
+  // 5. Em-dash pauses: 2× pause.
+  r = r.replace(/\s*—\s*/g, ` — ${PAUSE_2} `);
 
-  // 6. Ellipsis: 1 (dots stripped).
-  r = r.replace(/\.{3}/g, ` ${PAUSE_1} `);
-  r = r.replace(/…/g, ` ${PAUSE_1} `);
+  // 6. Ellipsis: 2× long-pause, with literal dots stripped.
+  r = r.replace(/\.{3}/g, ` ${LONG_PAUSE_2} `);
+  r = r.replace(/…/g, ` ${LONG_PAUSE_2} `);
 
-  // 7. Semicolons: 1.
-  r = r.replace(/;\s+/g, `; ${PAUSE_1} `);
+  // 7. Semicolons — DROPPED. Punctuation alone.
 
   return r;
 }

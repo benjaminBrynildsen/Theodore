@@ -80,6 +80,8 @@ const GROK_VOICES = [
   { id: 'grok:78a495fdbb39', name: 'James', desc: 'English · youthful', gender: 'male' },
   { id: 'grok:f8cf5c2c78d4', name: 'Grace', desc: 'English · young & bright', gender: 'female' },
   { id: 'grok:79f3a8b96d43', name: 'Claire', desc: 'English · poised', gender: 'female' },
+  // Newly added 2026-06-02 — rename + set gender after previewing.
+  { id: 'grok:mpvhyvvmvvsv', name: 'Benny', desc: 'New voice', gender: 'male' },
 ] as const;
 
 const FISH_AUDIO_VOICES = [
