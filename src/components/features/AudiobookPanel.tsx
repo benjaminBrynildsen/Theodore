@@ -59,7 +59,7 @@ const OPENAI_TTS_VOICES = [
 const GROK_VOICES = [
   // Multilingual flagship voices — Leo first (default), Benny second.
   { id: 'grok:leo', name: 'Leo', desc: 'Authoritative', gender: 'male' },
-  { id: 'grok:mpvhyvvmvvsv', name: 'Benny', desc: 'New voice', gender: 'male' },
+  { id: 'grok:hl46cxygefcf', name: 'Benny', desc: 'New voice', gender: 'male' },
   { id: 'grok:eve', name: 'Eve', desc: 'Energetic & bright', gender: 'female' },
   { id: 'grok:ara', name: 'Ara', desc: 'Warm & inviting', gender: 'female' },
   { id: 'grok:rex', name: 'Rex', desc: 'Confident & clear', gender: 'male' },

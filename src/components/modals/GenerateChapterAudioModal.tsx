@@ -39,7 +39,7 @@ interface Props {
 // grouped by accent.
 const NARRATOR_OPTIONS = [
   { id: 'grok:leo', name: 'Leo', desc: 'Authoritative · default' },
-  { id: 'grok:mpvhyvvmvvsv', name: 'Benny', desc: 'New voice' },
+  { id: 'grok:hl46cxygefcf', name: 'Benny', desc: 'New voice' },
   { id: 'grok:sal', name: 'Sal', desc: 'Smooth & grounded' },
   { id: 'grok:rex', name: 'Rex', desc: 'Confident & clear' },
   { id: 'grok:ara', name: 'Ara', desc: 'Warm & inviting' },
