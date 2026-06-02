@@ -141,6 +141,7 @@ export function assignVoicesForProject(characters: CharacterEntry[]): VoiceAssig
 // sync with NARRATOR_OPTIONS / GROK_VOICES in the UI components.
 const GROK_VOICE_META: Record<string, { name: string; desc: string }> = {
   'grok:leo': { name: 'Leo', desc: 'Authoritative narrator' },
+  'grok:mpvhyvvmvvsv': { name: 'Benny', desc: 'New voice' },
   'grok:rex': { name: 'Rex', desc: 'Confident & clear' },
   'grok:sal': { name: 'Sal', desc: 'Smooth & grounded' },
   'grok:eve': { name: 'Eve', desc: 'Energetic & bright' },
