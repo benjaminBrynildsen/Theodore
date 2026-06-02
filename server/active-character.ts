@@ -1206,7 +1206,7 @@ export function attachActiveCharacterRoutes(app: Router, requireAuth: RequireAut
       if (!body?.cueText || !body?.characterName) {
         return res.status(400).json({ error: 'cueText and characterName required' });
       }
-      const voiceId = body.voiceId || 'eve';
+      const voiceId = body.voiceId || 'leo';
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -1248,7 +1248,7 @@ export function attachActiveCharacterRoutes(app: Router, requireAuth: RequireAut
         return res.status(400).json({ error: 'priorProse and characterName required' });
       }
       if (body.listenerUtterance == null) body.listenerUtterance = '';
-      const voiceId = body.voiceId || 'eve';
+      const voiceId = body.voiceId || 'leo';
 
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache, no-transform');

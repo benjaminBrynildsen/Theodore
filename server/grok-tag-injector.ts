@@ -132,13 +132,18 @@ export function injectPauseTags(prose: string): string {
   // [breath] for a more natural conversational rhythm.
 
   const PAUSE_2 = '[pause] [pause]';
-  const LONG_PAUSE_2 = '[long-pause] [long-pause]';
+  // v6.2: NEVER stack [long-pause] — Grok reads stacked occurrences as the
+  // literal phrase "a long pause" (same failure mode as v3/v4). For longer
+  // beats, mix one [long-pause] with a trailing [pause] so the tags are
+  // different (no stacking violation).
+  const LONG_PAUSE_PLUS = '[long-pause] [pause]';
 
-  // 0a. Chapter intro — em-dash + ≥4 newlines + capital. 2× long-pause.
-  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, `\n\n${LONG_PAUSE_2}\n\n`);
+  // 0a. Chapter intro — em-dash + ≥4 newlines + capital. Single [long-pause]
+  // followed by [pause] for extra duration without stacking same tag.
+  r = r.replace(/—\s*\n{4,}\s*(?=["“]?[A-Z])/g, `\n\n${LONG_PAUSE_PLUS}\n\n`);
 
-  // 0b. Scene breaks — 2× long-pause.
-  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `\n\n${LONG_PAUSE_2}\n\n`);
+  // 0b. Scene breaks — 1× long-pause + 1× pause.
+  r = r.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `\n\n${LONG_PAUSE_PLUS}\n\n`);
 
   // 1. Narration → dialogue — REMOVED (v6.1). The [breath] before the
   // opening quote was cutting off the narrative rhythm — readers expect
@@ -159,9 +164,9 @@ export function injectPauseTags(prose: string): string {
   // 5. Em-dash pauses: 2× pause.
   r = r.replace(/\s*—\s*/g, ` — ${PAUSE_2} `);
 
-  // 6. Ellipsis: 2× long-pause, with literal dots stripped.
-  r = r.replace(/\.{3}/g, ` ${LONG_PAUSE_2} `);
-  r = r.replace(/…/g, ` ${LONG_PAUSE_2} `);
+  // 6. Ellipsis: single [long-pause], with literal dots stripped.
+  r = r.replace(/\.{3}/g, ` [long-pause] `);
+  r = r.replace(/…/g, ` [long-pause] `);
 
   // 7. Semicolons — DROPPED. Punctuation alone.
 

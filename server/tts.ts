@@ -705,16 +705,13 @@ function buildChapterAnnouncement(
         ? `Chapter ${number}. (break) (break) (break) ${t}. (break) (break) (break) (break) `
         : `Chapter ${number}. (break) (break) (break) (break) `;
     case 'grok':
-      // Grok-native pacing: explicit [long-pause] tags between title parts,
-      // no em-dash separators, no dense newline clusters. The old structure
-      // (em-dash + 7 newlines × 2) was getting wrapped in pause tags by
-      // injectPauseTags and produced a tag pile that Grok hallucinated
-      // additional title text from ("Face to Face and face to face is the
-      // home of..."). Each `[long-pause]` is a single tag, never stacked
-      // deeply, which xAI's docs confirm is the supported usage.
+      // Grok-native pacing. Single [long-pause] between title parts. For
+      // the longer beat before prose, mix [long-pause] + [pause] — never
+      // stack the same tag. Grok renders stacked [long-pause] as the
+      // literal phrase "a long pause" out loud (same failure mode as v4).
       return t
-        ? `Chapter ${number}. [long-pause] ${t}. [long-pause] [long-pause]\n\n`
-        : `Chapter ${number}. [long-pause] [long-pause]\n\n`;
+        ? `Chapter ${number}. [long-pause] ${t}. [long-pause] [pause]\n\n`
+        : `Chapter ${number}. [long-pause] [pause]\n\n`;
     case 'openai':
       return t
         ? `Chapter ${number}.\n\n\n\n\n\n\n—\n\n\n\n\n\n\n${t}.\n\n\n\n\n\n\n—\n\n\n\n\n\n\n\n`
