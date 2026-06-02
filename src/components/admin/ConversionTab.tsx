@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { RefreshCw, TrendingUp, Users as UsersIcon, DollarSign, Clock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -92,7 +92,211 @@ function fmtDate(iso: string | null): string {
   }
 }
 
+// ── Top-level tab: toggle between signup/revenue stats and the /go funnel ──
 export function ConversionTab() {
+  const [view, setView] = useState<'signups' | 'go'>('signups');
+  return (
+    <div className="pt-4">
+      <div className="px-4 sm:px-6">
+        <div className="inline-flex rounded-xl border border-black/[0.08] bg-black/[0.02] p-1 mb-2">
+          <SubTabButton active={view === 'signups'} onClick={() => setView('signups')}>
+            Signups &amp; revenue
+          </SubTabButton>
+          <SubTabButton active={view === 'go'} onClick={() => setView('go')}>
+            /go funnel
+          </SubTabButton>
+        </div>
+      </div>
+      {view === 'signups' ? <SignupsView /> : <GoFunnelView />}
+    </div>
+  );
+}
+
+function SubTabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'px-3.5 py-1.5 rounded-lg text-sm font-medium transition-colors',
+        active ? 'bg-white shadow-sm text-text-primary' : 'text-text-tertiary hover:text-text-secondary'
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── /go landing-page funnel ──
+// Mirrors the ad-traffic funnel: Landed → Focused prompt → Played sample →
+// Scrolled → Clicked a plan → Submitted prompt (the only real conversion).
+interface GoWindow {
+  sessionCount: number;
+  medianSeconds: number;
+  events: Record<string, number>;
+  pricingTiers: Record<string, number>;
+  pricingThenSubmit: number;
+}
+interface GoFunnelResponse {
+  windows: { d7: GoWindow; d30: GoWindow; all: GoWindow };
+}
+
+const GO_STEPS: Array<{ key: string; label: string; conversion?: boolean }> = [
+  { key: 'page_load', label: 'Landed on /go' },
+  { key: 'section_reached', label: 'Saw any section' },
+  { key: 'focus_input', label: 'Focused the prompt box' },
+  { key: 'play_audio', label: 'Played an audio sample' },
+  { key: 'try_voices_clicked', label: "Tapped “other voices”" },
+  { key: 'scrolled_to_books', label: 'Scrolled to samples' },
+  { key: 'pricing_cta_clicked', label: 'Clicked a plan' },
+  { key: 'prompt_submit', label: 'Submitted prompt → app', conversion: true },
+  { key: 'final_cta_submitted', label: 'Submitted via final CTA → app', conversion: true },
+];
+
+function GoFunnelView() {
+  const [data, setData] = useState<GoFunnelResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [win, setWin] = useState<'d7' | 'd30' | 'all'>('d30');
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch('/api/admin/go-funnel', { credentials: 'include' });
+      if (!r.ok) { setError(`Failed to load (${r.status})`); return; }
+      setData(await r.json());
+    } catch (e: any) {
+      setError(e?.message || 'Network error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  if (loading && !data) return <div className="py-8 text-sm text-text-tertiary">Loading /go funnel…</div>;
+  if (error) {
+    return (
+      <div className="py-8">
+        <p className="text-sm text-rose-700">{error}</p>
+        <button onClick={load} className="mt-3 text-sm text-text-secondary hover:text-text-primary underline">Retry</button>
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const w = data.windows[win];
+  const landed = Math.max(1, w.events['page_load'] || 0);
+  const author = w.pricingTiers['author'] || 0;
+  const free = w.pricingTiers['free'] || 0;
+
+  return (
+    <div className="px-4 sm:px-6 py-4 space-y-6">
+      {/* Window selector + refresh */}
+      <div className="flex items-center justify-between">
+        <div className="inline-flex rounded-lg border border-black/[0.08] bg-white p-0.5 text-xs">
+          {([['d7', '7 days'], ['d30', '30 days'], ['all', 'All time']] as const).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setWin(k)}
+              className={cn('px-2.5 py-1 rounded-md font-medium transition-colors',
+                win === k ? 'bg-black text-white' : 'text-text-tertiary hover:text-text-secondary')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={load}
+          className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
+          aria-label="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* Headline KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <GoKpi label="Sessions" value={w.sessionCount.toString()} />
+        <GoKpi label="Median time on page" value={fmtDuration(w.medianSeconds)} />
+        <GoKpi
+          label="Submitted a prompt"
+          value={fmtPct((w.events['prompt_submit'] || 0) / landed)}
+          sub={`${w.events['prompt_submit'] || 0} of ${landed}`}
+          accent="emerald"
+        />
+        <GoKpi
+          label="Clicked plan → submitted"
+          value={(w.pricingThenSubmit).toString()}
+          sub={`of ${w.events['pricing_cta_clicked'] || 0} plan clicks`}
+          accent={w.pricingThenSubmit === 0 && (w.events['pricing_cta_clicked'] || 0) > 0 ? 'rose' : undefined}
+        />
+      </div>
+
+      {/* Funnel bars */}
+      <section>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+          Funnel — share of landed sessions
+        </h2>
+        <div className="rounded-2xl border border-black/[0.06] bg-white p-4 space-y-2.5">
+          {GO_STEPS.map((step) => {
+            const count = w.events[step.key] || 0;
+            const pct = count / landed;
+            return (
+              <div key={step.key} className="flex items-center gap-3">
+                <div className={cn('w-48 text-xs flex-shrink-0', step.conversion ? 'font-semibold text-emerald-700' : 'text-text-secondary')}>
+                  {step.label}
+                </div>
+                <div className="flex-1 h-6 bg-black/[0.04] rounded-md overflow-hidden">
+                  <div
+                    className={cn('h-full rounded-md transition-all', step.conversion ? 'bg-emerald-500' : 'bg-indigo-300')}
+                    style={{ width: `${Math.min(100, pct * 100)}%` }}
+                  />
+                </div>
+                <div className="w-24 text-right text-xs tabular-nums flex-shrink-0 text-text-secondary">
+                  {count} · {fmtPct(pct)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Pricing CTA split — watch the Dream Offer vs free */}
+      <section>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+          Plan clicks — which card gets tapped
+        </h2>
+        <div className="grid grid-cols-2 gap-3">
+          <GoKpi label="Author (Dream Offer)" value={author.toString()} sub={`${fmtPct(author / landed)} of landed`} accent="amber" />
+          <GoKpi label="Dreamer (free)" value={free.toString()} sub={`${fmtPct(free / landed)} of landed`} />
+        </div>
+        <p className="text-[11px] text-text-tertiary mt-3 leading-relaxed">
+          Both plan CTAs currently scroll back to the prompt box rather than redirecting.
+          “Clicked plan → submitted” above is the metric to watch: if it stays near zero,
+          the scroll-back isn’t converting and the Dream Offer button should route into the funnel.
+          Note: /go can’t flag admin visits, so a few of Ben’s own loads may be counted.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+function GoKpi({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: 'emerald' | 'amber' | 'rose' }) {
+  const accentClass = accent === 'emerald' ? 'text-emerald-700'
+    : accent === 'amber' ? 'text-amber-700'
+    : accent === 'rose' ? 'text-rose-600'
+    : 'text-text-primary';
+  return (
+    <div className="rounded-2xl border border-black/[0.06] bg-white p-4">
+      <div className="text-xs uppercase tracking-wider text-text-tertiary mb-1">{label}</div>
+      <div className={cn('text-2xl font-serif font-semibold tabular-nums', accentClass)}>{value}</div>
+      {sub && <div className="text-xs text-text-tertiary mt-1 tabular-nums">{sub}</div>}
+    </div>
+  );
+}
+
+function SignupsView() {
   const [data, setData] = useState<ConversionResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

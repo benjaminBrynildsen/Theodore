@@ -2545,6 +2545,96 @@ export async function getConversionStats(req: Request, res: Response) {
   }
 }
 
+// ========== /go landing funnel ==========
+// Per-event session funnel for the static /go ad landing page, plus the
+// pricing-CTA tier split and the pricing→submit overlap Ben cares about.
+// Pure read-only aggregation over journey_events where page = '/go/'.
+//
+// NOTE on admin filtering: the static /go page doesn't set data->>'is_admin'
+// (that's a React-app concept), so we can't cleanly exclude internal visits
+// here. In practice /go is the paid-ad landing page and traffic is ~all
+// external, so contamination is negligible — but a few of Ben's own loads
+// may be counted. Don't read these as gospel at tiny N.
+export async function getGoFunnel(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const windows: Array<{ key: 'd7' | 'd30' | 'all'; days: number }> = [
+      { key: 'd7', days: 7 },
+      { key: 'd30', days: 30 },
+      { key: 'all', days: 36500 },
+    ];
+
+    const out: Record<string, any> = {};
+    for (const w of windows) {
+      const cutoff = new Date(Date.now() - w.days * 86400000);
+
+      // Distinct sessions per event
+      const evRows = await db.execute(sql`
+        SELECT event, COUNT(DISTINCT session_id)::int AS sessions
+        FROM journey_events
+        WHERE page = '/go/' AND created_at > ${cutoff}
+        GROUP BY event
+      `);
+      const events: Record<string, number> = {};
+      for (const r of evRows.rows as any[]) events[r.event] = Number(r.sessions) || 0;
+
+      // Pricing CTA clicks split by tier (free vs author = Dream Offer)
+      const tierRows = await db.execute(sql`
+        SELECT COALESCE(data->>'tier', 'unknown') AS tier, COUNT(DISTINCT session_id)::int AS sessions
+        FROM journey_events
+        WHERE page = '/go/' AND event = 'pricing_cta_clicked' AND created_at > ${cutoff}
+        GROUP BY data->>'tier'
+      `);
+      const pricingTiers: Record<string, number> = {};
+      for (const r of tierRows.rows as any[]) pricingTiers[r.tier] = Number(r.sessions) || 0;
+
+      // Total sessions + median time on page
+      const durRows = await db.execute(sql`
+        WITH s AS (
+          SELECT session_id,
+                 EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at)))::int AS dur
+          FROM journey_events
+          WHERE page = '/go/' AND created_at > ${cutoff}
+          GROUP BY session_id
+        )
+        SELECT COUNT(*)::int AS total,
+               COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY dur), 0)::int AS median_s
+        FROM s
+      `);
+      const durRow = (durRows.rows as any[])[0] || {};
+
+      // Sessions that clicked a plan AND then submitted a prompt (the metric
+      // Ben asked about — does the scroll-back-to-prompt actually convert?)
+      const overlapRows = await db.execute(sql`
+        SELECT COUNT(*)::int AS n FROM (
+          SELECT session_id
+          FROM journey_events
+          WHERE page = '/go/' AND created_at > ${cutoff}
+            AND event IN ('pricing_cta_clicked', 'prompt_submit')
+          GROUP BY session_id
+          HAVING COUNT(DISTINCT event) = 2
+        ) t
+      `);
+      const pricingThenSubmit = Number((overlapRows.rows as any[])[0]?.n) || 0;
+
+      out[w.key] = {
+        sessionCount: Number(durRow.total) || 0,
+        medianSeconds: Number(durRow.median_s) || 0,
+        events,
+        pricingTiers,
+        pricingThenSubmit,
+      };
+    }
+
+    res.json({ windows: out });
+  } catch (e: any) {
+    console.error('[Admin] go-funnel error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 // ========== Prompts funnel ==========
 // Per-prompt shown/clicked/converted counts so we can see which conversion
 // mechanics are pulling weight and which aren't worth the surface area they
