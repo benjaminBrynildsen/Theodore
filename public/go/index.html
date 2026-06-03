@@ -750,13 +750,15 @@
     var btn = document.getElementById('submitBtn');
     var form = document.getElementById('promptForm');
 
-    // Pre-fill with a short random prompt
+    // Pre-fill with a short random prompt. Trailing "..." (unfinalized
+    // feel) — invites the user to keep typing instead of just hitting
+    // submit on the seed idea.
     var shortPrompts = [
-      'A detective who solves crimes using dreams.',
-      'A spy who can\'t remember his mission.',
-      'A blind assassin hired to kill the president.',
-      'Robots raising a human child.',
-      'A heist on a moving train.',
+      'A detective who solves crimes using dreams...',
+      'A spy who can\'t remember his mission...',
+      'A blind assassin hired to kill the president...',
+      'Robots raising a human child...',
+      'A heist on a moving train...',
     ];
     input.value = shortPrompts[Math.floor(Math.random() * shortPrompts.length)];
 
