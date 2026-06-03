@@ -2716,6 +2716,80 @@ export async function getGoFunnelByDevice(req: Request, res: Response) {
   }
 }
 
+// ========== Mark sessions as dev (retroactive funnel exclusion) ==========
+// POST /api/admin/mark-dev-sessions
+//
+// Bulk-flags journey sessions as dev/internal so funnel queries exclude
+// them. A session is marked by inserting a synthetic journey_event with
+// data: { is_dev: true } — same shape the /go page emits when localStorage
+// is set via ?devex=1. The funnel queries already filter sessions with
+// ANY is_dev:true event, so one synthetic row per session suffices.
+//
+// Body: { byUserIds?: string[], sessionIds?: string[], sinceDays?: number }
+// Returns: { marked: number, skipped: number }
+export async function markDevSessions(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const { byUserIds, sessionIds, sinceDays } = req.body || {};
+    const days = typeof sinceDays === 'number' && sinceDays > 0 ? Math.floor(sinceDays) : 60;
+    const cutoff = new Date(Date.now() - days * 86400000);
+
+    // Resolve the candidate session list.
+    let targetSessionIds = new Set<string>();
+
+    if (Array.isArray(sessionIds) && sessionIds.length > 0) {
+      for (const s of sessionIds) if (typeof s === 'string' && s) targetSessionIds.add(s);
+    }
+
+    if (Array.isArray(byUserIds) && byUserIds.length > 0) {
+      // Find every session that ever had an event tied to one of these
+      // user IDs (the user_id lives in journey_events.data->>'user_id').
+      const userIdsLit = `{${byUserIds.map((id: string) => `"${id.replace(/"/g, '\\"')}"`).join(',')}}`;
+      const rows = await db.execute(sql`
+        SELECT DISTINCT session_id
+        FROM journey_events
+        WHERE data->>'user_id' = ANY(${userIdsLit}::text[])
+          AND created_at > ${cutoff}
+      `);
+      for (const r of rows.rows as any[]) targetSessionIds.add(String(r.session_id));
+    }
+
+    if (targetSessionIds.size === 0) {
+      return res.json({ marked: 0, skipped: 0, note: 'No sessions matched the criteria.' });
+    }
+
+    // Skip sessions already marked (idempotent).
+    const sessionsArr = Array.from(targetSessionIds);
+    const sessionsLit = `{${sessionsArr.map((s) => `"${s.replace(/"/g, '\\"')}"`).join(',')}}`;
+    const alreadyRows = await db.execute(sql`
+      SELECT DISTINCT session_id
+      FROM journey_events
+      WHERE session_id = ANY(${sessionsLit}::text[])
+        AND data->>'is_dev' = 'true'
+    `);
+    const alreadyMarked = new Set<string>((alreadyRows.rows as any[]).map((r) => String(r.session_id)));
+    const toMark = sessionsArr.filter((s) => !alreadyMarked.has(s));
+
+    if (toMark.length === 0) {
+      return res.json({ marked: 0, skipped: alreadyMarked.size, note: 'All matched sessions already flagged.' });
+    }
+
+    // Insert one synthetic dev-flag event per session.
+    for (const sid of toMark) {
+      await db.execute(sql`
+        INSERT INTO journey_events (session_id, event, data, page, platform, created_at)
+        VALUES (${sid}, 'admin_dev_flag', '{"is_dev": true, "source": "retroactive-mark"}'::jsonb, '/go/', 'web', NOW())
+      `);
+    }
+
+    res.json({ marked: toMark.length, skipped: alreadyMarked.size, totalCandidates: targetSessionIds.size });
+  } catch (e: any) {
+    console.error('[Admin] mark-dev-sessions error:', e);
+    res.status(500).json({ error: e?.message || 'Internal server error' });
+  }
+}
+
 // ========== Prompts funnel ==========
 // Per-prompt shown/clicked/converted counts so we can see which conversion
 // mechanics are pulling weight and which aren't worth the surface area they
