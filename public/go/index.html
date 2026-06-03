@@ -551,19 +551,6 @@
       <!-- Single hero card injected by renderBooks() -->
     </div>
 
-    <!-- Sticky mini player -->
-    <div class="mini-player" id="miniPlayer">
-      <img id="mpCover" src="" alt="">
-      <div class="mp-info">
-        <div class="mp-title" id="mpTitle"></div>
-        <div class="mp-sub" id="mpSub"></div>
-      </div>
-      <div class="mp-progress"><div class="mp-bar" id="mpBar"></div></div>
-      <span class="mp-time" id="mpTime"></span>
-      <button class="mp-play-btn" id="mpPlayBtn" aria-label="Play/Pause">
-        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="6,4 20,12 6,20"/></svg>
-      </button>
-    </div>
   </section>
 
   <audio id="featuredAudio" preload="none"></audio>
@@ -867,11 +854,11 @@
       audio.play().catch(function(){});
       isPlaying = true;
 
-      // Show mini player
-      mpCover.src = b.coverUrl || '';
-      mpTitle.textContent = b.title;
-      mpSub.textContent = b.chapterTitle + ' · ' + b.genre;
-      player.classList.add('visible');
+      // Mini player removed — guard against any leftover refs.
+      if (mpCover) mpCover.src = b.coverUrl || '';
+      if (mpTitle) mpTitle.textContent = b.title;
+      if (mpSub) mpSub.textContent = b.chapterTitle + ' · ' + b.genre;
+      if (player) player.classList.add('visible');
       updatePlayerUI();
 
       // Highlight active card
@@ -892,7 +879,7 @@
     }
 
     function updatePlayerUI() {
-      mpPlayBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
+      if (mpPlayBtn) mpPlayBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
       if (heroPlayBtn) {
         var heroBig = function(svg){ return svg.replace('width="14" height="14"', 'width="16" height="16"'); };
         heroPlayBtn.innerHTML = (isPlaying && activeBook === 0) ? heroBig(pauseIcon) : heroBig(playIcon);
@@ -902,8 +889,8 @@
     audio.addEventListener('timeupdate', function() {
       if (audio.duration && isFinite(audio.duration)) {
         var pct = audio.currentTime / audio.duration * 100;
-        mpBar.style.width = pct + '%';
-        mpTime.textContent = fmtTime(audio.currentTime) + ' / ' + fmtTime(audio.duration);
+        if (mpBar) mpBar.style.width = pct + '%';
+        if (mpTime) mpTime.textContent = fmtTime(audio.currentTime) + ' / ' + fmtTime(audio.duration);
         if (heroBar) heroBar.style.width = (activeBook === 0 ? pct : 0) + '%';
       }
     });
@@ -915,7 +902,7 @@
         playBook(activeBook + 1);
       }
     });
-    mpPlayBtn.addEventListener('click', function() {
+    if (mpPlayBtn) mpPlayBtn.addEventListener('click', function() {
       if (activeBook === null) { if (featuredBooks.length) playBook(0); return; }
       if (isPlaying) { audio.pause(); isPlaying = false; }
       else { audio.play().catch(function(){}); isPlaying = true; }
