@@ -137,7 +137,7 @@ interface GoWindow {
   pricingThenSubmit: number;
 }
 interface GoFunnelResponse {
-  windows: { d7: GoWindow; d30: GoWindow; all: GoWindow };
+  windows: { today: GoWindow; d7: GoWindow; d30: GoWindow; all: GoWindow };
 }
 
 const GO_STEPS: Array<{ key: string; label: string; conversion?: boolean }> = [
@@ -156,7 +156,7 @@ function GoFunnelView() {
   const [data, setData] = useState<GoFunnelResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [win, setWin] = useState<'d7' | 'd30' | 'all'>('d30');
+  const [win, setWin] = useState<'today' | 'd7' | 'd30' | 'all'>('d30');
 
   const load = async () => {
     setLoading(true);
@@ -195,7 +195,7 @@ function GoFunnelView() {
       {/* Window selector + refresh */}
       <div className="flex items-center justify-between">
         <div className="inline-flex rounded-lg border border-black/[0.08] bg-white p-0.5 text-xs">
-          {([['d7', '7 days'], ['d30', '30 days'], ['all', 'All time']] as const).map(([k, label]) => (
+          {([['today', 'Today'], ['d7', '7 days'], ['d30', '30 days'], ['all', 'All time']] as const).map(([k, label]) => (
             <button
               key={k}
               onClick={() => setWin(k)}

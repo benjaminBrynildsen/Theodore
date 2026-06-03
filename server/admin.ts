@@ -2560,15 +2560,21 @@ export async function getGoFunnel(req: Request, res: Response) {
     const admin = await requireAdmin(req, res);
     if (!admin) return;
 
-    const windows: Array<{ key: 'd7' | 'd30' | 'all'; days: number }> = [
-      { key: 'd7', days: 7 },
-      { key: 'd30', days: 30 },
-      { key: 'all', days: 36500 },
+    // "today" = since midnight UTC (calendar day on the server's clock,
+    // which is what users expect from a dashboard). Other windows are
+    // rolling N-day from now.
+    const todayCutoff = new Date();
+    todayCutoff.setUTCHours(0, 0, 0, 0);
+    const windows: Array<{ key: 'today' | 'd7' | 'd30' | 'all'; cutoff: Date }> = [
+      { key: 'today', cutoff: todayCutoff },
+      { key: 'd7', cutoff: new Date(Date.now() - 7 * 86400000) },
+      { key: 'd30', cutoff: new Date(Date.now() - 30 * 86400000) },
+      { key: 'all', cutoff: new Date(Date.now() - 36500 * 86400000) },
     ];
 
     const out: Record<string, any> = {};
     for (const w of windows) {
-      const cutoff = new Date(Date.now() - w.days * 86400000);
+      const cutoff = w.cutoff;
 
       // Distinct sessions per event
       const evRows = await db.execute(sql`
