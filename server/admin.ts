@@ -2659,6 +2659,25 @@ export async function getGoFunnel(req: Request, res: Response) {
       `);
       const pricingThenSubmit = Number((overlapRows.rows as any[])[0]?.n) || 0;
 
+      // Signups attributable to /go. The signup_completed event fires on
+      // the SPA (page = '/'), NOT on /go itself, because the user is
+      // redirected after submitting the prompt and a new session_id is
+      // created. We attribute by referrer (document.referrer contains
+      // '/go') OR by entry_url containing the ?prompt= marker that only
+      // appears on the /go → / redirect path.
+      const signupRows = await db.execute(sql`
+        SELECT COUNT(DISTINCT data->>'user_id')::int AS n
+        FROM journey_events
+        WHERE event = 'signup_completed'
+          AND created_at >= ${fromDate} AND created_at < ${toDate}
+          AND (
+            data->>'referrer' LIKE '%/go%'
+            OR data->>'entry_url' LIKE '%prompt=%'
+          )
+      `);
+      const signupsFromGo = Number((signupRows.rows as any[])[0]?.n) || 0;
+      events['signup_completed'] = signupsFromGo;
+
       // Per-placeholder-variant breakdown. Sessions are assigned 50/50
       // via localStorage on /go and the variant rides on every journey
       // event in data->>'placeholder_variant'. Slice the funnel by that.

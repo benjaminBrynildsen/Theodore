@@ -172,6 +172,7 @@ const GO_STEPS: Array<{ key: string; label: string; conversion?: boolean }> = [
   { key: 'pricing_cta_clicked', label: 'Clicked a plan' },
   { key: 'prompt_submit', label: 'Submitted prompt → app', conversion: true },
   { key: 'final_cta_submitted', label: 'Submitted via final CTA → app', conversion: true },
+  { key: 'signup_completed', label: 'Signed up', conversion: true },
 ];
 
 function GoFunnelView() {
