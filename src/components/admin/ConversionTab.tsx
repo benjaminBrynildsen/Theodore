@@ -242,29 +242,29 @@ function GoFunnelView() {
           ))}
         </div>
         {win === 'custom' && (
-          <div className="inline-flex items-center gap-1.5 rounded-lg border border-black/[0.08] bg-white px-1.5 py-0.5 text-xs">
+          <div className="inline-flex items-center gap-2 rounded-lg border border-black/[0.08] bg-white px-2 py-1 text-sm">
             <button
               onClick={() => setCustomDate(shiftISO(customDate, -1))}
-              className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-black/5"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-black/5 active:bg-black/10"
               aria-label="Previous day"
             >
-              <ChevronLeft size={14} />
+              <ChevronLeft size={22} />
             </button>
             <input
               type="date"
               value={customDate}
               max={todayISO()}
               onChange={(e) => setCustomDate(e.target.value)}
-              className="bg-transparent outline-none font-medium text-text-primary text-xs cursor-pointer"
+              className="bg-transparent outline-none font-medium text-text-primary text-sm cursor-pointer min-h-[36px]"
             />
-            <span className="text-text-tertiary text-[10px] hidden sm:inline">· {prettyISO(customDate)}</span>
+            <span className="text-text-tertiary text-xs hidden sm:inline">· {prettyISO(customDate)}</span>
             <button
               onClick={() => !isToday && setCustomDate(shiftISO(customDate, 1))}
               disabled={isToday}
-              className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-black/5 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md text-text-secondary hover:text-text-primary hover:bg-black/5 active:bg-black/10 disabled:opacity-30 disabled:cursor-not-allowed"
               aria-label="Next day"
             >
-              <ChevronRight size={14} />
+              <ChevronRight size={22} />
             </button>
           </div>
         )}
