@@ -225,6 +225,32 @@
       .book-card { flex: 0 0 240px; }
     }
 
+    /* Hero card variant — single full-width Blind Target card above the
+       fold. Lands when renderBooks() sees only one book. */
+    .book-card.hero {
+      flex: 1 1 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      border: 1px solid rgba(0,0,0,0.08);
+      box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+    }
+    .book-card.hero .book-cover {
+      aspect-ratio: 3 / 2;
+    }
+    .book-card.hero .book-info {
+      padding: 0.875rem 1rem 1rem;
+    }
+    .book-card.hero .book-info h3 {
+      font-size: 1.0625rem;
+    }
+    .book-card.hero .book-info p {
+      font-size: 0.75rem;
+    }
+    .book-card.hero .play-badge {
+      width: 2.75rem; height: 2.75rem;
+    }
+    .book-card.hero .play-badge svg { width: 16px; height: 16px; }
+
     /* ═══════════════════════════════════════════════════════════════════════
        Overhauled landing sections (2026-05-12) — mirror of LandingPage.tsx
        ═══════════════════════════════════════════════════════════════════════ */
@@ -527,29 +553,12 @@
       <p class="hint">Don't overthink it — even one sentence is enough.</p>
     </div>
 
-    <!-- Single hero audio sample — Blind Target (the best clip). Fulfils the
-         audio-player ad's promise immediately, above the fold. -->
-    <div class="hero-audio" data-journey-section="landing_hero_audio">
-      <button id="heroPlayBtn" class="hero-play" aria-label="Play sample">
-        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><polygon points="6,4 20,12 6,20"/></svg>
-      </button>
-      <img class="hero-audio-cover" src="/landing/covers/blind-target.png" alt="Blind Target">
-      <div class="hero-audio-meta">
-        <div class="hero-audio-title serif">Blind Target</div>
-        <div class="hero-audio-sub">"Touch and Go" · Thriller · written &amp; narrated by Theodore</div>
-        <div class="hero-audio-progress"><div id="heroBar"></div></div>
-      </div>
-    </div>
-    <button id="tryVoicesCta" class="try-voices">🎧 Hear other voices &amp; stories →</button>
   </section>
 
-  <!-- Featured books + audio sample -->
+  <!-- Single hero book card — Blind Target, above-the-fold. -->
   <section class="featured" data-journey-section="landing_audio_samples">
-    <p class="featured-label">🎧 Hear What Theodore Creates</p>
-    <p class="featured-sub">Real books written and narrated by Theodore authors</p>
-
     <div class="book-carousel" id="bookCarousel">
-      <!-- Books populated by /api/featured-books -->
+      <!-- Single hero card injected by renderBooks() -->
     </div>
 
     <!-- Sticky mini player -->
@@ -803,20 +812,6 @@
         coverUrl: '/landing/covers/blind-target.png',
         audioUrl: '/landing/audio/blind-target.mp3',
       },
-      {
-        title: 'Henry & Husky',
-        chapterTitle: 'The Robot in the Workshop',
-        genre: 'Adventure',
-        coverUrl: '/landing/covers/henry-and-husky.png',
-        audioUrl: '/landing/audio/henry-and-husky.mp3',
-      },
-      {
-        title: 'On Ice and Lanes',
-        chapterTitle: 'Spare Time',
-        genre: 'Fiction',
-        coverUrl: '/landing/covers/on-ice-and-lanes.png',
-        audioUrl: '/landing/audio/on-ice-and-lanes.mp3',
-      },
     ];
 
     var audio = document.getElementById('featuredAudio');
@@ -843,9 +838,10 @@
 
     function renderBooks(books) {
       carousel.innerHTML = '';
+      var heroMode = books.length === 1;
       books.forEach(function(b, i) {
         var card = document.createElement('div');
-        card.className = 'book-card';
+        card.className = heroMode ? 'book-card hero' : 'book-card';
         card.setAttribute('data-idx', i);
         card.innerHTML =
           '<div class="book-cover">' +
