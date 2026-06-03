@@ -2641,6 +2641,63 @@ export async function getGoFunnel(req: Request, res: Response) {
   }
 }
 
+// ========== /go Funnel — split by device ==========
+// Same funnel events as getGoFunnel, bucketed by user-agent into
+// mobile vs desktop so we can see if the leak shape differs by device.
+// Mobile = UA contains mobile/android/iphone/ipad/etc. Desktop = everything else.
+export async function getGoFunnelByDevice(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const todayCutoff = new Date();
+    todayCutoff.setUTCHours(0, 0, 0, 0);
+    const windows: Array<{ key: 'today' | 'd7' | 'd30' | 'all'; cutoff: Date }> = [
+      { key: 'today', cutoff: todayCutoff },
+      { key: 'd7', cutoff: new Date(Date.now() - 7 * 86400000) },
+      { key: 'd30', cutoff: new Date(Date.now() - 30 * 86400000) },
+      { key: 'all', cutoff: new Date(Date.now() - 36500 * 86400000) },
+    ];
+
+    const out: Record<string, any> = {};
+    for (const w of windows) {
+      const cutoff = w.cutoff;
+
+      const rows = await db.execute(sql`
+        WITH classified AS (
+          SELECT
+            session_id,
+            event,
+            CASE
+              WHEN user_agent ~* '(mobile|android|iphone|ipad|ipod|blackberry|iemobile|opera mini)'
+              THEN 'mobile' ELSE 'desktop'
+            END AS device
+          FROM journey_events
+          WHERE page = '/go/' AND created_at > ${cutoff}
+        )
+        SELECT device, event, COUNT(DISTINCT session_id)::int AS sessions
+        FROM classified
+        GROUP BY device, event
+      `);
+
+      const byDevice: { mobile: Record<string, number>; desktop: Record<string, number> } = {
+        mobile: {}, desktop: {},
+      };
+      for (const r of rows.rows as any[]) {
+        const d = r.device as 'mobile' | 'desktop';
+        byDevice[d][r.event] = Number(r.sessions) || 0;
+      }
+
+      out[w.key] = byDevice;
+    }
+
+    res.json({ windows: out });
+  } catch (e: any) {
+    console.error('[Admin] go-funnel-by-device error:', e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 // ========== Prompts funnel ==========
 // Per-prompt shown/clicked/converted counts so we can see which conversion
 // mechanics are pulling weight and which aren't worth the surface area they
