@@ -225,31 +225,21 @@
       .book-card { flex: 0 0 240px; }
     }
 
-    /* Hero card variant — single full-width Blind Target card above the
-       fold. Lands when renderBooks() sees only one book. */
+    /* Hero card variant — original .book-card look (square cover, info
+       below), just sized up. Lands when renderBooks() sees only one
+       book. */
     .book-card.hero {
       flex: 1 1 100%;
-      max-width: 480px;
+      max-width: 320px;
       margin: 0 auto;
-      border: 1px solid rgba(0,0,0,0.08);
       box-shadow: 0 6px 24px rgba(0,0,0,0.08);
     }
-    .book-card.hero .book-cover {
-      aspect-ratio: 3 / 2;
-    }
-    .book-card.hero .book-info {
-      padding: 0.875rem 1rem 1rem;
-    }
     .book-card.hero .book-info h3 {
-      font-size: 1.0625rem;
+      font-size: 1rem;
     }
     .book-card.hero .book-info p {
       font-size: 0.75rem;
     }
-    .book-card.hero .play-badge {
-      width: 2.75rem; height: 2.75rem;
-    }
-    .book-card.hero .play-badge svg { width: 16px; height: 16px; }
 
     /* ═══════════════════════════════════════════════════════════════════════
        Overhauled landing sections (2026-05-12) — mirror of LandingPage.tsx
@@ -537,7 +527,7 @@
     </h1>
     <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}} @keyframes spin{to{transform:rotate(360deg)}}</style>
 
-    <p class="tagline">Type one sentence. Get a full novel and audiobook. Free.</p>
+    <p class="tagline">Type an idea. Talk it out in chat, then Theodore writes the book. Free.</p>
 
     <!-- Input box -->
     <div class="input-section">
