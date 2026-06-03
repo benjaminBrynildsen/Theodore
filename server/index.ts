@@ -952,7 +952,7 @@ app.post('/api/auth/register', async (req, res) => {
       void sendWelcome({ id: user.id, email: user.email, name: user.name, settings: user.settings })
         .catch((err) => console.warn('[email/welcome] register send failed', err?.message || err));
     }
-    res.json({ user: toSafeUser(user), token, guestClaim });
+    res.json({ user: toSafeUser(user), token, guestClaim, isNewUser });
   } catch (e: any) {
     respondInternalError(res, 'auth.register', e);
   }
@@ -1035,7 +1035,7 @@ app.post('/api/auth/google', async (req, res) => {
       void sendWelcome({ id: user.id, email: user.email, name: user.name, settings: user.settings })
         .catch((err) => console.warn('[email/welcome] google send failed', err?.message || err));
     }
-    res.json({ user: toSafeUser(user), token, guestClaim });
+    res.json({ user: toSafeUser(user), token, guestClaim, isNewUser });
   } catch (e: any) {
     respondInternalError(res, 'auth.google', e);
   }
@@ -1137,7 +1137,7 @@ app.post('/api/auth/apple', async (req, res) => {
       void sendWelcome({ id: user.id, email: user.email, name: user.name, settings: user.settings })
         .catch((err) => console.warn('[email/welcome] apple send failed', err?.message || err));
     }
-    res.json({ user: toSafeUser(user), token, guestClaim });
+    res.json({ user: toSafeUser(user), token, guestClaim, isNewUser });
   } catch (e: any) {
     respondInternalError(res, 'auth.apple', e);
   }

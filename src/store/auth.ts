@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import { track as trackJourney } from '../lib/journey';
 import { useStore } from './index';
 import { useCanonStore } from './canon';
 
@@ -103,6 +104,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       const user = coerceAuthUser(result);
       if (!user) throw new Error('Invalid auth response. Verify Theodore API is running on port 3001.');
       set({ user, loading: false, initialized: true });
+      // login is for existing accounts only — server returns 401 on
+      // unknown email/password. Fire login_completed (not signup_completed).
+      trackJourney('login_completed', { method: 'email', user_id: user.id });
     } catch (e: any) {
       set({ loading: false, error: e?.message || 'Login failed.' });
       throw e;
@@ -116,6 +120,18 @@ export const useAuthStore = create<AuthState>((set) => ({
       const user = coerceAuthUser(result);
       if (!user) throw new Error('Invalid auth response. Verify Theodore API is running on port 3001.');
       set({ user, loading: false, initialized: true });
+      // Fire signup_completed for new accounts so the journey funnel can
+      // attribute conversions to the originating page (/go, /, etc.).
+      // /api/auth/register always creates a new user, but we use the server
+      // flag to stay consistent with Google/Apple flows.
+      if ((result as any)?.isNewUser) {
+        trackJourney('signup_completed', {
+          method: 'email',
+          user_id: user.id,
+          referrer: document.referrer || null,
+          entry_url: window.location.href,
+        });
+      }
       window.dispatchEvent(new Event('theodore:registered'));
     } catch (e: any) {
       set({ loading: false, error: e?.message || 'Registration failed.' });
@@ -130,6 +146,19 @@ export const useAuthStore = create<AuthState>((set) => ({
       const user = coerceAuthUser(result);
       if (!user) throw new Error('Google sign-in failed.');
       set({ user, loading: false, initialized: true });
+      // Google flow: only fire signup_completed for NEW accounts (server
+      // returns isNewUser=true). Returning users get login_completed.
+      const attribution = {
+        method: 'google',
+        user_id: user.id,
+        referrer: document.referrer || null,
+        entry_url: window.location.href,
+      };
+      if ((result as any)?.isNewUser) {
+        trackJourney('signup_completed', attribution);
+      } else {
+        trackJourney('login_completed', attribution);
+      }
       window.dispatchEvent(new Event('theodore:registered'));
     } catch (e: any) {
       set({ loading: false, error: e?.message || 'Google sign-in failed.' });
