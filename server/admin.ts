@@ -2576,11 +2576,22 @@ export async function getGoFunnel(req: Request, res: Response) {
     for (const w of windows) {
       const cutoff = w.cutoff;
 
+      // Dev/internal sessions are excluded everywhere below. A session
+      // is "dev" if ANY of its events has data->>'is_dev' = 'true'.
+      // Flag is set by the /go page when visited with ?devex=1 (sticky
+      // via localStorage), so Ben's iterative testing doesn't inflate
+      // the funnel numbers.
+      const devFilter = sql`session_id NOT IN (
+        SELECT DISTINCT session_id FROM journey_events
+        WHERE page = '/go/' AND data->>'is_dev' = 'true'
+      )`;
+
       // Distinct sessions per event
       const evRows = await db.execute(sql`
         SELECT event, COUNT(DISTINCT session_id)::int AS sessions
         FROM journey_events
         WHERE page = '/go/' AND created_at > ${cutoff}
+          AND ${devFilter}
         GROUP BY event
       `);
       const events: Record<string, number> = {};
@@ -2591,6 +2602,7 @@ export async function getGoFunnel(req: Request, res: Response) {
         SELECT COALESCE(data->>'tier', 'unknown') AS tier, COUNT(DISTINCT session_id)::int AS sessions
         FROM journey_events
         WHERE page = '/go/' AND event = 'pricing_cta_clicked' AND created_at > ${cutoff}
+          AND ${devFilter}
         GROUP BY data->>'tier'
       `);
       const pricingTiers: Record<string, number> = {};
@@ -2603,6 +2615,7 @@ export async function getGoFunnel(req: Request, res: Response) {
                  EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at)))::int AS dur
           FROM journey_events
           WHERE page = '/go/' AND created_at > ${cutoff}
+            AND ${devFilter}
           GROUP BY session_id
         )
         SELECT COUNT(*)::int AS total,
@@ -2619,6 +2632,7 @@ export async function getGoFunnel(req: Request, res: Response) {
           FROM journey_events
           WHERE page = '/go/' AND created_at > ${cutoff}
             AND event IN ('pricing_cta_clicked', 'prompt_submit')
+            AND ${devFilter}
           GROUP BY session_id
           HAVING COUNT(DISTINCT event) = 2
         ) t
@@ -2674,6 +2688,10 @@ export async function getGoFunnelByDevice(req: Request, res: Response) {
             END AS device
           FROM journey_events
           WHERE page = '/go/' AND created_at > ${cutoff}
+            AND session_id NOT IN (
+              SELECT DISTINCT session_id FROM journey_events
+              WHERE page = '/go/' AND data->>'is_dev' = 'true'
+            )
         )
         SELECT device, event, COUNT(DISTINCT session_id)::int AS sessions
         FROM classified

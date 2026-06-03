@@ -989,12 +989,25 @@
       var jSid = 's_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
       var jQueue = [];
       var jGeo = {};
+      // Internal-traffic exclusion. Visiting /go?devex=1 sets a sticky
+      // localStorage flag; every subsequent journey event from this
+      // device carries is_dev:true so the admin funnel queries can
+      // filter dev sessions out. Visit /go?devex=0 to clear.
+      try {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('devex') === '1') localStorage.setItem('theodore_dev_exclude', '1');
+        else if (params.get('devex') === '0') localStorage.removeItem('theodore_dev_exclude');
+      } catch (e) {}
+      var jIsDev = false;
+      try { jIsDev = localStorage.getItem('theodore_dev_exclude') === '1'; } catch (e) {}
       // Reuse the geo fetch from engagement tracking
       fetch('https://ipapi.co/json/').then(function(r){return r.json()}).then(function(d){
         jGeo = {city:d.city, region:d.region, country:d.country_code};
       }).catch(function(){});
       window.__jTrack = function(evt, data) {
-        jQueue.push({sessionId:jSid, event:evt, data:data||null, page:'/go/',
+        var payload = data || {};
+        if (jIsDev) payload.is_dev = true;
+        jQueue.push({sessionId:jSid, event:evt, data:payload, page:'/go/',
           city:jGeo.city, region:jGeo.region, country:jGeo.country});
       };
       function jFlush() {
