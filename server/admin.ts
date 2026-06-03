@@ -2639,12 +2639,39 @@ export async function getGoFunnel(req: Request, res: Response) {
       `);
       const pricingThenSubmit = Number((overlapRows.rows as any[])[0]?.n) || 0;
 
+      // Per-placeholder-variant breakdown. Sessions are assigned 50/50
+      // via localStorage on /go and the variant rides on every journey
+      // event in data->>'placeholder_variant'. Slice the funnel by that.
+      const variantRows = await db.execute(sql`
+        WITH session_variants AS (
+          SELECT DISTINCT session_id, data->>'placeholder_variant' AS variant
+          FROM journey_events
+          WHERE page = '/go/'
+            AND data->>'placeholder_variant' IS NOT NULL
+            AND created_at > ${cutoff}
+            AND ${devFilter}
+        )
+        SELECT sv.variant, je.event, COUNT(DISTINCT je.session_id)::int AS sessions
+        FROM journey_events je
+        JOIN session_variants sv USING (session_id)
+        WHERE je.page = '/go/' AND je.created_at > ${cutoff}
+          AND ${devFilter}
+        GROUP BY sv.variant, je.event
+      `);
+      const byPlaceholderVariant: Record<string, Record<string, number>> = {};
+      for (const r of variantRows.rows as any[]) {
+        const v = String(r.variant);
+        if (!byPlaceholderVariant[v]) byPlaceholderVariant[v] = {};
+        byPlaceholderVariant[v][r.event] = Number(r.sessions) || 0;
+      }
+
       out[w.key] = {
         sessionCount: Number(durRow.total) || 0,
         medianSeconds: Number(durRow.median_s) || 0,
         events,
         pricingTiers,
         pricingThenSubmit,
+        byPlaceholderVariant,
       };
     }
 

@@ -135,6 +135,7 @@ interface GoWindow {
   events: Record<string, number>;
   pricingTiers: Record<string, number>;
   pricingThenSubmit: number;
+  byPlaceholderVariant?: Record<string, Record<string, number>>;
 }
 interface GoFunnelResponse {
   windows: { today: GoWindow; d7: GoWindow; d30: GoWindow; all: GoWindow };
@@ -278,7 +279,82 @@ function GoFunnelView() {
           Note: /go can’t flag admin visits, so a few of Ben’s own loads may be counted.
         </p>
       </section>
+
+      <PlaceholderABCard window={w} />
     </div>
+  );
+}
+
+// ── A/B placeholder split ──
+// 50/50 sticky test (set in public/go/index.html).
+//   pitch:  "Pitch me a story idea."
+//   whats:  "What's your story idea?"
+// Each session's placeholder_variant rides on every journey event from
+// the page; the server slices the funnel by it.
+function PlaceholderABCard({ window: w }: { window: GoWindow }) {
+  const v = w.byPlaceholderVariant || {};
+  const variants: Array<{ key: string; label: string; copy: string }> = [
+    { key: 'pitch', label: 'Pitch', copy: '"Pitch me a story idea."' },
+    { key: 'whats', label: 'What’s', copy: '"What’s your story idea?"' },
+  ];
+  const totalLanded = variants.reduce((s, x) => s + (v[x.key]?.['page_load'] || 0), 0);
+  if (totalLanded === 0) {
+    return (
+      <section>
+        <h2 className="text-[11px] uppercase tracking-[0.18em] text-text-tertiary font-semibold mb-3">
+          A/B placeholder copy
+        </h2>
+        <p className="text-sm text-text-tertiary">
+          No data yet — variants ship with the next deploy. Check back after a few hours of /go traffic.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section>
+      <h2 className="text-[11px] uppercase tracking-[0.18em] text-text-tertiary font-semibold mb-3">
+        A/B placeholder copy
+      </h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {variants.map((x) => {
+          const ev = v[x.key] || {};
+          const landed = ev['page_load'] || 0;
+          const focus = ev['focus_input'] || 0;
+          const submit = ev['prompt_submit'] || 0;
+          const finalSubmit = ev['final_cta_submitted'] || 0;
+          const totalSubmit = submit + finalSubmit;
+          return (
+            <div key={x.key} className="rounded-2xl border border-black/[0.08] bg-white p-4">
+              <div className="flex items-baseline justify-between">
+                <div className="text-sm font-semibold text-text-primary">{x.label}</div>
+                <div className="text-[11px] text-text-tertiary">{landed} sessions</div>
+              </div>
+              <div className="text-xs text-text-tertiary italic mt-0.5">{x.copy}</div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-black/[0.03] px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Focus rate</div>
+                  <div className="text-lg font-semibold text-text-primary">
+                    {landed ? fmtPct(focus / landed) : '—'}
+                  </div>
+                  <div className="text-[10px] text-text-tertiary">{focus} of {landed}</div>
+                </div>
+                <div className="rounded-lg bg-black/[0.03] px-3 py-2">
+                  <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Submit rate</div>
+                  <div className="text-lg font-semibold text-text-primary">
+                    {landed ? fmtPct(totalSubmit / landed) : '—'}
+                  </div>
+                  <div className="text-[10px] text-text-tertiary">{totalSubmit} of {landed}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-text-tertiary mt-3 leading-relaxed">
+        Sticky 50/50 split via localStorage. Wait until each variant has ~50+ sessions before
+        declaring a winner — earlier than that is noise.
+      </p>
+    </section>
   );
 }
 
