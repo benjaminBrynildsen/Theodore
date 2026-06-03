@@ -532,8 +532,8 @@
     <div class="input-section">
       <form id="promptForm" class="input-wrap" onsubmit="return false;">
         <div class="input-inner">
-          <textarea id="promptInput" placeholder="Describe your story idea..." rows="3"></textarea>
-          <button type="submit" id="submitBtn" class="submit-btn active">
+          <textarea id="promptInput" placeholder="Paste a story you've been working on, or start one fresh here. We'll flesh it out together." rows="3"></textarea>
+          <button type="submit" id="submitBtn" class="submit-btn">
             <svg class="icon-sm" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
           </button>
         </div>
@@ -734,17 +734,11 @@
     var btn = document.getElementById('submitBtn');
     var form = document.getElementById('promptForm');
 
-    // Pre-fill with a short random prompt. Trailing "..." (unfinalized
-    // feel) — invites the user to keep typing instead of just hitting
-    // submit on the seed idea.
-    var shortPrompts = [
-      'A detective who solves crimes using dreams...',
-      'A spy who can\'t remember his mission...',
-      'A blind assassin hired to kill the president...',
-      'Robots raising a human child...',
-      'A heist on a moving train...',
-    ];
-    input.value = shortPrompts[Math.floor(Math.random() * shortPrompts.length)];
+    // No pre-fill — empty box with the placeholder doing the work. Was
+    // populating with random seed prompts ("A heist on a moving train...")
+    // but that read as "this is the example you're submitting" and
+    // suppressed real engagement. The new placeholder invites the user
+    // to bring their own idea (paste an existing one OR start fresh).
 
     // Toggle submit button style
     input.addEventListener('input', function(){
