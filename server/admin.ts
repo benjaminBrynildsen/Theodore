@@ -2562,19 +2562,39 @@ export async function getGoFunnel(req: Request, res: Response) {
 
     // "today" = since midnight UTC (calendar day on the server's clock,
     // which is what users expect from a dashboard). Other windows are
-    // rolling N-day from now.
-    const todayCutoff = new Date();
-    todayCutoff.setUTCHours(0, 0, 0, 0);
-    const windows: Array<{ key: 'today' | 'd7' | 'd30' | 'all'; cutoff: Date }> = [
-      { key: 'today', cutoff: todayCutoff },
-      { key: 'd7', cutoff: new Date(Date.now() - 7 * 86400000) },
-      { key: 'd30', cutoff: new Date(Date.now() - 30 * 86400000) },
-      { key: 'all', cutoff: new Date(Date.now() - 36500 * 86400000) },
+    // rolling N-day from now. Each window is a [from, to) half-open
+    // interval so we can support both rolling windows (to = now) and
+    // fixed calendar ranges (to = specific day end).
+    const now = new Date();
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const windows: Array<{ key: string; from: Date; to: Date }> = [
+      { key: 'today', from: todayStart, to: now },
+      { key: 'd7', from: new Date(Date.now() - 7 * 86400000), to: now },
+      { key: 'd30', from: new Date(Date.now() - 30 * 86400000), to: now },
+      { key: 'all', from: new Date(Date.now() - 36500 * 86400000), to: now },
     ];
+
+    // Custom date range via ?from=YYYY-MM-DD&to=YYYY-MM-DD. Both
+    // inclusive on the day boundary in UTC. If only `from` is provided,
+    // window is that single calendar day. Lets the UI step through
+    // individual days with arrow buttons.
+    const fromParam = typeof req.query.from === 'string' ? req.query.from : null;
+    const toParam = typeof req.query.to === 'string' ? req.query.to : null;
+    if (fromParam) {
+      const f = new Date(`${fromParam}T00:00:00Z`);
+      const tStr = toParam || fromParam;
+      const t = new Date(`${tStr}T00:00:00Z`);
+      t.setUTCDate(t.getUTCDate() + 1); // exclusive upper bound = end of selected day
+      if (!isNaN(f.getTime()) && !isNaN(t.getTime())) {
+        windows.push({ key: 'custom', from: f, to: t });
+      }
+    }
 
     const out: Record<string, any> = {};
     for (const w of windows) {
-      const cutoff = w.cutoff;
+      const fromDate = w.from;
+      const toDate = w.to;
 
       // Dev/internal sessions are excluded everywhere below. A session
       // is "dev" if ANY of its events has data->>'is_dev' = 'true'.
@@ -2590,7 +2610,7 @@ export async function getGoFunnel(req: Request, res: Response) {
       const evRows = await db.execute(sql`
         SELECT event, COUNT(DISTINCT session_id)::int AS sessions
         FROM journey_events
-        WHERE page = '/go/' AND created_at > ${cutoff}
+        WHERE page = '/go/' AND created_at >= ${fromDate} AND created_at < ${toDate}
           AND ${devFilter}
         GROUP BY event
       `);
@@ -2601,7 +2621,7 @@ export async function getGoFunnel(req: Request, res: Response) {
       const tierRows = await db.execute(sql`
         SELECT COALESCE(data->>'tier', 'unknown') AS tier, COUNT(DISTINCT session_id)::int AS sessions
         FROM journey_events
-        WHERE page = '/go/' AND event = 'pricing_cta_clicked' AND created_at > ${cutoff}
+        WHERE page = '/go/' AND event = 'pricing_cta_clicked' AND created_at >= ${fromDate} AND created_at < ${toDate}
           AND ${devFilter}
         GROUP BY data->>'tier'
       `);
@@ -2614,7 +2634,7 @@ export async function getGoFunnel(req: Request, res: Response) {
           SELECT session_id,
                  EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at)))::int AS dur
           FROM journey_events
-          WHERE page = '/go/' AND created_at > ${cutoff}
+          WHERE page = '/go/' AND created_at >= ${fromDate} AND created_at < ${toDate}
             AND ${devFilter}
           GROUP BY session_id
         )
@@ -2630,7 +2650,7 @@ export async function getGoFunnel(req: Request, res: Response) {
         SELECT COUNT(*)::int AS n FROM (
           SELECT session_id
           FROM journey_events
-          WHERE page = '/go/' AND created_at > ${cutoff}
+          WHERE page = '/go/' AND created_at >= ${fromDate} AND created_at < ${toDate}
             AND event IN ('pricing_cta_clicked', 'prompt_submit')
             AND ${devFilter}
           GROUP BY session_id
@@ -2648,13 +2668,13 @@ export async function getGoFunnel(req: Request, res: Response) {
           FROM journey_events
           WHERE page = '/go/'
             AND data->>'placeholder_variant' IS NOT NULL
-            AND created_at > ${cutoff}
+            AND created_at >= ${fromDate} AND created_at < ${toDate}
             AND ${devFilter}
         )
         SELECT sv.variant, je.event, COUNT(DISTINCT je.session_id)::int AS sessions
         FROM journey_events je
         JOIN session_variants sv USING (session_id)
-        WHERE je.page = '/go/' AND je.created_at > ${cutoff}
+        WHERE je.page = '/go/' AND je.created_at >= ${fromDate} AND je.created_at < ${toDate}
           AND ${devFilter}
         GROUP BY sv.variant, je.event
       `);

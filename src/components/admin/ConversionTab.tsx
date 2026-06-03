@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { RefreshCw, TrendingUp, Users as UsersIcon, DollarSign, Clock } from 'lucide-react';
+import { RefreshCw, TrendingUp, Users as UsersIcon, DollarSign, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface Snapshot {
@@ -138,7 +138,28 @@ interface GoWindow {
   byPlaceholderVariant?: Record<string, Record<string, number>>;
 }
 interface GoFunnelResponse {
-  windows: { today: GoWindow; d7: GoWindow; d30: GoWindow; all: GoWindow };
+  windows: { today: GoWindow; d7: GoWindow; d30: GoWindow; all: GoWindow; custom?: GoWindow };
+}
+
+// YYYY-MM-DD helpers — keep everything in UTC so the server bounds line up.
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+function shiftISO(iso: string, deltaDays: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+function prettyISO(iso: string): string {
+  if (!iso) return '';
+  if (iso === todayISO()) return 'Today';
+  if (iso === shiftISO(todayISO(), -1)) return 'Yesterday';
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC',
+  });
 }
 
 const GO_STEPS: Array<{ key: string; label: string; conversion?: boolean }> = [
@@ -157,13 +178,17 @@ function GoFunnelView() {
   const [data, setData] = useState<GoFunnelResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [win, setWin] = useState<'today' | 'd7' | 'd30' | 'all'>('d30');
+  const [win, setWin] = useState<'today' | 'd7' | 'd30' | 'all' | 'custom'>('d30');
+  // Custom-day picker state (only used when win === 'custom').
+  const [customDate, setCustomDate] = useState<string>(todayISO());
 
-  const load = async () => {
+  const load = async (overrideDate?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch('/api/admin/go-funnel', { credentials: 'include' });
+      const dateForQuery = overrideDate ?? (win === 'custom' ? customDate : null);
+      const qs = dateForQuery ? `?from=${dateForQuery}&to=${dateForQuery}` : '';
+      const r = await fetch(`/api/admin/go-funnel${qs}`, { credentials: 'include' });
       if (!r.ok) { setError(`Failed to load (${r.status})`); return; }
       setData(await r.json());
     } catch (e: any) {
@@ -174,6 +199,12 @@ function GoFunnelView() {
   };
 
   useEffect(() => { void load(); }, []);
+  // Re-fetch when the user changes the custom date while the custom tab is active.
+  useEffect(() => {
+    if (win !== 'custom') return;
+    void load(customDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customDate, win]);
 
   if (loading && !data) return <div className="py-8 text-sm text-text-tertiary">Loading /go funnel…</div>;
   if (error) {
@@ -186,17 +217,20 @@ function GoFunnelView() {
   }
   if (!data) return null;
 
-  const w = data.windows[win];
+  // `custom` window only exists when ?from=... was sent. Fall back to d30
+  // if it hasn't loaded yet (e.g. first render before useEffect fires).
+  const w = (win === 'custom' ? data.windows.custom : data.windows[win]) || data.windows.d30;
   const landed = Math.max(1, w.events['page_load'] || 0);
   const author = w.pricingTiers['author'] || 0;
   const free = w.pricingTiers['free'] || 0;
+  const isToday = customDate === todayISO();
 
   return (
     <div className="px-4 sm:px-6 py-4 space-y-6">
       {/* Window selector + refresh */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-lg border border-black/[0.08] bg-white p-0.5 text-xs">
-          {([['today', 'Today'], ['d7', '7 days'], ['d30', '30 days'], ['all', 'All time']] as const).map(([k, label]) => (
+          {([['today', 'Today'], ['d7', '7 days'], ['d30', '30 days'], ['all', 'All time'], ['custom', 'Custom']] as const).map(([k, label]) => (
             <button
               key={k}
               onClick={() => setWin(k)}
@@ -207,6 +241,33 @@ function GoFunnelView() {
             </button>
           ))}
         </div>
+        {win === 'custom' && (
+          <div className="inline-flex items-center gap-1.5 rounded-lg border border-black/[0.08] bg-white px-1.5 py-0.5 text-xs">
+            <button
+              onClick={() => setCustomDate(shiftISO(customDate, -1))}
+              className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-black/5"
+              aria-label="Previous day"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <input
+              type="date"
+              value={customDate}
+              max={todayISO()}
+              onChange={(e) => setCustomDate(e.target.value)}
+              className="bg-transparent outline-none font-medium text-text-primary text-xs cursor-pointer"
+            />
+            <span className="text-text-tertiary text-[10px] hidden sm:inline">· {prettyISO(customDate)}</span>
+            <button
+              onClick={() => !isToday && setCustomDate(shiftISO(customDate, 1))}
+              disabled={isToday}
+              className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-black/5 disabled:opacity-30 disabled:cursor-not-allowed"
+              aria-label="Next day"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
         <button
           onClick={load}
           className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
