@@ -827,7 +827,7 @@
           '</div>' +
           '<div class="book-info">' +
             '<h3 class="serif">' + b.title + '</h3>' +
-            '<p>' + b.chapterTitle + ' · ' + b.genre + '</p>' +
+            '<p>' + (heroMode ? 'A sample from a user\'s book' : (b.chapterTitle + ' · ' + b.genre)) + '</p>' +
           '</div>';
         card.addEventListener('click', function() { playBook(i); });
         carousel.appendChild(card);
