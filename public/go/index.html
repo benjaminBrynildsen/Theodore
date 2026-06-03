@@ -1066,6 +1066,23 @@
         }
       });
 
+      // Detect "tapped the input but chickened out without typing." Fires
+      // once per session on the first blur where the input is still empty.
+      // Splits the focus_input cohort into "tried-typing" vs "touched-then-bailed".
+      var loggedEmptyBlur = false;
+      var typedAnyChar = false;
+      input.addEventListener('input', function() {
+        if (input.value.length > 0) typedAnyChar = true;
+      });
+      input.addEventListener('blur', function() {
+        if (loggedEmptyBlur) return;
+        if (typedAnyChar) return;
+        if (input.value.trim().length > 0) return; // they typed and then blurred — different cohort
+        loggedEmptyBlur = true;
+        if (window.fbq) fbq('trackCustom', 'PromptBlurEmpty', region || {});
+        if (window.__jTrack) window.__jTrack('prompt_blur_empty');
+      });
+
       // Track submit button click specifically (vs Enter key)
       btn.addEventListener('click', function() {
         if (window.fbq) fbq('trackCustom', 'ClickedSubmitBtn', region || {});
