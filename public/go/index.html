@@ -561,7 +561,7 @@
       <form id="promptForm" class="input-wrap" onsubmit="return false;">
         <div class="input-inner">
           <textarea id="promptInput" placeholder="" rows="3"></textarea>
-          <div class="prompt-ghost" id="promptGhost"><span class="blink-cursor"></span>Don't overthink it. We'll chat about it first before any chapters are written...</div>
+          <div class="prompt-ghost" id="promptGhost"><span class="blink-cursor"></span><span id="promptGhostText"></span></div>
           <button type="submit" id="submitBtn" class="submit-btn">
             <svg class="icon-sm" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
           </button>
@@ -767,6 +767,31 @@
     // shows when empty + unfocused; native textarea takes over on focus
     // or any input.
     var ghost = document.getElementById('promptGhost');
+    var ghostText = document.getElementById('promptGhostText');
+
+    // 50/50 A/B test on the placeholder copy. Sticky per visitor via
+    // localStorage so a returning user sees the same variant — keeps the
+    // test honest. Variant tag is attached to every journey event so the
+    // funnel can be sliced by placeholder copy.
+    //   pitch:  "Pitch me a story idea."
+    //   whats:  "What's your story idea?"
+    var PLACEHOLDER_VARIANTS = {
+      pitch: 'Pitch me a story idea.',
+      whats: 'What’s your story idea?',
+    };
+    var placeholderVariant = null;
+    try {
+      placeholderVariant = localStorage.getItem('theodore_placeholder_variant');
+      if (placeholderVariant !== 'pitch' && placeholderVariant !== 'whats') {
+        placeholderVariant = Math.random() < 0.5 ? 'pitch' : 'whats';
+        localStorage.setItem('theodore_placeholder_variant', placeholderVariant);
+      }
+    } catch (e) {
+      placeholderVariant = Math.random() < 0.5 ? 'pitch' : 'whats';
+    }
+    window.__placeholderVariant = placeholderVariant;
+    if (ghostText) ghostText.textContent = PLACEHOLDER_VARIANTS[placeholderVariant];
+
     function updateGhost() {
       if (!ghost) return;
       var shouldHide = input.value.length > 0 || document.activeElement === input;
@@ -1037,6 +1062,7 @@
       window.__jTrack = function(evt, data) {
         var payload = data || {};
         if (jIsDev) payload.is_dev = true;
+        if (window.__placeholderVariant) payload.placeholder_variant = window.__placeholderVariant;
         jQueue.push({sessionId:jSid, event:evt, data:payload, page:'/go/',
           city:jGeo.city, region:jGeo.region, country:jGeo.country});
       };
