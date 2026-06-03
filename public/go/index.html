@@ -106,13 +106,41 @@
       border-radius: 1rem; background: #1c1c1e;
       box-shadow: 0 8px 40px rgba(0,0,0,0.15); overflow: hidden;
     }
-    .input-inner { display: flex; align-items: flex-end; gap: 0.5rem; padding: 1rem; }
+    .input-inner { display: flex; align-items: flex-end; gap: 0.5rem; padding: 1rem; position: relative; }
     .input-wrap textarea {
       flex: 1; background: transparent; color: rgba(255,255,255,0.9);
       font-size: 1rem; font-family: inherit; resize: none; outline: none;
       border: none; padding: 0.5rem; min-height: 4.5rem; max-height: 5.5rem;
     }
     .input-wrap textarea::placeholder { color: rgba(255,255,255,0.3); }
+    /* Custom placeholder overlay with a blinking cursor that sits next to
+       the placeholder text. Hidden when the textarea has content OR is
+       focused (so the native cursor takes over). */
+    .prompt-ghost {
+      position: absolute;
+      top: 1.5rem;
+      left: 1.5rem;
+      right: 3.5rem;
+      pointer-events: none;
+      color: rgba(255,255,255,0.35);
+      font-size: 1rem;
+      font-family: inherit;
+      line-height: 1.4;
+    }
+    .prompt-ghost .blink-cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: rgba(255,255,255,0.7);
+      border-radius: 1px;
+      animation: blink 1s step-end infinite;
+      vertical-align: text-bottom;
+      margin-right: 4px;
+      transform: translateY(-1px);
+    }
+    @media (min-width: 640px) {
+      .prompt-ghost { font-size: 0.875rem; }
+    }
     .submit-btn {
       width: 2rem; height: 2rem; border-radius: 0.5rem; border: none;
       display: flex; align-items: center; justify-content: center;
@@ -532,7 +560,8 @@
     <div class="input-section">
       <form id="promptForm" class="input-wrap" onsubmit="return false;">
         <div class="input-inner">
-          <textarea id="promptInput" placeholder="What's your story concept? Don't overthink it. We'll chat about it and refine the story on the next screen before any text is written." rows="3"></textarea>
+          <textarea id="promptInput" placeholder="" rows="3"></textarea>
+          <div class="prompt-ghost" id="promptGhost"><span class="blink-cursor"></span>Don't overthink it. We'll chat about it first before any chapters are written...</div>
           <button type="submit" id="submitBtn" class="submit-btn">
             <svg class="icon-sm" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
           </button>
@@ -734,15 +763,22 @@
     var btn = document.getElementById('submitBtn');
     var form = document.getElementById('promptForm');
 
-    // No pre-fill — empty box with the placeholder doing the work. Was
-    // populating with random seed prompts ("A heist on a moving train...")
-    // but that read as "this is the example you're submitting" and
-    // suppressed real engagement. The new placeholder invites the user
-    // to bring their own idea (paste an existing one OR start fresh).
+    // No pre-fill. Custom ghost-placeholder overlay (with blinking cursor)
+    // shows when empty + unfocused; native textarea takes over on focus
+    // or any input.
+    var ghost = document.getElementById('promptGhost');
+    function updateGhost() {
+      if (!ghost) return;
+      var shouldHide = input.value.length > 0 || document.activeElement === input;
+      ghost.style.display = shouldHide ? 'none' : '';
+    }
+    input.addEventListener('focus', updateGhost);
+    input.addEventListener('blur', updateGhost);
 
     // Toggle submit button style
     input.addEventListener('input', function(){
       btn.classList.toggle('active', input.value.trim().length > 0);
+      updateGhost();
     });
 
 
