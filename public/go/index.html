@@ -23,6 +23,11 @@
   <noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1302784575092189&ev=PageView&noscript=1"/></noscript>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* iOS Safari zooms when a focused form field is below 16px. Lock 16px
+       minimum on phones so tapping the prompt box never triggers a zoom. */
+    @media (max-width: 768px) {
+      input, textarea, select { font-size: 16px; }
+    }
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
       background: #f6f6f4;

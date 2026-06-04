@@ -212,10 +212,15 @@ export function ChapterView({ chapter }: Props) {
   const highlightName = highlightedEntry?.name || null;
   const project = getActiveProject();
   const liked = Boolean((chapter.aiIntentMetadata as any)?.userFeedback?.liked);
+  // maxTokens calibrated at ~2.5x the upper word target. Fiction prose runs
+  // ~1.3–1.5 tokens per word and Claude often overshoots the requested
+  // range; the old 1.5x ratio left zero headroom and was truncating
+  // chapters mid-sentence. See /api/admin/chapter-truncation for the
+  // empirical rate.
   const chunkProfiles: Record<'short' | 'medium' | 'long', { label: string; words: string; maxTokens: number }> = {
-    short: { label: '1k', words: '800-1,200', maxTokens: 1800 },
-    medium: { label: '2k', words: '1,800-2,500', maxTokens: 3800 },
-    long: { label: '3.5k', words: '3,000-4,000', maxTokens: 6000 },
+    short: { label: '1k', words: '800-1,200', maxTokens: 3000 },
+    medium: { label: '2k', words: '1,800-2,500', maxTokens: 5500 },
+    long: { label: '3.5k', words: '3,000-4,000', maxTokens: 8000 },
   };
   const chunkProfile = chunkProfiles[chunkSize];
   const [wordTarget, setWordTarget] = useState(2500);

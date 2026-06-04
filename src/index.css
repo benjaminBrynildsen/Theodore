@@ -117,6 +117,19 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
+/* iOS Safari zooms when a focused form control's font-size is below 16px.
+   Force a 16px minimum on phones so tapping a textbox never triggers a zoom.
+   Desktop sizing (above 768px) is unaffected — components keep their original
+   font-size at larger breakpoints. */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select,
+  [contenteditable="true"] {
+    font-size: 16px;
+  }
+}
+
 /* Glass input fields */
 .glass-input {
   background: rgba(255, 255, 255, 0.4);

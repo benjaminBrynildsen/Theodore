@@ -1402,7 +1402,12 @@ ${childrensRule}`,
                   || 40;
               })();
               const TARGET_WORDS = isChildrens ? childrensWordTarget : 1500;
-              const maxTokens = isChildrens ? 300 : 3000;
+              // 2.0x → 3.0x ratio. Claude overshoots fiction word targets,
+              // a 1500-word ask often produces 1800+ words → ~2700 tokens.
+              // 3000 leaves no margin; 4500 gives proper headroom and
+              // matches the safer ratio used in ChapterView's chunk
+              // profiles. See /api/admin/chapter-truncation.
+              const maxTokens = isChildrens ? 300 : 4500;
 
               let ch1Prose = '';
               useGenerationStore.getState().start({
