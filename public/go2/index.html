@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Theodore — Story Engine</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon-t.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Meta Pixel -->
+  <script>
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+    n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+    document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init','1302784575092189');
+    fbq('track','PageView');
+  </script>
+  <noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=1302784575092189&ev=PageView&noscript=1"/></noscript>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    /* iOS Safari zooms when a focused form field is below 16px — force a
+       16px minimum on phones so tapping the prompt box never triggers a zoom. */
+    @media (max-width: 768px) {
+      input, textarea, select { font-size: 16px; }
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+      background: #f6f6f4;
+      color: #000;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .serif { font-family: Georgia, 'Times New Roman', serif; }
+
+    /* Nav */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1.25rem 1.5rem; max-width: 72rem; margin: 0 auto; width: 100%;
+    }
+    .logo { display: flex; align-items: center; gap: 0.5rem; }
+    .logo span { font-size: 1rem; font-weight: 600; letter-spacing: -0.02em; }
+    .sign-in {
+      font-size: 0.875rem; font-weight: 500; color: rgba(0,0,0,0.5);
+      text-decoration: none; background: none; border: none; cursor: pointer;
+    }
+    .sign-in:hover { color: rgba(0,0,0,0.8); }
+
+    /* Hero */
+    .hero {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      padding: 2rem 1.5rem 3rem; text-align: center; max-width: 48rem; margin: 0 auto; width: 100%;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.2em;
+      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 1.25rem;
+    }
+    h1 {
+      font-size: clamp(2rem, 5.5vw, 3.5rem); line-height: 1.08;
+      letter-spacing: -0.025em; margin-bottom: 0.75rem;
+    }
+    h1 .word {
+      display: inline-block; font-weight: 500;
+      animation: fade-settle 0.4s ease-out forwards;
+    }
+    @keyframes fade-settle {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .tagline {
+      font-size: 1rem; color: rgba(0,0,0,0.5); line-height: 1.6;
+      max-width: 28rem; margin-bottom: 1.5rem;
+    }
+    @media (min-width: 640px) {
+      .hero { padding: 3.5rem 2.5rem 4rem; justify-content: center; }
+      .tagline { font-size: 1.125rem; }
+      header { padding: 1.25rem 2.5rem; }
+    }
+
+    /* Suggestion pills — below input */
+    .hint {
+      margin-top: 0.75rem; font-size: 0.75rem; color: rgba(0,0,0,0.35);
+      font-style: italic;
+    }
+    .suggestion-pills {
+      display: flex; flex-wrap: wrap; justify-content: center;
+      gap: 0.375rem; margin-top: 0.75rem; width: 100%; max-width: 32rem;
+    }
+    .pill {
+      font-size: 0.6875rem; padding: 0.375rem 0.75rem; border-radius: 9999px;
+      border: 1px solid rgba(0,0,0,0.08); background: transparent;
+      color: rgba(0,0,0,0.45); cursor: pointer; transition: all 0.15s;
+      font-family: inherit; text-align: left; line-height: 1.4;
+    }
+    .pill:hover {
+      color: rgba(0,0,0,0.7); border-color: rgba(0,0,0,0.15);
+      background: rgba(255,255,255,0.6);
+    }
+
+    /* Input box */
+    .input-section { width: 100%; max-width: 32rem; }
+    .input-wrap {
+      width: 100%;
+      border-radius: 1rem; background: #1c1c1e;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.15); overflow: hidden;
+    }
+    .input-inner { display: flex; align-items: flex-end; gap: 0.5rem; padding: 1rem; }
+    .input-wrap textarea {
+      flex: 1; background: transparent; color: rgba(255,255,255,0.9);
+      font-size: 1rem; font-family: inherit; resize: none; outline: none;
+      border: none; padding: 0.5rem; min-height: 4.5rem; max-height: 5.5rem;
+    }
+    .input-wrap textarea::placeholder { color: rgba(255,255,255,0.3); }
+    .submit-btn {
+      width: 2rem; height: 2rem; border-radius: 0.5rem; border: none;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; cursor: pointer; transition: all 0.15s;
+      background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.3);
+    }
+    .submit-btn.active { background: #fff; color: #000; }
+    .submit-btn.active:hover { background: rgba(255,255,255,0.9); }
+    @media (min-width: 640px) {
+      .input-wrap textarea { font-size: 0.875rem; }
+    }
+
+    /* (removed old next-step and or-divider styles) */
+
+    /* Featured books */
+    .featured {
+      width: 100%; max-width: 56rem; margin: 0 auto;
+      padding: 0 1.5rem 3rem; text-align: center;
+    }
+    .featured-label {
+      font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.2em;
+      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 0.25rem;
+    }
+    .featured-sub {
+      font-size: 0.875rem; color: rgba(0,0,0,0.4); margin-bottom: 1.5rem;
+    }
+    .book-carousel {
+      display: flex; gap: 1rem; overflow-x: auto; scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch; padding: 0.5rem 0 1rem;
+      scrollbar-width: none;
+    }
+    .book-carousel::-webkit-scrollbar { display: none; }
+    .book-card {
+      flex: 0 0 220px; scroll-snap-align: center;
+      border-radius: 1rem; overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.06); background: rgba(255,255,255,0.7);
+      cursor: pointer; transition: all 0.2s; text-align: left;
+    }
+    .book-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); transform: translateY(-2px); }
+    .book-card.active { border-color: rgba(0,0,0,0.15); box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+    .book-cover {
+      position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; background: #e5e5e5;
+    }
+    .book-cover img { width: 100%; height: 100%; object-fit: cover; }
+    .play-badge {
+      position: absolute; bottom: 0.625rem; right: 0.625rem;
+      width: 2.25rem; height: 2.25rem; border-radius: 50%;
+      background: rgba(255,255,255,0.92); display: flex;
+      align-items: center; justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: transform 0.15s;
+    }
+    .book-card:hover .play-badge { transform: scale(1.08); }
+    .play-badge svg { width: 14px; height: 14px; margin-left: 2px; }
+    .play-badge.playing svg { margin-left: 0; }
+    .book-info { padding: 0.75rem 0.875rem; }
+    .book-info h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.125rem; }
+    .book-info p { font-size: 0.6875rem; color: rgba(0,0,0,0.4); }
+
+    /* Mini player bar */
+    .mini-player {
+      display: none; align-items: center; gap: 0.75rem;
+      max-width: 56rem; margin: 0 auto 2rem; padding: 0.75rem 1rem;
+      border-radius: 1rem; background: #1c1c1e; color: #fff;
+    }
+    .mini-player.visible { display: flex; }
+    .mini-player img { width: 40px; height: 40px; border-radius: 0.5rem; object-fit: cover; }
+    .mini-player .mp-info { flex: 1; min-width: 0; }
+    .mini-player .mp-title { font-size: 0.8125rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mini-player .mp-sub { font-size: 0.6875rem; color: rgba(255,255,255,0.5); }
+    .mini-player .mp-progress {
+      flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.15);
+      overflow: hidden; min-width: 60px;
+    }
+    .mini-player .mp-bar { height: 100%; background: #fff; border-radius: 2px; transition: width 0.25s; width: 0; }
+    .mini-player .mp-time { font-size: 0.625rem; color: rgba(255,255,255,0.4); white-space: nowrap; }
+    .mp-play-btn {
+      width: 2rem; height: 2rem; border-radius: 50%; border: none;
+      background: #fff; color: #000; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; flex-shrink: 0;
+    }
+
+    @media (min-width: 640px) {
+      .book-carousel { justify-content: center; overflow: visible; }
+      .book-card { flex: 0 0 240px; }
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════════
+       Overhauled landing sections (2026-05-12) — mirror of LandingPage.tsx
+       ═══════════════════════════════════════════════════════════════════════ */
+
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .section-eyebrow {
+      font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.2em;
+      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 0.5rem;
+    }
+    .section-title {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: clamp(1.75rem, 4vw, 2.5rem); line-height: 1.15;
+      letter-spacing: -0.02em; color: #000; margin-bottom: 0.75rem;
+    }
+    .section-sub { font-size: 0.875rem; color: rgba(0,0,0,0.5); max-width: 28rem; margin: 0 auto 0; }
+
+    /* Single testimonial card */
+    .t-card {
+      width: 100%; max-width: 36rem; margin: 0 auto 4rem;
+      padding: 0 1.5rem;
+    }
+    .t-card-inner {
+      display: flex; gap: 0.75rem; align-items: flex-start;
+      border-radius: 1rem; border: 1px solid rgba(0,0,0,0.08);
+      background: #fff; padding: 1.5rem;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.04);
+    }
+    .avatar {
+      width: 2.5rem; height: 2.5rem; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: Georgia, serif; font-weight: 600; color: rgba(0,0,0,0.7);
+      flex-shrink: 0;
+    }
+    .avatar.amber { background: linear-gradient(135deg, #fde68a, #fecdd3); }
+    .avatar.indigo { background: linear-gradient(135deg, #c7d2fe, #e9d5ff); }
+    .avatar.stone { background: linear-gradient(135deg, #e7e5e4, #d6d3d1); }
+    .t-meta { display: flex; align-items: baseline; gap: 0.5rem; }
+    .t-meta .name { font-size: 0.875rem; font-weight: 600; }
+    .t-meta .role { font-size: 0.75rem; color: rgba(0,0,0,0.4); }
+    .t-quote { margin-top: 0.5rem; font-size: 0.9375rem; color: rgba(0,0,0,0.8); line-height: 1.6; }
+
+    /* Case-study spotlight */
+    .case-study {
+      width: 100%; max-width: 64rem; margin: 0 auto 5rem;
+      padding: 0 1.5rem;
+      display: grid; grid-template-columns: 1fr; gap: 2rem; align-items: center;
+    }
+    @media (min-width: 768px) {
+      .case-study { grid-template-columns: 1fr 1fr; gap: 3rem; padding: 0 2.5rem; }
+    }
+    .phone-mock {
+      max-width: 280px; margin: 0 auto;
+      border-radius: 2.5rem; background: #000; padding: 0.5rem;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.18);
+    }
+    @media (min-width: 640px) { .phone-mock { max-width: 320px; } }
+    .phone-mock img { width: 100%; border-radius: 2rem; display: block; }
+    .case-study .copy h2 {
+      font-family: Georgia, serif; font-size: clamp(1.75rem, 4vw, 2.5rem);
+      line-height: 1.15; letter-spacing: -0.02em; margin-bottom: 1rem;
+    }
+    .case-study .copy .pull { font-size: 0.9375rem; color: rgba(0,0,0,0.6); line-height: 1.7; margin-bottom: 1.25rem; }
+    .case-study .who { display: flex; align-items: center; gap: 0.75rem; }
+    .case-study .who .name { font-size: 0.875rem; font-weight: 600; }
+    .case-study .who .role { font-size: 0.75rem; color: rgba(0,0,0,0.45); }
+    .stat-pill {
+      display: inline-flex; align-items: center; padding: 0.375rem 0.75rem;
+      margin-top: 1.25rem; border-radius: 9999px;
+      background: rgba(0,0,0,0.04); font-size: 0.75rem; color: rgba(0,0,0,0.6);
+    }
+
+    /* How it works — 2 wide rows, alternating sides (2026-05-12) */
+    .how {
+      width: 100%; max-width: 72rem; margin: 0 auto 5rem;
+      padding: 0 1.5rem;
+    }
+    .how-rows { display: flex; flex-direction: column; gap: 4rem; }
+    @media (min-width: 640px) { .how-rows { gap: 6rem; } }
+    .how-row {
+      display: grid; grid-template-columns: 1fr; gap: 2rem;
+      align-items: center; animation: fade-in 0.5s ease-out both;
+    }
+    @media (min-width: 768px) {
+      .how-row { grid-template-columns: 1fr 1fr; gap: 3rem; }
+      .how-row.img-right .how-img { order: 2; }
+      .how-row.img-right .how-copy { order: 1; }
+      .how-row.img-left .how-img { order: 1; }
+      .how-row.img-left .how-copy { order: 2; }
+    }
+    .how-img {
+      display: flex; justify-content: center;
+    }
+    .how-img .step-phone {
+      width: 100%; max-width: 320px;
+      border-radius: 2.2rem; background: #000; padding: 0.5rem;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.18);
+    }
+    @media (min-width: 640px) { .how-img .step-phone { max-width: 360px; } }
+    .how-img .step-phone img {
+      width: 100%; aspect-ratio: 9/19; object-fit: cover; object-position: top;
+      border-radius: 1.8rem; display: block;
+    }
+    .how-copy { text-align: center; }
+    @media (min-width: 768px) { .how-copy { text-align: left; } }
+    .how-copy .num {
+      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.2em;
+      color: rgba(0,0,0,0.3); margin-bottom: 0.75rem;
+    }
+    .how-copy h3 {
+      font-family: Georgia, serif; font-size: clamp(1.5rem, 3vw, 2rem);
+      line-height: 1.2; letter-spacing: -0.02em; margin-bottom: 0.75rem;
+    }
+    .how-copy p {
+      font-size: 0.9375rem; color: rgba(0,0,0,0.55); line-height: 1.65;
+      max-width: 28rem; margin: 0 auto;
+    }
+    @media (min-width: 768px) { .how-copy p { margin: 0; } }
+    .how-section-head { text-align: center; margin-bottom: 3.5rem; }
+
+    /* Features grid (4 col) */
+    .features-grid {
+      width: 100%; max-width: 64rem; margin: 0 auto 5rem;
+      padding: 0 1.5rem;
+    }
+    .features-grid .head { text-align: center; margin-bottom: 2.5rem; }
+    .features-grid .grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;
+    }
+    @media (min-width: 1024px) {
+      .features-grid .grid { grid-template-columns: repeat(4, 1fr); gap: 1.25rem; }
+    }
+    .feature-card {
+      border-radius: 1rem; border: 1px solid rgba(0,0,0,0.06);
+      background: #fff; padding: 1.25rem; animation: fade-in 0.5s ease-out both;
+    }
+    .feature-card .icon-box {
+      width: 2.25rem; height: 2.25rem; border-radius: 0.75rem;
+      background: rgba(0,0,0,0.04); display: flex; align-items: center; justify-content: center;
+      margin-bottom: 0.75rem;
+    }
+    .feature-card h3 { font-size: 0.8125rem; font-weight: 600; margin-bottom: 0.375rem; line-height: 1.25; }
+    .feature-card p { font-size: 0.8125rem; color: rgba(0,0,0,0.5); line-height: 1.6; }
+
+    /* Testimonial wall (horizontal scroll) */
+    .t-wall { width: 100%; margin: 0 auto 5rem; }
+    .t-wall .head { text-align: center; margin-bottom: 2rem; padding: 0 1.5rem; }
+    .t-wall-scroll {
+      display: flex; gap: 1rem; overflow-x: auto;
+      padding: 0.25rem 1.5rem 0.5rem; max-width: 88rem; margin: 0 auto;
+      scrollbar-width: none;
+    }
+    .t-wall-scroll::-webkit-scrollbar { display: none; }
+    .t-wall-card {
+      flex: 0 0 280px; border-radius: 1rem; border: 1px solid rgba(0,0,0,0.07);
+      background: #fff; padding: 1.25rem; box-shadow: 0 2px 12px rgba(0,0,0,0.03);
+    }
+    @media (min-width: 640px) { .t-wall-card { flex: 0 0 320px; } }
+    .t-wall-card .head-row { display: flex; align-items: center; gap: 0.625rem; margin-bottom: 0.75rem; }
+    .t-wall-card .head-row .avatar { width: 2rem; height: 2rem; font-size: 0.75rem; }
+    .t-wall-card .name { font-size: 0.75rem; font-weight: 600; }
+    .t-wall-card .role { font-size: 0.6875rem; color: rgba(0,0,0,0.4); }
+    .t-wall-card .text { font-size: 0.8125rem; color: rgba(0,0,0,0.75); line-height: 1.65; }
+
+    /* Pricing */
+    .pricing { width: 100%; max-width: 72rem; margin: 0 auto 5rem; padding: 0 1.5rem; }
+    .pricing .head { text-align: center; margin-bottom: 2.5rem; }
+    .pricing-grid {
+      display: grid; grid-template-columns: 1fr; gap: 1rem;
+    }
+    @media (min-width: 640px) { .pricing-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (min-width: 1024px) { .pricing-grid { grid-template-columns: repeat(4, 1fr); } }
+    .price-card {
+      border-radius: 1rem; border: 1px solid rgba(0,0,0,0.08);
+      background: #fff; padding: 1.5rem; display: flex; flex-direction: column;
+    }
+    .price-card.featured {
+      background: #000; color: #fff; border-color: #000;
+      transform: scale(1.02); box-shadow: 0 16px 48px rgba(0,0,0,0.18);
+    }
+    .price-card .label {
+      font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.2em;
+      font-weight: 600; color: rgba(0,0,0,0.4); margin-bottom: 0.5rem;
+    }
+    .price-card.featured .label { color: rgba(255,255,255,0.6); }
+    .price-card .price-row { display: flex; align-items: baseline; gap: 0.375rem; margin-bottom: 1rem; }
+    .price-card .price { font-family: Georgia, serif; font-size: 2rem; }
+    .price-card .period { font-size: 0.75rem; color: rgba(0,0,0,0.45); }
+    .price-card.featured .period { color: rgba(255,255,255,0.6); }
+    .price-card ul { list-style: none; padding: 0; margin-bottom: 1.5rem; flex: 1; }
+    .price-card li {
+      font-size: 0.8125rem; line-height: 1.55; color: rgba(0,0,0,0.7);
+      margin-bottom: 0.625rem; padding-left: 1.25rem; position: relative;
+    }
+    .price-card.featured li { color: rgba(255,255,255,0.85); }
+    .price-card li::before {
+      content: '✓'; position: absolute; left: 0; top: 0.05em;
+      font-size: 0.75rem; color: rgba(0,0,0,0.6);
+    }
+    .price-card.featured li::before { color: rgba(255,255,255,0.8); }
+    .price-card .price-cta {
+      width: 100%; padding: 0.625rem; border-radius: 0.75rem;
+      border: none; font-size: 0.875rem; font-weight: 600; cursor: pointer;
+      background: #000; color: #fff; transition: all 0.15s;
+    }
+    .price-card.featured .price-cta { background: #fff; color: #000; }
+    .price-card .price-cta:hover { opacity: 0.88; }
+    .price-card .price-cta:active { transform: scale(0.98); }
+    .pricing-note { text-align: center; font-size: 0.75rem; color: rgba(0,0,0,0.35); margin-top: 1.5rem; }
+
+    /* Final CTA */
+    .final-cta {
+      width: 100%; max-width: 36rem; margin: 0 auto 5rem;
+      padding: 0 1.5rem; text-align: center;
+    }
+    .final-cta h2 {
+      font-family: Georgia, serif; font-size: clamp(1.75rem, 4vw, 2.5rem);
+      line-height: 1.15; letter-spacing: -0.02em; margin-bottom: 0.75rem;
+    }
+    .final-cta p.lede { font-size: 0.875rem; color: rgba(0,0,0,0.5); margin-bottom: 2rem; }
+
+    /* Footer */
+    footer {
+      width: 100%; border-top: 1px solid rgba(0,0,0,0.06);
+      padding: 1.5rem; text-align: center; font-size: 0.75rem; color: rgba(0,0,0,0.3);
+    }
+
+    /* Icons */
+    .icon { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .icon-sm { width: 16px; height: 16px; }
+    .icon-xs { width: 12px; height: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+      <span class="serif">Theodore</span>
+    </div>
+    <a href="/" class="sign-in">Sign in</a>
+  </header>
+
+  <section class="hero" data-journey-section="landing_hero">
+    <div class="badge">
+      <svg class="icon-xs" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+      Story Engine
+    </div>
+
+    <h1 class="serif">
+      All you need is an<br>
+      <span class="word">idea</span><span style="display:inline-block;height:0.85em;width:2px;transform:translateY(0.06em);border-radius:9999px;background:rgba(0,0,0,0.8);animation:blink 1s step-end infinite;margin-left:1px;vertical-align:baseline"></span>
+    </h1>
+    <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}} @keyframes spin{to{transform:rotate(360deg)}}</style>
+
+    <p class="tagline">Type one sentence. Get a full novel and audiobook. Free.</p>
+
+    <!-- Input box -->
+    <div class="input-section">
+      <form id="promptForm" class="input-wrap" onsubmit="return false;">
+        <div class="input-inner">
+          <textarea id="promptInput" placeholder="Describe your story idea..." rows="3"></textarea>
+          <button type="submit" id="submitBtn" class="submit-btn active">
+            <svg class="icon-sm" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+          </button>
+        </div>
+      </form>
+
+      <p class="hint">Don't overthink it — even one sentence is enough.</p>
+    </div>
+  </section>
+
+  <!-- Featured books + audio sample -->
+  <section class="featured" data-journey-section="landing_audio_samples">
+    <p class="featured-label">🎧 Hear What Theodore Creates</p>
+    <p class="featured-sub">Real books written and narrated by Theodore authors</p>
+
+    <div class="book-carousel" id="bookCarousel">
+      <!-- Books populated by /api/featured-books -->
+    </div>
+
+    <!-- Sticky mini player -->
+    <div class="mini-player" id="miniPlayer">
+      <img id="mpCover" src="" alt="">
+      <div class="mp-info">
+        <div class="mp-title" id="mpTitle"></div>
+        <div class="mp-sub" id="mpSub"></div>
+      </div>
+      <div class="mp-progress"><div class="mp-bar" id="mpBar"></div></div>
+      <span class="mp-time" id="mpTime"></span>
+      <button class="mp-play-btn" id="mpPlayBtn" aria-label="Play/Pause">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="6,4 20,12 6,20"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <audio id="featuredAudio" preload="none"></audio>
+
+  <!-- ─── Single testimonial card ─── -->
+  <section data-journey-section="landing_testimonial_card" class="t-card">
+    <div class="t-card-inner">
+      <div class="avatar amber">M</div>
+      <div style="flex:1; min-width:0">
+        <div class="t-meta">
+          <span class="name">Marcus L.</span>
+          <span class="role">· Screenwriter</span>
+        </div>
+        <p class="t-quote">"Wrote a 7-chapter mystery in one weekend. The audio is what shocked me — it sounds like a real audiobook."</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Case study spotlight ─── -->
+  <section data-journey-section="landing_case_study" class="case-study">
+    <div class="phone-mock">
+      <img src="/launch/theodore-05-book.webp" alt="A finished audiobook in Theodore" loading="lazy"/>
+    </div>
+    <div class="copy">
+      <p class="section-eyebrow">Author Spotlight</p>
+      <h2>From idea to 6-chapter audiobook in a single Saturday.</h2>
+      <p class="pull">"I'd been stuck on the same opening scene for years. I typed one sentence into Theodore at 9am. By dinner I had a 6-chapter audiobook narrated in three voices. My wife thought I'd paid a narrator."</p>
+      <div class="who">
+        <div class="avatar indigo">M</div>
+        <div>
+          <div class="name">Marcus L.</div>
+          <div class="role">Screenwriter</div>
+        </div>
+      </div>
+      <div class="stat-pill">6 chapters · 47 min audio · one Saturday</div>
+    </div>
+  </section>
+
+  <!-- ─── How it works — 2 wide rows (cut from 4 on 2026-05-12 because the
+       in-between phone shots lost detail at 180px wide) ─── -->
+  <section data-journey-section="landing_how_it_works" class="how">
+    <div class="how-section-head">
+      <p class="section-eyebrow">How it works</p>
+      <h2 class="section-title">From a sentence to a full audiobook</h2>
+      <p class="section-sub">Two steps. About one afternoon. Free to try.</p>
+    </div>
+    <div class="how-rows">
+      <div class="how-row img-left" style="animation-delay:0.1s">
+        <div class="how-img">
+          <div class="step-phone"><img src="/launch/theodore-02-cowrite.webp" alt="Imagine chat in Theodore" loading="lazy"/></div>
+        </div>
+        <div class="how-copy">
+          <div class="num">STEP 01</div>
+          <h3>Type your idea</h3>
+          <p>One sentence is enough. Theodore asks the right questions, fills in the world, and turns vague into specific without a blank page in sight.</p>
+        </div>
+      </div>
+      <div class="how-row img-right" style="animation-delay:0.22s">
+        <div class="how-img">
+          <div class="step-phone"><img src="/launch/theodore-07-listen.webp" alt="Audiobook player in Theodore" loading="lazy"/></div>
+        </div>
+        <div class="how-copy">
+          <div class="num">STEP 02</div>
+          <h3>Audio narrates itself</h3>
+          <p>Professional voices read every chapter the moment it's written. Multi-voice casts dialogue by character — no exporting, no stitching.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Features grid ─── -->
+  <section data-journey-section="landing_features_grid" class="features-grid">
+    <div class="head">
+      <h2 class="section-title">Everything you need. Nothing extra.</h2>
+      <p class="section-sub">Theodore handles the writing, the voices, and the audio. You just bring the idea.</p>
+    </div>
+    <div class="grid">
+      <div class="feature-card" style="animation-delay:0.1s">
+        <div class="icon-box"><svg class="icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg></div>
+        <h3>Characters that remember</h3>
+        <p>Names, voices, motives — consistent across every chapter.</p>
+      </div>
+      <div class="feature-card" style="animation-delay:0.18s">
+        <div class="icon-box"><svg class="icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg></div>
+        <h3>Voices that emote</h3>
+        <p>Multi-voice narration with per-character casting.</p>
+      </div>
+      <div class="feature-card" style="animation-delay:0.26s">
+        <div class="icon-box"><svg class="icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+        <h3>Music + sound design</h3>
+        <p>Optional ambient SFX so every chapter feels scored.</p>
+      </div>
+      <div class="feature-card" style="animation-delay:0.34s">
+        <div class="icon-box"><svg class="icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></div>
+        <h3>Share anywhere</h3>
+        <p>One link. Your reader presses play. No app required.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── Testimonial wall ─── -->
+  <section data-journey-section="landing_testimonial_wall" class="t-wall">
+    <div class="head">
+      <h2 class="section-title">Writers, dads, devs — and one audio producer.</h2>
+      <p class="section-sub">A few of the things people have said about Theodore.</p>
+    </div>
+    <div class="t-wall-scroll" id="tWallScroll">
+      <!-- Populated by JS below -->
+    </div>
+  </section>
+
+  <!-- ─── Pricing ─── -->
+  <section data-journey-section="landing_pricing" class="pricing">
+    <div class="head">
+      <h2 class="section-title">Start free. Upgrade when you're hooked.</h2>
+      <p class="section-sub">No credit card to try. Cancel anytime.</p>
+    </div>
+    <div class="pricing-grid" id="pricingGrid">
+      <!-- Populated by JS below -->
+    </div>
+    <p class="pricing-note">All plans include core writing + audio. Credits roll over each month — what you don't use, you keep.</p>
+  </section>
+
+  <!-- ─── Final CTA ─── -->
+  <section data-journey-section="landing_final_cta" class="final-cta">
+    <h2>Type one sentence. Hear your story.</h2>
+    <p class="lede">Free to start. Your first audiobook chapter is on us.</p>
+    <form id="finalForm" class="input-wrap" onsubmit="return false;" style="overflow:hidden">
+      <div class="input-inner">
+        <textarea id="finalInput" placeholder="Describe your story idea..." rows="2" style="min-height:3.5rem"></textarea>
+        <button type="submit" id="finalBtn" class="submit-btn">
+          <svg class="icon-sm" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <footer data-journey-section="landing_footer">Theodore · Built for writers who think in systems</footer>
+
+  <script>
+    // Preserve UTM params from the ad click URL
+    var params = new URLSearchParams(window.location.search);
+    var utmKeys = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid'];
+    var preserved = new URLSearchParams();
+    utmKeys.forEach(function(k){ if(params.get(k)) preserved.set(k, params.get(k)); });
+
+    var input = document.getElementById('promptInput');
+    var btn = document.getElementById('submitBtn');
+    var form = document.getElementById('promptForm');
+
+    // Pre-fill with a short random prompt
+    var shortPrompts = [
+      'A detective who solves crimes using dreams.',
+      'A spy who can\'t remember his mission.',
+      'A blind assassin hired to kill the president.',
+      'Robots raising a human child.',
+      'A heist on a moving train.',
+    ];
+    input.value = shortPrompts[Math.floor(Math.random() * shortPrompts.length)];
+
+    // Toggle submit button style
+    input.addEventListener('input', function(){
+      btn.classList.toggle('active', input.value.trim().length > 0);
+    });
+
+
+    // Submit — redirect to the full app with prompt
+    var submitting = false;
+    function go(){
+      var text = input.value.trim();
+      if(!text || submitting) return;
+      submitting = true;
+      // Show loading state immediately so user knows it's working
+      btn.innerHTML = '<div style="width:16px;height:16px;border:2px solid rgba(0,0,0,0.2);border-top-color:rgba(0,0,0,0.7);border-radius:50%;animation:spin 0.6s linear infinite"></div>';
+      btn.style.background = '#fff';
+      input.disabled = true;
+      input.style.opacity = '0.5';
+      if(window.fbq) fbq('trackCustom','StartGuestChat');
+      if(window.__jTrack) window.__jTrack('prompt_submit', {prompt: text.slice(0,200)});
+      preserved.set('prompt', text);
+      window.location.href = '/?' + preserved.toString();
+    }
+    form.addEventListener('submit', function(e){ e.preventDefault(); go(); });
+    input.addEventListener('keydown', function(e){
+      if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); go(); }
+    });
+
+    // ── Featured Books + Audio Player ──
+    // STATIC CONFIG — update these URLs from production.
+    // Cover: open the project → right-click cover image → Copy image address
+    // Audio: open Studio → right-click play button → Copy audio address (or network tab)
+    // Mirrored from src/components/views/LandingPage.tsx FEATURED_BOOKS. Assets
+    // live in public/landing/ so they ship with every build.
+    var featuredBooks = [
+      {
+        title: 'Blind Target',
+        chapterTitle: 'Touch and Go',
+        genre: 'Thriller',
+        coverUrl: '/landing/covers/blind-target.png',
+        audioUrl: '/landing/audio/blind-target.mp3',
+      },
+      {
+        title: 'Henry & Husky',
+        chapterTitle: 'The Robot in the Workshop',
+        genre: 'Adventure',
+        coverUrl: '/landing/covers/henry-and-husky.png',
+        audioUrl: '/landing/audio/henry-and-husky.mp3',
+      },
+      {
+        title: 'On Ice and Lanes',
+        chapterTitle: 'Spare Time',
+        genre: 'Fiction',
+        coverUrl: '/landing/covers/on-ice-and-lanes.png',
+        audioUrl: '/landing/audio/on-ice-and-lanes.mp3',
+      },
+    ];
+
+    var audio = document.getElementById('featuredAudio');
+    var carousel = document.getElementById('bookCarousel');
+    var player = document.getElementById('miniPlayer');
+    var mpCover = document.getElementById('mpCover');
+    var mpTitle = document.getElementById('mpTitle');
+    var mpSub = document.getElementById('mpSub');
+    var mpBar = document.getElementById('mpBar');
+    var mpTime = document.getElementById('mpTime');
+    var mpPlayBtn = document.getElementById('mpPlayBtn');
+    var playIcon = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="6,4 20,12 6,20"/></svg>';
+    var pauseIcon = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><rect x="5" y="4" width="4" height="16"/><rect x="15" y="4" width="4" height="16"/></svg>';
+    var activeBook = null;
+    var isPlaying = false;
+
+    function fmtTime(s) {
+      var m = Math.floor(s/60), sec = Math.floor(s%60);
+      return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    function renderBooks(books) {
+      carousel.innerHTML = '';
+      books.forEach(function(b, i) {
+        var card = document.createElement('div');
+        card.className = 'book-card';
+        card.setAttribute('data-idx', i);
+        card.innerHTML =
+          '<div class="book-cover">' +
+            (b.coverUrl ? '<img src="' + b.coverUrl + '" alt="' + b.title + '">' : '') +
+            '<div class="play-badge">' +
+              '<svg viewBox="0 0 24 24" fill="#000"><polygon points="8,5 19,12 8,19"/></svg>' +
+            '</div>' +
+          '</div>' +
+          '<div class="book-info">' +
+            '<h3 class="serif">' + b.title + '</h3>' +
+            '<p>' + b.chapterTitle + ' · ' + b.genre + '</p>' +
+          '</div>';
+        card.addEventListener('click', function() { playBook(i); });
+        carousel.appendChild(card);
+      });
+    }
+
+    function playBook(idx) {
+      var b = featuredBooks[idx];
+      if (!b || !b.audioUrl) return;
+
+      // If same book, toggle
+      if (activeBook === idx && isPlaying) {
+        audio.pause();
+        isPlaying = false;
+        updatePlayerUI();
+        return;
+      }
+
+      activeBook = idx;
+      audio.src = b.audioUrl;
+      audio.load();
+      audio.play().catch(function(){});
+      isPlaying = true;
+
+      // Show mini player
+      mpCover.src = b.coverUrl || '';
+      mpTitle.textContent = b.title;
+      mpSub.textContent = b.chapterTitle + ' · ' + b.genre;
+      player.classList.add('visible');
+      updatePlayerUI();
+
+      // Highlight active card
+      document.querySelectorAll('.book-card').forEach(function(c, i) {
+        c.classList.toggle('active', i === idx);
+        var badge = c.querySelector('.play-badge');
+        if (i === idx && isPlaying) {
+          badge.innerHTML = pauseIcon.replace('width="14" height="14"', 'width="12" height="12"');
+          badge.classList.add('playing');
+        } else {
+          badge.innerHTML = '<svg viewBox="0 0 24 24" fill="#000"><polygon points="8,5 19,12 8,19"/></svg>';
+          badge.classList.remove('playing');
+        }
+      });
+
+      if(window.fbq) fbq('trackCustom', 'PlayFeaturedSample', { book: b.title });
+      if(window.__jTrack) window.__jTrack('play_audio', {book: b.title});
+    }
+
+    function updatePlayerUI() {
+      mpPlayBtn.innerHTML = isPlaying ? pauseIcon : playIcon;
+    }
+
+    audio.addEventListener('timeupdate', function() {
+      if (audio.duration && isFinite(audio.duration)) {
+        mpBar.style.width = (audio.currentTime / audio.duration * 100) + '%';
+        mpTime.textContent = fmtTime(audio.currentTime) + ' / ' + fmtTime(audio.duration);
+      }
+    });
+    audio.addEventListener('ended', function() {
+      isPlaying = false;
+      updatePlayerUI();
+      // Auto-play next
+      if (activeBook !== null && activeBook < featuredBooks.length - 1) {
+        playBook(activeBook + 1);
+      }
+    });
+    mpPlayBtn.addEventListener('click', function() {
+      if (activeBook === null) { if (featuredBooks.length) playBook(0); return; }
+      if (isPlaying) { audio.pause(); isPlaying = false; }
+      else { audio.play().catch(function(){}); isPlaying = true; }
+      updatePlayerUI();
+    });
+
+    // Render immediately — no API call
+    renderBooks(featuredBooks);
+
+    // ── Render testimonial wall + pricing (data-driven sections) ──
+    // Keep this list in sync with src/components/views/LandingPage.tsx
+    var testimonials = [
+      { text: "Wrote a 7-chapter mystery in one weekend. The audio is what shocked me — it sounds like a real audiobook.", name: 'Marcus L.', role: 'Screenwriter' },
+      { text: "I've had a fantasy series in my head for 8 years. Theodore got the first book out of me in 4 days.", name: 'Priya R.', role: 'Engineer turned author' },
+      { text: "Made an audiobook of my daughter's bedtime story. She thinks I'm magic. Subscribed before bed.", name: 'David K.', role: 'Dad of two' },
+      { text: "The character consistency is wild. Six chapters in and the AI remembers who hates who.", name: 'Tom B.', role: 'Indie writer' },
+      { text: "Free trial wrote three chapters that were actually good. I haven't been able to write fiction in years.", name: 'Andrea S.', role: 'Marketer' },
+      { text: "Theodore + a long drive = a 90-minute audiobook of MY idea. Insane.", name: 'Jess M.', role: 'Reader' },
+      { text: "I'm a developer who can't write fiction. Now I have three short stories my friends actually want to read.", name: 'Carlos V.', role: 'Software engineer' },
+      { text: "Switched the narrator voice three times and didn't lose any pacing. Felt like working with a director.", name: 'Hannah W.', role: 'Audio producer' },
+    ];
+    var tWallScroll = document.getElementById('tWallScroll');
+    if (tWallScroll) {
+      testimonials.forEach(function(t) {
+        var card = document.createElement('div');
+        card.className = 't-wall-card';
+        card.innerHTML =
+          '<div class="head-row">' +
+            '<div class="avatar stone">' + t.name.charAt(0) + '</div>' +
+            '<div style="min-width:0">' +
+              '<div class="name">' + t.name + '</div>' +
+              '<div class="role">' + t.role + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<p class="text">"' + t.text + '"</p>';
+        tWallScroll.appendChild(card);
+      });
+    }
+
+    var pricingTiers = [
+      { tier:'free',      name:'Dreamer',  price:'$0',  period:'forever',  bullets:['500 credits / month','First audiobook chapter free','Single-voice narration','Share publicly'], featured:false },
+      { tier:'writer',    name:'Writer',   price:'$10', period:'/ month',  bullets:['2,500 credits / month','Multi-voice narration','Per-character casting','Priority generation'], featured:true },
+      { tier:'author',    name:'Author',   price:'$30', period:'/ month',  bullets:['7,500 credits / month','Everything in Writer','Music + sound effects','Faster audio generation'], featured:false },
+      { tier:'studio',    name:'Studio',   price:'$99', period:'/ month',  bullets:['25,000 credits / month','Everything in Author','ElevenLabs premium voices','Studio-quality output'], featured:false },
+    ];
+    var pricingGrid = document.getElementById('pricingGrid');
+    if (pricingGrid) {
+      pricingTiers.forEach(function(p) {
+        var card = document.createElement('div');
+        card.className = 'price-card' + (p.featured ? ' featured' : '');
+        var ul = '';
+        p.bullets.forEach(function(b) { ul += '<li>' + b + '</li>'; });
+        card.innerHTML =
+          '<div class="label">' + p.name + '</div>' +
+          '<div class="price-row">' +
+            '<span class="price">' + p.price + '</span>' +
+            '<span class="period">' + p.period + '</span>' +
+          '</div>' +
+          '<ul>' + ul + '</ul>' +
+          '<button class="price-cta" data-tier="' + p.tier + '">Start free</button>';
+        card.querySelector('.price-cta').addEventListener('click', function() {
+          if (window.__jTrack) window.__jTrack('pricing_cta_clicked', { tier: p.tier });
+          input.focus();
+          window.scrollTo({ top: document.querySelector('.hero').offsetTop, behavior: 'smooth' });
+        });
+        pricingGrid.appendChild(card);
+      });
+    }
+
+    // Final CTA form — mirrors hero but takes user back to main app
+    var finalInput = document.getElementById('finalInput');
+    var finalBtn = document.getElementById('finalBtn');
+    var finalForm = document.getElementById('finalForm');
+    if (finalInput && finalBtn && finalForm) {
+      finalInput.addEventListener('input', function() {
+        finalBtn.classList.toggle('active', finalInput.value.trim().length > 0);
+      });
+      function finalGo() {
+        var text = finalInput.value.trim();
+        if (window.__jTrack) window.__jTrack('final_cta_submitted', { has_text: !!text });
+        if (!text) return;
+        preserved.set('prompt', text);
+        window.location.href = '/?' + preserved.toString();
+      }
+      finalForm.addEventListener('submit', function(e) { e.preventDefault(); finalGo(); });
+      finalInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finalGo(); }
+      });
+    }
+
+    // ── Journey tracking ──
+    // Sends events to /api/journey for the admin Journey tab.
+    (function() {
+      var jSid = 's_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+      var jQueue = [];
+      var jGeo = {};
+      // Reuse the geo fetch from engagement tracking
+      fetch('https://ipapi.co/json/').then(function(r){return r.json()}).then(function(d){
+        jGeo = {city:d.city, region:d.region, country:d.country_code};
+      }).catch(function(){});
+      window.__jTrack = function(evt, data) {
+        jQueue.push({sessionId:jSid, event:evt, data:data||null, page:'/go2/',
+          city:jGeo.city, region:jGeo.region, country:jGeo.country});
+      };
+      function jFlush() {
+        if (!jQueue.length) return;
+        var batch = jQueue.splice(0, 100);
+        fetch('/api/journey', {method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({events:batch})}).catch(function(){
+          jQueue.unshift.apply(jQueue, batch);
+        });
+      }
+      function jBeacon() {
+        if (!jQueue.length) return;
+        var batch = jQueue.splice(0, 100);
+        navigator.sendBeacon && navigator.sendBeacon('/api/beacon', JSON.stringify({events:batch}));
+      }
+      setInterval(jFlush, 5000);
+      document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='hidden') jBeacon(); });
+      window.addEventListener('pagehide', jBeacon);
+      // Track page load
+      window.__jTrack('page_load', {referrer: document.referrer, url: window.location.href});
+
+      // ── Section visibility — mirrors the React app's section observer ──
+      // Any element with [data-journey-section] fires `section_reached` once,
+      // the first time it's ~40% in view. Use to measure landing-page depth.
+      if (typeof IntersectionObserver !== 'undefined') {
+        var seenSections = {};
+        var obs = new IntersectionObserver(function(entries) {
+          entries.forEach(function(entry) {
+            if (!entry.isIntersecting) return;
+            var name = entry.target.getAttribute('data-journey-section');
+            if (!name || seenSections[name]) return;
+            seenSections[name] = true;
+            var rect = entry.target.getBoundingClientRect();
+            var docHeight = Math.max(document.body.scrollHeight, 1);
+            var approx = Math.round(((window.scrollY + rect.top) / docHeight) * 100);
+            window.__jTrack('section_reached', { section: name, approx_depth_pct: approx });
+            obs.unobserve(entry.target);
+          });
+        }, { threshold: 0.4 });
+        document.querySelectorAll('[data-journey-section]').forEach(function(el){ obs.observe(el); });
+      }
+    })();
+
+    // ── Engagement tracking (pixel + journey) ──
+    // Fires timed pixel events so we can see how long people stay
+    // and what they interact with before leaving.
+    (function() {
+      var landed = Date.now();
+      var scrolledToBooks = false;
+      var maxScroll = 0;
+      var played = false;
+      var tapped = false;
+      var focusedInput = false;
+      var region = null;
+
+      // Get visitor's region (city/state) via free IP geolocation
+      fetch('https://ipapi.co/json/')
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          region = { city: d.city, region: d.region, country: d.country_code };
+        }).catch(function(){});
+
+      // Track when someone taps INTO the text box (shows intent)
+      input.addEventListener('focus', function() {
+        if (!focusedInput) {
+          focusedInput = true;
+          if (window.fbq) fbq('trackCustom', 'FocusedPromptInput', region || {});
+          if (window.__jTrack) window.__jTrack('focus_input');
+        }
+      });
+
+      // Track submit button click specifically (vs Enter key)
+      btn.addEventListener('click', function() {
+        if (window.fbq) fbq('trackCustom', 'ClickedSubmitBtn', region || {});
+      });
+
+      // Timed engagement milestones (include region when available)
+      [5, 15, 30, 60].forEach(function(sec) {
+        setTimeout(function() {
+          if (window.fbq) fbq('trackCustom', 'Engaged' + sec + 's', region || {});
+        }, sec * 1000);
+      });
+
+      // Scroll depth — did they see the book carousel?
+      window.addEventListener('scroll', function() {
+        var pct = Math.round((window.scrollY + window.innerHeight) / document.body.scrollHeight * 100);
+        if (pct > maxScroll) maxScroll = pct;
+        if (!scrolledToBooks && pct > 60) {
+          scrolledToBooks = true;
+          if (window.fbq) fbq('trackCustom', 'ScrolledToBooks');
+          if (window.__jTrack) window.__jTrack('scrolled_to_books');
+        }
+      }, { passive: true });
+
+      // Track audio play
+      if (audio) audio.addEventListener('play', function() {
+        if (!played) { played = true; if (window.fbq) fbq('trackCustom', 'PlayedAudioSample'); }
+      });
+
+      // Track prompt pill taps
+      document.querySelectorAll('.pill').forEach(function(p) {
+        p.addEventListener('click', function() {
+          if (!tapped) { tapped = true; if (window.fbq) fbq('trackCustom', 'TappedPromptPill'); if(window.__jTrack) window.__jTrack('tapped_pill'); }
+        });
+      });
+
+      // Time-on-page sent when they leave
+      function sendExit() {
+        var sec = Math.round((Date.now() - landed) / 1000);
+        var data = JSON.stringify({
+          time_on_page: sec,
+          scrolled_pct: maxScroll,
+          played_audio: played,
+          tapped_pill: tapped
+        });
+        var exitData = {
+          time_on_page: sec, scrolled_pct: maxScroll,
+          played_audio: played, tapped_pill: tapped,
+          focused_input: focusedInput
+        };
+        if (region) { exitData.city = region.city; exitData.region = region.region; exitData.country = region.country; }
+        if (window.fbq) fbq('trackCustom', 'PageExit', exitData);
+        // sendBeacon as backup (pixel might not fire on unload)
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/beacon', data);
+        }
+      }
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'hidden') sendExit();
+      });
+      window.addEventListener('pagehide', sendExit);
+    })();
+  </script>
+</body>
+</html>
