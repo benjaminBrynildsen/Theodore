@@ -143,15 +143,36 @@ function setupAutoTracking() {
     }
   });
 
-  // Track errors (502s, network failures, JS errors)
+  // Track errors (502s, network failures, JS errors). We capture e.error
+  // (the actual Error object) instead of just e.message because the browser
+  // masks cross-origin script errors to literally "Script error." with no
+  // source — losing the actual stack. With the crossorigin attribute on
+  // /index.html's module script + Render serving same-origin assets with
+  // Access-Control-Allow-Origin, the real error fields (name, stack, lineno,
+  // colno) become readable. Falls back to e.message for cases where e.error
+  // isn't populated (e.g. third-party scripts loaded without CORS).
   window.addEventListener('error', (e) => {
-    track('error', { message: e.message?.slice(0, 100), source: e.filename?.slice(-50) });
+    const err: any = e.error || {};
+    track('error', {
+      message: (err.message || e.message || '').slice(0, 200),
+      name: err.name?.slice(0, 50),
+      stack: err.stack?.slice(0, 400),
+      source: e.filename?.slice(-80),
+      line: e.lineno,
+      col: e.colno,
+    });
   });
   window.addEventListener('unhandledrejection', (e) => {
-    const msg = e.reason?.message || String(e.reason);
-    if (msg.includes('502') || msg.includes('503') || msg.includes('504') || msg.includes('Failed to fetch')) {
-      track('error', { type: 'network', message: msg.slice(0, 100) });
-    }
+    const reason: any = e.reason || {};
+    const msg = reason.message || String(e.reason);
+    // Capture ALL unhandled rejections (not just network ones) — a TypeError
+    // from a missing post-signup binding would be silently swallowed before.
+    track('error', {
+      type: 'unhandled_rejection',
+      message: msg.slice(0, 200),
+      name: reason.name?.slice(0, 50),
+      stack: reason.stack?.slice(0, 400),
+    });
   });
 
   // Intercept fetch to catch 502/503/504 responses + raw network failures.

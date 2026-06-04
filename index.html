@@ -29,6 +29,11 @@
       src="https://www.facebook.com/tr?id=1302784575092189&ev=PageView&noscript=1"
     /></noscript>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <!-- crossorigin="anonymous" lets window.onerror see real error names
+         and stack traces from the bundle, instead of the browser-masked
+         "Script error." with empty source. Render serves /assets/* with
+         Access-Control-Allow-Origin: *. Without this attribute we can't
+         debug any JS error in production (see 2026-06-04 post-signup hunt). -->
+    <script type="module" crossorigin="anonymous" src="/src/main.tsx"></script>
   </body>
 </html>
