@@ -129,11 +129,14 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
   const fallbackCount = assignments.length - lockedAssignments.length;
 
   return (
-    // z-[80] sits ABOVE the mobile MiniPlayerBar (z-[52]) and BottomNav (z-50),
-    // so the modal's Generate button isn't hidden behind them. Without this,
-    // on mobile the player bar covered the bottom ~110px of the modal.
+    // z-[80] sits above MiniPlayerBar (z-[52]) and BottomNav (z-50). Even with
+    // that, on mobile the bottom ~116px of the panel sat in the same screen
+    // region as the mini-player + bottom nav (the bar renders in a stacking
+    // context that doesn't always defer to the overlay). pb-[116px] on the
+    // outer flex wrapper reserves that space so the Generate button is never
+    // crowded by the bar visually, regardless of z-index behavior.
     <div
-      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in p-0 pb-[116px] sm:p-4"
       onClick={onCancel}
     >
       <div
