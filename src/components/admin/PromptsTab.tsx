@@ -38,8 +38,13 @@ const MODAL_FAMILIES: PromptFamily[] = [
   {
     label: 'Credit Nudge (50/25/10% remaining)',
     shownEvent: 'credit_nudge_shown',
-    clickEvents: ['credit_nudge_clicked'],
+    clickEvents: ['credit_nudge_clicked', 'credit_nudge_boost_clicked'],
     dismissEvents: ['credit_nudge_dismissed'],
+  },
+  {
+    label: 'Boost Modal (one-time credit top-up)',
+    shownEvent: 'boost_modal_shown',
+    clickEvents: ['boost_clicked', 'boost_purchased'],
   },
   {
     label: 'Guest Signup Modal (banner/audio variants)',

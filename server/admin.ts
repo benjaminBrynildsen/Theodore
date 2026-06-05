@@ -2897,6 +2897,9 @@ const PROMPT_EVENTS = [
   'share_cta_clicked', 'share_published', 'share_link_copied', 'share_link_opened', 'share_book_listened',
   // Landing section reached (scroll depth)
   'section_reached',
+  // One-time credit boosts (modal shown, pack clicked, purchase completed) +
+  // the boost CTA on the 25/10% credit nudge.
+  'boost_modal_shown', 'boost_clicked', 'boost_purchased', 'credit_nudge_boost_clicked',
   // Entry events (signup completion, prompt redirect)
   'prompt_redirect_arrived',
 ];

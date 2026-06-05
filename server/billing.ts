@@ -15,7 +15,7 @@ export interface BillingTierConfig {
 
 const TIER_CONFIG: Record<PaidPlanTier, { name: string; credits: number; priceUsd: number }> = {
   writer: { name: 'Writer', credits: 2500, priceUsd: 10 },
-  author: { name: 'Author', credits: 7500, priceUsd: 30 },
+  author: { name: 'Author', credits: 7500, priceUsd: 49 },
   studio: { name: 'Studio', credits: 25000, priceUsd: 99 },
   publisher: { name: 'Publisher', credits: 50000, priceUsd: 200 },
 };

@@ -21,7 +21,7 @@ const COPY: Record<Threshold, { title: string; body: string }> = {
   },
   10: {
     title: 'Almost out — 10% left',
-    body: "Don't lose momentum. Upgrade to keep generating chapters and audio.",
+    body: "Don't lose momentum — top up in one click, or upgrade to keep generating.",
   },
 };
 
@@ -47,7 +47,7 @@ function writeShown(periodEnd: string | null | undefined, shown: Threshold[]) {
 }
 
 export function CreditNudge() {
-  const { plan, setShowUpgradeModal } = useCreditsStore();
+  const { plan, setShowUpgradeModal, setShowBoostModal } = useCreditsStore();
   const user = useAuthStore((s) => s.user);
   const [active, setActive] = useState<Threshold | null>(null);
   const prevRemainingRef = useRef<number | null>(null);
@@ -132,6 +132,20 @@ export function CreditNudge() {
             >
               See plans
             </button>
+            {/* One-click top-up offered once the user is running low (25% / 10%). */}
+            {(active === 25 || active === 10) && (
+              <button
+                onClick={() => {
+                  setActive(null);
+                  jTrack('credit_nudge_boost_clicked', { threshold_remaining: active });
+                  pixel.trackCustom('CreditNudgeBoostClicked', { threshold: active });
+                  setShowBoostModal(true);
+                }}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-400 text-[#1a1206] hover:bg-amber-300 transition-all active:scale-[0.98]"
+              >
+                Top up now
+              </button>
+            )}
             <button
               onClick={() => {
                 setActive(null);
@@ -139,7 +153,7 @@ export function CreditNudge() {
               }}
               className="px-3 py-1.5 rounded-lg text-xs text-white/60 hover:text-white/90 transition-all"
             >
-              Maybe later
+              Later
             </button>
           </div>
         </div>

@@ -531,7 +531,7 @@ const PRICING_TIERS = [
   {
     tier: 'author',
     name: 'Author',
-    price: '$30',
+    price: '$49',
     period: '/ month',
     bullets: ['7,500 credits / month', 'Everything in Writer', 'Music + sound effects', 'Faster audio generation'],
     cta: 'Start free',

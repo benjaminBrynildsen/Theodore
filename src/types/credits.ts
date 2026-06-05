@@ -73,7 +73,7 @@ export const FREE_TIER_NAME = 'Dreamer';
 
 export const TIER_PRICES_USD: Record<'writer' | 'author' | 'studio' | 'publisher', number> = {
   writer: 10,
-  author: 30,
+  author: 49,
   studio: 99,
   publisher: 200,
 };

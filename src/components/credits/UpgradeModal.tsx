@@ -462,12 +462,21 @@ export function UpgradeModal() {
                 Need more? See Publisher plan ({priceFor('publisher')}/mo) →
               </button>
             )}
-            {/* One-time top-up — no subscription. Lower-commitment alt to a plan. */}
+            {/* One-time top-up — a peer path to subscribing (side-by-side). */}
+            <div className="mt-4 flex items-center gap-3">
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="text-[11px] uppercase tracking-wider text-white/30">or</span>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
             <button
               onClick={() => { setShowUpgradeModal(false); setShowBoostModal(true); }}
-              className="mt-2 w-full text-center text-xs text-white/40 hover:text-white/70 transition-colors"
+              className="mt-3 w-full flex items-center justify-between px-4 py-3.5 rounded-xl border border-white/15 bg-white/[0.06] hover:bg-white/[0.1] hover:border-white/25 transition-all text-left"
             >
-              Not ready to subscribe? Add one-time credits →
+              <div>
+                <div className="text-sm font-semibold text-white">Top up once — no subscription</div>
+                <div className="text-xs text-white/50">From $5 · one-click · credits never expire</div>
+              </div>
+              <span className="text-white/50 text-lg leading-none">→</span>
             </button>
             </>
             )}
