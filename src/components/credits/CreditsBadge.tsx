@@ -21,7 +21,10 @@ export function CreditsBadge() {
   const user = useAuthStore((s) => s.user);
   const isGuest = !user;
 
-  const percentage = plan.creditsTotal > 0 ? (plan.creditsRemaining / plan.creditsTotal) * 100 : 100;
+  // One-time boosts can push remaining above the monthly allotment; use the
+  // higher of the two as the bar denominator so it never overflows 100%.
+  const displayTotal = Math.max(plan.creditsTotal, plan.creditsRemaining);
+  const percentage = displayTotal > 0 ? (plan.creditsRemaining / displayTotal) * 100 : 100;
   const isLow = percentage < 20;
 
   const isFreeAuthed = !isGuest && plan.tier === 'free';

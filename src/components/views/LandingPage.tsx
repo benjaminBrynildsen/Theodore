@@ -515,7 +515,7 @@ const PRICING_TIERS = [
     name: 'Dreamer',
     price: '$0',
     period: 'forever',
-    bullets: ['500 credits / month', 'First audiobook chapter free', 'Single-voice narration', 'Share publicly'],
+    bullets: ['300 credits / month', 'First audiobook chapter free', 'Single-voice narration', 'Share publicly'],
     cta: 'Start free',
     highlight: false,
   },

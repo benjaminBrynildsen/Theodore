@@ -119,13 +119,17 @@ async function maybeResetFreeCredits(user: DbUser): Promise<DbUser> {
   const last = user.lastCreditResetAt;
   const shouldReset = !last || (now.getTime() - last.getTime()) >= FREE_TIER_RESET_INTERVAL_MS;
   if (!shouldReset) return user;
+  // One-time boost credits live in creditsRemaining. Preserve any unspent
+  // balance above the monthly allotment so a paid top-up survives the refill
+  // (refill tops UP to the allotment; it never lowers a boosted balance).
+  const refilled = Math.max(FREE_TIER_CREDITS, user.creditsRemaining ?? 0);
   await db.update(users).set({
-    creditsRemaining: FREE_TIER_CREDITS,
+    creditsRemaining: refilled,
     creditsTotal: FREE_TIER_CREDITS,
     lastCreditResetAt: now,
     updatedAt: now,
   }).where(eq(users.id, user.id));
-  return { ...user, creditsRemaining: FREE_TIER_CREDITS, creditsTotal: FREE_TIER_CREDITS, lastCreditResetAt: now, updatedAt: now };
+  return { ...user, creditsRemaining: refilled, creditsTotal: FREE_TIER_CREDITS, lastCreditResetAt: now, updatedAt: now };
 }
 
 export async function createSession(userId: string, req: Request, res: Response): Promise<string> {

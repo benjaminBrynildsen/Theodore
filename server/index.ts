@@ -38,7 +38,7 @@ import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
-import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN } from './billing.js';
+import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN, BOOST_PACKS, getBoostPack, type BoostPack } from './billing.js';
 import { isValidCategory, normalizeTags } from './categories.js';
 import { categorizeProject } from './categorize.js';
 import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './meta-capi.js';
@@ -735,6 +735,144 @@ app.post('/api/billing/refund', async (req, res) => {
   }
 });
 
+// ── One-time credit boosts ──
+// List available packs (for the boost UI).
+app.get('/api/billing/boosts', (_req, res) => {
+  res.json({ packs: BOOST_PACKS });
+});
+
+// Does the user have a vaulted card we can one-click charge?
+app.get('/api/billing/saved-card', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const stripe = await getStripeClient();
+    if (!stripe || !auth.user.stripeCustomerId) return res.json({ hasCard: false });
+    const pms = await stripe.paymentMethods.list({ customer: auth.user.stripeCustomerId, type: 'card', limit: 1 });
+    const card = pms.data[0]?.card;
+    res.json({ hasCard: !!card, brand: card?.brand || null, last4: card?.last4 || null });
+  } catch (e: any) {
+    respondInternalError(res, 'billing.saved-card', e);
+  }
+});
+
+// Idempotently grant a boost: credits land in the normal creditsRemaining pool
+// (the GREATEST refill rule preserves any unspent balance across cycles).
+// Keyed on the Stripe payment id so a payment that fires both
+// checkout.session.completed AND payment_intent.succeeded grants exactly once.
+async function grantBoostCredits(opts: {
+  user: typeof users.$inferSelect;
+  pack: BoostPack;
+  stripePaymentId: string;
+}): Promise<{ granted: boolean; creditsRemaining: number }> {
+  const existing = await db
+    .select({ id: creditTransactions.id })
+    .from(creditTransactions)
+    .where(and(
+      eq(creditTransactions.userId, opts.user.id),
+      sql`${creditTransactions.metadata}->>'stripePaymentId' = ${opts.stripePaymentId}`,
+    ))
+    .limit(1);
+  if (existing.length) {
+    const [fresh] = await db.select({ c: users.creditsRemaining }).from(users).where(eq(users.id, opts.user.id));
+    return { granted: false, creditsRemaining: fresh?.c ?? opts.user.creditsRemaining };
+  }
+  const updated = await db
+    .update(users)
+    .set({ creditsRemaining: sql`${users.creditsRemaining} + ${opts.pack.credits}`, updatedAt: new Date() })
+    .where(eq(users.id, opts.user.id))
+    .returning({ c: users.creditsRemaining });
+  await db.insert(creditTransactions).values({
+    userId: opts.user.id,
+    action: 'credit-boost',
+    creditsUsed: -opts.pack.credits, // negative = granted (matches admin-grant convention)
+    metadata: { stripePaymentId: opts.stripePaymentId, packId: opts.pack.id, amountUsd: opts.pack.priceUsd },
+  });
+  return { granted: true, creditsRemaining: updated[0]?.c ?? (opts.user.creditsRemaining + opts.pack.credits) };
+}
+
+// Buy a boost. One-click off-session charge if a card is vaulted; otherwise a
+// hosted Checkout that also saves the card for next time.
+app.post('/api/billing/boost', async (req, res) => {
+  try {
+    const auth = await requireAuth(req, res);
+    if (!auth) return;
+    const pack = getBoostPack(String(req.body?.packId || ''));
+    if (!pack) return res.status(400).json({ error: 'Invalid boost pack.' });
+    const stripe = await getStripeClient();
+    if (!stripe) return res.status(503).json({ error: 'Stripe is not configured.' });
+
+    let customerId = auth.user.stripeCustomerId;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: auth.user.email,
+        name: auth.user.name || undefined,
+        metadata: { userId: auth.user.id },
+      });
+      customerId = customer.id;
+      await db.update(users).set({ stripeCustomerId: customerId, updatedAt: new Date() }).where(eq(users.id, auth.user.id));
+    }
+
+    const metadata = { type: 'boost', userId: auth.user.id, packId: pack.id, credits: String(pack.credits) };
+
+    // One-click path: charge a vaulted card off-session.
+    const pms = await stripe.paymentMethods.list({ customer: customerId, type: 'card', limit: 1 });
+    const savedPm = pms.data[0];
+    if (savedPm) {
+      try {
+        const intent = await stripe.paymentIntents.create({
+          amount: pack.priceCents,
+          currency: 'usd',
+          customer: customerId,
+          payment_method: savedPm.id,
+          off_session: true,
+          confirm: true,
+          metadata,
+          description: `Theodore credit boost — ${pack.credits.toLocaleString()} credits`,
+        });
+        if (intent.status === 'succeeded') {
+          const { creditsRemaining } = await grantBoostCredits({ user: auth.user, pack, stripePaymentId: intent.id });
+          return res.json({ ok: true, mode: 'instant', creditsRemaining, credits: pack.credits });
+        }
+        // requires_action / other non-terminal status → fall through to Checkout.
+      } catch (e: any) {
+        // Card declined or needs authentication off-session → hosted Checkout fallback.
+        if (e?.type !== 'StripeCardError' && e?.code !== 'authentication_required') {
+          console.warn('[boost] off-session charge failed, falling back to checkout:', e?.message || e);
+        }
+      }
+    }
+
+    // No saved card (or one-click failed): hosted Checkout that vaults the card.
+    const origin = resolveFrontendOrigin(req);
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: customerId,
+      success_url: process.env.STRIPE_CHECKOUT_SUCCESS_URL || `${origin}/?billing=boost_success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: process.env.STRIPE_CHECKOUT_CANCEL_URL || `${origin}/?billing=cancel`,
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          unit_amount: pack.priceCents,
+          product_data: {
+            name: `Theodore — ${pack.credits.toLocaleString()} credit boost`,
+            description: 'One-time credit top-up',
+          },
+        },
+        quantity: 1,
+      }],
+      payment_intent_data: {
+        setup_future_usage: 'off_session', // vault the card for instant top-ups later
+        metadata,
+      },
+      metadata,
+    });
+    return res.json({ ok: true, mode: 'checkout', url: session.url });
+  } catch (e: any) {
+    respondInternalError(res, 'billing.boost', e);
+  }
+});
+
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const stripe = await getStripeClient();
@@ -749,7 +887,27 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
 
     const event = stripe.webhooks.constructEvent(req.body, signature, webhookSecret);
 
-    if (event.type === 'checkout.session.completed') {
+    if (event.type === 'checkout.session.completed' && (event.data.object as any).mode === 'payment' && (event.data.object as any).metadata?.type === 'boost') {
+      // One-time credit boost — grant credits, never touch plan.
+      const session = event.data.object as any;
+      const pack = getBoostPack(String(session.metadata?.packId || ''));
+      const uid = String(session.metadata?.userId || '');
+      const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : null;
+      if (pack && uid && paymentIntentId) {
+        const [u] = await db.select().from(users).where(eq(users.id, uid));
+        if (u) await grantBoostCredits({ user: u, pack, stripePaymentId: paymentIntentId });
+      }
+    } else if (event.type === 'payment_intent.succeeded' && (event.data.object as any).metadata?.type === 'boost') {
+      // Off-session one-click boost (also covers Checkout boosts redundantly —
+      // grantBoostCredits is idempotent on the payment id, so no double-grant).
+      const pi = event.data.object as any;
+      const pack = getBoostPack(String(pi.metadata?.packId || ''));
+      const uid = String(pi.metadata?.userId || '');
+      if (pack && uid) {
+        const [u] = await db.select().from(users).where(eq(users.id, uid));
+        if (u) await grantBoostCredits({ user: u, pack, stripePaymentId: pi.id });
+      }
+    } else if (event.type === 'checkout.session.completed') {
       const session = event.data.object as any;
       const customerId = typeof session.customer === 'string' ? session.customer : null;
       const subscriptionId = typeof session.subscription === 'string' ? session.subscription : null;
@@ -769,10 +927,13 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
       if (user) {
         const nextPlan = tier || (isPaidPlanTier(user.plan) ? (user.plan as any) : 'writer');
         const creditsTotal = getTierCredits(nextPlan);
+        // Preserve unspent one-time boost credits (they live in creditsRemaining)
+        // when granting the subscription allotment — never lower the balance.
+        const creditsRemaining = Math.max(creditsTotal, user.creditsRemaining ?? 0);
         await db.update(users).set({
           plan: nextPlan,
           creditsTotal,
-          creditsRemaining: creditsTotal,
+          creditsRemaining,
           stripeCustomerId: customerId || user.stripeCustomerId,
           stripeSubscriptionId: subscriptionId || user.stripeSubscriptionId,
           stripeSubscriptionStatus: 'active' as any,
@@ -804,9 +965,17 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
           ? (tier || (isPaidPlanTier(user.plan) ? user.plan : 'writer'))
           : 'free';
         const creditsTotal = getTierCredits(nextPlan);
+        // Boost credits ride in creditsRemaining. Preserve them on upgrades
+        // (grant the new allotment but never lower a boosted balance) and on
+        // same-plan events (don't clamp to the allotment). KNOWN LIMITATION:
+        // on a paid→free downgrade we cap at the free allotment, so a boost
+        // commingled with leftover paid credits is not distinguishable and may
+        // be lost — acceptable since boosts are primarily a free-tier feature.
         const creditsRemaining = nextPlan === 'free'
           ? Math.min(FREE_TIER_CREDITS, Math.max(user.creditsRemaining, 0))
-          : (nextPlan !== user.plan ? creditsTotal : Math.min(Math.max(user.creditsRemaining, 0), creditsTotal));
+          : (nextPlan !== user.plan
+              ? Math.max(creditsTotal, Math.max(user.creditsRemaining, 0))
+              : Math.max(user.creditsRemaining, 0));
 
         await db.update(users).set({
           plan: nextPlan,
@@ -836,9 +1005,12 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
           : null;
         if (currentTier) {
           const creditsTotal = getTierCredits(currentTier);
+          // Monthly renewal refill: top up to the allotment but preserve any
+          // unspent one-time boost balance riding in creditsRemaining.
+          const creditsRemaining = Math.max(creditsTotal, user.creditsRemaining ?? 0);
           await db.update(users).set({
             creditsTotal,
-            creditsRemaining: creditsTotal,
+            creditsRemaining,
             updatedAt: new Date(),
           }).where(eq(users.id, user.id));
         }

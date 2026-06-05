@@ -7,7 +7,7 @@ import type { CreditAction } from '../../types/credits';
 type TimeRange = '7d' | '30d' | 'all';
 
 export function UsageDashboard() {
-  const { plan, transactions } = useCreditsStore();
+  const { plan, transactions, setShowBoostModal } = useCreditsStore();
   const [range, setRange] = useState<TimeRange>('30d');
 
   const allTransactions = useMemo(() => transactions, [transactions]);
@@ -89,12 +89,20 @@ export function UsageDashboard() {
               {`${plan.creditsRemaining.toLocaleString()} credits remaining`}
             </div>
           </div>
-          {daysLeft !== null && (
-            <div className="text-right">
-              <div className="text-xs text-text-tertiary">Renews in</div>
-              <div className="text-sm font-mono font-semibold">{daysLeft} days</div>
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {daysLeft !== null && (
+              <div className="text-right">
+                <div className="text-xs text-text-tertiary">Renews in</div>
+                <div className="text-sm font-mono font-semibold">{daysLeft} days</div>
+              </div>
+            )}
+            <button
+              onClick={() => setShowBoostModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-black text-white text-xs font-semibold hover:opacity-90 transition-opacity whitespace-nowrap"
+            >
+              + Add credits
+            </button>
+          </div>
         </div>
 
         <>

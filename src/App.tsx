@@ -38,6 +38,10 @@ const UpgradeModal = lazy(async () => {
   const mod = await import('./components/credits/UpgradeModal');
   return { default: mod.UpgradeModal };
 });
+const BoostModal = lazy(async () => {
+  const mod = await import('./components/credits/BoostModal');
+  return { default: mod.BoostModal };
+});
 const ImpactPanel = lazy(async () => {
   const mod = await import('./components/validation/ImpactPanel');
   return { default: mod.ImpactPanel };
@@ -264,15 +268,18 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const billingResult = params.get('billing');
-    if (billingResult === 'success' || billingResult === 'cancel') {
+    if (billingResult === 'success' || billingResult === 'cancel' || billingResult === 'boost_success') {
       // Clean URL
       const url = new URL(window.location.href);
       url.searchParams.delete('billing');
       url.searchParams.delete('session_id');
       window.history.replaceState({}, '', url.pathname + url.search);
-      // Re-fetch user data to get updated plan
+      // Re-fetch user data to get updated plan / credit balance
       if (billingResult === 'success') {
         pixel.trackSubscribe(0); // value filled when pricing is known
+        bootstrap();
+      } else if (billingResult === 'boost_success') {
+        pixel.trackCustom('BoostPurchased', { via: 'checkout' });
         bootstrap();
       }
     }
@@ -657,6 +664,7 @@ export default function App() {
           )}
           <Suspense fallback={null}>
             <UpgradeModal />
+            <BoostModal />
           </Suspense>
         </div>
       );
@@ -761,6 +769,7 @@ export default function App() {
       )}
       <Suspense fallback={null}>
         <UpgradeModal />
+        <BoostModal />
         <ImpactPanel />
       </Suspense>
       <CreditNudge />

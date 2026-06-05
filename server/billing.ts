@@ -20,9 +20,35 @@ const TIER_CONFIG: Record<PaidPlanTier, { name: string; credits: number; priceUs
   publisher: { name: 'Publisher', credits: 50000, priceUsd: 200 },
 };
 
-export const FREE_TIER_CREDITS = 500;
+export const FREE_TIER_CREDITS = 300;
 export const FREE_TIER_NAME = 'Dreamer';
 export const FREE_TIER_RESET_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // 30d rolling
+
+// ========== One-time Credit Boosts ==========
+// Premium-priced one-time top-ups (no subscription). Granted credits land in
+// the user's normal `creditsRemaining` pool; the GREATEST(...) refill rule in
+// the webhook/reset paths preserves any unspent boost across monthly cycles.
+export interface BoostPack {
+  id: string;
+  priceUsd: number;
+  priceCents: number;
+  credits: number;
+}
+
+const BOOST_PACK_DEFS: Array<{ id: string; priceUsd: number; credits: number }> = [
+  { id: 'boost_5', priceUsd: 5, credits: 800 },
+  { id: 'boost_10', priceUsd: 10, credits: 1800 },
+  { id: 'boost_20', priceUsd: 20, credits: 4000 },
+];
+
+export const BOOST_PACKS: BoostPack[] = BOOST_PACK_DEFS.map((p) => ({
+  ...p,
+  priceCents: Math.round(p.priceUsd * 100),
+}));
+
+export function getBoostPack(id: string): BoostPack | null {
+  return BOOST_PACKS.find((p) => p.id === id) || null;
+}
 
 // ========== Credit Costs Per Action ==========
 // TTS is character-based; others are flat
