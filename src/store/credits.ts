@@ -16,6 +16,7 @@ interface CreditsState {
   transactions: CreditTransaction[];
   showUpgradeModal: boolean;
   upgradeReason: UpgradeReason;
+  showBoostModal: boolean;
   showSettingsModal: boolean;
   lastReceipt: UsageReceipt | null;
   dismissReceipt: () => void;
@@ -25,6 +26,8 @@ interface CreditsState {
   canAfford: (amount: number) => boolean;
   setPlan: (tier: PlanTier, credits: number) => void;
   setShowUpgradeModal: (show: boolean, reason?: UpgradeReason) => void;
+  setShowBoostModal: (show: boolean) => void;
+  applyBoost: (creditsRemaining: number) => void;
   setShowSettingsModal: (show: boolean) => void;
   hydrateFromUser: (user: {
     plan?: string | null;
@@ -57,13 +60,14 @@ interface CreditsState {
 export const useCreditsStore = create<CreditsState>((set, get) => ({
   plan: {
     tier: 'free',
-    creditsTotal: 500,
+    creditsTotal: 300,
     creditsUsed: 0,
-    creditsRemaining: 500,
+    creditsRemaining: 300,
   },
   transactions: [],
   showUpgradeModal: false,
   upgradeReason: 'generic',
+  showBoostModal: false,
   showSettingsModal: false,
   lastReceipt: null,
   dismissReceipt: () => set({ lastReceipt: null }),
@@ -114,6 +118,17 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
   },
 
   setShowUpgradeModal: (show, reason = 'generic') => set({ showUpgradeModal: show, upgradeReason: show ? reason : 'generic' }),
+  setShowBoostModal: (show) => set({ showBoostModal: show }),
+  // Boost credits land in the normal pool; balance can exceed the monthly
+  // allotment, so creditsTotal is bumped to keep remaining ≤ total for display.
+  applyBoost: (creditsRemaining) => set((s) => ({
+    plan: {
+      ...s.plan,
+      creditsRemaining,
+      creditsTotal: Math.max(s.plan.creditsTotal, creditsRemaining),
+      creditsUsed: Math.max(0, Math.max(s.plan.creditsTotal, creditsRemaining) - creditsRemaining),
+    },
+  })),
   setShowSettingsModal: (show) => set({ showSettingsModal: show }),
 
   hydrateFromUser: (user) => {
@@ -121,9 +136,9 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
       set({
         plan: {
           tier: 'free',
-          creditsTotal: 500,
+          creditsTotal: 300,
           creditsUsed: 0,
-          creditsRemaining: 500,
+          creditsRemaining: 300,
           renewsAt: undefined,
           stripeCustomerId: undefined,
           stripeSubscriptionId: undefined,
@@ -225,7 +240,7 @@ export const useCreditsStore = create<CreditsState>((set, get) => ({
         break;
       case 'customer.subscription.deleted':
         set((s) => ({
-          plan: { ...s.plan, tier: 'free', creditsTotal: 500, creditsRemaining: 500 - s.plan.creditsUsed },
+          plan: { ...s.plan, tier: 'free', creditsTotal: 300, creditsRemaining: 300 - s.plan.creditsUsed },
         }));
         break;
       case 'invoice.payment_succeeded':

@@ -48,7 +48,7 @@ function getAnchorVariant(): AnchorVariant {
 }
 
 export function UpgradeModal() {
-  const { showUpgradeModal, setShowUpgradeModal, plan, upgradeReason } = useCreditsStore();
+  const { showUpgradeModal, setShowUpgradeModal, setShowBoostModal, plan, upgradeReason } = useCreditsStore();
   const user = useAuthStore((s) => s.user);
   const [busyTier, setBusyTier] = useState<PlanTier | null>(null);
   const [error, setError] = useState('');
@@ -462,6 +462,13 @@ export function UpgradeModal() {
                 Need more? See Publisher plan ({priceFor('publisher')}/mo) →
               </button>
             )}
+            {/* One-time top-up — no subscription. Lower-commitment alt to a plan. */}
+            <button
+              onClick={() => { setShowUpgradeModal(false); setShowBoostModal(true); }}
+              className="mt-2 w-full text-center text-xs text-white/40 hover:text-white/70 transition-colors"
+            >
+              Not ready to subscribe? Add one-time credits →
+            </button>
             </>
             )}
 
