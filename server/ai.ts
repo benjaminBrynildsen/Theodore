@@ -345,6 +345,38 @@ async function streamOpenAI(req: GenerateRequest, sink: TextSink): Promise<{ inp
 
 // ========== Unified Generate ==========
 
+// A handful of Anthropic failure modes are transient — the right move is to
+// retry once after a short backoff rather than silently bail to OpenAI (which
+// for months was masking transient Claude blips and, when OpenAI itself ran
+// out of quota on 2026-06-04, surfaced as user-visible HTTP 500s on every
+// chat-creation / chapter-gen call). Classify here so the retry knows when
+// to re-attempt vs propagate.
+function isRetryableAnthropicError(e: any): boolean {
+  const msg = String(e?.message || '');
+  if (msg.includes('overloaded')) return true;        // Anthropic-specific
+  if (msg.includes('rate_limit')) return true;        // Transient throttle
+  if (/Anthropic API error 5\d\d/.test(msg)) return true; // 5xx upstream
+  if (msg.includes('fetch failed')) return true;      // Node fetch network failure
+  if (msg.includes('Failed to fetch')) return true;   // Browser-style network failure
+  if (msg.includes('ECONNRESET')) return true;        // TCP reset
+  if (msg.includes('ETIMEDOUT')) return true;         // Connect timeout
+  if (msg.includes('Idle timeout')) return true;      // Our own readWithIdleTimeout
+  return false;
+}
+
+const RETRY_DELAY_MS = 600;
+
+async function withAnthropicRetry<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (e: any) {
+    if (!isRetryableAnthropicError(e)) throw e;
+    console.warn(`[AI] Anthropic transient error, retrying in ${RETRY_DELAY_MS}ms: ${e.message}`);
+    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    return op();
+  }
+}
+
 function normalizeRequestedModel(model?: string): string {
   const value = String(model || '').trim();
   if (!value || value === 'auto') return 'claude-sonnet-4-6';
@@ -370,15 +402,14 @@ export async function generate(req: GenerateRequest): Promise<GenerateResult> {
   const model = normalizeRequestedModel(req.model);
 
   if (model.startsWith('claude') || model.startsWith('anthropic')) {
-    try {
-      return await callAnthropic({ ...req, model });
-    } catch (e: any) {
-      console.error(`[AI] Anthropic failed (${e.message}), falling back to OpenAI`);
-      return callOpenAI({ ...req, model: 'gpt-4.1' });
-    }
-  } else {
-    return callOpenAI({ ...req, model });
+    // Anthropic with one transient-error retry. We deliberately do NOT fall
+    // back to OpenAI here — that fallback existed historically but became a
+    // hidden footgun (see 2026-06-04 incident: OpenAI quota exhausted →
+    // every Claude blip surfaced as user-visible HTTP 500). The route
+    // handler catches this and returns a clean error the client can retry.
+    return withAnthropicRetry(() => callAnthropic({ ...req, model }));
   }
+  return callOpenAI({ ...req, model });
 }
 
 export async function generateStream(req: GenerateRequest, sink: TextSink): Promise<{ inputTokens: number; outputTokens: number; model: string; creditsUsed: number }> {
@@ -386,11 +417,21 @@ export async function generateStream(req: GenerateRequest, sink: TextSink): Prom
 
   let result;
   if (model.startsWith('claude') || model.startsWith('anthropic')) {
+    // For streaming, only retry if no tokens have been emitted yet — we
+    // can't safely re-send a half-streamed response. Wrap the sink so we
+    // can detect first-write and short-circuit the retry once we've
+    // committed any output.
+    let emitted = false;
+    // Guard wraps `sink` so we can flip `emitted` on first write. Use
+    // emitText so we transparently support both Response and function sinks.
+    const guardedSink: TextSink = (text: string) => { emitted = true; emitText(sink, text); };
     try {
-      result = await streamAnthropic({ ...req, model }, sink);
+      result = await streamAnthropic({ ...req, model }, guardedSink);
     } catch (e: any) {
-      console.error(`[AI] Anthropic stream failed (${e.message}), falling back to OpenAI`);
-      result = await streamOpenAI({ ...req, model: 'gpt-4.1' }, sink);
+      if (emitted || !isRetryableAnthropicError(e)) throw e;
+      console.warn(`[AI] Anthropic stream transient (pre-emit), retrying: ${e.message}`);
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      result = await streamAnthropic({ ...req, model }, sink);
     }
   } else {
     result = await streamOpenAI({ ...req, model }, sink);
