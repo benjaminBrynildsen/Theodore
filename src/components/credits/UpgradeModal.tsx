@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Check, Sparkles, BookOpen, Headphones, Mail, Lock } from 'lucide-react';
+import { X, Check, Sparkles, BookOpen, Headphones, Mail, Lock, Loader2 } from 'lucide-react';
 import { useCreditsStore } from '../../store/credits';
 import { useAuthStore } from '../../store/auth';
 import { PLAN_DETAILS, TIER_PRICES_USD, type PlanTier } from '../../types/credits';
@@ -47,12 +47,26 @@ function getAnchorVariant(): AnchorVariant {
   }
 }
 
+// Boost packs — same shape + fallback as BoostModal.tsx. Kept in sync with
+// server BOOST_PACKS. Surfaced inline at the top of the UpgradeModal so the
+// "ran out of credits" user sees a one-tap fix before the subscription pitch.
+interface BoostPack { id: string; priceUsd: number; priceCents: number; credits: number }
+const DEFAULT_BOOST_PACKS: BoostPack[] = [
+  { id: 'boost_5',  priceUsd: 5,  priceCents: 500,  credits: 800 },
+  { id: 'boost_10', priceUsd: 10, priceCents: 1000, credits: 1800 },
+  { id: 'boost_20', priceUsd: 20, priceCents: 2000, credits: 4000 },
+];
+
 export function UpgradeModal() {
-  const { showUpgradeModal, setShowUpgradeModal, setShowBoostModal, plan, upgradeReason } = useCreditsStore();
+  const { showUpgradeModal, setShowUpgradeModal, plan, upgradeReason, applyBoost } = useCreditsStore();
   const user = useAuthStore((s) => s.user);
   const [busyTier, setBusyTier] = useState<PlanTier | null>(null);
   const [error, setError] = useState('');
   const [showAllPlans, setShowAllPlans] = useState(false);
+  // Inline top-up state — packs + active purchase + post-grant confirmation.
+  const [boostPacks, setBoostPacks] = useState<BoostPack[]>(DEFAULT_BOOST_PACKS);
+  const [busyBoostId, setBusyBoostId] = useState<string | null>(null);
+  const [boostGranted, setBoostGranted] = useState<number | null>(null);
   const displayCurrency = useMemo(() => detectDisplayCurrency(), []);
   const showUsdDisclaimer = isNonUsdDisplay(displayCurrency);
   const isAudioCap = upgradeReason === 'audio_cap';
@@ -71,8 +85,52 @@ export function UpgradeModal() {
       setShowAllPlans(false);
       setBusyTier(null);
       setError('');
+      setBusyBoostId(null);
+      setBoostGranted(null);
+      // Refresh pack prices from the server in case BOOST_PACKS changed since
+      // last open; DEFAULT_BOOST_PACKS keeps the UI populated meanwhile.
+      api.billingBoosts().then((r) => { if (r?.packs?.length) setBoostPacks(r.packs); }).catch(() => {});
     }
   }, [showUpgradeModal]);
+
+  // Inline top-up purchase. Mirrors BoostModal.buy: instant grant if a saved
+  // card is on file, otherwise redirect to Stripe checkout. Closes the modal
+  // on a successful instant grant so the user lands back in their workspace
+  // with the new balance visible.
+  const handleBoostBuy = async (pack: BoostPack) => {
+    if (!user) {
+      // Guests don't have a payment method yet — defer to the standard
+      // upgrade flow which collects auth before checkout.
+      try {
+        localStorage.setItem('theodore_pending_boost', JSON.stringify({ packId: pack.id, at: Date.now() }));
+      } catch {}
+      setShowUpgradeModal(false);
+      window.dispatchEvent(new CustomEvent('theodore:showAuth'));
+      return;
+    }
+    setBusyBoostId(pack.id);
+    setError('');
+    jTrack('boost_clicked', { packId: pack.id, amount: pack.priceUsd, source: 'upgrade_modal_inline' });
+    try {
+      const r = await api.billingBoost({ packId: pack.id });
+      if (r.mode === 'checkout' && r.url) {
+        pixel.trackInitiateCheckout(pack.priceUsd);
+        window.location.href = r.url;
+        return;
+      }
+      if (r.mode === 'instant' && typeof r.creditsRemaining === 'number') {
+        applyBoost(r.creditsRemaining);
+        setBoostGranted(pack.credits);
+        pixel.trackSubscribe(pack.priceUsd);
+        pixel.trackCustom('BoostPurchased', { packId: pack.id, amount: pack.priceUsd, source: 'upgrade_modal_inline' });
+        jTrack('boost_purchased', { packId: pack.id, amount: pack.priceUsd, mode: 'instant', source: 'upgrade_modal_inline' });
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Top-up failed. Please try again.');
+    } finally {
+      setBusyBoostId(null);
+    }
+  };
 
   // Fire the "shown" event whenever the modal opens, for EVERY user (guest
   // or signed-in). Previously this only fired inside the guest-only
@@ -351,6 +409,57 @@ export function UpgradeModal() {
               </div>
             )}
 
+            {/* Inline top-up — three prominent pack buttons at the TOP of the
+                modal so a user who just hit the cap can refill in one tap
+                without scrolling past the Dream Offer pitch. Shown for all
+                upgrade reasons (generic, audio-cap, multi-voice) since the
+                credit shortage is the same fact in every variant. */}
+            {boostGranted != null ? (
+              <div className="mb-6 rounded-2xl border border-emerald-400/30 bg-emerald-500/[0.08] p-4 text-center animate-fade-in">
+                <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500/15 mb-2">
+                  <Check size={20} className="text-emerald-400" />
+                </div>
+                <div className="text-base font-semibold text-white">+{boostGranted.toLocaleString()} credits added</div>
+                <div className="text-xs text-white/60 mt-0.5">Charged to your card on file. You're good to keep writing.</div>
+                <button
+                  onClick={() => setShowUpgradeModal(false)}
+                  className="mt-3 w-full py-2.5 rounded-xl bg-white text-black font-semibold text-sm hover:bg-white/90"
+                >
+                  Back to writing →
+                </button>
+              </div>
+            ) : (
+              <div className="mb-6">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <span className="text-xl" role="img" aria-label="bolt">⚡</span>
+                  <div className="text-sm font-semibold text-white">Need credits right now?</div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {boostPacks.slice(0, 3).map((p) => {
+                    const isBusy = busyBoostId === p.id;
+                    const disabled = !!busyBoostId && !isBusy;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => handleBoostBuy(p)}
+                        disabled={disabled || isBusy}
+                        className="relative flex flex-col items-center justify-center py-4 rounded-2xl border border-white/15 bg-white/[0.06] hover:bg-white/[0.12] hover:border-white/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <div className="text-2xl font-serif font-bold text-white leading-none">${p.priceUsd}</div>
+                        <div className="text-[11px] text-white/70 mt-1.5">{p.credits.toLocaleString()} credits</div>
+                        {isBusy && (
+                          <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/40 backdrop-blur-sm">
+                            <Loader2 size={18} className="animate-spin text-white" />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="text-center text-[10px] text-white/40 mt-2">One-time · credits never expire</div>
+              </div>
+            )}
+
             {/* Hoisted Author card — sits between the pill and the hook so
                 users see the price + recommended badge BEFORE the dream-offer
                 copy. Only for generic + signed-in (or guest after expand). */}
@@ -462,22 +571,9 @@ export function UpgradeModal() {
                 Need more? See Publisher plan ({priceFor('publisher')}/mo) →
               </button>
             )}
-            {/* One-time top-up — a peer path to subscribing (side-by-side). */}
-            <div className="mt-4 flex items-center gap-3">
-              <div className="flex-1 h-px bg-white/10" />
-              <span className="text-[11px] uppercase tracking-wider text-white/30">or</span>
-              <div className="flex-1 h-px bg-white/10" />
-            </div>
-            <button
-              onClick={() => { setShowUpgradeModal(false); setShowBoostModal(true); }}
-              className="mt-3 w-full flex items-center justify-between px-4 py-3.5 rounded-xl border border-white/15 bg-white/[0.06] hover:bg-white/[0.1] hover:border-white/25 transition-all text-left"
-            >
-              <div>
-                <div className="text-sm font-semibold text-white">Top up once — no subscription</div>
-                <div className="text-xs text-white/50">From $5 · one-click · credits never expire</div>
-              </div>
-              <span className="text-white/50 text-lg leading-none">→</span>
-            </button>
+            {/* Old bottom "Top up once" link removed 2026-06-06 — the three
+                $5/$10/$20 pack buttons are now hoisted to the top of the
+                modal, immediately under the "Not enough credits" pill. */}
             </>
             )}
 
