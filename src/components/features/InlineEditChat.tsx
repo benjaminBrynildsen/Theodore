@@ -3,7 +3,7 @@ import { Send, Loader2, X, MousePointer2, RotateCcw, Sparkles } from 'lucide-rea
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
-import { generateText } from '../../lib/generate';
+import { generateText, generateStream } from '../../lib/generate';
 import { useGenerationStore } from '../../store/generation';
 import { buildSelectionEditPrompt } from '../../lib/prompt-builder';
 import { generateId, cn } from '../../lib/utils';
@@ -144,11 +144,18 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
 
   const [messages, setMessages] = useState<EditChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  // Two-beat flow: 'discussing' = Haiku proposing an approach (streamed),
+  // 'applying' = Sonnet doing the actual rewrite. loading = either.
+  const [editPhase, setEditPhase] = useState<'idle' | 'discussing' | 'applying'>('idle');
+  const loading = editPhase !== 'idle';
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+  // The edit we've proposed and are waiting to apply (set after a discuss turn).
+  const [pendingEdit, setPendingEdit] = useState<{ selection: ProseSelection | null; instruction: string } | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const streamingIdRef = useRef<string | null>(null);
 
   const project = getActiveProject();
 
@@ -212,44 +219,89 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
     appendMessage(restoredMsg);
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || loading || !project) return;
+  // Short affirmations that mean "apply the edit we just discussed".
+  const isConfirmation = (t: string) => {
+    const s = t.trim().toLowerCase().replace(/[.!,]/g, '');
+    return /^(yes|yep|yeah|yup|y|sure|ok|okay|k|go|go ahead|do it|run it|run with it|apply|apply it|perfect|sounds good|love it|great|please do|lets do it|let's do it|that works|yes please|go for it|👍|🙌)$/.test(s);
+  };
 
-    const instruction = input.trim();
-    const currentSelection = selection;
+  // Beat 1 — discuss: stream a short Haiku proposal. No edit applied yet.
+  const discussTurn = async (instruction: string, currentSelection: ProseSelection | null) => {
+    setEditPhase('discussing');
+    setStreamingId(null);
+    const msgId = generateId();
+    let acc = '';
+    const priorConvo = [...messages, { role: 'user', content: instruction }]
+      .slice(-8)
+      .map((m: any) => `${String(m.role).toUpperCase()}: ${typeof m.content === 'string' ? m.content : ''}`)
+      .join('\n\n');
+    const passage = currentSelection?.text || prose.slice(0, 1200);
+    try {
+      await generateStream(
+        {
+          action: 'chapter-edit-chat',
+          model: 'claude-haiku-4-5',
+          temperature: settings.ai?.temperature ?? 0.8,
+          maxTokens: 120,
+          projectId: project!.id,
+          chapterId,
+          systemPrompt: `You are Theodore, a sharp, collaborative story editor working with the author on ${currentSelection ? 'a selected passage' : 'this chapter'}. Be brief and warm — like a writing partner, not a tool.
+RULES:
+- 1-2 sentences ONLY. Never more.
+- React to what they want, then propose ONE specific way you'd make the edit ("I'd [specific approach]").
+- End by asking if they want you to run it or adjust ("Want me to run it, or tweak the angle?").
+- Do NOT rewrite or output the edited passage yet — that happens only after they confirm.
+- NEVER list options or use bullet points. NEVER use paragraphs.`,
+          prompt: `Passage being edited:\n"${passage}"\n\nConversation so far:\n${priorConvo}\n\nRespond in 1-2 sentences: propose one approach and ask if they want it.`,
+        },
+        (text) => {
+          acc += text;
+          if (!streamingIdRef.current) {
+            streamingIdRef.current = msgId;
+            setStreamingId(msgId);
+            setMessages((prev) => [...prev, { id: msgId, role: 'assistant', content: acc, timestamp: new Date().toISOString() } as EditChatMessage]);
+          } else {
+            setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, content: acc } : m)));
+          }
+        },
+        () => {
+          setMessages((prev) => { persistChatHistory(prev); return prev; });
+        },
+        (error) => {
+          if (error === 'INSUFFICIENT_CREDITS') {
+            import('../../store/credits').then(({ useCreditsStore }) => useCreditsStore.getState().setShowUpgradeModal(true));
+          }
+          const content = error === 'INSUFFICIENT_CREDITS' ? 'Out of credits — upgrade to keep editing.' : `Couldn't reach the model: ${error}`;
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === msgId);
+            const next = exists ? prev.map((m) => (m.id === msgId ? { ...m, content } : m)) : [...prev, { id: msgId, role: 'assistant', content, timestamp: new Date().toISOString() } as EditChatMessage];
+            persistChatHistory(next);
+            return next;
+          });
+          setPendingEdit(null);
+        },
+      );
+    } finally {
+      streamingIdRef.current = null;
+      setStreamingId(null);
+      setEditPhase('idle');
+    }
+  };
 
-    // Build user message with selection tag
-    const userContent = currentSelection
-      ? `**Editing:** "${currentSelection.text.slice(0, 100)}${currentSelection.text.length > 100 ? '...' : ''}"\n${currentSelection.sceneName ? `*Scene: ${currentSelection.sceneName}*\n` : ''}${instruction}`
-      : instruction;
-
-    const userMsg: EditChatMessage = {
-      id: generateId(),
-      role: 'user',
-      content: userContent,
-      timestamp: new Date().toISOString(),
-    };
-    appendMessage(userMsg);
-    setInput('');
-    setLoading(true);
-
-    // Save current prose for undo
-    pushUndo(currentSelection ? `edit "${currentSelection.text.slice(0, 30)}..."` : 'full edit');
-
-    const editLabel = currentSelection
-      ? `"${currentSelection.text.slice(0, 40)}${currentSelection.text.length > 40 ? '…' : ''}"`
+  // Beat 2 — apply: Sonnet does the real rewrite and drops it into the prose.
+  const applyEdit = async (target: { selection: ProseSelection | null; instruction: string }) => {
+    if (loading || !project) return;
+    setEditPhase('applying');
+    pushUndo(target.selection ? `edit "${target.selection.text.slice(0, 30)}..."` : 'full edit');
+    const editLabel = target.selection
+      ? `"${target.selection.text.slice(0, 40)}${target.selection.text.length > 40 ? '…' : ''}"`
       : 'full chapter';
-    useGenerationStore.getState().start({
-      kind: 'inline-edit',
-      label: editLabel,
-      subtitle: 'Rewriting…',
-      indeterminate: true,
-    });
+    useGenerationStore.getState().start({ kind: 'inline-edit', label: editLabel, subtitle: 'Rewriting…', indeterminate: true });
 
     try {
       const allChapters = getProjectChapters(project.id);
       const canonEntries = getProjectEntries(project.id);
-      const chapter = useStore.getState().chapters.find(c => c.id === chapterId);
+      const chapter = useStore.getState().chapters.find((c) => c.id === chapterId);
       if (!chapter) throw new Error('Chapter not found');
 
       const prompt = buildSelectionEditPrompt({
@@ -258,8 +310,8 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
         allChapters,
         canonEntries,
         settings,
-        instruction,
-        selectedText: currentSelection?.text || null,
+        instruction: target.instruction,
+        selectedText: target.selection?.text || null,
         fullProse: prose,
         chatHistory: messages.slice(-8),
       });
@@ -267,7 +319,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
       const result = await generateText({
         prompt,
         model: settings.ai?.preferredModel || 'claude-sonnet',
-        maxTokens: currentSelection ? 2000 : 4000,
+        maxTokens: target.selection ? 2000 : 4000,
         action: 'inline-edit',
         projectId: project.id,
         chapterId,
@@ -275,80 +327,73 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
 
       const responseText = (result.text || '').trim();
 
-      if (responseText && currentSelection) {
-        // Replace selection in prose
-        const before = prose.slice(0, currentSelection.startOffset);
-        const after = prose.slice(currentSelection.endOffset);
+      if (responseText && target.selection) {
+        const before = prose.slice(0, target.selection.startOffset);
+        const after = prose.slice(target.selection.endOffset);
         const newProse = before + responseText + after;
-
-        onProseUpdate(newProse, currentSelection.startOffset, currentSelection.startOffset + responseText.length);
+        onProseUpdate(newProse, target.selection.startOffset, target.selection.startOffset + responseText.length);
         onClearSelection();
-
-        const diff = responseText.length - currentSelection.text.length;
+        const diff = responseText.length - target.selection.text.length;
         const diffLabel = diff > 0 ? `(+${diff} chars)` : diff < 0 ? `(${diff} chars)` : '(same length)';
-
-        const assistantMsg: EditChatMessage = {
+        appendMessage({
           id: generateId(),
           role: 'assistant',
-          content: responseText.length <= 200
-            ? `Done. New text: "${responseText}" ${diffLabel}`
-            : `Updated the selection ${diffLabel}. The changes are highlighted in the text.`,
+          content: responseText.length <= 200 ? `Done — dropped it in. ${diffLabel}` : `Done — updated the passage ${diffLabel}, highlighted in the text.`,
           timestamp: new Date().toISOString(),
-        };
-        appendMessage(assistantMsg);
-
-        // Trigger post-edit pipeline
+        });
         schedulePostEditPipeline(chapterId);
-      } else if (responseText && !currentSelection) {
-        // Full prose edit
+      } else if (responseText && !target.selection) {
         onProseUpdate(responseText, 0, 0);
-
-        // Trigger post-edit pipeline
         schedulePostEditPipeline(chapterId);
-
-        const assistantMsg: EditChatMessage = {
-          id: generateId(),
-          role: 'assistant',
-          content: 'Applied changes to the full chapter.',
-          timestamp: new Date().toISOString(),
-        };
-        appendMessage(assistantMsg);
+        appendMessage({ id: generateId(), role: 'assistant', content: 'Done — applied to the full chapter.', timestamp: new Date().toISOString() });
       } else {
-        // Undo the pushed state since nothing changed
-        setUndoStack(prev => prev.slice(0, -1));
-
-        const assistantMsg: EditChatMessage = {
-          id: generateId(),
-          role: 'assistant',
-          content: "Couldn't process that edit. Try rephrasing or selecting specific text.",
-          timestamp: new Date().toISOString(),
-        };
-        appendMessage(assistantMsg);
+        setUndoStack((prev) => prev.slice(0, -1));
+        appendMessage({ id: generateId(), role: 'assistant', content: 'Hmm, that came back empty — want to try a different angle?', timestamp: new Date().toISOString() });
         useGenerationStore.getState().end();
+        setPendingEdit(null);
         return;
       }
       useGenerationStore.getState().setPhase('done');
+      setPendingEdit(null);
     } catch (error: any) {
-      // Undo the pushed state on error
-      setUndoStack(prev => prev.slice(0, -1));
-
+      setUndoStack((prev) => prev.slice(0, -1));
       if (error?.message === 'INSUFFICIENT_CREDITS') {
         const { useCreditsStore } = await import('../../store/credits');
         useCreditsStore.getState().setShowUpgradeModal(true);
       }
-      const errorMsg: EditChatMessage = {
+      appendMessage({
         id: generateId(),
         role: 'assistant',
-        content: error?.message === 'INSUFFICIENT_CREDITS'
-          ? 'Not enough credits — upgrade to continue editing.'
-          : `Error: ${error?.message || 'Edit failed'}`,
+        content: error?.message === 'INSUFFICIENT_CREDITS' ? 'Not enough credits — upgrade to continue editing.' : `Error: ${error?.message || 'Edit failed'}`,
         timestamp: new Date().toISOString(),
-      };
-      appendMessage(errorMsg);
+      });
       useGenerationStore.getState().end();
     } finally {
-      setLoading(false);
+      setEditPhase('idle');
     }
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || loading || !project) return;
+    const text = input.trim();
+    const currentSelection = selection;
+    setInput('');
+
+    // If we've already proposed an edit and they just confirmed → apply it.
+    if (pendingEdit && isConfirmation(text)) {
+      appendMessage({ id: generateId(), role: 'user', content: text, timestamp: new Date().toISOString() });
+      await applyEdit(pendingEdit);
+      return;
+    }
+
+    // Otherwise this is a new / refined instruction → discuss it first.
+    const userContent = currentSelection
+      ? `**Editing:** "${currentSelection.text.slice(0, 100)}${currentSelection.text.length > 100 ? '...' : ''}"\n${currentSelection.sceneName ? `*Scene: ${currentSelection.sceneName}*\n` : ''}${text}`
+      : text;
+    appendMessage({ id: generateId(), role: 'user', content: userContent, timestamp: new Date().toISOString() });
+    const target = { selection: currentSelection || pendingEdit?.selection || null, instruction: text };
+    setPendingEdit(target);
+    await discussTurn(text, target.selection);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -443,11 +488,21 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
             </div>
           </div>
         ))}
-        {loading && (
+        {/* Discuss turn — brief "thinking" until the streamed proposal arrives */}
+        {editPhase === 'discussing' && !streamingId && (
+          <div className="animate-fade-in px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-text-secondary">
+              <Loader2 size={13} className="animate-spin text-purple-500" />
+              <span className="font-medium">Thinking it through…</span>
+            </div>
+          </div>
+        )}
+        {/* Apply turn — the actual Sonnet rewrite */}
+        {editPhase === 'applying' && (
           <div className="animate-fade-in px-3 py-3">
             <div className="flex items-center gap-2 text-xs text-text-secondary mb-2">
               <Loader2 size={13} className="animate-spin text-purple-500" />
-              <span className="font-medium">{selection ? 'Rewriting selection...' : 'Editing chapter...'}</span>
+              <span className="font-medium">{selection ? 'Rewriting selection…' : 'Editing chapter…'}</span>
             </div>
             <div className="space-y-1.5">
               <div className="h-2 bg-purple-100 rounded-full animate-pulse w-3/4" />
@@ -456,6 +511,19 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
           </div>
         )}
       </div>
+
+      {/* Apply-edit action — appears after a proposal, one tap to run the rewrite */}
+      {pendingEdit && editPhase === 'idle' && (
+        <div className="px-3 pb-2 animate-fade-in">
+          <button
+            onClick={() => applyEdit(pendingEdit)}
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[13px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 active:scale-[0.99] transition-all shadow-sm"
+          >
+            <Sparkles size={14} /> Apply edit
+          </button>
+          <p className="text-center text-[10px] text-text-tertiary mt-1">or keep refining — type "yes" to apply</p>
+        </div>
+      )}
 
       {/* Selection card — pinned above input */}
       {selection && (
