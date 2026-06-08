@@ -94,7 +94,7 @@ function fmtDate(iso: string | null): string {
 
 // ── Top-level tab: toggle between signup/revenue stats and the /go funnel ──
 export function ConversionTab() {
-  const [view, setView] = useState<'signups' | 'go'>('signups');
+  const [view, setView] = useState<'signups' | 'go' | 'ads'>('signups');
   return (
     <div className="pt-4">
       <div className="px-4 sm:px-6">
@@ -105,9 +105,12 @@ export function ConversionTab() {
           <SubTabButton active={view === 'go'} onClick={() => setView('go')}>
             /go funnel
           </SubTabButton>
+          <SubTabButton active={view === 'ads'} onClick={() => setView('ads')}>
+            Ad clicks
+          </SubTabButton>
         </div>
       </div>
-      {view === 'signups' ? <SignupsView /> : <GoFunnelView />}
+      {view === 'signups' ? <SignupsView /> : view === 'go' ? <GoFunnelView /> : <AdClicksView />}
     </div>
   );
 }
@@ -784,6 +787,192 @@ function Stat({
         <div className="text-[10px] uppercase tracking-wider text-text-tertiary">{label}</div>
         <div className="text-sm font-semibold tabular-nums">{value}</div>
       </div>
+    </div>
+  );
+}
+
+// ── Ad clicks ───────────────────────────────────────────────────────────
+// Server-side click log captured BEFORE express.static serves /go and /go2.
+// Shows the true count + a journey-match rate so the gap between
+// ad-platform-reported clicks and engaged sessions is visible per source.
+// Backed by GET /api/admin/ad-clicks (see server/ad-clicks.ts).
+interface AdSourceStats {
+  source: string;
+  total: number;
+  bots: number;
+  humans: number;
+  uniqueIps: number;
+  withUtm: number;
+  journeyMatched: number;
+  journeyMatchRate: number;
+}
+interface AdWindow {
+  totalClicks: number;
+  totalHumans: number;
+  totalBots: number;
+  bySource: AdSourceStats[];
+}
+interface AdClicksResponse {
+  windows: { today: AdWindow; d7: AdWindow; d30: AdWindow };
+}
+
+const SOURCE_META: Record<string, { label: string; cls: string }> = {
+  meta:      { label: 'Meta (FB/IG)',  cls: 'bg-blue-100 text-blue-800' },
+  x:         { label: 'X (Twitter)',   cls: 'bg-zinc-200 text-zinc-800' },
+  google:    { label: 'Google',        cls: 'bg-amber-100 text-amber-800' },
+  microsoft: { label: 'Microsoft',     cls: 'bg-emerald-100 text-emerald-800' },
+  tiktok:    { label: 'TikTok',        cls: 'bg-pink-100 text-pink-800' },
+  unknown:   { label: 'Unknown',       cls: 'bg-black/[0.06] text-text-tertiary' },
+};
+
+function AdClicksView() {
+  const [data, setData] = useState<AdClicksResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [win, setWin] = useState<'today' | 'd7' | 'd30'>('today');
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch('/api/admin/ad-clicks', { credentials: 'include' });
+      if (!r.ok) { setError(`Failed to load (${r.status})`); return; }
+      setData(await r.json());
+    } catch (e: any) {
+      setError(e?.message || 'Network error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  if (loading && !data) return <div className="py-8 text-sm text-text-tertiary px-4 sm:px-6">Loading ad clicks…</div>;
+  if (error) {
+    return (
+      <div className="py-8 px-4 sm:px-6">
+        <p className="text-sm text-rose-700">{error}</p>
+        <button onClick={load} className="mt-3 text-sm text-text-secondary hover:text-text-primary underline">Retry</button>
+      </div>
+    );
+  }
+  if (!data) return null;
+  const w = data.windows[win];
+
+  return (
+    <div className="px-4 sm:px-6 py-4 space-y-6">
+      {/* Window selector */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="inline-flex rounded-lg border border-black/[0.08] bg-white p-0.5 text-xs">
+          {([['today', 'Today'], ['d7', '7 days'], ['d30', '30 days']] as const).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setWin(k)}
+              className={cn('px-2.5 py-1 rounded-md font-medium transition-colors',
+                win === k ? 'bg-black text-white' : 'text-text-tertiary hover:text-text-secondary')}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={load}
+          className="p-1.5 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-black/5 transition-colors"
+          aria-label="Refresh"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+      </div>
+
+      {/* Explainer + caveat */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs text-amber-900 leading-relaxed">
+        Server-side click log — captures every <code className="font-mono">/go</code> and <code className="font-mono">/go2</code> request with an ad-tracking param,
+        BEFORE the static HTML serves. Shows clicks that JS-side journey events miss (ad-blocked browsers, bots,
+        mid-load abandons, iCloud Private Relay). <strong>Match rate</strong> = % of human clicks whose IP also
+        fired a journey beacon. Lower = more ad-block / fraud / abandonment in that channel.
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-3 gap-3">
+        <GoKpi label="Total clicks" value={w.totalClicks.toString()} />
+        <GoKpi label="Humans" value={w.totalHumans.toString()} accent="emerald" />
+        <GoKpi
+          label="Bots"
+          value={w.totalBots.toString()}
+          sub={w.totalClicks > 0 ? `${Math.round((w.totalBots / w.totalClicks) * 100)}%` : '—'}
+          accent={w.totalClicks > 0 && (w.totalBots / w.totalClicks) > 0.3 ? 'rose' : undefined}
+        />
+      </div>
+
+      {/* Per-source breakdown */}
+      <section>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-text-tertiary mb-3">
+          By source
+        </h2>
+        {w.bySource.length === 0 ? (
+          <div className="rounded-2xl border border-black/[0.06] bg-white p-6 text-center text-sm text-text-tertiary">
+            No ad clicks captured in this window yet.
+            <div className="text-[11px] text-text-tertiary mt-1.5">
+              The logger captures clicks from now forward — it can't backfill historical traffic that pre-dates the table.
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-black/[0.06] bg-white divide-y divide-black/[0.05]">
+            {w.bySource.map((s) => {
+              const meta = SOURCE_META[s.source] || { label: s.source, cls: 'bg-black/[0.06] text-text-tertiary' };
+              const matchRateColor =
+                s.humans === 0 ? 'text-text-tertiary' :
+                s.journeyMatchRate >= 80 ? 'text-emerald-700' :
+                s.journeyMatchRate >= 50 ? 'text-amber-700' :
+                'text-rose-700';
+              return (
+                <div key={s.source} className="px-4 py-3 flex items-center gap-3 flex-wrap">
+                  <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider', meta.cls)}>
+                    {meta.label}
+                  </span>
+                  <div className="flex-1 grid grid-cols-2 sm:grid-cols-5 gap-3 min-w-0">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Total</div>
+                      <div className="text-sm font-semibold tabular-nums">{s.total}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Humans</div>
+                      <div className="text-sm font-semibold tabular-nums">{s.humans}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Bots</div>
+                      <div className="text-sm tabular-nums text-text-secondary">{s.bots}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Unique IPs</div>
+                      <div className="text-sm tabular-nums text-text-secondary">{s.uniqueIps}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-text-tertiary">Match rate</div>
+                      <div className={cn('text-sm font-semibold tabular-nums', matchRateColor)}>
+                        {s.humans > 0 ? `${s.journeyMatchRate}%` : '—'}
+                        <span className="text-[10px] text-text-tertiary font-normal ml-1">
+                          ({s.journeyMatched}/{s.humans})
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* How to compare to ad platforms */}
+      <section className="rounded-xl border border-black/[0.06] bg-black/[0.02] p-3 text-xs text-text-secondary leading-relaxed">
+        <strong className="text-text-primary">How to read this:</strong>
+        <ul className="mt-1.5 space-y-1 list-disc list-inside">
+          <li><strong>Total ≈ ad platform clicks</strong> — if your X dashboard says 9 clicks and this shows 3, the 6 missing never reached our server (X bot inflation, ad blockers, abandoned loads).</li>
+          <li><strong>Match rate &lt; 50%</strong> means half the humans who clicked never fired a journey event — probably ad-blocked. They saw the page but we can't track downstream behavior.</li>
+          <li><strong>Bot % &gt; 30%</strong> on a source is a quality red flag for that channel.</li>
+        </ul>
+      </section>
     </div>
   );
 }
