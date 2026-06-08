@@ -19,7 +19,13 @@ import { adClicks } from './schema.js';
 import { sql } from 'drizzle-orm';
 import { requireAdmin } from './admin.js';
 
-const SALT = process.env.PAGEVIEW_SALT || process.env.SESSION_SECRET || 'theodore-pv-salt';
+// Match server/journey.ts EXACTLY — same env var, same fallback, same slice
+// length. journey hashes IPs to 12 chars with a different salt than the
+// pageview tracker; if ad-clicks uses a different salt or length, the
+// per-row JOIN that powers journeyMatchRate can never match anything.
+// Caught 2026-06-09 — match rate was reporting 0% across the board even
+// when journey clearly had matching twclid sessions.
+const SALT = process.env.IP_HASH_SALT || 'theodore-journey-2026';
 
 // Matches the regex used by the existing pageview tracker so the bot vs
 // human classification is consistent across analytics surfaces.
@@ -49,7 +55,9 @@ function detectSource(q: Record<string, any>): { source: string; clickId: string
 }
 
 function hashIp(ip: string): string {
-  return crypto.createHash('sha256').update(ip + SALT).digest('hex').slice(0, 32);
+  // 12-char slice to match journey.ts. Otherwise the JOIN in getAdClicks
+  // would compare 32-char hashes against 12-char prefixes → always misses.
+  return crypto.createHash('sha256').update(ip + SALT).digest('hex').slice(0, 12);
 }
 
 function clientIp(req: Request): string {
