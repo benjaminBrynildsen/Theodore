@@ -2757,9 +2757,20 @@ export async function getGoFunnel(req: Request, res: Response) {
       //   4. data->>'entry_url' contains 'utm_source=' — paid traffic, and
       //      /go is the workhorse ad target, so a UTM-tagged signup is
       //      almost certainly from /go even if referrer/prompt were
-      //      stripped by the browser or by SPA history.replaceState. Caught
-      //      a 3-of-5 under-count on 2026-06-08.
+      //      stripped by the browser or by SPA history.replaceState.
+      //   5. ip_hash of the signup_completed event matches an ip_hash that
+      //      visited /go in the trailing 14 days. Catches the "returning
+      //      visitor" pattern — user browses /go on day 1, comes back direct
+      //      on day 3, signs up with no /go signal in the signup session
+      //      itself (caught a 4-of-5 under-count on 2026-06-08).
       const signupRows = await db.execute(sql`
+        WITH go_ip_hashes AS (
+          SELECT DISTINCT ip_hash FROM journey_events
+          WHERE page = '/go/'
+            AND ip_hash IS NOT NULL
+            AND created_at >= ${fromDate}::timestamptz - INTERVAL '14 days'
+            AND created_at < ${toDate}
+        )
         SELECT COUNT(DISTINCT data->>'user_id')::int AS n
         FROM journey_events
         WHERE event = 'signup_completed'
@@ -2769,6 +2780,7 @@ export async function getGoFunnel(req: Request, res: Response) {
             OR data->>'referrer' LIKE '%/go%'
             OR data->>'entry_url' LIKE '%prompt=%'
             OR data->>'entry_url' LIKE '%utm_source=%'
+            OR ip_hash IN (SELECT ip_hash FROM go_ip_hashes)
           )
       `);
       const signupsFromGo = Number((signupRows.rows as any[])[0]?.n) || 0;
