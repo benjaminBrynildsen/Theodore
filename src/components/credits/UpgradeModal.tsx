@@ -226,14 +226,15 @@ export function UpgradeModal() {
     }
   };
 
-  // Author is the hero tier — printed-book Dream Offer needs the unit
-  // economics of $30+. Writer sits below Author as the lighter option
-  // ("more credits to finish your book" but no paperback / premium models).
-  // Studio is the power-user upsell. Publisher continues as a small text
-  // link below the cards.
+  // 2026-06-08 v2 — Dream Offer hero + hoisted Author card retired.
+  // The modal is now: credit pill → top-up packs → Writer → Author →
+  // Studio (ordered ascending so the user reads price low-to-high after
+  // they've seen the instant-fix top-ups). Author keeps the Recommended
+  // halo so it still draws the eye as the middle pick, but without the
+  // printed-paperback hook or value-stack.
   const tiers: { tier: PlanTier; icon: typeof Sparkles; recommended?: boolean }[] = [
-    { tier: 'author', icon: BookOpen, recommended: true },
     { tier: 'writer', icon: Sparkles },
+    { tier: 'author', icon: BookOpen, recommended: true },
     { tier: 'studio', icon: Headphones },
   ];
 
@@ -460,76 +461,42 @@ export function UpgradeModal() {
               </div>
             )}
 
-            {/* Hoisted Author card — sits between the pill and the hook so
-                users see the price + recommended badge BEFORE the dream-offer
-                copy. Only for generic + signed-in (or guest after expand). */}
-            {isGeneric && (!isGuestUpgrade || showAllPlans) && (
-              <div className="mb-6">
-                {renderTierCard({ tier: 'author', icon: BookOpen, recommended: true })}
+            {/* Header — multi-voice and audio-cap variants keep their own
+                hook copy. Generic variant has NO header here anymore (the
+                Dream Offer hero / value stack was retired 2026-06-08); the
+                credit pill above + top-up section + tier list speak for
+                themselves. Falling straight from top-ups to tier cards. */}
+            {(isMultiVoice || isAudioCap) && (
+              <div className="text-center mb-6">
+                {isMultiVoice ? (
+                  <>
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-purple-500/15 mb-3">
+                      <Sparkles size={22} className="text-purple-300" />
+                    </div>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-500/15 border border-purple-400/20 text-[10px] font-bold uppercase tracking-wider text-purple-300 mb-2">
+                      Beta · Writer early access
+                    </div>
+                    <h2 className="text-xl font-serif font-semibold text-white">A voice for every character</h2>
+                    <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
+                      Writer subscribers get early access to multi-voice narration — each character speaks with their own xAI voice, auto-cast by role and gender. Plus everything else in Writer · $10/mo, 7 days free.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
+                      <Headphones size={22} className="text-white/80" />
+                    </div>
+                    <h2 className="text-xl font-serif font-semibold text-white">Like what you heard?</h2>
+                    <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
+                      Finish this chapter and ~29 more. Writer · $10/mo, 7 days free.
+                    </p>
+                    <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/20 text-xs text-emerald-300">
+                      <Sparkles size={11} /> 7 days free · cancel anytime
+                    </div>
+                  </>
+                )}
               </div>
             )}
-
-            {/* Header */}
-            <div className="text-center mb-6">
-              {isMultiVoice ? (
-                <>
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-purple-500/15 mb-3">
-                    <Sparkles size={22} className="text-purple-300" />
-                  </div>
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-500/15 border border-purple-400/20 text-[10px] font-bold uppercase tracking-wider text-purple-300 mb-2">
-                    Beta · Writer early access
-                  </div>
-                  <h2 className="text-xl font-serif font-semibold text-white">A voice for every character</h2>
-                  <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
-                    Writer subscribers get early access to multi-voice narration — each character speaks with their own xAI voice, auto-cast by role and gender. Plus everything else in Writer · $10/mo, 7 days free.
-                  </p>
-                </>
-              ) : isAudioCap ? (
-                <>
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white/[0.08] mb-3">
-                    <Headphones size={22} className="text-white/80" />
-                  </div>
-                  <h2 className="text-xl font-serif font-semibold text-white">Like what you heard?</h2>
-                  <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
-                    Finish this chapter and ~29 more. Writer · $10/mo, 7 days free.
-                  </p>
-                  <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/20 text-xs text-emerald-300">
-                    <Sparkles size={11} /> 7 days free · cancel anytime
-                  </div>
-                </>
-              ) : (
-                <>
-                  <h2 className="text-xl font-serif font-semibold text-white">A real, PRINTED COPY of your book. In your hands by next week. Seriously.</h2>
-                  <p className="text-sm text-white/60 mt-1.5 max-w-sm mx-auto">
-                    Picture it. Your best friend, your book in their hands, your audiobook on the speaker. The look on their face is everything.
-                  </p>
-
-                  {/* Value stack — Author tier offer. Bullets enlarged and
-                      brightened so the offer reads at a glance instead of
-                      blending into the body. */}
-                  <ul className="mt-5 space-y-2.5 text-left max-w-sm mx-auto">
-                    {[
-                      'Printed Paperback (1st Print Included)',
-                      'Studio Grade Audiobook',
-                      'Cover Design',
-                      'Voice Mode',
-                      'Files Ready For Audible / Spotify / Podcast upload',
-                      'Multi-voice character casting',
-                    ].map((bullet) => (
-                      <li key={bullet} className="flex items-start gap-2.5 text-[15px] font-medium text-white">
-                        <Check size={16} className="mt-1 flex-shrink-0 text-emerald-400" />
-                        <span>{bullet}</span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  {/* Risk reversal */}
-                  <div className="mt-3 text-[11px] text-white/50 max-w-sm mx-auto">
-                    No actual risk. If you don't finish your book, just ask. We'll refund you. No problem.
-                  </div>
-                </>
-              )}
-            </div>
 
             {/* Guest upgrade: inline signup + direct-to-Stripe.
                 Collapses 3 view-switches (modal → auth page → redirect) into
@@ -557,7 +524,11 @@ export function UpgradeModal() {
             {(!isGuestUpgrade || showAllPlans) && (
             <>
             <div className="space-y-3">
-              {tiers.filter((t) => !(isGeneric && t.tier === 'author')).map(renderTierCard)}
+              {/* All three tiers rendered in order (writer → author → studio).
+                  No filter — the previous filter excluded Author for generic
+                  because Author was hoisted above the Dream Offer hook;
+                  hoisting + hero were retired 2026-06-08. */}
+              {tiers.map(renderTierCard)}
             </div>
 
             {/* Publisher tier — only show if not already on Publisher.
