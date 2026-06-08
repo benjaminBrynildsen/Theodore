@@ -225,3 +225,29 @@ export async function getAdClicks(req: Request, res: Response) {
     res.status(500).json({ error: 'Failed to fetch ad click stats' });
   }
 }
+
+// One-off cleanup endpoint. Required for the salt-fix landing on
+// 2026-06-09 — rows captured before the fix can never match journey
+// events (old salt, different length), so they permanently skew the
+// match-rate column. Deleting them gives us honest numbers from day 1.
+//
+// Requires ?since=YYYY-MM-DD as a safety net — no accidental full-
+// table truncation. Returns the deleted row count so the caller can
+// confirm what went away.
+export async function deleteAdClicks(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+    const since = req.query.since as string | undefined;
+    if (!since || !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+      return res.status(400).json({ error: 'since=YYYY-MM-DD required' });
+    }
+    const result = await db.execute(sql`
+      DELETE FROM ad_clicks WHERE created_at >= ${since}::timestamptz
+    `);
+    res.json({ deleted: result.rowCount ?? 0, since });
+  } catch (e: any) {
+    console.error('[admin] ad-clicks delete error:', e?.message || e);
+    res.status(500).json({ error: 'Failed to delete ad click rows' });
+  }
+}
