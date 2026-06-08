@@ -103,11 +103,38 @@ export async function getOverview(_req: Request, res: Response) {
       .from(users)
       .where(sql`${users.createdAt} > ${thirtyDaysAgo}`);
 
-    // MRR calculation
-    const pricingMap: Record<string, number> = { writer: 10, author: 30, studio: 99 };
+    // MRR calculation. Publisher tier was missing here, so the dashboard
+    // under-reported MRR by $200/mo per publisher subscriber (caught
+    // 2026-06-07). Keep in sync with TIER_PRICES_USD in src/types/credits.ts.
+    const pricingMap: Record<string, number> = { writer: 10, author: 30, studio: 99, publisher: 200 };
     const mrr = planBreakdown.reduce((acc, { plan, count: c }) => {
       return acc + (pricingMap[plan] || 0) * c;
     }, 0);
+
+    // ========== Boost (one-time top-up) revenue ==========
+    // Boost packs use Stripe's mode='payment' which doesn't create invoices,
+    // so they're invisible to the totalRevenue invoices.list pass above.
+    // Source of truth is credit_transactions WHERE action='credit-boost' —
+    // each row's metadata.amountUsd is the price paid for the pack.
+    let boostRevenue = 0;
+    let boostCount = 0;
+    let boostUserCount = 0;
+    try {
+      const boostRows = await db.execute(sql`
+        SELECT
+          COALESCE(SUM((metadata->>'amountUsd')::numeric), 0)::float AS revenue,
+          COUNT(*)::int AS purchases,
+          COUNT(DISTINCT user_id)::int AS users
+        FROM credit_transactions
+        WHERE action = 'credit-boost'
+      `);
+      const r = (boostRows.rows?.[0] || {}) as any;
+      boostRevenue = Math.round((Number(r.revenue) || 0) * 100) / 100;
+      boostCount = Number(r.purchases) || 0;
+      boostUserCount = Number(r.users) || 0;
+    } catch (e: any) {
+      console.warn('[Admin] boost revenue query failed:', e?.message || e);
+    }
 
     // Audio generations count
     const [{ value: totalAudioGens }] = await db.select({ value: count() }).from(audioGenerations);
@@ -320,6 +347,9 @@ export async function getOverview(_req: Request, res: Response) {
       mrr,
       totalRevenue,
       invoicesPaid,
+      boostRevenue,
+      boostCount,
+      boostUserCount,
       planBreakdown: planBreakdown.map(p => ({ plan: p.plan, count: p.count })),
       creditsByAction: creditsByAction.map(c => ({
         action: c.action,
@@ -409,10 +439,36 @@ export async function getUsers(req: Request, res: Response) {
         platformMap.set(row.user_id, row.platforms || []);
       }
     }
-    const rowsWithPlatforms = rows.map((r) => ({
-      ...r,
-      platforms: platformMap.get(r.id) || [],
-    }));
+
+    // Per-user boost flag — true if the user has ever purchased a credit
+    // boost (credit_transactions.action='credit-boost'). Surfaced as a
+    // "BOOSTED" tag in the admin Users tab so they're easy to spot.
+    const boostMap = new Map<string, { count: number; amountUsd: number }>();
+    if (userIds.length > 0) {
+      const userIdsLit = `{${userIds.map((id) => `"${id.replace(/"/g, '\\"')}"`).join(',')}}`;
+      const boostRows = await db.execute(sql`
+        SELECT user_id,
+               COUNT(*)::int AS purchases,
+               COALESCE(SUM((metadata->>'amountUsd')::numeric), 0)::float AS spent
+        FROM credit_transactions
+        WHERE action = 'credit-boost'
+          AND user_id = ANY(${userIdsLit}::text[])
+        GROUP BY user_id
+      `);
+      for (const row of boostRows.rows as Array<{ user_id: string; purchases: number; spent: number }>) {
+        boostMap.set(row.user_id, { count: row.purchases, amountUsd: row.spent });
+      }
+    }
+
+    const rowsWithPlatforms = rows.map((r) => {
+      const boost = boostMap.get(r.id);
+      return {
+        ...r,
+        platforms: platformMap.get(r.id) || [],
+        boostCount: boost?.count || 0,
+        boostSpentUsd: boost?.amountUsd || 0,
+      };
+    });
 
     const [{ value: total }] = await db.select({ value: count() }).from(users);
 
@@ -491,8 +547,20 @@ export async function getUserDetail(req: Request, res: Response) {
     `);
     const platforms: string[] = (platformRows.rows[0] as any)?.platforms || [];
 
+    // Boost stats for the user detail panel — # of top-up purchases + total
+    // USD spent. Sourced from credit_transactions metadata.amountUsd.
+    const boostStatsRows = await db.execute(sql`
+      SELECT COUNT(*)::int AS purchases,
+             COALESCE(SUM((metadata->>'amountUsd')::numeric), 0)::float AS spent
+      FROM credit_transactions
+      WHERE user_id = ${userId} AND action = 'credit-boost'
+    `);
+    const boostStats = (boostStatsRows.rows?.[0] || {}) as any;
+    const boostCount = Number(boostStats.purchases) || 0;
+    const boostSpentUsd = Math.round((Number(boostStats.spent) || 0) * 100) / 100;
+
     res.json({
-      user: { ...user, platforms },
+      user: { ...user, platforms, boostCount, boostSpentUsd },
       projects: userProjects,
       recentTransactions: recentTx,
       totalCreditsUsed: Number(totalUsed) || 0,

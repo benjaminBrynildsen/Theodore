@@ -30,6 +30,12 @@ interface Overview {
   mrr: number;
   totalRevenue: number | null;
   invoicesPaid: number | null;
+  // Top-up (Stripe mode=payment) revenue — invisible to invoicesPaid because
+  // one-time payments don't create invoices. Sourced from credit_transactions
+  // metadata.amountUsd.
+  boostRevenue?: number;
+  boostCount?: number;
+  boostUserCount?: number;
   funnel?: {
     signedUp: number;
     guestsUsedChat?: number;
@@ -71,6 +77,8 @@ interface UserRow {
   createdAt: string;
   updatedAt: string;
   platforms?: string[];
+  boostCount?: number;        // # of credit-boost transactions
+  boostSpentUsd?: number;     // total USD across all boosts
 }
 
 interface ActivityRow {
@@ -203,6 +211,19 @@ const PLATFORM_LABELS: Record<string, string> = {
   android: 'Android',
 };
 
+function BoostBadge({ count, spentUsd }: { count?: number; spentUsd?: number }) {
+  if (!count || count < 1) return null;
+  const label = spentUsd ? `BOOSTED $${Math.round(spentUsd)}` : 'BOOSTED';
+  return (
+    <span
+      className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-800 inline-flex items-center gap-1"
+      title={`${count} top-up purchase${count > 1 ? 's' : ''} · $${(spentUsd || 0).toFixed(2)} total`}
+    >
+      <span aria-hidden>⚡</span>{label}
+    </span>
+  );
+}
+
 function PlatformBadges({ platforms }: { platforms?: string[] }) {
   if (!platforms || platforms.length === 0) return null;
   // Stable order: web, ios, android.
@@ -266,6 +287,12 @@ interface JourneySession {
   ip_hash: string | null;
   duration_seconds: number;
   event_types: string[];
+  // Surfaced 2026-06-07 so the journey list can show identity inline when a
+  // session contains an authenticated event (boost_purchased, signup_completed,
+  // etc.) without forcing the admin to click through to the detail view.
+  user_id?: string | null;
+  user_email?: string | null;
+  user_name?: string | null;
 }
 
 interface JourneyDetail {
@@ -573,8 +600,9 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {/* ========== Overview ========== */}
         {view === 'overview' && overview && (
           <div className="max-w-5xl mx-auto space-y-6">
-            {/* Top stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* Top stats — 2-col on mobile, 5-col on desktop so the new
+                Top-ups card sits alongside MRR without crowding the others. */}
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
               <StatCard label="Total Users" value={overview.totalUsers} sub={`+${overview.recentSignups} this week`} icon={Users} onClick={() => setView('users')} />
               <StatCard
                 label="MRR"
@@ -585,6 +613,16 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                     : `${overview.planBreakdown.filter(p => p.plan !== 'free').reduce((a, b) => a + b.count, 0)} paid`
                 }
                 icon={CreditCard}
+              />
+              <StatCard
+                label="Top-ups"
+                value={`$${(overview.boostRevenue || 0).toLocaleString()}`}
+                sub={
+                  overview.boostCount
+                    ? `${overview.boostCount} purchase${overview.boostCount === 1 ? '' : 's'} · ${overview.boostUserCount || 0} user${overview.boostUserCount === 1 ? '' : 's'}`
+                    : 'No top-ups yet'
+                }
+                icon={Zap}
               />
               <StatCard label="Credits Used" value={overview.totalCreditsUsed.toLocaleString()} icon={Zap} />
               <StatCard label="Projects" value={overview.totalProjects} sub={`${overview.totalChapters} chapters`} icon={BookOpen} />
@@ -972,6 +1010,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                         <span className="text-sm font-medium text-text-primary truncate">{u.name || u.email}</span>
                         <PlanBadge plan={u.plan} />
                         <PlatformBadges platforms={u.platforms} />
+                        <BoostBadge count={u.boostCount} spentUsd={u.boostSpentUsd} />
                       </div>
                       <div className="text-[11px] text-text-tertiary truncate">{u.email}</div>
                     </div>
@@ -1009,6 +1048,10 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <PlanBadge plan={userDetail.user.plan} />
                   <PlatformBadges platforms={userDetail.user.platforms} />
+                  <BoostBadge
+                    count={(userDetail.user as any).boostCount}
+                    spentUsd={(userDetail.user as any).boostSpentUsd}
+                  />
                 </div>
               </div>
 
@@ -1215,6 +1258,8 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                 const hasEngagement = s.event_types.some(e =>
                   ['prompt_submit', 'play_audio', 'focus_input', 'chat_auto_send', 'first_ai_response'].includes(e)
                 );
+                const hasBoost = s.event_types.includes('boost_purchased');
+                const identity = s.user_email || s.user_name;
                 return (
                   <button
                     key={s.session_id}
@@ -1222,14 +1267,25 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                     className={cn(
                       'w-full flex items-center gap-3 px-4 py-3 rounded-xl glass-pill text-left transition-all hover:bg-black/[0.03]',
                       isAdmin && 'border border-dashed border-blue-200 bg-blue-50/30',
-                      hasEngagement && !isAdmin && 'border border-green-200 bg-green-50/20'
+                      hasBoost && !isAdmin && 'border border-amber-300 bg-amber-50/40',
+                      hasEngagement && !hasBoost && !isAdmin && 'border border-green-200 bg-green-50/20'
                     )}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-text-primary flex items-center gap-1.5">
+                      <div className="text-sm font-medium text-text-primary flex items-center gap-1.5 flex-wrap">
                         {s.city || 'Unknown'}{s.region ? `, ${s.region}` : ''}{s.country ? ` · ${s.country}` : ''}
                         {isAdmin && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-semibold">You</span>
+                        )}
+                        {hasBoost && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold uppercase tracking-wider inline-flex items-center gap-0.5">
+                            <span aria-hidden>⚡</span>BOOSTED
+                          </span>
+                        )}
+                        {identity && (
+                          <span className="text-[10px] text-text-tertiary font-normal truncate max-w-[180px]" title={s.user_email || undefined}>
+                            · {identity}
+                          </span>
                         )}
                       </div>
                       <div className="text-[11px] text-text-tertiary mt-0.5 flex flex-wrap gap-1">

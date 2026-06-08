@@ -116,24 +116,47 @@ export async function getJourneys(req: Request, res: Response) {
     // When page filter is set, only return sessions that have events on that page
     const sessions = await db.execute(sql`
       SELECT
-        session_id,
-        MIN(created_at)::text || 'Z' AS started_at,
-        MAX(created_at)::text || 'Z' AS last_event_at,
-        COUNT(*) AS event_count,
-        MAX(city) AS city,
-        MAX(region) AS region,
-        MAX(country) AS country,
-        MAX(ip_hash) AS ip_hash,
-        MAX(platform) AS platform,
-        ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))))::int AS duration_seconds,
-        ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
-        BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin
-      FROM journey_events
-      WHERE created_at > NOW() - INTERVAL '7 days'
-        ${pageFilter ? sql`AND session_id IN (SELECT DISTINCT session_id FROM journey_events WHERE page LIKE ${'%' + pageFilter + '%'})` : sql``}
-      GROUP BY session_id
-      ORDER BY MIN(created_at) DESC
-      LIMIT ${limit}
+        s.session_id,
+        s.started_at,
+        s.last_event_at,
+        s.event_count,
+        s.city,
+        s.region,
+        s.country,
+        s.ip_hash,
+        s.platform,
+        s.duration_seconds,
+        s.event_types,
+        s.is_admin,
+        s.user_id,
+        u.email AS user_email,
+        u.name  AS user_name
+      FROM (
+        SELECT
+          session_id,
+          MIN(created_at)::text || 'Z' AS started_at,
+          MAX(created_at)::text || 'Z' AS last_event_at,
+          COUNT(*) AS event_count,
+          MAX(city) AS city,
+          MAX(region) AS region,
+          MAX(country) AS country,
+          MAX(ip_hash) AS ip_hash,
+          MAX(platform) AS platform,
+          ROUND(EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))))::int AS duration_seconds,
+          ARRAY_AGG(DISTINCT event ORDER BY event) AS event_types,
+          BOOL_OR(COALESCE((data->>'is_admin')::boolean, false)) AS is_admin,
+          -- First non-null user_id in the session — present once the user signs
+          -- in (lets the admin attach an identity to a boost_purchased or
+          -- signup_completed event without clicking through).
+          MAX(data->>'user_id') AS user_id
+        FROM journey_events
+        WHERE created_at > NOW() - INTERVAL '7 days'
+          ${pageFilter ? sql`AND session_id IN (SELECT DISTINCT session_id FROM journey_events WHERE page LIKE ${'%' + pageFilter + '%'})` : sql``}
+        GROUP BY session_id
+        ORDER BY MIN(created_at) DESC
+        LIMIT ${limit}
+      ) s
+      LEFT JOIN users u ON u.id = s.user_id
     `);
 
     res.json({ sessions: sessions.rows });
