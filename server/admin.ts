@@ -106,9 +106,20 @@ export async function getOverview(_req: Request, res: Response) {
     // MRR calculation. Publisher tier was missing here, so the dashboard
     // under-reported MRR by $200/mo per publisher subscriber (caught
     // 2026-06-07). Keep in sync with TIER_PRICES_USD in src/types/credits.ts.
+    //
+    // Admin accounts are excluded — Ben's account is on the publisher plan
+    // for testing but doesn't actually pay, so counting it inflates MRR
+    // by $200/mo. planBreakdown (the UI tier counts) keeps everyone so the
+    // user totals still match; only the MRR sum filters admins out.
     const pricingMap: Record<string, number> = { writer: 10, author: 30, studio: 99, publisher: 200 };
-    const mrr = planBreakdown.reduce((acc, { plan, count: c }) => {
-      return acc + (pricingMap[plan] || 0) * c;
+    const adminEmailList = Array.from(ADMIN_EMAILS);
+    const mrrPlanRows = await db
+      .select({ plan: users.plan, count: count() })
+      .from(users)
+      .where(sql`${users.email} NOT IN (${sql.join(adminEmailList.map((e) => sql`${e}`), sql`, `)})`)
+      .groupBy(users.plan);
+    const mrr = mrrPlanRows.reduce((acc, { plan, count: c }) => {
+      return acc + (pricingMap[plan] || 0) * (Number(c) || 0);
     }, 0);
 
     // ========== Boost (one-time top-up) revenue ==========
@@ -116,17 +127,22 @@ export async function getOverview(_req: Request, res: Response) {
     // so they're invisible to the totalRevenue invoices.list pass above.
     // Source of truth is credit_transactions WHERE action='credit-boost' —
     // each row's metadata.amountUsd is the price paid for the pack.
+    //
+    // Admin accounts are excluded so Ben's $5 test purchase from 2026-06-06
+    // doesn't pad the customer-revenue number on the dashboard.
     let boostRevenue = 0;
     let boostCount = 0;
     let boostUserCount = 0;
     try {
       const boostRows = await db.execute(sql`
         SELECT
-          COALESCE(SUM((metadata->>'amountUsd')::numeric), 0)::float AS revenue,
+          COALESCE(SUM((ct.metadata->>'amountUsd')::numeric), 0)::float AS revenue,
           COUNT(*)::int AS purchases,
-          COUNT(DISTINCT user_id)::int AS users
-        FROM credit_transactions
-        WHERE action = 'credit-boost'
+          COUNT(DISTINCT ct.user_id)::int AS users
+        FROM credit_transactions ct
+        JOIN users u ON u.id = ct.user_id
+        WHERE ct.action = 'credit-boost'
+          AND u.email NOT IN (${sql.join(adminEmailList.map((e) => sql`${e}`), sql`, `)})
       `);
       const r = (boostRows.rows?.[0] || {}) as any;
       boostRevenue = Math.round((Number(r.revenue) || 0) * 100) / 100;
