@@ -35,6 +35,7 @@ import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.
 import { sendPushToUser } from './push.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
+import { adClickMiddleware, getAdClicks } from './ad-clicks.js';
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
@@ -3637,6 +3638,7 @@ app.get('/api/admin/referrals', getReferrals);
 app.get('/api/admin/conversion-stats', getConversionStats);
 app.get('/api/admin/go-funnel', getGoFunnel);
 app.get('/api/admin/go-funnel-by-device', getGoFunnelByDevice);
+app.get('/api/admin/ad-clicks', getAdClicks);
 app.post('/api/admin/mark-dev-sessions', markDevSessions);
 app.get('/api/admin/prompts-funnel', getPromptsFunnel);
 app.get('/api/admin/engagement-funnel', getEngagementFunnel);
@@ -5360,6 +5362,10 @@ const distPath = path.resolve(process.cwd(), 'dist');
 // Log pageviews BEFORE the static handler so we capture HTML navigations
 // (bundled assets are skipped inside the middleware via /assets/ prefix).
 app.use(pageViewMiddleware);
+// Ad-click logger fires only on /go and /go2 with tracking params. Sits
+// before static so we count clicks even when the user blocks JS or the
+// tab is closed before any beacon fires. See server/ad-clicks.ts.
+app.use(adClickMiddleware);
 // Serve /privacy and /terms as standalone HTML so SPA load isn't required
 // for crawlers / the App Store reviewer / link previews.
 app.get(['/privacy', '/privacy.html'], (_req, res) => {

@@ -242,6 +242,35 @@ export const journeyEvents = pgTable('journey_events', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// ========== Ad Click Log ==========
+// Server-side log of every paid-traffic landing on /go/ or /go2/.
+// Captures clicks that journey_events misses — ad-blocked browsers,
+// bot agents that don't execute JS, network failures mid-load, iOS
+// Private Relay, etc. Lets the admin compare "true clicks" (this table)
+// against "engaged visitors" (journey_events) to surface the
+// fraud/blocked ratio per ad source (X, Meta, Google, etc.).
+//
+// Logged BEFORE express.static serves the /go static file, so it fires
+// even if the user closes the tab before any JS runs.
+export const adClicks = pgTable('ad_clicks', {
+  id: serial('id').primaryKey(),
+  source: text('source').notNull(),        // 'x' | 'meta' | 'google' | 'microsoft' | 'tiktok' | 'unknown'
+  clickId: text('click_id'),               // twclid / fbclid / gclid / msclkid / ttclid
+  utmSource: text('utm_source'),
+  utmMedium: text('utm_medium'),
+  utmCampaign: text('utm_campaign'),
+  utmContent: text('utm_content'),
+  utmTerm: text('utm_term'),
+  path: text('path').notNull(),            // '/go/' or '/go2/'
+  ipHash: text('ip_hash'),
+  country: text('country'),
+  city: text('city'),
+  userAgent: text('user_agent'),
+  referrer: text('referrer'),
+  isBot: boolean('is_bot').notNull().default(false),  // simple UA heuristic
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ========== Guest Backups ==========
 // Server-side backup of unauthenticated visitors' in-progress work.
 // Keyed by guest_session_id (set via HttpOnly cookie by the server on first
