@@ -35,7 +35,7 @@ import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.
 import { sendPushToUser } from './push.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
-import { adClickMiddleware, getAdClicks } from './ad-clicks.js';
+import { adClickMiddleware, getAdClicks, deleteAdClicks } from './ad-clicks.js';
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
@@ -1361,16 +1361,71 @@ app.post('/api/auth/handoff', async (req, res) => {
   }
 });
 
+// Build a hosted Stripe Checkout session for a one-time credit boost and
+// return its URL. Used by the mobile→web handoff so a tap on a $5/$10/$20
+// pack in the mobile UpgradeModal lands straight in Stripe. Always hosted
+// Checkout (never the off-session one-click charge the /api/billing/boost
+// route uses) — the user explicitly came to the browser to pay, and the
+// session vaults the card for future one-click top-ups on web.
+async function buildBoostCheckoutSessionUrl(opts: {
+  user: typeof users.$inferSelect;
+  pack: BoostPack;
+  req: express.Request;
+}): Promise<string | null> {
+  const { user, pack, req } = opts;
+  const stripe = await getStripeClient();
+  if (!stripe) return null;
+
+  let customerId = user.stripeCustomerId;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: user.email,
+      name: user.name || undefined,
+      metadata: { userId: user.id },
+    });
+    customerId = customer.id;
+    await db.update(users).set({ stripeCustomerId: customerId, updatedAt: new Date() }).where(eq(users.id, user.id));
+  }
+
+  const metadata = { type: 'boost', userId: user.id, packId: pack.id, credits: String(pack.credits) };
+  const origin = resolveFrontendOrigin(req);
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    customer: customerId,
+    success_url: process.env.STRIPE_CHECKOUT_SUCCESS_URL || `${origin}/?billing=boost_success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: process.env.STRIPE_CHECKOUT_CANCEL_URL || `${origin}/?billing=cancel`,
+    line_items: [{
+      price_data: {
+        currency: 'usd',
+        unit_amount: pack.priceCents,
+        product_data: {
+          name: `Theodore — ${pack.credits.toLocaleString()} credit boost`,
+          description: 'One-time credit top-up',
+        },
+      },
+      quantity: 1,
+    }],
+    payment_intent_data: {
+      setup_future_usage: 'off_session',
+      metadata,
+    },
+    metadata,
+  });
+  return session.url || null;
+}
+
 // Redeem the handoff token: rotate it into a normal cookie session, then
 // redirect into the SPA. ?next= is an in-app path (must start with /).
 // If ?tier= is set (writer|author|studio|publisher), skip the SPA and 302
-// straight into a fresh Stripe checkout session for that tier.
+// straight into a fresh Stripe checkout session for that tier. If ?boost=
+// is set (a BOOST_PACKS id), 302 into a one-time boost checkout instead.
 app.get('/handoff', async (req, res) => {
   try {
     const token = typeof req.query.t === 'string' ? req.query.t : '';
     const rawNext = typeof req.query.next === 'string' ? req.query.next : '/';
     const next = rawNext.startsWith('/') ? rawNext : '/';
     const tier = typeof req.query.tier === 'string' ? req.query.tier : '';
+    const boost = typeof req.query.boost === 'string' ? req.query.boost : '';
     const reason = typeof req.query.reason === 'string' ? req.query.reason : '';
     if (!token) return res.redirect(302, '/');
     const userId = await consumeHandoffToken(token);
@@ -1384,6 +1439,24 @@ app.get('/handoff', async (req, res) => {
         if (result.kind === 'ok' && result.url) return res.redirect(302, result.url);
       }
     }
+
+    if (boost) {
+      const pack = getBoostPack(boost);
+      if (pack) {
+        const [user] = await db.select().from(users).where(eq(users.id, userId));
+        if (user) {
+          try {
+            const url = await buildBoostCheckoutSessionUrl({ user, pack, req });
+            if (url) return res.redirect(302, url);
+          } catch (e: any) {
+            // Fall through to the SPA (which shows the upgrade modal) rather
+            // than dead-ending the user if Stripe hiccups on the redirect.
+            console.warn('[handoff] boost checkout build failed:', e?.message || e);
+          }
+        }
+      }
+    }
+
     res.redirect(302, next);
   } catch (e: any) {
     respondInternalError(res, 'auth.handoff.redeem', e);
@@ -3639,6 +3712,7 @@ app.get('/api/admin/conversion-stats', getConversionStats);
 app.get('/api/admin/go-funnel', getGoFunnel);
 app.get('/api/admin/go-funnel-by-device', getGoFunnelByDevice);
 app.get('/api/admin/ad-clicks', getAdClicks);
+app.delete('/api/admin/ad-clicks', deleteAdClicks);
 app.post('/api/admin/mark-dev-sessions', markDevSessions);
 app.get('/api/admin/prompts-funnel', getPromptsFunnel);
 app.get('/api/admin/engagement-funnel', getEngagementFunnel);
