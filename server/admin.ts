@@ -2746,17 +2746,29 @@ export async function getGoFunnel(req: Request, res: Response) {
       // Signups attributable to /go. The signup_completed event fires on
       // the SPA (page = '/'), NOT on /go itself, because the user is
       // redirected after submitting the prompt and a new session_id is
-      // created. We attribute by referrer (document.referrer contains
-      // '/go') OR by entry_url containing the ?prompt= marker that only
-      // appears on the /go → / redirect path.
+      // created.
+      //
+      // Attribution signals, in order of reliability:
+      //   1. data->>'from_go' = 'true' — explicit flag set in /go's submit
+      //      handler via localStorage, read at signup time (post-2026-06-08).
+      //   2. data->>'referrer' contains '/go' — survives same-origin navs.
+      //   3. data->>'entry_url' contains '?prompt=' — present on the
+      //      /go → / redirect URL, lost when the SPA consumes the param.
+      //   4. data->>'entry_url' contains 'utm_source=' — paid traffic, and
+      //      /go is the workhorse ad target, so a UTM-tagged signup is
+      //      almost certainly from /go even if referrer/prompt were
+      //      stripped by the browser or by SPA history.replaceState. Caught
+      //      a 3-of-5 under-count on 2026-06-08.
       const signupRows = await db.execute(sql`
         SELECT COUNT(DISTINCT data->>'user_id')::int AS n
         FROM journey_events
         WHERE event = 'signup_completed'
           AND created_at >= ${fromDate} AND created_at < ${toDate}
           AND (
-            data->>'referrer' LIKE '%/go%'
+            data->>'from_go' = 'true'
+            OR data->>'referrer' LIKE '%/go%'
             OR data->>'entry_url' LIKE '%prompt=%'
+            OR data->>'entry_url' LIKE '%utm_source=%'
           )
       `);
       const signupsFromGo = Number((signupRows.rows as any[])[0]?.n) || 0;

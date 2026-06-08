@@ -678,6 +678,8 @@
       input.style.opacity = '0.5';
       if(window.fbq) fbq('trackCustom','StartGuestChat');
       if(window.__jTrack) window.__jTrack('prompt_submit', {prompt: text.slice(0,200)});
+      // Same attribution flag as /go — see comment in public/go/index.html.
+      try { localStorage.setItem('theodore_from_go', '1'); } catch (e) {}
       preserved.set('prompt', text);
       window.location.href = '/?' + preserved.toString();
     }

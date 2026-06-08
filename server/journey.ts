@@ -157,6 +157,11 @@ export async function getJourneys(req: Request, res: Response) {
         LIMIT ${limit}
       ) s
       LEFT JOIN users u ON u.id = s.user_id
+      -- The inner ORDER BY is consumed when we wrap in a subquery + JOIN —
+      -- Postgres only guarantees order at the outermost SELECT. Without
+      -- this the journey list came back in arbitrary post-JOIN order
+      -- (caught 2026-06-08).
+      ORDER BY s.started_at DESC
     `);
 
     res.json({ sessions: sessions.rows });

@@ -49,6 +49,22 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
+// /go (and /go2) set localStorage.theodore_from_go='1' on submit so we can
+// reliably attribute signup_completed back to /go even after the SPA has
+// consumed the ?prompt= param from the URL and the browser has stripped
+// document.referrer. Read once at signup-time and clear so we don't keep
+// counting the same flag for unrelated future signups on the same device.
+function readFromGoFlag(): boolean {
+  try {
+    const v = localStorage.getItem('theodore_from_go');
+    if (v === '1') {
+      localStorage.removeItem('theodore_from_go');
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 function coerceAuthUser(payload: any): AuthUser | null {
   if (!payload || typeof payload !== 'object') return null;
   const candidate = payload.user && typeof payload.user === 'object' ? payload.user : payload;
@@ -130,6 +146,7 @@ export const useAuthStore = create<AuthState>((set) => ({
           user_id: user.id,
           referrer: document.referrer || null,
           entry_url: window.location.href,
+          from_go: readFromGoFlag(),
         });
       }
       window.dispatchEvent(new Event('theodore:registered'));
@@ -153,6 +170,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         user_id: user.id,
         referrer: document.referrer || null,
         entry_url: window.location.href,
+        from_go: readFromGoFlag(),
       };
       if ((result as any)?.isNewUser) {
         trackJourney('signup_completed', attribution);

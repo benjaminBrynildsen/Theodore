@@ -833,6 +833,12 @@
       input.style.opacity = '0.5';
       if(window.fbq) fbq('trackCustom','StartGuestChat');
       if(window.__jTrack) window.__jTrack('prompt_submit', {prompt: text.slice(0,200)});
+      // Stamp a localStorage flag so signup_completed (which fires later in
+      // the SPA, often after the ?prompt= param has been consumed and any
+      // /go referrer has been wiped) can attribute back to /go reliably.
+      // Read in src/store/auth.ts and stamped onto the signup_completed +
+      // login_completed journey events as data.from_go.
+      try { localStorage.setItem('theodore_from_go', '1'); } catch (e) {}
       preserved.set('prompt', text);
       window.location.href = '/?' + preserved.toString();
     }
@@ -1042,6 +1048,8 @@
         var text = finalInput.value.trim();
         if (window.__jTrack) window.__jTrack('final_cta_submitted', { has_text: !!text });
         if (!text) return;
+        // Same /go attribution flag as the hero form — see comment above.
+        try { localStorage.setItem('theodore_from_go', '1'); } catch (e) {}
         preserved.set('prompt', text);
         window.location.href = '/?' + preserved.toString();
       }
