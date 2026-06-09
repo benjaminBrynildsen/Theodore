@@ -279,10 +279,18 @@ export const api = {
   billingReactivate: () => request<{ ok: boolean }>('/billing/reactivate', { method: 'POST' }),
   billingRefund: (data: { reason: string }) =>
     request<{ ok: boolean; message: string }>('/billing/refund', { method: 'POST', body: JSON.stringify(data) }),
+  billingConfig: () => request<{ stripePublishableKey: string; walletEnabled: boolean }>('/billing/config'),
   // One-time credit boosts
   billingBoosts: () => request<{ packs: Array<{ id: string; priceUsd: number; priceCents: number; credits: number }> }>('/billing/boosts'),
   billingSavedCard: () => request<{ hasCard: boolean; brand?: string | null; last4?: string | null }>('/billing/saved-card'),
   billingBoost: (data: { packId: string }) =>
     request<{ ok: boolean; mode: 'instant' | 'checkout'; url?: string; creditsRemaining?: number; credits?: number }>(
       '/billing/boost', { method: 'POST', body: JSON.stringify(data) }),
+  // One-tap wallet (Apple Pay / Google Pay) — returns a PaymentIntent client
+  // secret the frontend confirms via Stripe's PaymentRequestButtonElement.
+  // Final credit grant happens server-side via payment_intent.succeeded
+  // webhook (same path as the existing boost flow).
+  billingPaymentIntent: (data: { packId: string }) =>
+    request<{ clientSecret: string; paymentIntentId: string; packId: string; credits: number; priceCents: number }>(
+      '/billing/payment-intent', { method: 'POST', body: JSON.stringify(data) }),
 };
