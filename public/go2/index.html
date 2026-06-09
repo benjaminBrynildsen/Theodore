@@ -678,6 +678,8 @@
       input.style.opacity = '0.5';
       if(window.fbq) fbq('trackCustom','StartGuestChat');
       if(window.__jTrack) window.__jTrack('prompt_submit', {prompt: text.slice(0,200)});
+      // Sync flush before nav — see /go/index.html for the bug history.
+      if (window.__jFlushNow) window.__jFlushNow();
       // Same attribution flag as /go — see comment in public/go/index.html.
       try { localStorage.setItem('theodore_from_go', '1'); } catch (e) {}
       preserved.set('prompt', text);
@@ -937,6 +939,9 @@
         var batch = jQueue.splice(0, 100);
         navigator.sendBeacon && navigator.sendBeacon('/api/beacon', JSON.stringify({events:batch}));
       }
+      // See /go/index.html — used by submit handler to flush synchronously
+      // before navigation drops the prompt_submit event.
+      window.__jFlushNow = jBeacon;
       setInterval(jFlush, 5000);
       document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='hidden') jBeacon(); });
       window.addEventListener('pagehide', jBeacon);
