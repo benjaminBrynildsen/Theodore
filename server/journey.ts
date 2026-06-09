@@ -98,8 +98,22 @@ export async function receiveBeacon(req: Request, res: Response) {
     } else {
       data = req.body;
     }
-    // Wrap in events format and delegate
-    req.body = { events: Array.isArray(data) ? data : [data] };
+    // Normalize to { events: [...] } so receiveJourneyEvents can consume it.
+    //
+    // Bug history (2026-06-09): the previous version unconditionally wrapped
+    // `data` as `{events:[data]}` even when `data` was ALREADY `{events:[...]}`.
+    // That double-wrapping made the inner array look like a single malformed
+    // event with `event=undefined → 'unknown'`. Result: every beacon-flushed
+    // batch (the entire /go submit handler, all exit pings) was logged as
+    // `event='unknown'` instead of its real type. The /go funnel showed 4
+    // prompt_submits over 7 days when the real count was ~30+.
+    if (data && Array.isArray(data.events)) {
+      req.body = data;                                   // client sent {events: [...]} — pass through
+    } else if (Array.isArray(data)) {
+      req.body = { events: data };                       // client sent [...] — wrap once
+    } else {
+      req.body = { events: [data] };                     // client sent a single event object
+    }
     return receiveJourneyEvents(req, res);
   } catch {
     res.status(200).end(); // beacons should not retry

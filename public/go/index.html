@@ -833,6 +833,11 @@
       input.style.opacity = '0.5';
       if(window.fbq) fbq('trackCustom','StartGuestChat');
       if(window.__jTrack) window.__jTrack('prompt_submit', {prompt: text.slice(0,200)});
+      // Flush synchronously via sendBeacon BEFORE navigating. Without this,
+      // the prompt_submit event sits in the in-memory queue and is lost
+      // when window.location.href fires on the next line — pagehide is not
+      // guaranteed to fire in time on iOS. Caught 2026-06-09.
+      if (window.__jFlushNow) window.__jFlushNow();
       // Stamp a localStorage flag so signup_completed (which fires later in
       // the SPA, often after the ?prompt= param has been consumed and any
       // /go referrer has been wiped) can attribute back to /go reliably.
@@ -1048,6 +1053,8 @@
         var text = finalInput.value.trim();
         if (window.__jTrack) window.__jTrack('final_cta_submitted', { has_text: !!text });
         if (!text) return;
+        // Sync flush before nav (see hero form comment).
+        if (window.__jFlushNow) window.__jFlushNow();
         // Same /go attribution flag as the hero form — see comment above.
         try { localStorage.setItem('theodore_from_go', '1'); } catch (e) {}
         preserved.set('prompt', text);
@@ -1100,6 +1107,13 @@
         var batch = jQueue.splice(0, 100);
         navigator.sendBeacon && navigator.sendBeacon('/api/beacon', JSON.stringify({events:batch}));
       }
+      // Exposed so the submit handler (which navigates immediately after
+      // pushing the prompt_submit event) can flush synchronously instead of
+      // relying on pagehide/visibilitychange firing in time. iOS Safari often
+      // navigates before either of those events ship, dropping the queued
+      // event. Caught 2026-06-09 — only 4 prompt_submits in 7 days vs 28
+      // /go-attributed signups.
+      window.__jFlushNow = jBeacon;
       setInterval(jFlush, 5000);
       document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='hidden') jBeacon(); });
       window.addEventListener('pagehide', jBeacon);
