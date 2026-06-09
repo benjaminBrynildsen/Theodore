@@ -4,6 +4,7 @@ import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
 import { useCreditsStore } from '../../store/credits';
 import { useAuthStore } from '../../store/auth';
+import { useStore } from '../../store';
 import { PLAN_DETAILS, TIER_PRICES_USD, type PlanTier } from '../../types/credits';
 import { cn } from '../../lib/utils';
 import { api } from '../../lib/api';
@@ -62,6 +63,27 @@ function getAnchorVariant(): AnchorVariant {
   }
 }
 
+// Coffee-variant cover placement A/B (2026-06-09):
+//   'small' — 64×64 rounded-square thumb in the top-right corner (decoration)
+//   'hero'  — ~full-width rounded square between headline and pack selector
+// Stable per-visitor via localStorage. Tagged on every upgrade_inline_shown
+// + dream_offer events so we can compare conversion of the two placements.
+// Flip the storage value in dev tools to preview either variant on demand.
+type CoverVariant = 'small' | 'hero';
+const COVER_VARIANT_KEY = 'theodore_cover_variant_v1';
+function getCoverVariant(): CoverVariant {
+  if (typeof window === 'undefined') return 'small';
+  try {
+    const cached = localStorage.getItem(COVER_VARIANT_KEY);
+    if (cached === 'small' || cached === 'hero') return cached;
+    const assigned: CoverVariant = Math.random() < 0.5 ? 'small' : 'hero';
+    localStorage.setItem(COVER_VARIANT_KEY, assigned);
+    return assigned;
+  } catch {
+    return 'small';
+  }
+}
+
 // Boost packs — same shape + fallback as BoostModal.tsx. Kept in sync with
 // server BOOST_PACKS. Surfaced inline at the top of the UpgradeModal so the
 // "ran out of credits" user sees a one-tap fix before the subscription pitch.
@@ -98,6 +120,20 @@ export function UpgradeModal() {
   const isGuestUpgrade = !user;
   const isGeneric = !isAudioCap && !isMultiVoice;
   const anchorVariant = useMemo(() => getAnchorVariant(), []);
+  const coverVariant = useMemo(() => getCoverVariant(), []);
+  // Pull the user's active project so we can showcase their cover in the
+  // upgrade modal — emotional sunk-cost trigger. Falls back to the most
+  // recently updated project if no active one is set. null → no cover shown.
+  const activeProject = useStore((s) => {
+    const active = s.activeProjectId ? s.projects.find((p) => p.id === s.activeProjectId) : null;
+    if (active?.coverUrl) return active;
+    // No active project, or active has no cover yet → fall back to most
+    // recently updated project that DOES have a cover.
+    const withCover = s.projects.filter((p) => p.coverUrl);
+    if (!withCover.length) return null;
+    return [...withCover].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
+  });
+  const coverUrl = activeProject?.coverUrl || null;
   const priceFor = (tier: PlanTier): string => {
     if (tier === 'free') return PLAN_DETAILS.free.price;
     const usd = TIER_PRICES_USD[tier as 'writer' | 'author' | 'studio' | 'publisher'];
@@ -175,7 +211,11 @@ export function UpgradeModal() {
     const evt = isAudioCap ? 'audio_cap_inline_shown' : 'upgrade_inline_shown';
     const pix = isAudioCap ? 'AudioCapInlineShown' : 'UpgradeInlineShown';
     const data: Record<string, unknown> = { variant, is_guest: !user };
-    if (isGeneric) data.anchor_variant = anchorVariant;
+    if (isGeneric) {
+      data.anchor_variant = anchorVariant;
+      data.cover_variant = coverVariant;     // 'small' | 'hero' (2026-06-09 A/B)
+      data.has_cover = !!coverUrl;           // whether the modal actually rendered a cover
+    }
     jTrack(evt, data);
     pixel.trackCustom(pix, data);
     // Dedicated "Dream Offer" event name for the generic variant. This is the
@@ -426,6 +466,22 @@ export function UpgradeModal() {
             <X size={18} />
           </button>
 
+          {/* SMALL cover variant (top-right corner). Only renders for the
+              coffee-generic case, when we have a coverUrl, and when the
+              A/B assignment selected 'small'. The cover sits below the X
+              close button and is a 64×64 rounded square with object-cover
+              so book-cover aspect ratios crop center-safe. */}
+          {isGeneric && coverUrl && coverVariant === 'small' && (
+            <div className="absolute top-12 right-4 z-10">
+              <img
+                src={coverUrl}
+                alt={activeProject?.title || 'Your book'}
+                className="w-16 h-16 object-cover rounded-xl border border-white/10 shadow-lg"
+                style={{ background: 'rgba(255,255,255,0.04)' }}
+              />
+            </div>
+          )}
+
           <div className="relative z-10 p-6 sm:p-8">
             {/* Credit-state pill — restyled for the coffee variant to read
                 "OUT OF CREDITS · X left" per the 2026-06-09 design mock. */}
@@ -478,6 +534,23 @@ export function UpgradeModal() {
                   </span>
                   <span style={{ color: '#ff9f5a' }}>.</span>
                 </h2>
+
+                {/* HERO cover variant (full-width). Sits between headline and
+                    pack selector. Square with rounded corners, aspect-square so
+                    portrait + landscape covers both crop cleanly. Slight orange
+                    glow at the top-right edge matches the modal's accent radial.
+                    Only renders when 'hero' was the A/B assignment + we have
+                    a cover. */}
+                {coverUrl && coverVariant === 'hero' && (
+                  <div className="mb-5 relative">
+                    <img
+                      src={coverUrl}
+                      alt={activeProject?.title || 'Your book'}
+                      className="w-full aspect-square object-cover rounded-2xl border border-white/10 shadow-2xl"
+                      style={{ background: 'rgba(255,255,255,0.04)' }}
+                    />
+                  </div>
+                )}
 
                 {/* Pack selector — middle pre-selected, taps update selectedPackId.
                     The actual charge happens via the wallet button below. */}
