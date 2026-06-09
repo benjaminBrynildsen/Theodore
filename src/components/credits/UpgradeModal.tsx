@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Check, Sparkles, BookOpen, Headphones, Mail, Lock, Loader2 } from 'lucide-react';
+import { loadStripe, type Stripe } from '@stripe/stripe-js';
+import { Elements } from '@stripe/react-stripe-js';
 import { useCreditsStore } from '../../store/credits';
 import { useAuthStore } from '../../store/auth';
 import { PLAN_DETAILS, TIER_PRICES_USD, type PlanTier } from '../../types/credits';
@@ -12,6 +14,19 @@ import {
   formatDisplayPrice,
   isNonUsdDisplay,
 } from '../../lib/currency';
+import { CoffeeWalletButton, CoffeeCardFallbackButton } from './CoffeeWalletButton';
+
+// Stripe.js is loaded lazily on first modal open with a publishable key.
+// loadStripe() caches the promise internally so repeated calls are no-ops.
+// The key comes from /api/billing/config so config + deploy stay decoupled
+// — you can rotate the Render env var without rebuilding the bundle.
+let stripePromise: Promise<Stripe | null> | null = null;
+function getStripePromise(publishableKey: string): Promise<Stripe | null> {
+  if (!stripePromise && publishableKey) {
+    stripePromise = loadStripe(publishableKey);
+  }
+  return stripePromise || Promise.resolve(null);
+}
 
 const GOOGLE_CLIENT_ID = '296594825511-3m0g5t2l0ombm3j8cdc5ncqe673obg4d.apps.googleusercontent.com';
 
@@ -67,6 +82,15 @@ export function UpgradeModal() {
   const [boostPacks, setBoostPacks] = useState<BoostPack[]>(DEFAULT_BOOST_PACKS);
   const [busyBoostId, setBusyBoostId] = useState<string | null>(null);
   const [boostGranted, setBoostGranted] = useState<number | null>(null);
+  // Coffee variant (generic case): which pack is the wallet button bound to.
+  // Defaults to $10 / 1,800 credits per Ben's call on 2026-06-09.
+  const [selectedPackId, setSelectedPackId] = useState<string>('boost_10');
+  // Stripe.js bootstrap. Fetched from /api/billing/config on modal open so
+  // STRIPE_PUBLISHABLE_KEY can live as a Render env var (no rebuild needed).
+  const [stripeConfig, setStripeConfig] = useState<{ stripePublishableKey: string; walletEnabled: boolean } | null>(null);
+  // canMakePayment() result from the wallet button — null = checking, true =
+  // Apple/Google Pay available, false = neither (render card fallback).
+  const [walletAvailable, setWalletAvailable] = useState<boolean | null>(null);
   const displayCurrency = useMemo(() => detectDisplayCurrency(), []);
   const showUsdDisclaimer = isNonUsdDisplay(displayCurrency);
   const isAudioCap = upgradeReason === 'audio_cap';
@@ -87,11 +111,18 @@ export function UpgradeModal() {
       setError('');
       setBusyBoostId(null);
       setBoostGranted(null);
+      setSelectedPackId('boost_10');
+      setWalletAvailable(null);
       // Refresh pack prices from the server in case BOOST_PACKS changed since
       // last open; DEFAULT_BOOST_PACKS keeps the UI populated meanwhile.
       api.billingBoosts().then((r) => { if (r?.packs?.length) setBoostPacks(r.packs); }).catch(() => {});
+      // Fetch the Stripe publishable key + wallet availability flag. Cached
+      // on success so subsequent opens reuse the result.
+      if (!stripeConfig) {
+        api.billingConfig().then(setStripeConfig).catch(() => setStripeConfig({ stripePublishableKey: '', walletEnabled: false }));
+      }
     }
-  }, [showUpgradeModal]);
+  }, [showUpgradeModal, stripeConfig]);
 
   // Inline top-up purchase. Mirrors BoostModal.buy: instant grant if a saved
   // card is on file, otherwise redirect to Stripe checkout. Closes the modal
@@ -396,32 +427,26 @@ export function UpgradeModal() {
           </button>
 
           <div className="relative z-10 p-6 sm:p-8">
-            {/* Credit-state pill (generic only) — surfaces the diagnostic
-                up front so the modal answers "why am I seeing this?" for
-                every tier. Shown above the Author card per Ben's call so
-                the flag → price-anchor → hook flow lands. */}
+            {/* Credit-state pill — restyled for the coffee variant to read
+                "OUT OF CREDITS · X left" per the 2026-06-09 design mock. */}
             {isGeneric && (
-              <div className="text-center mb-4">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-400/20">
-                  <span className="text-[11px] font-semibold text-rose-300 uppercase tracking-wider">Not enough credits</span>
+              <div className="flex items-center justify-between mb-5">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-400/30">
+                  <span className="text-[11px] font-semibold text-rose-300 uppercase tracking-wider">Out of credits</span>
                   <span className="text-[11px] text-rose-300/50">·</span>
-                  <span className="text-[11px] text-rose-200/80">{plan.creditsRemaining} / {plan.creditsTotal} remaining</span>
+                  <span className="text-[11px] text-rose-200/80">{plan.creditsRemaining} left</span>
                 </div>
               </div>
             )}
 
-            {/* Inline top-up — three prominent pack buttons at the TOP of the
-                modal so a user who just hit the cap can refill in one tap
-                without scrolling past the Dream Offer pitch. Shown for all
-                upgrade reasons (generic, audio-cap, multi-voice) since the
-                credit shortage is the same fact in every variant. */}
             {boostGranted != null ? (
+              // Post-purchase success card — same look for every variant.
               <div className="mb-6 rounded-2xl border border-emerald-400/30 bg-emerald-500/[0.08] p-4 text-center animate-fade-in">
                 <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500/15 mb-2">
                   <Check size={20} className="text-emerald-400" />
                 </div>
                 <div className="text-base font-semibold text-white">+{boostGranted.toLocaleString()} credits added</div>
-                <div className="text-xs text-white/60 mt-0.5">Charged to your card on file. You're good to keep writing.</div>
+                <div className="text-xs text-white/60 mt-0.5">You're good to keep writing.</div>
                 <button
                   onClick={() => setShowUpgradeModal(false)}
                   className="mt-3 w-full py-2.5 rounded-xl bg-white text-black font-semibold text-sm hover:bg-white/90"
@@ -429,7 +454,101 @@ export function UpgradeModal() {
                   Back to writing →
                 </button>
               </div>
+            ) : isGeneric ? (
+              // ── Coffee variant (generic case) ────────────────────────────
+              // Mirrors the W8 "Less than one coffee a [week]" design from the
+              // 2026-06-09 design bundle. Pack buttons SELECT (don't auto-buy);
+              // the Apple/Google Pay wallet button below confirms the payment.
+              <div className="mb-6">
+                <div className="text-[11px] font-bold uppercase tracking-[0.16em] mb-2.5" style={{ color: '#ff9f5a' }}>
+                  Worth it
+                </div>
+                <h2
+                  className="font-semibold text-white leading-[1.04] mb-5"
+                  style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: 'clamp(28px, 7vw, 38px)', letterSpacing: '-0.01em' }}
+                >
+                  Less than one
+                  <br />
+                  coffee a{' '}
+                  <span
+                    className="px-1.5 rounded"
+                    style={{ background: '#ff9f5a', color: '#1a1500', boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone' }}
+                  >
+                    week
+                  </span>
+                  <span style={{ color: '#ff9f5a' }}>.</span>
+                </h2>
+
+                {/* Pack selector — middle pre-selected, taps update selectedPackId.
+                    The actual charge happens via the wallet button below. */}
+                <div className="grid grid-cols-3 gap-2 mb-4">
+                  {boostPacks.slice(0, 3).map((p) => {
+                    const isSelected = selectedPackId === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => setSelectedPackId(p.id)}
+                        className={cn(
+                          'flex flex-col items-center justify-center py-4 rounded-2xl border transition-all',
+                          isSelected
+                            ? 'border-[#ff9f5a] bg-[#ff9f5a]/[0.14]'
+                            : 'border-white/15 bg-white/[0.06] hover:bg-white/[0.10] hover:border-white/25',
+                        )}
+                      >
+                        <div className="text-2xl font-bold text-white leading-none" style={{ fontFamily: "'Newsreader', Georgia, serif" }}>
+                          ${p.priceUsd}
+                        </div>
+                        <div className="text-[11px] text-white/70 mt-1.5">{p.credits.toLocaleString()} credits</div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Wallet button (Apple Pay / Google Pay one-tap) — wrapped in
+                    Stripe Elements so PaymentRequestButtonElement can render.
+                    Only mounts when config has a publishable key AND we haven't
+                    yet determined the platform has no wallet. CoffeeWalletButton
+                    signals onNoWallet when canMakePayment returns null so the
+                    card fallback below takes over without a flash. */}
+                {stripeConfig?.walletEnabled && stripeConfig.stripePublishableKey && walletAvailable !== false ? (
+                  <Elements stripe={getStripePromise(stripeConfig.stripePublishableKey)}>
+                    <CoffeeWalletButton
+                      packs={boostPacks}
+                      selectedPackId={selectedPackId}
+                      onSuccess={({ credits }) => {
+                        setBoostGranted(credits);
+                        // Stripe webhook does the actual server-side credit
+                        // grant; we optimistically show the success card here.
+                      }}
+                      onNoWallet={() => setWalletAvailable(false)}
+                      onError={(msg) => setError(msg)}
+                    />
+                  </Elements>
+                ) : null}
+
+                {/* Card fallback — shown when wallet check finished with no
+                    Apple/Google Pay available, OR when stripeConfig.walletEnabled
+                    is false (env var unset). Routes through the existing
+                    Stripe-Checkout-redirect path so all flows stay supported. */}
+                {(walletAvailable === false || !stripeConfig?.walletEnabled) && (
+                  <CoffeeCardFallbackButton
+                    packId={selectedPackId}
+                    busy={!!busyBoostId}
+                    onClick={(packId) => {
+                      const pack = boostPacks.find((p) => p.id === packId);
+                      if (pack) handleBoostBuy(pack);
+                    }}
+                  />
+                )}
+
+                <div className="text-center text-[10px] text-white/40 mt-2">
+                  One-time · credits never expire
+                </div>
+              </div>
             ) : (
+              // ── Existing boost-tap grid (multi-voice + audio-cap variants) ──
+              // Coffee variant is generic-only for the first ship. These two
+              // upgrade reasons keep the tap-to-purchase flow.
               <div className="mb-6">
                 <div className="flex items-center justify-center gap-2 mb-2">
                   <span className="text-xl" role="img" aria-label="bolt">⚡</span>
@@ -523,18 +642,29 @@ export function UpgradeModal() {
                 (multi-voice, audio-cap) keep showing all three. */}
             {(!isGuestUpgrade || showAllPlans) && (
             <>
+            {/* "OR GO UNLIMITED" divider sits between the coffee wallet
+                section and the subscription card(s). Generic case shows
+                only Writer; multi-voice + audio-cap show all three tiers. */}
+            {isGeneric && boostGranted == null && (
+              <div className="flex items-center gap-3 my-5">
+                <div className="flex-1 h-px bg-white/10" />
+                <span className="text-[10px] uppercase tracking-[0.12em] text-white/40 font-medium">or go unlimited</span>
+                <div className="flex-1 h-px bg-white/10" />
+              </div>
+            )}
             <div className="space-y-3">
-              {/* All three tiers rendered in order (writer → author → studio).
-                  No filter — the previous filter excluded Author for generic
-                  because Author was hoisted above the Dream Offer hook;
-                  hoisting + hero were retired 2026-06-08. */}
-              {tiers.map(renderTierCard)}
+              {/* Coffee variant: Writer only (subscription = "or go unlimited"
+                  alternative to top-ups). Multi-voice / audio-cap variants
+                  keep the full Writer → Author → Studio list. */}
+              {(isGeneric ? tiers.filter((t) => t.tier === 'writer') : tiers).map(renderTierCard)}
             </div>
 
             {/* Publisher tier — only show if not already on Publisher.
                 Writer is now a full card above so the footnote-link version
-                was removed; only Publisher remains as a small text link. */}
-            {plan.tier !== 'publisher' && (
+                was removed; only Publisher remains as a small text link.
+                Coffee variant hides this — the modal is intentionally
+                minimal (top-up OR Writer subscription only). */}
+            {plan.tier !== 'publisher' && !isGeneric && (
               <button
                 onClick={() => handleUpgrade('publisher')}
                 className="mt-3 w-full text-center text-xs text-white/30 hover:text-white/60 transition-colors"
