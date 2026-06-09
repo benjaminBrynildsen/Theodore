@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { X, Check, Sparkles, BookOpen, Headphones, Mail, Lock, Loader2 } from 'lucide-react';
+import { X, Check, Sparkles, BookOpen, Headphones, Mail, Lock, Loader2, ChevronDown } from 'lucide-react';
 import { loadStripe, type Stripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
 import { useCreditsStore } from '../../store/credits';
@@ -534,14 +534,13 @@ export function UpgradeModal() {
                   className="font-semibold text-white leading-[1.04] mb-5"
                   style={{ fontFamily: "'Newsreader', Georgia, serif", fontSize: 'clamp(28px, 7vw, 38px)', letterSpacing: '-0.01em' }}
                 >
-                  Less than one
+                  Finish what you
                   <br />
-                  coffee a{' '}
                   <span
                     className="px-1.5 rounded"
                     style={{ background: '#ff9f5a', color: '#1a1500', boxDecorationBreak: 'clone', WebkitBoxDecorationBreak: 'clone' }}
                   >
-                    week
+                    started
                   </span>
                   <span style={{ color: '#ff9f5a' }}>.</span>
                 </h2>
@@ -774,6 +773,30 @@ export function UpgradeModal() {
               )}
             </div>
           </div>
+
+          {/* Scroll-hint arrow — sticky at the bottom of the scrollable
+              modal viewport. While there's content below the fold, this
+              chevron bobs at the bottom edge to signal "more to see."
+              When the user scrolls all the way down, the sticky element
+              reaches its natural position (just below the glass card)
+              and visually merges out of the way.
+              Coffee variant only — the multi-voice/audio-cap variants
+              don't have the same below-the-fold content density. */}
+          {isGeneric && boostGranted == null && (
+            <div className="sticky bottom-2 z-30 pointer-events-none flex justify-center -mt-12 mb-3 animate-fade-in">
+              <div
+                className="rounded-full w-9 h-9 flex items-center justify-center border border-white/15 shadow-lg"
+                style={{
+                  background: 'rgba(20, 20, 28, 0.7)',
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
+                  animation: 'bounce 2.2s ease-in-out infinite',
+                }}
+              >
+                <ChevronDown size={18} className="text-white/80" />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
