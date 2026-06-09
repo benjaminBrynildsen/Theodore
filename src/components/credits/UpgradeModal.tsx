@@ -74,6 +74,17 @@ const COVER_VARIANT_KEY = 'theodore_cover_variant_v1';
 function getCoverVariant(): CoverVariant {
   if (typeof window === 'undefined') return 'small';
   try {
+    // URL override — `?cover=hero` or `?cover=small` forces that variant
+    // for the current session AND persists it so subsequent opens stick.
+    // Same pattern as `?devex=1`. Used to preview either variant on a phone
+    // without dev-console access. Caught from query params on every modal
+    // open (and on root page-loads via the existing URL-param sweep).
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get('cover');
+    if (fromUrl === 'small' || fromUrl === 'hero') {
+      try { localStorage.setItem(COVER_VARIANT_KEY, fromUrl); } catch {}
+      return fromUrl;
+    }
     const cached = localStorage.getItem(COVER_VARIANT_KEY);
     if (cached === 'small' || cached === 'hero') return cached;
     const assigned: CoverVariant = Math.random() < 0.5 ? 'small' : 'hero';
