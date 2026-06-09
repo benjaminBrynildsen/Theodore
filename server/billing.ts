@@ -35,10 +35,15 @@ export interface BoostPack {
   credits: number;
 }
 
+// Steeper discount curve effective 2026-06-09: $5 is the starter taste
+// (80 cr/$), $10 is the everyday pick (120 cr/$ = 50% better deal), $20 is
+// the obvious-value bulk (150 cr/$ = 87% better than $5). Designed so the
+// $10 pre-selected default in the upgrade modal feels like the smart pick,
+// not the cheap one.
 const BOOST_PACK_DEFS: Array<{ id: string; priceUsd: number; credits: number }> = [
-  { id: 'boost_5', priceUsd: 5, credits: 800 },
-  { id: 'boost_10', priceUsd: 10, credits: 1800 },
-  { id: 'boost_20', priceUsd: 20, credits: 4000 },
+  { id: 'boost_5',  priceUsd: 5,  credits: 400 },
+  { id: 'boost_10', priceUsd: 10, credits: 1200 },
+  { id: 'boost_20', priceUsd: 20, credits: 3000 },
 ];
 
 export const BOOST_PACKS: BoostPack[] = BOOST_PACK_DEFS.map((p) => ({

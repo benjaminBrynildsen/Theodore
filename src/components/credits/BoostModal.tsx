@@ -9,9 +9,9 @@ interface Pack { id: string; priceUsd: number; priceCents: number; credits: numb
 
 // Fallback packs if /billing/boosts is slow — kept in sync with server BOOST_PACKS.
 const DEFAULT_PACKS: Pack[] = [
-  { id: 'boost_5', priceUsd: 5, priceCents: 500, credits: 800 },
-  { id: 'boost_10', priceUsd: 10, priceCents: 1000, credits: 1800 },
-  { id: 'boost_20', priceUsd: 20, priceCents: 2000, credits: 4000 },
+  { id: 'boost_5', priceUsd: 5, priceCents: 500, credits: 400 },
+  { id: 'boost_10', priceUsd: 10, priceCents: 1000, credits: 1200 },
+  { id: 'boost_20', priceUsd: 20, priceCents: 2000, credits: 3000 },
 ];
 
 export function BoostModal() {

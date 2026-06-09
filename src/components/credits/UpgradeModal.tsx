@@ -67,9 +67,9 @@ function getAnchorVariant(): AnchorVariant {
 // "ran out of credits" user sees a one-tap fix before the subscription pitch.
 interface BoostPack { id: string; priceUsd: number; priceCents: number; credits: number }
 const DEFAULT_BOOST_PACKS: BoostPack[] = [
-  { id: 'boost_5',  priceUsd: 5,  priceCents: 500,  credits: 800 },
-  { id: 'boost_10', priceUsd: 10, priceCents: 1000, credits: 1800 },
-  { id: 'boost_20', priceUsd: 20, priceCents: 2000, credits: 4000 },
+  { id: 'boost_5',  priceUsd: 5,  priceCents: 500,  credits: 400 },
+  { id: 'boost_10', priceUsd: 10, priceCents: 1000, credits: 1200 },
+  { id: 'boost_20', priceUsd: 20, priceCents: 2000, credits: 3000 },
 ];
 
 export function UpgradeModal() {
@@ -83,7 +83,7 @@ export function UpgradeModal() {
   const [busyBoostId, setBusyBoostId] = useState<string | null>(null);
   const [boostGranted, setBoostGranted] = useState<number | null>(null);
   // Coffee variant (generic case): which pack is the wallet button bound to.
-  // Defaults to $10 / 1,800 credits per Ben's call on 2026-06-09.
+  // Defaults to $10 / 1,200 credits per Ben's call on 2026-06-09.
   const [selectedPackId, setSelectedPackId] = useState<string>('boost_10');
   // Stripe.js bootstrap. Fetched from /api/billing/config on modal open so
   // STRIPE_PUBLISHABLE_KEY can live as a Render env var (no rebuild needed).
