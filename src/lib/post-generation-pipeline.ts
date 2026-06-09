@@ -242,7 +242,19 @@ If no updates are needed (the story is still consistent), return:
       subtitle: `Updated to match Ch. ${chapter.number}'s new direction`,
       indeterminate: true,
     });
-    setTimeout(() => useGenerationStore.getState().setPhase('done'), 3000);
+    // Snapshot the kind + label at schedule time. If the store has been
+    // taken over by a different operation (e.g. the auto-audio dispatch
+    // that fires after chapter gen calls start({ kind: 'generate-audio' })
+    // within milliseconds), DON'T flip its phase to done — that was the
+    // root cause of the "Complete · ~246s frozen" bug on 2026-06-09.
+    const ownerKind = 'create-project';
+    const ownerLabel = `${updates.length} chapter outlines`;
+    setTimeout(() => {
+      const cur = useGenerationStore.getState();
+      if (cur.kind === ownerKind && cur.label === ownerLabel) {
+        cur.setPhase('done');
+      }
+    }, 3000);
 
   } catch (e) {
     console.warn('[PostGen Cascade] Failed:', e);
