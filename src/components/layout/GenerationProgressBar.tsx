@@ -51,10 +51,17 @@ export function GenerationProgressBar() {
     }
   }, [kind, startedAt]);
   useEffect(() => {
-    if (kind !== 'generate-audio' || phase === 'done') return;
+    if (kind !== 'generate-audio') return;
+    // Only stop the clock when we're TRULY done — i.e. the audio store
+    // confirms generation has fully finished. The generation store's
+    // `phase === 'done'` fires prematurely from intermediate paths
+    // (mid multi-scene loop), which used to freeze the countdown at its
+    // starting value (~246s). Caught 2026-06-09 — same root cause as
+    // the "Complete" subtitle flashing mid-gen.
+    if (phase === 'done' && !audioGenerating) return;
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
-  }, [kind, phase]);
+  }, [kind, phase, audioGenerating]);
 
   if (!kind || hideAfterDone) return null;
 
@@ -75,18 +82,23 @@ export function GenerationProgressBar() {
   };
   const verb = verbForKind[kind];
 
+  // While audio gen is still in flight (per audio store), suppress "done"
+  // visuals — the bar should look "in progress" until every scene lands.
+  const isDone = phase === 'done' && !audioGenInFlight;
+
+  // Subtitle gates on isDone, not raw phase. Otherwise the bar shows
+  // "Complete" the moment any intermediate path signals phase=done, even
+  // though audio is still being generated for later scenes. Caught when
+  // a user saw "Complete" + ~246s frozen countdown one second into a
+  // multi-scene chapter gen.
   const displaySubtitle =
-    phase === 'done'
+    isDone
       ? 'Complete'
       : phase === 'finalizing' && !subtitle
       ? 'Finalizing…'
       : phase === 'starting' && !subtitle
       ? 'Starting…'
       : subtitle;
-
-  // While audio gen is still in flight (per audio store), suppress "done"
-  // visuals — the bar should look "in progress" until every scene lands.
-  const isDone = phase === 'done' && !audioGenInFlight;
 
   const audioElapsedSec = kind === 'generate-audio' && startedAt !== null ? (now - startedAt) / 1000 : 0;
   // Word-based estimate: 0.12s per word (e.g. 1800 words → 216s). Falls
