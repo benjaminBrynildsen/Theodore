@@ -45,12 +45,22 @@ function sessionCookieHeader(token: string, maxAgeSeconds: number): string {
   return attrs.join('; ');
 }
 
+// Append rather than overwrite — signup endpoints clear the attribution and
+// referrer cookies on the same response, and a plain setHeader would stomp
+// those Set-Cookie headers (which silently broke clearReferrer for months).
+function appendSetCookie(res: Response, value: string): void {
+  const existing = res.getHeader('Set-Cookie');
+  if (!existing) { res.setHeader('Set-Cookie', value); return; }
+  if (Array.isArray(existing)) { res.setHeader('Set-Cookie', [...existing.map(String), value]); return; }
+  res.setHeader('Set-Cookie', [String(existing), value]);
+}
+
 export function setSessionCookie(res: Response, token: string): void {
-  res.setHeader('Set-Cookie', sessionCookieHeader(token, Math.floor(SESSION_TTL_MS / 1000)));
+  appendSetCookie(res, sessionCookieHeader(token, Math.floor(SESSION_TTL_MS / 1000)));
 }
 
 export function clearSessionCookie(res: Response): void {
-  res.setHeader('Set-Cookie', sessionCookieHeader('', 0));
+  appendSetCookie(res, sessionCookieHeader('', 0));
 }
 
 export function normalizeEmail(email: string): string {

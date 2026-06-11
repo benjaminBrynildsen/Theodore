@@ -30,6 +30,16 @@ export const users = pgTable('users', {
   referredByUserId: text('referred_by_user_id'),
   referredViaSlug: text('referred_via_slug'),
   referredAt: timestamp('referred_at'),
+  // Ad/UTM attribution: captured via the `theodore_attrib` cookie (see
+  // server/attribution.ts) when a visitor lands with utm_* params or an ad
+  // click id, then stamped once at user creation. Last-touch attribution.
+  utmSource: text('utm_source'),
+  utmMedium: text('utm_medium'),
+  utmCampaign: text('utm_campaign'),
+  utmContent: text('utm_content'),
+  utmTerm: text('utm_term'),
+  adPlatform: text('ad_platform'), // x, meta, google, microsoft, tiktok
+  adClickId: text('ad_click_id'), // raw twclid/fbclid/gclid/msclkid/ttclid
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

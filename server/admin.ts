@@ -2475,6 +2475,10 @@ export async function getConversionStats(req: Request, res: Response) {
         plan: users.plan,
         stripeSubscriptionStatus: users.stripeSubscriptionStatus,
         createdAt: users.createdAt,
+        utmSource: users.utmSource,
+        utmCampaign: users.utmCampaign,
+        utmContent: users.utmContent,
+        adPlatform: users.adPlatform,
       })
       .from(users);
 
@@ -2524,6 +2528,41 @@ export async function getConversionStats(req: Request, res: Response) {
         paid: cohortPaid,
         rate: cohort.length > 0 ? cohortPaid / cohort.length : 0,
       };
+    };
+
+    // ── Attribution breakdown: signups + paid grouped by ad source/campaign ──
+    // Source = ad platform from click id (twclid→x, fbclid→meta, ...) falling
+    // back to utm_source; campaign/content come from utm params. Untagged
+    // signups bucket under "organic". Stamped at signup via theodore_attrib
+    // cookie — users created before the cookie shipped all show as organic.
+    const sourceOf = (u: typeof real[number]) => u.adPlatform || u.utmSource || null;
+    const attributionWindow = (days: number | null) => {
+      const cutoff = days ? now - days * 86400000 : 0;
+      const buckets = new Map<string, {
+        source: string; campaign: string | null; content: string | null;
+        signups: number; paid: number;
+      }>();
+      for (const u of real) {
+        if (!u.createdAt) continue;
+        const t = (u.createdAt instanceof Date ? u.createdAt : new Date(u.createdAt as any)).getTime();
+        if (t < cutoff) continue;
+        const source = sourceOf(u) || 'organic';
+        const campaign = u.utmCampaign || null;
+        const content = u.utmContent || null;
+        const key = `${source}|${campaign || ''}|${content || ''}`;
+        let b = buckets.get(key);
+        if (!b) { b = { source, campaign, content, signups: 0, paid: 0 }; buckets.set(key, b); }
+        b.signups += 1;
+        if (isPaid(u)) b.paid += 1;
+      }
+      return Array.from(buckets.values())
+        .map((b) => ({ ...b, rate: b.signups > 0 ? b.paid / b.signups : 0 }))
+        .sort((a, b) => b.signups - a.signups);
+    };
+    const bySource = {
+      d7: attributionWindow(7),
+      d30: attributionWindow(30),
+      all: attributionWindow(null),
     };
 
     // ── Engagement (session-time stats from journey_events) ──
@@ -2618,8 +2657,15 @@ export async function getConversionStats(req: Request, res: Response) {
         all: { signups: totalSignups, paid: paidUsers.length, rate: conversionRate },
       },
       daily,
+      bySource,
       paidUsersList: paidUsers
-        .map((u) => ({ email: u.email, plan: u.plan, signedUpAt: u.createdAt }))
+        .map((u) => ({
+          email: u.email,
+          plan: u.plan,
+          signedUpAt: u.createdAt,
+          source: sourceOf(u),
+          campaign: u.utmCampaign || null,
+        }))
         .sort((a, b) => (b.signedUpAt && a.signedUpAt ? +new Date(b.signedUpAt as any) - +new Date(a.signedUpAt as any) : 0)),
       engagement,
     });

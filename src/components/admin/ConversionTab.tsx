@@ -24,6 +24,20 @@ interface PaidUser {
   email: string;
   plan: string;
   signedUpAt: string | null;
+  source: string | null;   // ad platform (x, meta, ...) or utm_source; null = organic
+  campaign: string | null; // utm_campaign
+}
+
+// One row of the signups-by-source breakdown — grouped by
+// (source, campaign, content), where source is the ad platform
+// derived from the click id with utm_source as fallback.
+interface SourceRow {
+  source: string;
+  campaign: string | null;
+  content: string | null;
+  signups: number;
+  paid: number;
+  rate: number;
 }
 
 interface EngagementWindow {
@@ -65,6 +79,7 @@ interface ConversionResponse {
     all: TrailWindow;
   };
   daily: DailyRow[];
+  bySource?: { d7: SourceRow[]; d30: SourceRow[]; all: SourceRow[] };
   paidUsersList: PaidUser[];
   engagement?: EngagementBlock | null;
 }
@@ -580,6 +595,9 @@ function SignupsView() {
         </div>
       </section>
 
+      {/* Signups by ad source/campaign — which X/Meta campaigns convert */}
+      {data.bySource && <BySourceSection bySource={data.bySource} />}
+
       {/* Paid users list — useful to manually grant bonus credits on upgrade */}
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wider text-text-tertiary mb-3">
@@ -596,6 +614,7 @@ function SignupsView() {
                 <tr>
                   <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Email</th>
                   <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Plan</th>
+                  <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Source</th>
                   <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Signed up</th>
                 </tr>
               </thead>
@@ -608,6 +627,12 @@ function SignupsView() {
                         {u.plan}
                       </span>
                     </td>
+                    <td className="px-4 py-3">
+                      <SourceChip source={u.source} />
+                      {u.campaign && (
+                        <span className="ml-1.5 text-xs text-text-tertiary truncate max-w-[20ch] inline-block align-middle">{u.campaign}</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right text-xs text-text-tertiary tabular-nums">{fmtDate(u.signedUpAt)}</td>
                   </tr>
                 ))}
@@ -617,6 +642,97 @@ function SignupsView() {
         )}
       </section>
     </div>
+  );
+}
+
+// Small pill for a signup's attributed ad source. Reuses the Ad-clicks tab
+// palette (SOURCE_META) so x/meta/google look identical across sub-views.
+// Null source = no utm/click-id at signup → organic.
+function SourceChip({ source }: { source: string | null }) {
+  if (!source || source === 'organic') {
+    return <span className="text-xs text-text-tertiary">organic</span>;
+  }
+  const meta = SOURCE_META[source] || { label: source, cls: 'bg-violet-100 text-violet-800' };
+  return (
+    <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider', meta.cls)}>
+      {meta.label}
+    </span>
+  );
+}
+
+// Signups grouped by ad source + campaign + content (ad variant) so each
+// X/Meta campaign's signup→paid performance is visible at a glance.
+function BySourceSection({ bySource }: { bySource: NonNullable<ConversionResponse['bySource']> }) {
+  const [win, setWin] = useState<'d7' | 'd30' | 'all'>('d30');
+  const rows = bySource[win] || [];
+  const tagged = rows.filter((r) => r.source !== 'organic');
+  const organic = rows.find((r) => r.source === 'organic' && !r.campaign && !r.content);
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-text-tertiary">
+          Signups by source
+        </h2>
+        <div className="inline-flex rounded-lg border border-black/[0.08] bg-black/[0.02] p-0.5">
+          {(['d7', 'd30', 'all'] as const).map((w) => (
+            <button
+              key={w}
+              onClick={() => setWin(w)}
+              className={cn(
+                'px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                win === w ? 'bg-white shadow-sm text-text-primary' : 'text-text-tertiary hover:text-text-secondary'
+              )}
+            >
+              {w === 'd7' ? '7d' : w === 'd30' ? '30d' : 'All'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {tagged.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-black/10 bg-white/40 p-6 text-center text-sm text-text-tertiary">
+          No ad-attributed signups in this window{organic ? ` (${organic.signups} organic)` : ''}.
+          Attribution stamps at signup from utm/click-id params, so only signups after this shipped are tagged.
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-black/[0.06] bg-white overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-black/[0.02] text-text-tertiary">
+              <tr>
+                <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Source</th>
+                <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Campaign</th>
+                <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider hidden sm:table-cell">Ad (content)</th>
+                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Signups</th>
+                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Paid</th>
+                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Conv</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tagged.map((r, i) => (
+                <tr key={`${r.source}|${r.campaign}|${r.content}|${i}`} className="border-t border-black/5">
+                  <td className="px-4 py-3"><SourceChip source={r.source} /></td>
+                  <td className="px-4 py-3 text-xs truncate max-w-[22ch]">{r.campaign || '—'}</td>
+                  <td className="px-4 py-3 text-xs text-text-tertiary truncate max-w-[22ch] hidden sm:table-cell">{r.content || '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{r.signups}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{r.paid > 0 ? <span className="font-semibold text-emerald-600">{r.paid}</span> : '0'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-xs text-text-tertiary">{fmtPct(r.rate)}</td>
+                </tr>
+              ))}
+              {organic && (
+                <tr className="border-t border-black/5 bg-black/[0.015]">
+                  <td className="px-4 py-3"><SourceChip source={null} /></td>
+                  <td className="px-4 py-3 text-xs text-text-tertiary">—</td>
+                  <td className="px-4 py-3 text-xs text-text-tertiary hidden sm:table-cell">—</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">{organic.signups}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">{organic.paid}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-xs text-text-tertiary">{fmtPct(organic.rate)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

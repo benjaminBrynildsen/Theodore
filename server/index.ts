@@ -31,6 +31,7 @@ import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, GROK_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, getGrokVoicesWithPreviews, getGrokPreviewBuffer, estimateTTSCredits } from './tts.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, dumpProjectChapters, getReferrals, getConversionStats, getGoFunnel, getPromptsFunnel, getEngagementFunnel, getNoAudioCohort, getPlaybackFunnel, getNoCreditsCohort, getAudioGenBounce, getChapterTruncation, getGoFunnelByDevice, markDevSessions } from './admin.js';
 import { readReferrer, writeReferrer, clearReferrer, refResolvesToRealUser } from './referrer.js';
+import { readAttribution, clearAttribution, attributionColumns, attributionMiddleware } from './attribution.js';
 import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.js';
 import { sendPushToUser } from './push.js';
 import multer from 'multer';
@@ -1152,6 +1153,7 @@ app.post('/api/auth/register', async (req, res) => {
     if (!user) {
       // Capture share-referral attribution if the user came in via a share link.
       const referrer = readReferrer(req);
+      const attrib = readAttribution(req);
       const [inserted] = await db.insert(users).values({
         id: `user-${randomUUID()}`,
         email,
@@ -1165,10 +1167,12 @@ app.post('/api/auth/register', async (req, res) => {
         referredByUserId: referrer?.ref || null,
         referredViaSlug: referrer?.slug || null,
         referredAt: referrer ? now : null,
+        ...attributionColumns(attrib),
       }).returning();
       user = inserted;
       isNewUser = true;
       if (referrer) clearReferrer(res);
+      if (attrib) clearAttribution(res);
     } else {
       const [updated] = await db.update(users).set({
         passwordHash,
@@ -1235,6 +1239,7 @@ app.post('/api/auth/google', async (req, res) => {
     if (!user) {
       // New user — create account. Capture share-referral attribution.
       const referrer = readReferrer(req);
+      const attrib = readAttribution(req);
       const [inserted] = await db.insert(users).values({
         id: `user-${randomUUID()}`,
         email,
@@ -1249,10 +1254,12 @@ app.post('/api/auth/google', async (req, res) => {
         referredByUserId: referrer?.ref || null,
         referredViaSlug: referrer?.slug || null,
         referredAt: referrer ? now : null,
+        ...attributionColumns(attrib),
       }).returning();
       user = inserted;
       isNewUser = true;
       if (referrer) clearReferrer(res);
+      if (attrib) clearAttribution(res);
       trackRegistration(req as any);
     } else {
       // Existing user — update name/avatar if not set
@@ -1339,6 +1346,7 @@ app.post('/api/auth/apple', async (req, res) => {
     let isNewUser = false;
     if (!user) {
       const referrer = readReferrer(req);
+      const attrib = readAttribution(req);
       const [inserted] = await db.insert(users).values({
         id: `user-${randomUUID()}`,
         email,
@@ -1353,10 +1361,12 @@ app.post('/api/auth/apple', async (req, res) => {
         referredByUserId: referrer?.ref || null,
         referredViaSlug: referrer?.slug || null,
         referredAt: referrer ? now : null,
+        ...attributionColumns(attrib),
       }).returning();
       user = inserted;
       isNewUser = true;
       if (referrer) clearReferrer(res);
+      if (attrib) clearAttribution(res);
       trackRegistration(req as any);
     } else {
       const updates: any = { updatedAt: now };
@@ -5436,6 +5446,9 @@ app.use(pageViewMiddleware);
 // before static so we count clicks even when the user blocks JS or the
 // tab is closed before any beacon fires. See server/ad-clicks.ts.
 app.use(adClickMiddleware);
+// Attribution cookie — stamps theodore_attrib (utm_* + ad click id) on tagged
+// landings so signup can attribute the user to a campaign. See attribution.ts.
+app.use(attributionMiddleware);
 // Serve /privacy and /terms as standalone HTML so SPA load isn't required
 // for crawlers / the App Store reviewer / link previews.
 app.get(['/privacy', '/privacy.html'], (_req, res) => {

@@ -641,7 +641,7 @@
   <script>
     // Preserve UTM params from the ad click URL
     var params = new URLSearchParams(window.location.search);
-    var utmKeys = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid'];
+    var utmKeys = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid','twclid','gclid','msclkid','ttclid'];
     var preserved = new URLSearchParams();
     utmKeys.forEach(function(k){ if(params.get(k)) preserved.set(k, params.get(k)); });
 
