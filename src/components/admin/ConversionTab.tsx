@@ -98,6 +98,59 @@ function fmtPct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
+// ── Column sorting (click a header to sort, click again to flip) ──
+type SortDir = 1 | -1;
+interface SortState { key: string; dir: SortDir }
+
+function sortRows<T extends Record<string, any>>(rows: T[], sort: SortState): T[] {
+  return [...rows].sort((a, b) => {
+    const av = a[sort.key];
+    const bv = b[sort.key];
+    // Nulls/empties always sink to the bottom regardless of direction
+    if ((av == null || av === '') && (bv == null || bv === '')) return 0;
+    if (av == null || av === '') return 1;
+    if (bv == null || bv === '') return -1;
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * sort.dir;
+    return String(av).localeCompare(String(bv)) * sort.dir;
+  });
+}
+
+function SortableTh({ label, k, sort, onSort, numeric, className, title }: {
+  label: string;
+  k: string;
+  sort: SortState;
+  onSort: (key: string, numeric: boolean) => void;
+  numeric?: boolean;
+  className?: string;
+  title?: string;
+}) {
+  const active = sort.key === k;
+  return (
+    <th
+      onClick={() => onSort(k, !!numeric)}
+      title={title}
+      className={cn(
+        'font-medium px-4 py-2.5 text-xs uppercase tracking-wider cursor-pointer select-none hover:text-text-primary transition-colors',
+        numeric ? 'text-right' : 'text-left',
+        active && 'text-text-primary',
+        className
+      )}
+    >
+      {label}
+      <span className={cn('inline-block w-3 text-[10px]', !active && 'opacity-0')}>
+        {sort.dir === -1 ? '▼' : '▲'}
+      </span>
+    </th>
+  );
+}
+
+// Shared toggle rule: re-click flips direction; a fresh column starts
+// descending for numbers (biggest first) and ascending for text.
+function toggleSort(setSort: (fn: (s: SortState) => SortState) => void) {
+  return (key: string, numeric: boolean) =>
+    setSort((s) => (s.key === key ? { key, dir: -s.dir as SortDir } : { key, dir: numeric ? -1 : 1 }));
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   try {
@@ -456,6 +509,8 @@ function SignupsView() {
   const [data, setData] = useState<ConversionResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [paidSort, setPaidSort] = useState<SortState>({ key: 'signedUpAt', dir: -1 });
+  const onPaidSort = toggleSort(setPaidSort);
 
   const load = async () => {
     setLoading(true);
@@ -612,14 +667,15 @@ function SignupsView() {
             <table className="w-full text-sm">
               <thead className="bg-black/[0.02] text-text-tertiary">
                 <tr>
-                  <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Email</th>
-                  <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Plan</th>
-                  <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Source</th>
-                  <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Signed up</th>
+                  <SortableTh label="Email" k="email" sort={paidSort} onSort={onPaidSort} />
+                  <SortableTh label="Plan" k="plan" sort={paidSort} onSort={onPaidSort} />
+                  <SortableTh label="Source" k="source" sort={paidSort} onSort={onPaidSort} />
+                  {/* ISO timestamps sort correctly as strings; numeric flag just sets newest-first on first click */}
+                  <SortableTh label="Signed up" k="signedUpAt" sort={paidSort} onSort={onPaidSort} numeric />
                 </tr>
               </thead>
               <tbody>
-                {data.paidUsersList.map((u) => (
+                {sortRows(data.paidUsersList, paidSort).map((u) => (
                   <tr key={u.email} className="border-t border-black/5">
                     <td className="px-4 py-3 truncate max-w-[24ch] sm:max-w-none">{u.email}</td>
                     <td className="px-4 py-3">
@@ -687,6 +743,8 @@ function CampaignFunnelSection() {
   const [data, setData] = useState<UtmFunnelResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortState>({ key: 'adClicks', dir: -1 });
+  const onSort = toggleSort(setSort);
 
   useEffect(() => {
     let cancelled = false;
@@ -703,7 +761,7 @@ function CampaignFunnelSection() {
     return () => { cancelled = true; };
   }, [days]);
 
-  const rows = data?.rows || [];
+  const rows = sortRows(data?.rows || [], sort);
 
   return (
     <section>
@@ -740,14 +798,14 @@ function CampaignFunnelSection() {
           <table className="w-full text-sm min-w-[640px]">
             <thead className="bg-black/[0.02] text-text-tertiary">
               <tr>
-                <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Source</th>
-                <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Campaign</th>
-                <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Ad</th>
-                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider" title="Server-logged /go landings (humans, no JS needed)">Clicks</th>
-                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider" title="Tagged sessions that ran JS">Visits</th>
-                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider" title="Sessions that submitted a prompt">Prompts</th>
-                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider" title="Users whose signup was attributed to this campaign">Signups</th>
-                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Paid</th>
+                <SortableTh label="Source" k="source" sort={sort} onSort={onSort} />
+                <SortableTh label="Campaign" k="campaign" sort={sort} onSort={onSort} />
+                <SortableTh label="Ad" k="content" sort={sort} onSort={onSort} />
+                <SortableTh label="Clicks" k="adClicks" sort={sort} onSort={onSort} numeric title="Server-logged /go landings (humans, no JS needed)" />
+                <SortableTh label="Visits" k="visits" sort={sort} onSort={onSort} numeric title="Tagged sessions that ran JS" />
+                <SortableTh label="Prompts" k="prompts" sort={sort} onSort={onSort} numeric title="Sessions that submitted a prompt" />
+                <SortableTh label="Signups" k="signups" sort={sort} onSort={onSort} numeric title="Users whose signup was attributed to this campaign" />
+                <SortableTh label="Paid" k="paid" sort={sort} onSort={onSort} numeric />
               </tr>
             </thead>
             <tbody>
