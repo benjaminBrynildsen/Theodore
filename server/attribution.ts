@@ -164,21 +164,33 @@ export function payloadFromUrl(url: string): AttributionPayload | null {
   } catch {
     return null;
   }
+  // Some ad URLs arrive double-encoded (V4%2520Sales), so values can still
+  // carry %20 after URLSearchParams' single decode. Decode once more when it
+  // looks percent-encoded; a literal % that isn't valid encoding throws and
+  // keeps the raw value.
+  const get = (key: string, max: number): string | undefined => {
+    let v = params.get(key);
+    if (!v) return undefined;
+    if (/%[0-9a-fA-F]{2}/.test(v)) {
+      try { v = decodeURIComponent(v.replace(/\+/g, ' ')); } catch { /* keep raw */ }
+    }
+    return v.slice(0, max) || undefined;
+  };
   let clickId: string | undefined;
   let platform: string | undefined;
   for (const [param, plat] of CLICK_ID_PARAMS) {
     const v = params.get(param);
     if (v) { clickId = v.slice(0, 300); platform = plat; break; }
   }
-  const utmSource = params.get('utm_source')?.slice(0, 128) || undefined;
+  const utmSource = get('utm_source', 128);
   if (!clickId && !utmSource) return null;
   if (!platform && utmSource) platform = platformFromUtmSource(utmSource);
   return {
     src: utmSource,
-    med: params.get('utm_medium')?.slice(0, 128) || undefined,
-    cam: params.get('utm_campaign')?.slice(0, 200) || undefined,
-    con: params.get('utm_content')?.slice(0, 200) || undefined,
-    ter: params.get('utm_term')?.slice(0, 200) || undefined,
+    med: get('utm_medium', 128),
+    cam: get('utm_campaign', 200),
+    con: get('utm_content', 200),
+    ter: get('utm_term', 200),
     plat: platform,
     cid: clickId,
     ts: Date.now(),

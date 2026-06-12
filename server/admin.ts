@@ -4207,6 +4207,10 @@ export async function backfillAttribution(req: Request, res: Response) {
     for (const u of candidates) {
       const createdAt = u.createdAt instanceof Date ? u.createdAt : new Date(u.createdAt as any);
       const lookback = new Date(createdAt.getTime() - 14 * 86400000);
+      // Only credit ad touches BEFORE signup (+1h grace so the tagged
+      // landing that led directly into the signup still counts) — a
+      // post-signup retargeting click must not retro-claim an organic user.
+      const signupCutoff = new Date(createdAt.getTime() + 3600000);
 
       // 1. The user's own sessions (post-auth events carry user_id in data)
       const own = await db.execute(sql`
@@ -4218,6 +4222,7 @@ export async function backfillAttribution(req: Request, res: Response) {
           )
           AND event = 'page_load'
           AND created_at > ${lookback}
+          AND created_at <= ${signupCutoff}
           AND (page LIKE '%utm_source=%' OR data->>'url' LIKE '%utm_source=%'
             OR page LIKE '%clid=%' OR data->>'url' LIKE '%clid=%')
         ORDER BY created_at DESC
