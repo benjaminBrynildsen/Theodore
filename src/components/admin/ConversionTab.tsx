@@ -761,7 +761,16 @@ function CampaignFunnelSection() {
     return () => { cancelled = true; };
   }, [days]);
 
-  const rows = sortRows(data?.rows || [], sort);
+  // Click→signup conversion per ad. Denominator prefers server-logged clicks
+  // (counts even when JS is blocked); ads pointing at pages other than /go
+  // have no ad_clicks rows, so fall back to tagged JS visits.
+  const rows = sortRows(
+    (data?.rows || []).map((r) => {
+      const denom = r.adClicks > 0 ? r.adClicks : r.visits;
+      return { ...r, conv: denom > 0 ? r.signups / denom : null };
+    }),
+    sort
+  );
 
   return (
     <section>
@@ -805,6 +814,7 @@ function CampaignFunnelSection() {
                 <SortableTh label="Visits" k="visits" sort={sort} onSort={onSort} numeric title="Tagged sessions that ran JS" />
                 <SortableTh label="Prompts" k="prompts" sort={sort} onSort={onSort} numeric title="Sessions that submitted a prompt" />
                 <SortableTh label="Signups" k="signups" sort={sort} onSort={onSort} numeric title="Users whose signup was attributed to this campaign" />
+                <SortableTh label="Conv" k="conv" sort={sort} onSort={onSort} numeric title="Signups ÷ clicks (or ÷ visits when no server-logged clicks)" />
                 <SortableTh label="Paid" k="paid" sort={sort} onSort={onSort} numeric />
               </tr>
             </thead>
@@ -818,6 +828,9 @@ function CampaignFunnelSection() {
                   <td className="px-4 py-3 text-right tabular-nums">{r.visits || '—'}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{r.prompts || '—'}</td>
                   <td className="px-4 py-3 text-right tabular-nums font-medium">{r.signups || '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-xs">
+                    {r.conv == null || r.signups === 0 ? <span className="text-text-tertiary">—</span> : fmtPct(r.conv)}
+                  </td>
                   <td className="px-4 py-3 text-right tabular-nums">{r.paid > 0 ? <span className="font-semibold text-emerald-600">{r.paid}</span> : '—'}</td>
                 </tr>
               ))}
@@ -830,6 +843,7 @@ function CampaignFunnelSection() {
                   <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">—</td>
                   <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">—</td>
                   <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">{data.organic.signups}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">—</td>
                   <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">{data.organic.paid}</td>
                 </tr>
               )}
