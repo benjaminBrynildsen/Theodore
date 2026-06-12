@@ -29,9 +29,9 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, GROK_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, getGrokVoicesWithPreviews, getGrokPreviewBuffer, estimateTTSCredits } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, dumpProjectChapters, getReferrals, getConversionStats, getGoFunnel, getPromptsFunnel, getEngagementFunnel, getNoAudioCohort, getPlaybackFunnel, getNoCreditsCohort, getAudioGenBounce, getChapterTruncation, getGoFunnelByDevice, markDevSessions } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, dumpProjectChapters, getReferrals, getConversionStats, getGoFunnel, getPromptsFunnel, getEngagementFunnel, getNoAudioCohort, getPlaybackFunnel, getNoCreditsCohort, getAudioGenBounce, getChapterTruncation, getGoFunnelByDevice, markDevSessions, getUtmFunnel, backfillAttribution } from './admin.js';
 import { readReferrer, writeReferrer, clearReferrer, refResolvesToRealUser } from './referrer.js';
-import { readAttribution, clearAttribution, attributionColumns, attributionMiddleware } from './attribution.js';
+import { readAttribution, clearAttribution, attributionColumns, attributionMiddleware, stampAttributionFromIpAsync } from './attribution.js';
 import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.js';
 import { sendPushToUser } from './push.js';
 import multer from 'multer';
@@ -1173,6 +1173,7 @@ app.post('/api/auth/register', async (req, res) => {
       isNewUser = true;
       if (referrer) clearReferrer(res);
       if (attrib) clearAttribution(res);
+      else stampAttributionFromIpAsync(inserted.id, req); // cookie-less fallback: ip-match recent ad traffic
     } else {
       const [updated] = await db.update(users).set({
         passwordHash,
@@ -1260,6 +1261,7 @@ app.post('/api/auth/google', async (req, res) => {
       isNewUser = true;
       if (referrer) clearReferrer(res);
       if (attrib) clearAttribution(res);
+      else stampAttributionFromIpAsync(inserted.id, req); // cookie-less fallback: ip-match recent ad traffic
       trackRegistration(req as any);
     } else {
       // Existing user — update name/avatar if not set
@@ -1367,6 +1369,7 @@ app.post('/api/auth/apple', async (req, res) => {
       isNewUser = true;
       if (referrer) clearReferrer(res);
       if (attrib) clearAttribution(res);
+      else stampAttributionFromIpAsync(inserted.id, req); // cookie-less fallback: ip-match recent ad traffic
       trackRegistration(req as any);
     } else {
       const updates: any = { updatedAt: now };
@@ -3717,6 +3720,8 @@ app.get('/api/admin/journeys/:sessionId', getJourneyDetail);
 app.get('/api/admin/referrals', getReferrals);
 app.get('/api/admin/conversion-stats', getConversionStats);
 app.get('/api/admin/go-funnel', getGoFunnel);
+app.get('/api/admin/utm-funnel', getUtmFunnel);
+app.post('/api/admin/backfill-attribution', backfillAttribution);
 app.get('/api/admin/go-funnel-by-device', getGoFunnelByDevice);
 app.get('/api/admin/ad-clicks', getAdClicks);
 app.post('/api/admin/mark-dev-sessions', markDevSessions);

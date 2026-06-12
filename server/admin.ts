@@ -10,6 +10,7 @@ import { getAuth } from './auth.js';
 import { sendPushToTokens } from './push.js';
 import { sendToUser, getTemplate, setTemplate, DEFAULT_TEMPLATES, substituteVars, type EmailKind, APP_URL } from './email.js';
 import { getStripeClient } from './billing.js';
+import { payloadFromUrl, attributionFromRecentTraffic, attributionColumns } from './attribution.js';
 
 // Must match the hashing in server/index.ts so the admin's own IP
 // resolves to the same prefix shown in the guest activity feed.
@@ -4042,5 +4043,217 @@ export async function getNoCreditsCohort(req: Request, res: Response) {
   } catch (e: any) {
     console.error('[Admin] no-credits-cohort error:', e?.message || e, e?.stack);
     res.status(500).json({ error: 'Internal server error', detail: e?.message });
+  }
+}
+
+// ========== UTM campaign funnel ==========
+// Per (source, campaign, content): server-logged ad clicks, JS sessions,
+// prompt submits, signups and paid — so each X/Meta campaign's full
+// click→visit→prompt→signup→paid funnel is visible in one table.
+//
+// Three sources merged by key:
+//   1. ad_clicks        — server-side click log (/go + /go2 only, no JS needed)
+//   2. journey_events   — tagged sessions; /go static page reports page='/go/'
+//                         with the full URL in data->>'url', the React app
+//                         puts the query string in page itself
+//   3. users            — attribution stamped at signup (cookie or ip-fallback)
+export async function getUtmFunnel(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
+    const since = new Date(Date.now() - days * 86400000);
+
+    type Row = {
+      source: string; campaign: string | null; content: string | null;
+      adClicks: number; visits: number; focused: number; prompts: number;
+      sessionSignups: number; signups: number; paid: number;
+    };
+    const buckets = new Map<string, Row>();
+    // Journey URLs are raw (utm_campaign=V4%20Sales) while ad_clicks/users
+    // store express-decoded values ("V4 Sales") — decode before keying so
+    // the three sources land in the same bucket.
+    const dec = (v: string | null | undefined) => {
+      if (!v) return null;
+      try { return decodeURIComponent(String(v).replace(/\+/g, ' ')).slice(0, 200) || null; }
+      catch { return String(v).slice(0, 200) || null; }
+    };
+    const bucket = (source: string | null, campaign: string | null, content: string | null): Row => {
+      const src = (source || 'unknown').toLowerCase();
+      const key = `${src}|${campaign || ''}|${content || ''}`;
+      let b = buckets.get(key);
+      if (!b) {
+        b = { source: src, campaign, content, adClicks: 0, visits: 0, focused: 0, prompts: 0, sessionSignups: 0, signups: 0, paid: 0 };
+        buckets.set(key, b);
+      }
+      return b;
+    };
+
+    // 1. Server-logged ad clicks (humans only)
+    const clicks = await db.execute(sql`
+      SELECT source, utm_campaign, utm_content, COUNT(*)::int AS n
+      FROM ad_clicks
+      WHERE created_at > ${since} AND is_bot = false
+      GROUP BY 1, 2, 3
+    `);
+    for (const r of clicks.rows as any[]) {
+      bucket(r.source, dec(r.utm_campaign), dec(r.utm_content)).adClicks += Number(r.n) || 0;
+    }
+
+    // 2. Tagged journey sessions + their funnel events. First tagged
+    // page_load wins per session (a session can't switch campaigns).
+    const sessions = await db.execute(sql`
+      WITH tagged AS (
+        SELECT DISTINCT ON (session_id)
+          session_id,
+          COALESCE(page, '') || '&' || COALESCE(data->>'url', '') AS hay
+        FROM journey_events
+        WHERE created_at > ${since}
+          AND event = 'page_load'
+          AND (page LIKE '%utm_source=%' OR data->>'url' LIKE '%utm_source=%'
+            OR page LIKE '%clid=%' OR data->>'url' LIKE '%clid=%')
+        ORDER BY session_id, created_at ASC
+      )
+      SELECT
+        t.hay,
+        BOOL_OR(je.event = 'focus_input') AS focused,
+        BOOL_OR(je.event IN ('prompt_submit', 'final_cta_submitted')) AS submitted,
+        BOOL_OR(je.event = 'signup_completed') AS signed_up
+      FROM tagged t
+      JOIN journey_events je ON je.session_id = t.session_id
+        AND je.created_at > ${since}
+      GROUP BY t.session_id, t.hay
+    `);
+    for (const r of sessions.rows as any[]) {
+      const p = payloadFromUrl(String(r.hay || ''));
+      if (!p) continue;
+      const b = bucket(p.plat || p.src || null, dec(p.cam), dec(p.con));
+      b.visits += 1;
+      if (r.focused) b.focused += 1;
+      if (r.submitted) b.prompts += 1;
+      if (r.signed_up) b.sessionSignups += 1;
+    }
+
+    // 3. Stamped signups + paid
+    const signups = await db.execute(sql`
+      SELECT
+        COALESCE(ad_platform, utm_source) AS source,
+        utm_campaign, utm_content,
+        COUNT(*)::int AS signups,
+        COUNT(*) FILTER (WHERE plan != 'free' AND stripe_subscription_status = 'active')::int AS paid
+      FROM users
+      WHERE created_at > ${since}
+        AND (utm_source IS NOT NULL OR ad_platform IS NOT NULL)
+      GROUP BY 1, 2, 3
+    `);
+    for (const r of signups.rows as any[]) {
+      const b = bucket(r.source, dec(r.utm_campaign), dec(r.utm_content));
+      b.signups += Number(r.signups) || 0;
+      b.paid += Number(r.paid) || 0;
+    }
+
+    const rows = Array.from(buckets.values()).sort((a, b) =>
+      (b.adClicks + b.visits) - (a.adClicks + a.visits));
+
+    // Untagged context so paid traffic can be read against the organic base.
+    const organic = await db.execute(sql`
+      SELECT
+        COUNT(*)::int AS signups,
+        COUNT(*) FILTER (WHERE plan != 'free' AND stripe_subscription_status = 'active')::int AS paid
+      FROM users
+      WHERE created_at > ${since}
+        AND utm_source IS NULL AND ad_platform IS NULL
+    `);
+
+    res.json({
+      days,
+      rows,
+      organic: {
+        signups: Number((organic.rows[0] as any)?.signups) || 0,
+        paid: Number((organic.rows[0] as any)?.paid) || 0,
+      },
+    });
+  } catch (e: any) {
+    console.error('[Admin] utm-funnel error:', e?.message || e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// ========== Attribution backfill ==========
+// Retro-stamps users who signed up without attribution — the cookie shipped
+// 2026-06-11, so anyone who clicked an ad before then (or clicked in an
+// in-app webview and signed up in their real browser) shows as organic.
+// Matching: the user's own journey sessions (events tagged with their
+// user_id after auth) → tagged page_load in those sessions, else ad_clicks /
+// tagged journeys from the same ip_hash in the 14 days before signup.
+// Never overwrites existing attribution. Idempotent — safe to re-run.
+export async function backfillAttribution(req: Request, res: Response) {
+  try {
+    const admin = await requireAdmin(req, res);
+    if (!admin) return;
+
+    const days = Math.min(Math.max(Number(req.query.days) || 14, 1), 90);
+    const since = new Date(Date.now() - days * 86400000);
+    const dryRun = String(req.query.dry || '') === '1';
+
+    const candidates = await db.select({
+      id: users.id, email: users.email, createdAt: users.createdAt,
+    }).from(users)
+      .where(sql`${users.createdAt} > ${since}
+        AND ${users.utmSource} IS NULL AND ${users.adPlatform} IS NULL`);
+
+    const results: any[] = [];
+    for (const u of candidates) {
+      const createdAt = u.createdAt instanceof Date ? u.createdAt : new Date(u.createdAt as any);
+      const lookback = new Date(createdAt.getTime() - 14 * 86400000);
+
+      // 1. The user's own sessions (post-auth events carry user_id in data)
+      const own = await db.execute(sql`
+        SELECT COALESCE(page, '') || '&' || COALESCE(data->>'url', '') AS hay
+        FROM journey_events
+        WHERE session_id IN (
+            SELECT DISTINCT session_id FROM journey_events
+            WHERE data->>'user_id' = ${u.id} AND created_at > ${lookback}
+          )
+          AND event = 'page_load'
+          AND created_at > ${lookback}
+          AND (page LIKE '%utm_source=%' OR data->>'url' LIKE '%utm_source=%'
+            OR page LIKE '%clid=%' OR data->>'url' LIKE '%clid=%')
+        ORDER BY created_at DESC
+        LIMIT 1
+      `);
+      let attrib = (own.rows as any[])[0]?.hay
+        ? payloadFromUrl(String((own.rows as any[])[0].hay))
+        : null;
+      let via = attrib ? 'own-session' : null;
+
+      // 2. Same-ip tagged traffic before signup
+      if (!attrib) {
+        const ipRes = await db.execute(sql`
+          SELECT DISTINCT ip_hash FROM journey_events
+          WHERE data->>'user_id' = ${u.id} AND ip_hash IS NOT NULL
+            AND created_at > ${lookback}
+          LIMIT 5
+        `);
+        for (const ipRow of ipRes.rows as any[]) {
+          attrib = await attributionFromRecentTraffic(String(ipRow.ip_hash), createdAt);
+          if (attrib) { via = 'ip-match'; break; }
+        }
+      }
+
+      if (!attrib) continue;
+      if (!dryRun) {
+        await db.update(users)
+          .set(attributionColumns(attrib))
+          .where(sql`${users.id} = ${u.id} AND ${users.utmSource} IS NULL AND ${users.adPlatform} IS NULL`);
+      }
+      results.push({ email: u.email, via, platform: attrib.plat || null, campaign: attrib.cam || null, content: attrib.con || null });
+    }
+
+    res.json({ checked: candidates.length, stamped: dryRun ? 0 : results.length, dryRun, matches: results });
+  } catch (e: any) {
+    console.error('[Admin] backfill-attribution error:', e?.message || e);
+    res.status(500).json({ error: 'Internal server error' });
   }
 }

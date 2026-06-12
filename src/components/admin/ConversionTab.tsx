@@ -595,8 +595,8 @@ function SignupsView() {
         </div>
       </section>
 
-      {/* Signups by ad source/campaign — which X/Meta campaigns convert */}
-      {data.bySource && <BySourceSection bySource={data.bySource} />}
+      {/* Campaign funnel — per UTM: clicks → visits → prompts → signups → paid */}
+      <CampaignFunnelSection />
 
       {/* Paid users list — useful to manually grant bonus credits on upgrade */}
       <section>
@@ -660,72 +660,119 @@ function SourceChip({ source }: { source: string | null }) {
   );
 }
 
-// Signups grouped by ad source + campaign + content (ad variant) so each
-// X/Meta campaign's signup→paid performance is visible at a glance.
-function BySourceSection({ bySource }: { bySource: NonNullable<ConversionResponse['bySource']> }) {
-  const [win, setWin] = useState<'d7' | 'd30' | 'all'>('d30');
-  const rows = bySource[win] || [];
-  const tagged = rows.filter((r) => r.source !== 'organic');
-  const organic = rows.find((r) => r.source === 'organic' && !r.campaign && !r.content);
+// Per-campaign funnel: server-logged ad clicks → JS sessions → prompt
+// submits → stamped signups → paid, one row per (source, campaign, ad).
+// Clicks come from ad_clicks (no-JS safe), visits/prompts from tagged
+// journey sessions, signups/paid from users-table attribution.
+interface FunnelRow {
+  source: string;
+  campaign: string | null;
+  content: string | null;
+  adClicks: number;
+  visits: number;
+  focused: number;
+  prompts: number;
+  sessionSignups: number;
+  signups: number;
+  paid: number;
+}
+interface UtmFunnelResponse {
+  days: number;
+  rows: FunnelRow[];
+  organic: { signups: number; paid: number };
+}
+
+function CampaignFunnelSection() {
+  const [days, setDays] = useState<7 | 30 | 90>(7);
+  const [data, setData] = useState<UtmFunnelResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetch(`/api/admin/utm-funnel?days=${days}`, { credentials: 'include' })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`Failed to load (${r.status})`);
+        const json = await r.json();
+        if (!cancelled) setData(json);
+      })
+      .catch((e) => { if (!cancelled) setError(e?.message || 'Network error'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [days]);
+
+  const rows = data?.rows || [];
 
   return (
     <section>
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-text-tertiary">
-          Signups by source
+          Campaign funnel
         </h2>
         <div className="inline-flex rounded-lg border border-black/[0.08] bg-black/[0.02] p-0.5">
-          {(['d7', 'd30', 'all'] as const).map((w) => (
+          {([7, 30, 90] as const).map((d) => (
             <button
-              key={w}
-              onClick={() => setWin(w)}
+              key={d}
+              onClick={() => setDays(d)}
               className={cn(
                 'px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
-                win === w ? 'bg-white shadow-sm text-text-primary' : 'text-text-tertiary hover:text-text-secondary'
+                days === d ? 'bg-white shadow-sm text-text-primary' : 'text-text-tertiary hover:text-text-secondary'
               )}
             >
-              {w === 'd7' ? '7d' : w === 'd30' ? '30d' : 'All'}
+              {d}d
             </button>
           ))}
         </div>
       </div>
-      {tagged.length === 0 ? (
+      {error ? (
+        <div className="rounded-2xl border border-dashed border-rose-200 bg-rose-50/40 p-6 text-center text-sm text-rose-700">{error}</div>
+      ) : loading && !data ? (
+        <div className="rounded-2xl border border-black/[0.06] bg-white p-6 text-center text-sm text-text-tertiary">Loading…</div>
+      ) : rows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-black/10 bg-white/40 p-6 text-center text-sm text-text-tertiary">
-          No ad-attributed signups in this window{organic ? ` (${organic.signups} organic)` : ''}.
-          Attribution stamps at signup from utm/click-id params, so only signups after this shipped are tagged.
+          No tagged ad traffic in this window
+          {data ? ` (${data.organic.signups} organic signups)` : ''}.
         </div>
       ) : (
-        <div className="rounded-2xl border border-black/[0.06] bg-white overflow-hidden">
-          <table className="w-full text-sm">
+        <div className={cn('rounded-2xl border border-black/[0.06] bg-white overflow-x-auto', loading && 'opacity-60')}>
+          <table className="w-full text-sm min-w-[640px]">
             <thead className="bg-black/[0.02] text-text-tertiary">
               <tr>
                 <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Source</th>
                 <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Campaign</th>
-                <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider hidden sm:table-cell">Ad (content)</th>
-                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Signups</th>
+                <th className="text-left font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Ad</th>
+                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider" title="Server-logged /go landings (humans, no JS needed)">Clicks</th>
+                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider" title="Tagged sessions that ran JS">Visits</th>
+                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider" title="Sessions that submitted a prompt">Prompts</th>
+                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider" title="Users whose signup was attributed to this campaign">Signups</th>
                 <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Paid</th>
-                <th className="text-right font-medium px-4 py-2.5 text-xs uppercase tracking-wider">Conv</th>
               </tr>
             </thead>
             <tbody>
-              {tagged.map((r, i) => (
+              {rows.map((r, i) => (
                 <tr key={`${r.source}|${r.campaign}|${r.content}|${i}`} className="border-t border-black/5">
                   <td className="px-4 py-3"><SourceChip source={r.source} /></td>
-                  <td className="px-4 py-3 text-xs truncate max-w-[22ch]">{r.campaign || '—'}</td>
-                  <td className="px-4 py-3 text-xs text-text-tertiary truncate max-w-[22ch] hidden sm:table-cell">{r.content || '—'}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{r.signups}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{r.paid > 0 ? <span className="font-semibold text-emerald-600">{r.paid}</span> : '0'}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-xs text-text-tertiary">{fmtPct(r.rate)}</td>
+                  <td className="px-4 py-3 text-xs truncate max-w-[18ch]">{r.campaign || '—'}</td>
+                  <td className="px-4 py-3 text-xs text-text-tertiary truncate max-w-[18ch]">{r.content || '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{r.adClicks || '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{r.visits || '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{r.prompts || '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums font-medium">{r.signups || '—'}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{r.paid > 0 ? <span className="font-semibold text-emerald-600">{r.paid}</span> : '—'}</td>
                 </tr>
               ))}
-              {organic && (
+              {data && (
                 <tr className="border-t border-black/5 bg-black/[0.015]">
                   <td className="px-4 py-3"><SourceChip source={null} /></td>
                   <td className="px-4 py-3 text-xs text-text-tertiary">—</td>
-                  <td className="px-4 py-3 text-xs text-text-tertiary hidden sm:table-cell">—</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">{organic.signups}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">{organic.paid}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-xs text-text-tertiary">{fmtPct(organic.rate)}</td>
+                  <td className="px-4 py-3 text-xs text-text-tertiary">—</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">—</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">—</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">—</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">{data.organic.signups}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-text-tertiary">{data.organic.paid}</td>
                 </tr>
               )}
             </tbody>
