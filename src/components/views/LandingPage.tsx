@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowUp, BookOpen, Sparkles, Headphones, Zap, Play, Pause, Check, Music, Mic2, BookText, Share2 } from 'lucide-react';
+import { BookOpen, Sparkles, Headphones, Play, Pause, Check, Music, Mic2, BookText, Share2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { track as jTrack } from '../../lib/journey';
 
@@ -36,107 +36,85 @@ const FEATURED_BOOKS = [
   },
 ];
 
-const SHORT_PROMPTS = [
-  'A detective who solves crimes using dreams.',
-  'A spy who can\'t remember his mission.',
-  'A blind assassin hired to kill the president.',
-  'Robots raising a human child.',
-  'A heist on a moving train.',
-];
+// Email-capture form for the founding-seat launch. Posts to
+// /api/founding/waitlist (deduped + attribution-stamped server-side) and shows
+// a success state. `tone` adapts it for light page sections or dark panels.
+function WaitlistForm({ source, cta = 'Request an invite', tone = 'light' }: { source: string; cta?: string; tone?: 'light' | 'dark' }) {
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'done' | 'error'>('idle');
+  const dark = tone === 'dark';
 
-export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
-  const rotatingWords = ['impulse', 'inspiration', 'intention', 'insight', 'instinct', 'ambition', 'aspiration', 'objective', 'outline', 'idea'];
-  const [wordIndex, setWordIndex] = useState(0);
-  const [speedStep, setSpeedStep] = useState(0);
-  const [wordVisible, setWordVisible] = useState(true);
-  const [input, setInput] = useState('');
-  const [animatedText, setAnimatedText] = useState('');
-  const [userInteracted, setUserInteracted] = useState(false);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const speedCurveMs = [1000, 900, 820, 760, 700, 660, 620, 590, 560, 540];
-  const finalWordIndex = rotatingWords.length - 1;
-
-  // Typewriter for the chat input: cycles through SHORT_PROMPTS with a
-  // blinking caret until the user clicks/types. On interaction, hand off
-  // the currently-visible text as the input value so they can submit
-  // immediately without having to type anything.
-  useEffect(() => {
-    if (userInteracted) return;
-    let charIdx = 0;
-    let promptIdx = Math.floor(Math.random() * SHORT_PROMPTS.length);
-    let phase: 'typing' | 'holding' | 'deleting' = 'typing';
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = () => {
-      const prompt = SHORT_PROMPTS[promptIdx];
-      switch (phase) {
-        case 'typing':
-          charIdx += 1;
-          setAnimatedText(prompt.slice(0, charIdx));
-          if (charIdx >= prompt.length) {
-            phase = 'holding';
-            timer = setTimeout(tick, 2000);
-          } else {
-            timer = setTimeout(tick, 45 + Math.random() * 55);
-          }
-          break;
-        case 'holding':
-          phase = 'deleting';
-          timer = setTimeout(tick, 30);
-          break;
-        case 'deleting':
-          charIdx -= 1;
-          setAnimatedText(prompt.slice(0, charIdx));
-          if (charIdx <= 0) {
-            promptIdx = (promptIdx + 1) % SHORT_PROMPTS.length;
-            phase = 'typing';
-            timer = setTimeout(tick, 380);
-          } else {
-            timer = setTimeout(tick, 22);
-          }
-          break;
-      }
-    };
-    timer = setTimeout(tick, 700);
-    return () => clearTimeout(timer);
-  }, [userInteracted]);
-
-  const handoffToManualInput = () => {
-    if (userInteracted) return;
-    setUserInteracted(true);
-    setInput(animatedText);
-    setTimeout(() => {
-      const el = inputRef.current;
-      if (el) {
-        el.focus();
-        const end = el.value.length;
-        el.setSelectionRange(end, end);
-      }
-    }, 0);
-  };
-
-  useEffect(() => {
-    if (wordIndex >= finalWordIndex) {
-      setWordVisible(true);
+  const submit = async () => {
+    const value = email.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) {
+      setStatus('error');
       return;
     }
-    const delay = speedCurveMs[Math.min(speedStep, speedCurveMs.length - 1)];
-    const fadeAt = Math.max(0, delay - 140);
-    const hideTimeout = setTimeout(() => setWordVisible(false), fadeAt);
-    const swapTimeout = setTimeout(() => {
-      setWordIndex((prev) => Math.min(prev + 1, finalWordIndex));
-      setWordVisible(true);
-      setSpeedStep((prev) => Math.min(prev + 1, speedCurveMs.length - 1));
-    }, delay);
-    return () => { clearTimeout(hideTimeout); clearTimeout(swapTimeout); };
-  }, [finalWordIndex, speedStep, wordIndex]);
-
-  const handleSubmit = () => {
-    const text = (userInteracted ? input : animatedText).trim();
-    onGetStarted(text || undefined);
+    setStatus('submitting');
+    jTrack('waitlist_submit', { source });
+    try {
+      const res = await fetch('/api/founding/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: value }),
+      });
+      if (!res.ok) throw new Error('failed');
+      setStatus('done');
+      jTrack('waitlist_success', { source });
+    } catch {
+      setStatus('error');
+    }
   };
 
-  const effectiveText = userInteracted ? input : animatedText;
+  if (status === 'done') {
+    return (
+      <div className={cn('w-full max-w-md mx-auto rounded-2xl px-5 py-4 text-center border', dark ? 'border-white/15 bg-white/5' : 'border-black/[0.08] bg-white')}>
+        <div className={cn('flex items-center justify-center gap-2 text-sm font-medium', dark ? 'text-white' : 'text-black')}>
+          <Check size={16} className={dark ? 'text-emerald-400' : 'text-emerald-600'} />
+          You're on the list.
+        </div>
+        <p className={cn('mt-1 text-xs', dark ? 'text-white/55' : 'text-black/50')}>Watch your inbox for the next opening.</p>
+      </div>
+    );
+  }
 
+  return (
+    <div className="w-full max-w-md mx-auto">
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          value={email}
+          onChange={(e) => { setEmail(e.target.value); if (status === 'error') setStatus('idle'); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+          placeholder="your@email.com"
+          className={cn(
+            'flex-1 rounded-xl px-4 py-3 text-sm outline-none transition-colors border',
+            dark
+              ? 'bg-white/5 border-white/15 text-white placeholder:text-white/35 focus:border-white/40'
+              : 'bg-white border-black/15 text-black placeholder:text-black/35 focus:border-black/40'
+          )}
+        />
+        <button
+          onClick={submit}
+          disabled={status === 'submitting'}
+          className={cn(
+            'rounded-xl px-5 py-3 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-60',
+            dark ? 'bg-white text-black hover:bg-white/90' : 'bg-black text-white hover:bg-black/85'
+          )}
+        >
+          {status === 'submitting' ? 'Joining...' : cta}
+        </button>
+      </div>
+      {status === 'error' && (
+        <p className={cn('mt-2 text-xs', dark ? 'text-red-300' : 'text-red-600')}>Enter a valid email and try again.</p>
+      )}
+    </div>
+  );
+}
+
+export function LandingPage({ onSignIn }: LandingPageProps) {
   // 4-col feature grid replacing the old 3-feature row. Fastlane-style:
   // 2-3 word labels, single-sentence subheads.
   const features = [
@@ -185,82 +163,31 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
       <section data-journey-section="landing_hero" className="flex-1 flex flex-col items-center sm:justify-center px-6 sm:px-10 py-12 sm:py-20 text-center max-w-3xl mx-auto">
         <div className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] font-semibold text-black/40 mb-6">
           <Sparkles size={12} />
-          Story Engine
+          By Invitation
         </div>
 
-        <h1 className="mb-4 flex flex-col items-center font-serif text-[clamp(2.2rem,6vw,4rem)] leading-[1.06] tracking-[-0.025em] text-black">
-          <span className="block">All you need is an</span>
-          <span className="mt-1 flex min-h-[1.1em] w-[11ch] items-baseline justify-center">
-            <span
-              className={cn(
-                'inline-block font-medium transition-all duration-200',
-                wordVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'
-              )}
-            >
-              {rotatingWords[wordIndex]}
-            </span>
-            <span
-              className={cn(
-                'inline-block h-[0.85em] w-[2px] translate-y-[0.06em] rounded-full bg-black/80 transition-opacity duration-200',
-                wordIndex === finalWordIndex ? 'caret-blink opacity-100' : 'opacity-0'
-              )}
-            />
-          </span>
+        <h1 className="mb-4 font-serif text-[clamp(2.2rem,6vw,4rem)] leading-[1.06] tracking-[-0.025em] text-black">
+          Theodore is now invite-only.
         </h1>
 
-        <p className="text-base sm:text-lg text-black/50 leading-relaxed max-w-md mb-8">
-          Type one sentence. Get a full novel and audiobook. Free.
+        <p className="text-base sm:text-lg text-black/55 leading-relaxed max-w-md mb-8">
+          Ten writers join each week. $99 gets you 3 months of full access and your finished book printed and shipped to your door.
         </p>
 
-        {/* Inline chat input */}
-        <div className="w-full max-w-lg">
-          <div className="rounded-2xl bg-[#1c1c1e] shadow-[0_8px_40px_rgba(0,0,0,0.15)] overflow-hidden">
-            <div className="flex items-end gap-2 p-4">
-              <div className="relative flex-1 min-h-[4.5rem]">
-                <textarea
-                  ref={inputRef}
-                  value={userInteracted ? input : ''}
-                  onChange={(e) => {
-                    if (!userInteracted) setUserInteracted(true);
-                    setInput(e.target.value);
-                  }}
-                  onFocus={handoffToManualInput}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSubmit();
-                    }
-                  }}
-                  placeholder={userInteracted ? 'Describe your story idea...' : ''}
-                  rows={3}
-                  className="w-full bg-transparent text-white/90 placeholder:text-white/30 text-base sm:text-sm resize-none outline-none px-2 py-2 min-h-[4.5rem] max-h-[5.5rem] relative z-10"
-                />
-                {!userInteracted && (
-                  <div
-                    aria-hidden="true"
-                    className="absolute inset-0 px-2 py-2 text-white/90 text-base sm:text-sm leading-[1.5] pointer-events-none whitespace-pre-wrap break-words"
-                  >
-                    <span>{animatedText}</span>
-                    <span className="caret-blink inline-block align-[-0.1em] ml-[1px] w-[2px] h-[1.05em] bg-white/80 rounded-[1px]" />
-                  </div>
-                )}
-              </div>
-              <button
-                onClick={handleSubmit}
-                className={cn(
-                  'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all mb-0.5',
-                  effectiveText.trim()
-                    ? 'bg-white text-black hover:bg-white/90'
-                    : 'bg-white/10 text-white/30'
-                )}
-              >
-                <ArrowUp size={16} />
-              </button>
-            </div>
-          </div>
+        <WaitlistForm source="landing_hero" />
 
-          <p className="mt-3 text-xs text-black/35 italic">Don't overthink it — even one sentence is enough.</p>
-        </div>
+        <p className="mt-4 text-xs text-black/40">
+          Already a member?{' '}
+          <button
+            onClick={() => {
+              jTrack('signin_clicked', { source: 'landing_hero' });
+              onSignIn();
+            }}
+            className="underline underline-offset-2 hover:text-black/70 transition-colors"
+          >
+            Sign in
+          </button>
+        </p>
       </section>
 
       {/* Featured Books */}
@@ -302,10 +229,10 @@ export function LandingPage({ onGetStarted, onSignIn }: LandingPageProps) {
       <TestimonialWall />
 
       {/* ─── Pricing ─── */}
-      <Pricing onGetStarted={() => onGetStarted()} />
+      <Pricing />
 
       {/* ─── Final CTA ─── */}
-      <FinalCTA onGetStarted={onGetStarted} />
+      <FinalCTA />
 
       {/* Footer */}
       <footer data-journey-section="landing_footer" className="w-full border-t border-black/[0.06] py-6 text-center text-xs text-black/30">
@@ -509,142 +436,48 @@ function TestimonialWall() {
   );
 }
 
-const PRICING_TIERS = [
-  {
-    tier: 'free',
-    name: 'Dreamer',
-    price: '$0',
-    period: 'forever',
-    bullets: ['300 credits / month', 'First audiobook chapter free', 'Single-voice narration', 'Share publicly'],
-    cta: 'Start free',
-    highlight: false,
-  },
-  {
-    tier: 'writer',
-    name: 'Writer',
-    price: '$10',
-    period: '/ month',
-    bullets: ['2,500 credits / month', 'Multi-voice narration', 'Per-character casting', 'Priority generation'],
-    cta: 'Start free',
-    highlight: true,
-  },
-  {
-    tier: 'author',
-    name: 'Author',
-    price: '$49',
-    period: '/ month',
-    bullets: ['7,500 credits / month', 'Everything in Writer', 'Music + sound effects', 'Faster audio generation'],
-    cta: 'Start free',
-    highlight: false,
-  },
-  {
-    tier: 'studio',
-    name: 'Studio',
-    price: '$99',
-    period: '/ month',
-    bullets: ['25,000 credits / month', 'Everything in Author', 'ElevenLabs premium voices', 'Studio-quality output'],
-    cta: 'Start free',
-    highlight: false,
-  },
+const FOUNDING_INCLUDED = [
+  'Three months of full Author access',
+  'Multi-voice narration and per-character casting',
+  'Music and sound design on every chapter',
+  'Your finished book printed and shipped to your door',
 ];
 
-function Pricing({ onGetStarted }: { onGetStarted: () => void }) {
+function Pricing() {
   return (
-    <section data-journey-section="landing_pricing" className="w-full max-w-6xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28">
-      <div className="text-center mb-10 sm:mb-12">
-        <h2 className="font-serif text-3xl sm:text-4xl tracking-tight text-black mb-3">Start free. Upgrade when you're hooked.</h2>
-        <p className="text-sm text-black/50">No credit card to try. Cancel anytime.</p>
+    <section data-journey-section="landing_pricing" className="w-full max-w-2xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28">
+      <div className="text-center mb-8 sm:mb-10">
+        <h2 className="font-serif text-3xl sm:text-4xl tracking-tight text-black mb-3">One price. Everything in.</h2>
+        <p className="text-sm text-black/50">Ten founding seats open each week. No free tier, no upsells.</p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {PRICING_TIERS.map((p) => (
-          <div
-            key={p.tier}
-            className={cn(
-              'rounded-2xl p-6 flex flex-col',
-              p.highlight
-                ? 'bg-black text-white border border-black shadow-xl scale-[1.02]'
-                : 'bg-white border border-black/[0.08]'
-            )}
-          >
-            <div className="mb-4">
-              <div className={cn('text-xs uppercase tracking-widest font-semibold mb-2', p.highlight ? 'text-white/60' : 'text-black/40')}>
-                {p.name}
-              </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="font-serif text-3xl sm:text-4xl">{p.price}</span>
-                <span className={cn('text-xs', p.highlight ? 'text-white/60' : 'text-black/45')}>{p.period}</span>
-              </div>
-            </div>
-            <ul className="space-y-2.5 mb-6 flex-1">
-              {p.bullets.map((b) => (
-                <li key={b} className="flex items-start gap-2 text-[13px] leading-relaxed">
-                  <Check size={14} className={cn('mt-0.5 flex-shrink-0', p.highlight ? 'text-white/80' : 'text-black/60')} />
-                  <span className={cn(p.highlight ? 'text-white/85' : 'text-black/70')}>{b}</span>
-                </li>
-              ))}
-            </ul>
-            <button
-              onClick={() => {
-                jTrack('pricing_cta_clicked', { tier: p.tier });
-                onGetStarted();
-              }}
-              className={cn(
-                'w-full py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-[0.98]',
-                p.highlight
-                  ? 'bg-white text-black hover:bg-white/90'
-                  : 'bg-black text-white hover:bg-black/85'
-              )}
-            >
-              {p.cta}
-            </button>
-          </div>
-        ))}
+      <div className="rounded-2xl bg-black text-white p-7 sm:p-9 shadow-xl">
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="font-serif text-5xl">$99</span>
+          <span className="text-sm text-white/55">for 3 months</span>
+        </div>
+        <p className="text-xs text-white/45 mb-6">Founding price. Regularly $147.</p>
+        <ul className="space-y-3 mb-7">
+          {FOUNDING_INCLUDED.map((b) => (
+            <li key={b} className="flex items-start gap-2.5 text-sm leading-relaxed">
+              <Check size={15} className="mt-0.5 flex-shrink-0 text-white/80" />
+              <span className="text-white/85">{b}</span>
+            </li>
+          ))}
+        </ul>
+        <WaitlistForm source="landing_pricing" tone="dark" />
       </div>
-      <p className="text-center text-xs text-black/35 mt-6">
-        All plans include core writing + audio. Credits roll over each month — what you don't use, you keep.
-      </p>
     </section>
   );
 }
 
-function FinalCTA({ onGetStarted }: { onGetStarted: (msg?: string) => void }) {
-  const [val, setVal] = useState('');
-  const submit = () => {
-    jTrack('final_cta_submitted', { has_text: !!val.trim() });
-    onGetStarted(val.trim() || undefined);
-  };
+function FinalCTA() {
   return (
     <section data-journey-section="landing_final_cta" className="w-full max-w-2xl mx-auto px-6 sm:px-10 pb-20 sm:pb-28 text-center">
       <h2 className="font-serif text-3xl sm:text-4xl tracking-tight text-black mb-3">
-        Type one sentence. Hear your story.
+        Ten seats open every week.
       </h2>
-      <p className="text-sm text-black/50 mb-8">Free to start. Your first audiobook chapter is on us.</p>
-      <div className="rounded-2xl bg-[#1c1c1e] shadow-[0_8px_40px_rgba(0,0,0,0.15)] overflow-hidden">
-        <div className="flex items-end gap-2 p-4">
-          <textarea
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            placeholder="Describe your story idea..."
-            rows={2}
-            className="flex-1 bg-transparent text-white/90 placeholder:text-white/30 text-base sm:text-sm resize-none outline-none px-2 py-2 min-h-[3.5rem] max-h-[5.5rem]"
-          />
-          <button
-            onClick={submit}
-            className={cn(
-              'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all mb-0.5',
-              val.trim() ? 'bg-white text-black hover:bg-white/90' : 'bg-white/10 text-white/30'
-            )}
-          >
-            <ArrowUp size={16} />
-          </button>
-        </div>
-      </div>
+      <p className="text-sm text-black/50 mb-8">Get on the list now so you're first in line when the next ones open.</p>
+      <WaitlistForm source="landing_final_cta" />
     </section>
   );
 }

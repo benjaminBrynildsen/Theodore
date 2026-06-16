@@ -6,7 +6,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { db, pool } from './db.js';
-import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents, ttsJobs as ttsJobsTable, genJobs as genJobsTable, contentReports, userBlocks, pushTokens } from './schema.js';
+import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents, ttsJobs as ttsJobsTable, genJobs as genJobsTable, contentReports, userBlocks, pushTokens, foundingLeads } from './schema.js';
 import crypto from 'crypto';
 import {
   clearAllUserSessions,
@@ -1123,6 +1123,33 @@ app.post('/api/referrer/capture', async (req, res) => {
     // Never block the landing page on a tracking failure.
     console.warn('[referrer] capture failed:', e?.message || e);
     res.json({ ok: true, captured: false, reason: 'error' });
+  }
+});
+
+// ========== Founding Waitlist ==========
+// Email capture for the founding-seat launch. Stores the lead with last-touch
+// ad/UTM attribution (read from the `theodore_attrib` cookie). Always responds
+// ok and dedupes on email so we never leak whether an address is already listed.
+app.post('/api/founding/waitlist', async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email || '');
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+    const ip = requestClientIp(req);
+    if (!takeRateLimitToken(res, 'founding.waitlist', `${ip}:${email}`, 8, 15 * 60 * 1000)) return;
+
+    const attrib = readAttribution(req);
+    await db.insert(foundingLeads).values({
+      email,
+      ...attributionColumns(attrib),
+    }).onConflictDoNothing();
+
+    res.json({ ok: true });
+  } catch (e: any) {
+    // Never block the landing page on a capture failure.
+    console.warn('[founding] waitlist capture failed:', e?.message || e);
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 

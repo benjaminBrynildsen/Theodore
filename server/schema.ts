@@ -44,6 +44,25 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+// ========== Founding Waitlist ==========
+// Email leads captured on the (logged-out) landing page for the founding-seat
+// launch. Attribution columns mirror `attributionColumns()` (server/attribution.ts)
+// so the same helper used at signup populates leads. `dropNotifiedAt` is set
+// when a lead is emailed that a weekly seat drop has opened.
+export const foundingLeads = pgTable('founding_leads', {
+  id: serial('id').primaryKey(),
+  email: text('email').unique().notNull(),
+  dropNotifiedAt: timestamp('drop_notified_at'),
+  utmSource: text('utm_source'),
+  utmMedium: text('utm_medium'),
+  utmCampaign: text('utm_campaign'),
+  utmContent: text('utm_content'),
+  utmTerm: text('utm_term'),
+  adPlatform: text('ad_platform'),
+  adClickId: text('ad_click_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // ========== Auth Sessions ==========
 export const sessions = pgTable('sessions', {
   id: text('id').primaryKey(),
