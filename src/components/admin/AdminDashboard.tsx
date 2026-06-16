@@ -14,6 +14,7 @@ import { EmailTab } from './EmailTab';
 import { CopyGraderTab } from './CopyGraderTab';
 import { ReferralsTab } from './ReferralsTab';
 import { ConversionTab } from './ConversionTab';
+import { FoundingTab } from './FoundingTab';
 import { PromptsTab } from './PromptsTab';
 import { JourneyDetailView } from './JourneyDetailView';
 
@@ -274,7 +275,7 @@ function formatDurationCompact(totalSeconds: number): string {
   return `${s}s`;
 }
 
-type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email' | 'copy-grader' | 'referrals' | 'conversion' | 'prompts';
+type View = 'overview' | 'traffic' | 'users' | 'activity' | 'journey' | 'journey-detail' | 'user-detail' | 'creators' | 'grok-probe' | 'outreach' | 'push' | 'launch' | 'email' | 'copy-grader' | 'referrals' | 'conversion' | 'prompts' | 'founding';
 
 interface JourneySession {
   session_id: string;
@@ -486,6 +487,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     { id: 'activity', label: 'Activity', icon: Activity },
     { id: 'journey', label: 'Journey', icon: TrendingUp },
     { id: 'conversion', label: 'Conversion', icon: TrendingUp },
+    { id: 'founding', label: 'Founding', icon: Sparkles },
     { id: 'prompts', label: 'Prompts', icon: Bell },
     { id: 'referrals', label: 'Referrals', icon: Share2 },
     { id: 'creators', label: 'Creators', icon: Film },
@@ -1436,6 +1438,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {view === 'referrals' && <ReferralsTab />}
 
         {view === 'conversion' && <ConversionTab />}
+        {view === 'founding' && <FoundingTab />}
 
         {view === 'prompts' && <PromptsTab />}
 
