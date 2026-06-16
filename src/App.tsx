@@ -66,6 +66,9 @@ const LandingPage = lazy(async () => {
   const mod = await import('./components/views/LandingPage');
   return { default: mod.LandingPage };
 });
+const FoundingBuyView = lazy(() => import('./components/views/FoundingViews').then((m) => ({ default: m.FoundingBuyView })));
+const FoundingSuccessView = lazy(() => import('./components/views/FoundingViews').then((m) => ({ default: m.FoundingSuccessView })));
+const FoundingResetView = lazy(() => import('./components/views/FoundingViews').then((m) => ({ default: m.FoundingResetView })));
 const CreatorsPage = lazy(async () => {
   const mod = await import('./components/views/CreatorsPage');
   return { default: mod.CreatorsPage };
@@ -550,6 +553,23 @@ export default function App() {
         <IosLaunchTest />
       </Suspense>
     );
+  }
+
+  // Founding-launch flows — render regardless of auth state (new buyers aren't
+  // logged in yet). Driven by URL params from the buy link / Stripe redirect /
+  // set-password email.
+  {
+    const fp = new URLSearchParams(window.location.search);
+    const foundingResetToken = fp.get('reset_token');
+    if (foundingResetToken) {
+      return <Suspense fallback={<ViewLoader label="Loading..." />}><FoundingResetView token={foundingResetToken} /></Suspense>;
+    }
+    if (fp.get('billing') === 'founding_success') {
+      return <Suspense fallback={<ViewLoader label="Loading..." />}><FoundingSuccessView sessionId={fp.get('session_id') || ''} /></Suspense>;
+    }
+    if (fp.get('founding') === 'claim') {
+      return <Suspense fallback={<ViewLoader label="Loading..." />}><FoundingBuyView /></Suspense>;
+    }
   }
 
   if (!user) {

@@ -20,6 +20,16 @@ export const users = pgTable('users', {
   stripeCurrentPeriodEnd: timestamp('stripe_current_period_end'),
   stripeCancelAtPeriodEnd: boolean('stripe_cancel_at_period_end').default(false),
   stripePriceTier: text('stripe_price_tier'),
+  // Founding-seat lifecycle. A founding buyer is plan='author' (so all existing
+  // credit-gating works) with these fields driving the one-time, non-recurring
+  // 3-month access window. Refills/expiry are applied lazily on the auth path
+  // (server/auth.ts maybeRefreshFounding) since there is no Stripe subscription
+  // invoice to hang them on. Null status = not a founding user.
+  foundingStatus: text('founding_status'), // null | 'active' | 'expired'
+  foundingExpiresAt: timestamp('founding_expires_at'), // grant + 3 months
+  foundingPeriodEnd: timestamp('founding_period_end'), // end of current 1-month credit window
+  foundingPeriodsUsed: integer('founding_periods_used').default(0), // 0..3 monthly refills granted
+  foundingDropId: integer('founding_drop_id'), // which weekly drop their seat came from
   byokKey: text('byok_key'), // encrypted
   byokProvider: text('byok_provider'),
   settings: jsonb('settings').$type<Record<string, any>>().default({}),
@@ -61,6 +71,53 @@ export const foundingLeads = pgTable('founding_leads', {
   adPlatform: text('ad_platform'),
   adClickId: text('ad_click_id'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Weekly founding-seat "drop" — mirrors Wilhelm Cold Brew's `drops`/`bottle_cap`.
+// A drop opens a hard-capped number of paid seats; `seatsClaimed` is incremented
+// atomically in the Stripe webhook (UPDATE ... WHERE seatsClaimed < seatCap) so
+// concurrent buyers can't oversell, and status flips to 'soldout' at the cap.
+export const foundingDrops = pgTable('founding_drops', {
+  id: serial('id').primaryKey(),
+  week: text('week').unique().notNull(), // 'YYYY-WW' label
+  seatCap: integer('seat_cap').notNull().default(10),
+  seatsClaimed: integer('seats_claimed').notNull().default(0),
+  opensAt: timestamp('opens_at'),
+  status: text('status').notNull().default('scheduled'), // scheduled | live | soldout | closed
+  priceCents: integer('price_cents').notNull().default(9900),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// Idempotency + claim ledger for founding purchases. One row per Checkout
+// session. `stripeSessionId` UNIQUE is the DB-level idempotency guard; the
+// webhook flips status pending→paid with a conditional UPDATE so retries no-op.
+export const foundingOrders = pgTable('founding_orders', {
+  id: serial('id').primaryKey(),
+  dropId: integer('drop_id').notNull(),
+  email: text('email').notNull(),
+  userId: text('user_id'), // set once the account exists (post-payment)
+  status: text('status').notNull().default('pending'), // pending | paid | overcap_refunded | refunded | failed
+  stripeSessionId: text('stripe_session_id').unique(),
+  stripePaymentIntent: text('stripe_payment_intent').unique(),
+  amountCents: integer('amount_cents'),
+  seatClaimed: boolean('seat_claimed').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  paidAt: timestamp('paid_at'),
+});
+
+// Physical-fulfillment entitlements (the printed book). Recorded at purchase;
+// the actual print/ship workflow is manual via the admin Founding tab later.
+export const fulfillmentGrants = pgTable('fulfillment_grants', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  type: text('type').notNull(), // 'printed_book'
+  status: text('status').notNull().default('pending'), // pending | address_collected | shipped | fulfilled
+  shippingAddress: jsonb('shipping_address').$type<Record<string, any>>(),
+  foundingOrderId: integer('founding_order_id'),
+  fulfilledAt: timestamp('fulfilled_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 // ========== Auth Sessions ==========

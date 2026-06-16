@@ -6,7 +6,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { db, pool } from './db.js';
-import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents, ttsJobs as ttsJobsTable, genJobs as genJobsTable, contentReports, userBlocks, pushTokens, foundingLeads } from './schema.js';
+import { projects, chapters, canonEntries, users, creditTransactions, audioGenerations, sfxLibrary, supportRequests, guestEvents, ttsJobs as ttsJobsTable, genJobs as genJobsTable, contentReports, userBlocks, pushTokens, foundingLeads, foundingDrops, foundingOrders, fulfillmentGrants } from './schema.js';
 import crypto from 'crypto';
 import {
   clearAllUserSessions,
@@ -29,10 +29,10 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, GROK_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, getGrokVoicesWithPreviews, getGrokPreviewBuffer, estimateTTSCredits } from './tts.js';
-import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, dumpProjectChapters, getReferrals, getConversionStats, getGoFunnel, getPromptsFunnel, getEngagementFunnel, getNoAudioCohort, getPlaybackFunnel, getNoCreditsCohort, getAudioGenBounce, getChapterTruncation, getGoFunnelByDevice, markDevSessions, getUtmFunnel, backfillAttribution } from './admin.js';
+import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, dumpProjectChapters, getReferrals, getConversionStats, getGoFunnel, getPromptsFunnel, getEngagementFunnel, getNoAudioCohort, getPlaybackFunnel, getNoCreditsCohort, getAudioGenBounce, getChapterTruncation, getGoFunnelByDevice, markDevSessions, getUtmFunnel, backfillAttribution, getFoundingOverview, createFoundingDrop, setFoundingDropLive, closeFoundingDrop, listFulfillment, markFulfillment } from './admin.js';
 import { readReferrer, writeReferrer, clearReferrer, refResolvesToRealUser } from './referrer.js';
 import { readAttribution, clearAttribution, attributionColumns, attributionMiddleware, stampAttributionFromIpAsync } from './attribution.js';
-import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken } from './email.js';
+import { sendWelcome, sendAudiobookReady, parseUnsubscribeToken, sendFoundingSetPassword, sendFoundingRefundNotice, sendFoundingSeatLive } from './email.js';
 import { sendPushToUser } from './push.js';
 import multer from 'multer';
 import { pageViewMiddleware, getTrafficStats } from './pageviews.js';
@@ -40,7 +40,7 @@ import { adClickMiddleware, getAdClicks } from './ad-clicks.js';
 import type { ElevenLabsVoice } from './tts.js';
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
-import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN, BOOST_PACKS, getBoostPack, type BoostPack } from './billing.js';
+import { getPaidTierConfig, getStripeClient, getStripePriceIdForTier, isPaidPlanTier, listPaidTierConfigs, FREE_TIER_CREDITS, FREE_TIER_NAME, ttsCreditCost, MUSIC_CREDITS_PER_TRACK, SFX_CREDITS_PER_GEN, IMAGE_CREDITS_PER_GEN, BOOST_PACKS, getBoostPack, type BoostPack, FOUNDING_PRICE_CENTS, FOUNDING_REG_PRICE_CENTS, FOUNDING_CREDITS, FOUNDING_MONTHS } from './billing.js';
 import { isValidCategory, normalizeTags } from './categories.js';
 import { categorizeProject } from './categorize.js';
 import { trackRegistration, trackSubscription, trackCheckoutInitiated } from './meta-capi.js';
@@ -945,6 +945,131 @@ app.post('/api/billing/payment-intent', async (req, res) => {
   }
 });
 
+function addMonthsFromNow(base: Date, n: number): Date {
+  const r = new Date(base);
+  r.setMonth(r.getMonth() + n);
+  return r;
+}
+
+// Core of the founding purchase, invoked from the Stripe webhook on a completed
+// $99 payment. Idempotent (conditional order claim) and race-safe (atomic seat
+// claim). A buyer has no account before paying, so the account is created here.
+async function handleFoundingPaid(session: any, req: express.Request): Promise<void> {
+  const sessionId = String(session.id || '');
+  const paymentIntent = typeof session.payment_intent === 'string' ? session.payment_intent : null;
+  const email = normalizeEmail(session.customer_details?.email || session.metadata?.email || '');
+  const dropId = Number(session.metadata?.dropId || 0);
+  const shipping = session.shipping_details || session.collected_information?.shipping_details || null;
+  if (!sessionId || !email || !dropId) {
+    console.warn('[founding] paid webhook missing fields', { sessionId, hasEmail: !!email, dropId });
+    return;
+  }
+
+  // (A) Claim the order exactly once. The conditional UPDATE is the idempotency
+  // guard: webhook retries (and the redundant payment_intent.succeeded event)
+  // find status!='pending' and no-op.
+  const [order] = await db.update(foundingOrders)
+    .set({ status: 'paid', stripePaymentIntent: paymentIntent, amountCents: session.amount_total ?? null, paidAt: new Date() })
+    .where(and(eq(foundingOrders.stripeSessionId, sessionId), eq(foundingOrders.status, 'pending')))
+    .returning();
+  if (!order) return; // already processed
+
+  // (B) Claim a seat atomically. The WHERE guard + row lock serialize concurrent
+  // webhooks so we can't oversell. Empty result = the cap filled first → refund
+  // this buyer and stop (no account created).
+  const seatClaim = await db.update(foundingDrops)
+    .set({ seatsClaimed: sql`${foundingDrops.seatsClaimed} + 1`, updatedAt: new Date() })
+    .where(and(eq(foundingDrops.id, dropId), sql`${foundingDrops.seatsClaimed} < ${foundingDrops.seatCap}`))
+    .returning({ seatsClaimed: foundingDrops.seatsClaimed, seatCap: foundingDrops.seatCap });
+
+  if (!seatClaim.length) {
+    try {
+      const stripe = await getStripeClient();
+      if (stripe && paymentIntent) await stripe.refunds.create({ payment_intent: paymentIntent });
+    } catch (e: any) {
+      console.error('[founding] over-cap refund failed', e?.message || e);
+    }
+    await db.update(foundingOrders).set({ status: 'overcap_refunded' }).where(eq(foundingOrders.id, order.id));
+    void sendFoundingRefundNotice({ email }).catch((err) => console.warn('[founding] refund email failed', err?.message || err));
+    return;
+  }
+  await db.update(foundingOrders).set({ seatClaimed: true }).where(eq(foundingOrders.id, order.id));
+  // Flip to sold-out at the cap (conditional → only fires once).
+  if (seatClaim[0].seatsClaimed >= seatClaim[0].seatCap) {
+    await db.update(foundingDrops).set({ status: 'soldout', updatedAt: new Date() })
+      .where(and(eq(foundingDrops.id, dropId), eq(foundingDrops.status, 'live')));
+  }
+
+  // (C) Account: create passwordless if new; stack the entitlement if existing
+  // (an existing customer buying in keeps the higher credit balance).
+  const now = new Date();
+  const expiresAt = addMonthsFromNow(now, FOUNDING_MONTHS);
+  const periodEnd = addMonthsFromNow(now, 1);
+  const customerId = typeof session.customer === 'string' ? session.customer : null;
+  let user = await getUserByEmail(email);
+  if (!user) {
+    const [inserted] = await db.insert(users).values({
+      id: `user-${crypto.randomUUID()}`,
+      email,
+      passwordHash: null,
+      emailVerifiedAt: now, // payment proves control of the email
+      plan: 'author',
+      creditsRemaining: FOUNDING_CREDITS,
+      creditsTotal: FOUNDING_CREDITS,
+      lastCreditResetAt: now,
+      stripeCustomerId: customerId,
+      foundingStatus: 'active',
+      foundingExpiresAt: expiresAt,
+      foundingPeriodEnd: periodEnd,
+      foundingPeriodsUsed: 1,
+      foundingDropId: dropId,
+    }).returning();
+    user = inserted;
+  } else {
+    await db.update(users).set({
+      plan: 'author',
+      creditsRemaining: sql`GREATEST(${users.creditsRemaining}, ${FOUNDING_CREDITS})`,
+      creditsTotal: FOUNDING_CREDITS,
+      foundingStatus: 'active',
+      foundingExpiresAt: expiresAt,
+      foundingPeriodEnd: periodEnd,
+      foundingPeriodsUsed: 1,
+      foundingDropId: dropId,
+      stripeCustomerId: customerId || user.stripeCustomerId,
+      updatedAt: now,
+    }).where(eq(users.id, user.id));
+  }
+  await db.update(foundingOrders).set({ userId: user.id }).where(eq(foundingOrders.id, order.id));
+
+  // (D) Fulfillment entitlement for the printed book.
+  await db.insert(fulfillmentGrants).values({
+    userId: user.id,
+    type: 'printed_book',
+    status: shipping?.address ? 'address_collected' : 'pending',
+    shippingAddress: shipping || null,
+    foundingOrderId: order.id,
+  });
+
+  // (E) Get them logged in. A passwordless buyer (new, or an OAuth-only existing
+  // user) gets a set-password link → /api/auth/reset-password mints a session on
+  // submit. Existing password users can just sign in, so skip the email for them.
+  if (!user.passwordHash) {
+    try {
+      const token = await setResetToken(user.id);
+      const origin = resolveFrontendOrigin(req);
+      const setupUrl = `${origin}/?reset_token=${encodeURIComponent(token)}`;
+      const u = user;
+      void sendFoundingSetPassword({ user: { id: u.id, email: u.email, name: u.name, settings: u.settings }, setupUrl })
+        .catch((err) => console.warn('[founding] set-password email failed', err?.message || err));
+    } catch (e: any) {
+      console.error('[founding] set-password token/email failed', e?.message || e);
+    }
+  }
+
+  // Meta CAPI: track the purchase server-side (best-effort).
+  try { trackSubscription(req as any, user.email, (session.amount_total ?? FOUNDING_PRICE_CENTS) / 100); } catch { /* non-fatal */ }
+}
+
 app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const stripe = await getStripeClient();
@@ -979,6 +1104,9 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
         const [u] = await db.select().from(users).where(eq(users.id, uid));
         if (u) await grantBoostCredits({ user: u, pack, stripePaymentId: pi.id });
       }
+    } else if (event.type === 'checkout.session.completed' && (event.data.object as any).mode === 'payment' && (event.data.object as any).metadata?.type === 'founding') {
+      // Founding $99 one-time purchase — create account, claim seat, fulfillment.
+      await handleFoundingPaid(event.data.object as any, req);
     } else if (event.type === 'checkout.session.completed') {
       const session = event.data.object as any;
       const customerId = typeof session.customer === 'string' ? session.customer : null;
@@ -1089,6 +1217,21 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), asyn
       }
     }
 
+    // Founding: an abandoned/expired Checkout leaves a pending order — mark it
+    // failed so it doesn't linger. (A failed payment never set a PI on the order,
+    // so we match on the session id.)
+    if (event.type === 'checkout.session.expired') {
+      const sid = String((event.data.object as any).id || '');
+      if (sid) {
+        await db.update(foundingOrders).set({ status: 'failed' })
+          .where(and(eq(foundingOrders.stripeSessionId, sid), eq(foundingOrders.status, 'pending')));
+      }
+    }
+    if (event.type === 'charge.refunded') {
+      // Over-cap refunds are already recorded in handleFoundingPaid; just log.
+      console.log('[founding] charge.refunded received', (event.data.object as any).id);
+    }
+
     res.json({ received: true });
   } catch (e: any) {
     console.error('Stripe webhook error:', e);
@@ -1153,6 +1296,113 @@ app.post('/api/founding/waitlist', async (req, res) => {
   }
 });
 
+// ── Founding seats: drop status, checkout, order poll ──
+
+// The single live drop (status='live'), if any. Newest first.
+async function currentLiveDrop() {
+  const [drop] = await db.select().from(foundingDrops)
+    .where(eq(foundingDrops.status, 'live'))
+    .orderBy(desc(foundingDrops.opensAt), desc(foundingDrops.id))
+    .limit(1);
+  return drop || null;
+}
+
+// Public seat-availability read for the buy / sold-out views.
+app.get('/api/founding/drop/current', async (_req, res) => {
+  try {
+    const drop = await currentLiveDrop();
+    if (drop && drop.seatsClaimed < drop.seatCap) {
+      return res.json({
+        available: true,
+        dropId: drop.id,
+        priceCents: drop.priceCents,
+        regPriceCents: FOUNDING_REG_PRICE_CENTS,
+        seatCap: drop.seatCap,
+        seatsClaimed: drop.seatsClaimed,
+        seatsRemaining: drop.seatCap - drop.seatsClaimed,
+      });
+    }
+    // No live drop, or the live drop is full.
+    return res.json({ available: false, soldOut: Boolean(drop) });
+  } catch (e: any) {
+    respondInternalError(res, 'founding.drop.current', e);
+  }
+});
+
+// Start a $99 founding checkout. No auth — the buyer has no account yet; the
+// account is created in the webhook after payment confirms. Records a pending
+// founding_orders row keyed on the Checkout session id (the idempotency anchor).
+app.post('/api/founding/checkout', async (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email || '');
+    if (!isValidEmail(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
+    const ip = requestClientIp(req);
+    if (!takeRateLimitToken(res, 'founding.checkout', `${ip}:${email}`, 10, 15 * 60 * 1000)) return;
+
+    const drop = await currentLiveDrop();
+    if (!drop) return res.status(409).json({ error: 'No seats are open right now.', code: 'NO_LIVE_DROP' });
+    if (drop.seatsClaimed >= drop.seatCap) return res.status(409).json({ error: "This week's seats are sold out.", code: 'SOLD_OUT' });
+
+    const stripe = await getStripeClient();
+    if (!stripe) return res.status(503).json({ error: 'Checkout is not configured.' });
+
+    const origin = resolveFrontendOrigin(req);
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer_email: email,
+      success_url: `${origin}/?billing=founding_success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/?billing=founding_cancel`,
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          unit_amount: drop.priceCents,
+          product_data: {
+            name: 'Theodore Founding — 3 months + printed book',
+            description: '3 months of full Author access plus your finished book printed and shipped.',
+          },
+        },
+        quantity: 1,
+      }],
+      shipping_address_collection: { allowed_countries: ['US', 'CA', 'GB', 'AU'] },
+      payment_intent_data: { metadata: { type: 'founding', dropId: String(drop.id), email } },
+      metadata: { type: 'founding', dropId: String(drop.id), email },
+    });
+
+    await db.insert(foundingOrders).values({
+      dropId: drop.id,
+      email,
+      status: 'pending',
+      stripeSessionId: session.id,
+      amountCents: drop.priceCents,
+    });
+
+    res.json({ url: session.url });
+  } catch (e: any) {
+    respondInternalError(res, 'founding.checkout', e);
+  }
+});
+
+// Success-page poll — the success page checks this until status='paid', then
+// tells the buyer to check their email for the set-password link.
+app.get('/api/founding/order/:session', async (req, res) => {
+  try {
+    const sessionId = String(req.params.session || '');
+    const [order] = await db.select({ status: foundingOrders.status })
+      .from(foundingOrders).where(eq(foundingOrders.stripeSessionId, sessionId)).limit(1);
+    if (!order) return res.status(404).json({ error: 'Order not found.' });
+    res.json({ status: order.status });
+  } catch (e: any) {
+    respondInternalError(res, 'founding.order', e);
+  }
+});
+
+// When FOUNDING_MODE is on, the front door is invite-only: no NEW free accounts
+// from register/Google/Apple. Existing users still log in and set passwords;
+// the founding webhook is the only path that creates new accounts (it inserts
+// directly via db.insert, bypassing these guards).
+const NEW_SIGNUPS_CLOSED = process.env.FOUNDING_MODE === 'true';
+const FOUNDING_ONLY_RESPONSE = { error: 'Theodore is invite-only right now. Get on the list to claim a seat.', code: 'FOUNDING_ONLY' };
+
 // ========== Auth ==========
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -1178,6 +1428,7 @@ app.post('/api/auth/register', async (req, res) => {
     let user = existing;
     let isNewUser = false;
     if (!user) {
+      if (NEW_SIGNUPS_CLOSED) return res.status(403).json(FOUNDING_ONLY_RESPONSE);
       // Capture share-referral attribution if the user came in via a share link.
       const referrer = readReferrer(req);
       const attrib = readAttribution(req);
@@ -1265,6 +1516,7 @@ app.post('/api/auth/google', async (req, res) => {
     let user = await getUserByEmail(email);
     let isNewUser = false;
     if (!user) {
+      if (NEW_SIGNUPS_CLOSED) return res.status(403).json(FOUNDING_ONLY_RESPONSE);
       // New user — create account. Capture share-referral attribution.
       const referrer = readReferrer(req);
       const attrib = readAttribution(req);
@@ -1374,6 +1626,7 @@ app.post('/api/auth/apple', async (req, res) => {
     let user = await getUserByEmail(email);
     let isNewUser = false;
     if (!user) {
+      if (NEW_SIGNUPS_CLOSED) return res.status(403).json(FOUNDING_ONLY_RESPONSE);
       const referrer = readReferrer(req);
       const attrib = readAttribution(req);
       const [inserted] = await db.insert(users).values({
@@ -3746,6 +3999,13 @@ app.get('/api/admin/journeys', getJourneys);
 app.get('/api/admin/journeys/:sessionId', getJourneyDetail);
 app.get('/api/admin/referrals', getReferrals);
 app.get('/api/admin/conversion-stats', getConversionStats);
+// Founding launch admin
+app.get('/api/admin/founding/overview', getFoundingOverview);
+app.post('/api/admin/founding/drops', createFoundingDrop);
+app.post('/api/admin/founding/drops/live', setFoundingDropLive);
+app.post('/api/admin/founding/drops/close', closeFoundingDrop);
+app.get('/api/admin/founding/fulfillment', listFulfillment);
+app.post('/api/admin/founding/fulfillment', markFulfillment);
 app.get('/api/admin/go-funnel', getGoFunnel);
 app.get('/api/admin/utm-funnel', getUtmFunnel);
 app.post('/api/admin/backfill-attribution', backfillAttribution);

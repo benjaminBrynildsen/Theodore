@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { db } from './db.js';
 import { sessions, users } from './schema.js';
-import { FREE_TIER_CREDITS, FREE_TIER_RESET_INTERVAL_MS } from './billing.js';
+import { FREE_TIER_CREDITS, FREE_TIER_RESET_INTERVAL_MS, FOUNDING_CREDITS, FOUNDING_MONTHS } from './billing.js';
 
 const SESSION_COOKIE = 'theodore_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
@@ -115,7 +115,59 @@ export function toSafeUser(user: DbUser) {
     iosLaunchOptInAt: ((user.settings as any)?.iosLaunchOptInAt as string | undefined) ?? null,
     appStoreLaunchSeen: Boolean((user.settings as any)?.appStoreLaunchSeen),
     emailOptOut: ((user.settings as any)?.emailOptOut as Record<string, boolean> | undefined) ?? {},
+    // Founding lifecycle — lets the client show a "your access ended, rejoin"
+    // wall when status flips to 'expired'.
+    foundingStatus: user.foundingStatus ?? null,
+    foundingExpiresAt: user.foundingExpiresAt ?? null,
   };
+}
+
+function addMonths(d: Date, n: number): Date {
+  const r = new Date(d);
+  r.setMonth(r.getMonth() + n);
+  return r;
+}
+
+// Founding users pay once for 3 months of Author access — there's no recurring
+// invoice, so the monthly credit refill and the final expiry are applied lazily
+// here on every auth resolve (same pattern as maybeResetFreeCredits, no cron).
+async function maybeRefreshFounding(user: DbUser): Promise<DbUser> {
+  if (user.foundingStatus !== 'active') return user;
+  const now = new Date();
+
+  // Expiry: 3 months elapsed → lock to 'expired' (NOT free — free signup is
+  // killed). Credit gates (creditsRemaining <= 0) then block generation while
+  // the user keeps read access to their library.
+  if (user.foundingExpiresAt && now >= user.foundingExpiresAt) {
+    const patch = { foundingStatus: 'expired', plan: 'expired', creditsRemaining: 0, creditsTotal: 0, updatedAt: now };
+    await db.update(users).set(patch).where(eq(users.id, user.id));
+    return { ...user, ...patch };
+  }
+
+  // Monthly refill: advance through every elapsed window in one pass so a
+  // dormant user who skips a month still catches up on next visit. Capped at
+  // FOUNDING_MONTHS grants total (month 1 was granted at purchase).
+  let periodEnd = user.foundingPeriodEnd;
+  let periodsUsed = user.foundingPeriodsUsed ?? 0;
+  let credits = user.creditsRemaining ?? 0;
+  let changed = false;
+  while (periodEnd && now >= periodEnd && periodsUsed < FOUNDING_MONTHS) {
+    credits = Math.max(FOUNDING_CREDITS, credits); // preserve any unspent balance
+    periodEnd = addMonths(periodEnd, 1);
+    periodsUsed += 1;
+    changed = true;
+  }
+  if (!changed) return user;
+  const patch = {
+    creditsRemaining: credits,
+    creditsTotal: FOUNDING_CREDITS,
+    foundingPeriodEnd: periodEnd,
+    foundingPeriodsUsed: periodsUsed,
+    lastCreditResetAt: now,
+    updatedAt: now,
+  };
+  await db.update(users).set(patch).where(eq(users.id, user.id));
+  return { ...user, ...patch };
 }
 
 // Free users get FREE_TIER_CREDITS refreshed on a rolling 30-day window, no
@@ -221,7 +273,8 @@ async function resolveAuthContext(req: Request): Promise<AuthContext | null> {
     await db.delete(sessions).where(eq(sessions.id, session.id));
     return null;
   }
-  const user = await maybeResetFreeCredits(rawUser);
+  let user = await maybeResetFreeCredits(rawUser);
+  user = await maybeRefreshFounding(user);
 
   void db.update(sessions).set({ lastUsedAt: new Date() }).where(eq(sessions.id, session.id));
   return { user, session };

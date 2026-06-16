@@ -24,6 +24,18 @@ export const FREE_TIER_CREDITS = 400;
 export const FREE_TIER_NAME = 'Dreamer';
 export const FREE_TIER_RESET_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000; // 30d rolling
 
+// ========== Founding Offer ==========
+// One-time $99 (reg. $147) = 3 months of Author-tier access + a printed book.
+// Founding users carry plan='author' (so all credit-gating works) plus the
+// founding* lifecycle columns. There is no Stripe subscription — access is
+// granted/refilled/expired lazily on the auth path (server/auth.ts).
+export const FOUNDING_PRICE_CENTS = 9900;
+export const FOUNDING_REG_PRICE_CENTS = 14700;
+export const FOUNDING_TIER: PaidPlanTier = 'author';
+export const FOUNDING_CREDITS = TIER_CONFIG.author.credits; // 7500 / month
+export const FOUNDING_MONTHS = 3;
+export const FOUNDING_SEAT_CAP = 10;
+
 // ========== One-time Credit Boosts ==========
 // Premium-priced one-time top-ups (no subscription). Granted credits land in
 // the user's normal `creditsRemaining` pool; the GREATEST(...) refill rule in

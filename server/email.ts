@@ -353,5 +353,67 @@ export async function sendAudiobookReady(opts: {
   });
 }
 
+// ── Founding-launch emails ──
+
+// Post-purchase: the buyer's account is created passwordless in the webhook.
+// This sends a link to set a password (reuses /reset-password, which mints a
+// session on submit). force:true — it's the only way a new buyer gets in.
+export async function sendFoundingSetPassword(opts: {
+  user: { id: string; email: string; name?: string | null; settings?: any };
+  setupUrl: string;
+}) {
+  const firstName = (opts.user.name || '').split(/\s+/)[0] || 'there';
+  const bodyHtml = `<p>Hey ${firstName},</p>
+<p>You're in — your founding seat is confirmed. Welcome to Theodore.</p>
+<p>Set your password to start writing:</p>
+<p><a href="${opts.setupUrl}" style="display:inline-block;padding:11px 20px;background:#1c1c1e;color:#fff;border-radius:10px;text-decoration:none;font-weight:600;">Set password and sign in</a></p>
+<p style="margin-top:8px;color:#8a8a8e;font-size:13px;">Or paste this link: ${opts.setupUrl}</p>
+<p>You have full access for the next 3 months, and we'll be in touch about printing your finished book.</p>
+<p style="margin-top:28px;">— Ben</p>`;
+  return sendToUser({
+    user: opts.user,
+    kind: 'password-reset',
+    subject: "You're in — set your Theodore password",
+    bodyHtml,
+    preheader: 'Your founding seat is confirmed. Set a password to start writing.',
+    force: true,
+  });
+}
+
+// Lower-level send for addresses with no user account yet (waitlist leads,
+// over-cap refunded buyers). Uses a mailto unsubscribe to stay CAN-SPAM clean.
+async function sendRawHtml(opts: { to: string; subject: string; bodyHtml: string; preheader?: string }) {
+  const unsubHref = `mailto:${SEND_FROM}?subject=unsubscribe`;
+  const html = wrapHtml({ bodyHtml: opts.bodyHtml, unsubscribeHref: unsubHref, preheader: opts.preheader });
+  const transporter = getTransporter();
+  await transporter.sendMail({
+    from: `${FROM_NAME} <${SEND_FROM}>`,
+    to: opts.to,
+    subject: opts.subject,
+    html,
+    text: htmlToText(html),
+    headers: { 'List-Unsubscribe': `<${unsubHref}>` },
+  });
+}
+
+// Drop opened: tell a waitlist lead a seat is available, with a buy link.
+export async function sendFoundingSeatLive(opts: { email: string; buyUrl: string }) {
+  const bodyHtml = `<p>Seats just opened.</p>
+<p>This week's founding seats are live, and they're first-come. $99 gets you 3 months of full access and your finished book printed and shipped to your door. When the 10 are gone, the next batch opens next week.</p>
+<p><a href="${opts.buyUrl}" style="display:inline-block;padding:11px 20px;background:#1c1c1e;color:#fff;border-radius:10px;text-decoration:none;font-weight:600;">Claim your seat</a></p>
+<p style="margin-top:8px;color:#8a8a8e;font-size:13px;">Or paste this link: ${opts.buyUrl}</p>
+<p style="margin-top:24px;">— Ben</p>`;
+  return sendRawHtml({ to: opts.email, subject: 'Your Theodore seat is open', bodyHtml, preheader: '10 founding seats, first-come. $99 for 3 months plus your book in print.' });
+}
+
+// Over-cap: payment landed after the cap filled; we refunded in full.
+export async function sendFoundingRefundNotice(opts: { email: string }) {
+  const bodyHtml = `<p>Quick heads-up — this week's 10 founding seats filled before your payment cleared, so we've refunded you in full. You should see it back on your card within a few days.</p>
+<p>You're at the front of the line for next week's drop, and we'll email you the moment seats open.</p>
+<p>Sorry for the near miss, and thanks for jumping on it.</p>
+<p style="margin-top:24px;">— Ben</p>`;
+  return sendRawHtml({ to: opts.email, subject: "Refunded — this week's seats filled up", bodyHtml, preheader: "Your founding payment was refunded; you're first for next week." });
+}
+
 // ── Internal helper exposed for admin endpoints ──
 export { SEND_FROM, FROM_NAME, APP_URL };

@@ -4,11 +4,11 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { db } from './db.js';
-import { users, projects, chapters, canonEntries, creditTransactions, audioGenerations, guestEvents, pushTokens, transactionalEmails, emailTemplates } from './schema.js';
+import { users, projects, chapters, canonEntries, creditTransactions, audioGenerations, guestEvents, pushTokens, transactionalEmails, emailTemplates, foundingLeads, foundingDrops, foundingOrders, fulfillmentGrants } from './schema.js';
 import { sql, eq, desc, count, sum, gt, and, inArray, isNotNull, ne } from 'drizzle-orm';
 import { getAuth } from './auth.js';
 import { sendPushToTokens } from './push.js';
-import { sendToUser, getTemplate, setTemplate, DEFAULT_TEMPLATES, substituteVars, type EmailKind, APP_URL } from './email.js';
+import { sendToUser, getTemplate, setTemplate, DEFAULT_TEMPLATES, substituteVars, type EmailKind, APP_URL, sendFoundingSeatLive } from './email.js';
 import { getStripeClient } from './billing.js';
 import { payloadFromUrl, attributionFromRecentTraffic, attributionColumns } from './attribution.js';
 
@@ -4261,4 +4261,129 @@ export async function backfillAttribution(req: Request, res: Response) {
     console.error('[Admin] backfill-attribution error:', e?.message || e);
     res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+// ========== Founding launch admin ==========
+
+function isoWeekLabel(d: Date): string {
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((date.getTime() - firstThursday.getTime()) / 86400000 - 3 + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+// Overview: waitlist size, order tallies, recent drops.
+export async function getFoundingOverview(req: Request, res: Response) {
+  const admin = await requireAdmin(req, res); if (!admin) return;
+  try {
+    const [{ leads }] = await db.select({ leads: count() }).from(foundingLeads);
+    const [{ paid }] = await db.select({ paid: count() }).from(foundingOrders).where(eq(foundingOrders.status, 'paid'));
+    const [{ pending }] = await db.select({ pending: count() }).from(foundingOrders).where(eq(foundingOrders.status, 'pending'));
+    const [{ refunded }] = await db.select({ refunded: count() }).from(foundingOrders).where(eq(foundingOrders.status, 'overcap_refunded'));
+    const drops = await db.select().from(foundingDrops).orderBy(desc(foundingDrops.id)).limit(20);
+    res.json({
+      leads: Number(leads || 0),
+      paid: Number(paid || 0),
+      pending: Number(pending || 0),
+      refunded: Number(refunded || 0),
+      drops,
+    });
+  } catch (e: any) {
+    console.error('[Admin] founding overview error:', e?.message || e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// Create a scheduled drop. Week label auto-fills to the current ISO week.
+export async function createFoundingDrop(req: Request, res: Response) {
+  const admin = await requireAdmin(req, res); if (!admin) return;
+  const seatCap = Math.max(1, Math.min(1000, Number(req.body?.seatCap) || 10));
+  const priceCents = Math.max(100, Number(req.body?.priceCents) || 9900);
+  const week = String(req.body?.week || '').trim() || isoWeekLabel(new Date());
+  try {
+    const [drop] = await db.insert(foundingDrops).values({ week, seatCap, priceCents, status: 'scheduled' }).returning();
+    res.json({ ok: true, drop });
+  } catch {
+    res.status(400).json({ error: 'Could not create drop — that week may already exist.' });
+  }
+}
+
+// Flip a drop live and (optionally) blast the waitlist with the buy link.
+// Only one drop is live at a time; others are closed.
+export async function setFoundingDropLive(req: Request, res: Response) {
+  const admin = await requireAdmin(req, res); if (!admin) return;
+  const dropId = Number(req.body?.dropId || 0);
+  if (!dropId) return res.status(400).json({ error: 'dropId required.' });
+  try {
+    await db.update(foundingDrops).set({ status: 'closed', updatedAt: new Date() })
+      .where(and(eq(foundingDrops.status, 'live'), ne(foundingDrops.id, dropId)));
+    const [drop] = await db.update(foundingDrops).set({ status: 'live', opensAt: new Date(), updatedAt: new Date() })
+      .where(eq(foundingDrops.id, dropId)).returning();
+    if (!drop) return res.status(404).json({ error: 'Drop not found.' });
+
+    const buyUrl = `${APP_URL}/?founding=claim`;
+    const blast = String(req.body?.blast ?? 'true') !== 'false';
+    let notified = 0, failed = 0;
+    if (blast) {
+      const leads = await db.select({ email: foundingLeads.email }).from(foundingLeads);
+      for (const lead of leads) {
+        try { await sendFoundingSeatLive({ email: lead.email, buyUrl }); notified++; }
+        catch { failed++; }
+        await new Promise((r) => setTimeout(r, 80)); // throttle Gmail SMTP (~12/s)
+      }
+      await db.update(foundingLeads).set({ dropNotifiedAt: new Date() });
+    }
+    res.json({ ok: true, drop, notified, failed });
+  } catch (e: any) {
+    console.error('[Admin] founding go-live error:', e?.message || e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+export async function closeFoundingDrop(req: Request, res: Response) {
+  const admin = await requireAdmin(req, res); if (!admin) return;
+  const dropId = Number(req.body?.dropId || 0);
+  const [drop] = await db.update(foundingDrops).set({ status: 'closed', updatedAt: new Date() })
+    .where(eq(foundingDrops.id, dropId)).returning();
+  if (!drop) return res.status(404).json({ error: 'Drop not found.' });
+  res.json({ ok: true, drop });
+}
+
+// Printed-book fulfillment queue.
+export async function listFulfillment(req: Request, res: Response) {
+  const admin = await requireAdmin(req, res); if (!admin) return;
+  try {
+    const grants = await db.select({
+      id: fulfillmentGrants.id,
+      userId: fulfillmentGrants.userId,
+      type: fulfillmentGrants.type,
+      status: fulfillmentGrants.status,
+      shippingAddress: fulfillmentGrants.shippingAddress,
+      createdAt: fulfillmentGrants.createdAt,
+      email: users.email,
+      name: users.name,
+    }).from(fulfillmentGrants)
+      .leftJoin(users, eq(users.id, fulfillmentGrants.userId))
+      .orderBy(desc(fulfillmentGrants.id)).limit(500);
+    res.json({ grants });
+  } catch (e: any) {
+    console.error('[Admin] fulfillment list error:', e?.message || e);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+export async function markFulfillment(req: Request, res: Response) {
+  const admin = await requireAdmin(req, res); if (!admin) return;
+  const id = Number(req.body?.id || 0);
+  const status = String(req.body?.status || '');
+  if (!['pending', 'address_collected', 'shipped', 'fulfilled'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status.' });
+  }
+  const patch: any = { status, updatedAt: new Date() };
+  if (status === 'shipped' || status === 'fulfilled') patch.fulfilledAt = new Date();
+  const [grant] = await db.update(fulfillmentGrants).set(patch).where(eq(fulfillmentGrants.id, id)).returning();
+  if (!grant) return res.status(404).json({ error: 'Grant not found.' });
+  res.json({ ok: true, grant });
 }
