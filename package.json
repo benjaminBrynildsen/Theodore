@@ -15,6 +15,7 @@
     "db:push": "drizzle-kit push --force || true",
     "db:studio": "drizzle-kit studio",
     "lint": "eslint .",
+    "test:story-memory": "tsx scripts/test-story-memory.ts",
     "preview": "vite preview",
     "sync:staging": "node scripts/sync-staging-from-prod.mjs",
     "sync:staging:apply": "node scripts/sync-staging-from-prod.mjs --apply",

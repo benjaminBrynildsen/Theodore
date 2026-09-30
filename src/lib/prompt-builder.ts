@@ -4,9 +4,18 @@
 
 import type { Project, Chapter, PremiseCard, WritingMode, GenerationType, Scene, EditChatMessage } from '../types';
 import type { AppSettings, WritingStyleSettings } from '../types/settings';
-import type { AnyCanonEntry, CharacterEntry, LocationEntry } from '../types/canon';
+import type { AnyCanonEntry } from '../types/canon';
 import { buildContinuityContext, formatContinuityBlock } from './continuity-context';
 import { getDialogueTargetForProject, buildDialogueClause } from './dialogue-targets';
+import {
+  buildStoryMemoryBlock,
+  foldStoryState,
+  renderCharacterCard,
+  renderLightCharacter,
+  renderWorldCard,
+  selectRelevantCanon,
+  type StoryStateAt,
+} from './story-memory';
 
 // ========== Selection-Based Edit Prompt (Vibe Editor) ==========
 
@@ -23,8 +32,9 @@ export interface SelectionEditContext {
 }
 
 export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
-  const { project, chapter, allChapters, settings, instruction, selectedText, fullProse, chatHistory } = ctx;
+  const { project, chapter, allChapters, canonEntries, settings, instruction, selectedText, fullProse, chatHistory } = ctx;
   const sections: string[] = [];
+  const memoryBlock = buildCanonAndMemory(canonEntries || [], chapter, allChapters, false);
   const continuity = buildContinuityContext(project, allChapters, chapter.id);
   const continuityBlock = formatContinuityBlock(continuity);
 
@@ -46,6 +56,9 @@ export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
 
   // Cross-chapter continuity (story so far, open threads, recent dialogue, prev chapter)
   if (continuityBlock) sections.push('\n' + continuityBlock);
+
+  // Character/object state + established facts — edits must not contradict them
+  if (memoryBlock) sections.push('\n' + memoryBlock);
 
   // Recent chat history
   if (chatHistory.length > 0) {
@@ -283,130 +296,64 @@ function buildToneInstructions(project: Project): string {
 
 // ========== Canon Context ==========
 
-function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter): string {
+function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter, allChapters: Chapter[], state?: StoryStateAt): string {
   if (entries.length === 0) return '';
+  const sel = selectRelevantCanon(entries, chapter, allChapters, state);
+  const sorted = [...allChapters].sort((a, b) => (a.number || 0) - (b.number || 0));
+  const chapterNumber = sorted.findIndex((c) => c.id === chapter.id) + 1 || undefined;
+  const cardOpts = { chapterNumber, totalChapters: sorted.length || undefined, relevantNames: sel.relevantNames, state };
 
-  // Smart filtering: only include canon relevant to this chapter
-  const chapterCharNames = new Set((chapter.premise?.characters || []).map(n => n.toLowerCase()));
-  
-  const characters = entries.filter(e => e.type === 'character') as CharacterEntry[];
-  const locations = entries.filter(e => e.type === 'location') as LocationEntry[];
-  const others = entries.filter(e => e.type !== 'character' && e.type !== 'location');
-
-  // Primary characters: directly listed in chapter premise
-  const primaryChars = characters.filter(c => 
-    chapterCharNames.has(c.name.toLowerCase()) ||
-    (c.character.fullName && chapterCharNames.has(c.character.fullName.toLowerCase())) ||
-    (c.character.aliases || []).some(a => chapterCharNames.has(a.toLowerCase()))
-  );
-
-  // Secondary characters: have a relationship with a primary character
-  const primaryIds = new Set(primaryChars.map(c => c.id));
-  const secondaryChars = characters.filter(c => 
-    !primaryIds.has(c.id) &&
-    (c.character.relationships || []).some(r => primaryIds.has(r.characterId))
-  );
-
-  // Relevant locations: mentioned in chapter constraints, purpose, or changes
-  const chapterText = [
-    chapter.premise?.purpose,
-    chapter.premise?.changes,
-    chapter.premise?.emotionalBeat,
-    ...(chapter.premise?.constraints || []),
-    ...(chapter.scenes || []).map(s => s.summary),
-  ].filter(Boolean).join(' ').toLowerCase();
-
-  const relevantLocations = locations.filter(l =>
-    chapterText.includes(l.name.toLowerCase()) ||
-    (l.location.fullName && chapterText.includes(l.location.fullName.toLowerCase())) ||
-    (l.location.aliases || []).some(a => chapterText.includes(a.toLowerCase())) ||
-    // Also include locations where primary characters currently are
-    primaryChars.some(c => c.character?.storyState?.currentLocation?.toLowerCase().includes(l.name.toLowerCase()))
-  );
-
-  // Relevant world elements: tagged with chapter characters or mentioned in chapter text
-  const relevantOthers = others.filter(e =>
-    chapterText.includes(e.name.toLowerCase()) ||
-    (e.tags || []).some(t => chapterCharNames.has(t.toLowerCase())) ||
-    (e.tags || []).some(t => chapterText.includes(t.toLowerCase()))
-  );
-
-  // If filtering produces nothing (maybe premise isn't filled out), fall back to all
-  const hasRelevantContent = primaryChars.length > 0 || relevantLocations.length > 0 || relevantOthers.length > 0;
-  
   const sections: string[] = ['=== CANON (established facts — do not contradict) ==='];
 
-  // Characters — full detail for primary, brief for secondary
-  const charsToShow = hasRelevantContent ? primaryChars : characters;
-  if (charsToShow.length > 0) {
+  if (sel.primaryChars.length > 0) {
     sections.push('\n## Characters');
-    for (const c of charsToShow) {
-      const ch = c.character;
-      const lines = [`### ${c.name}`];
-      if (c.description) lines.push(c.description);
-      if (ch.fullName && ch.fullName !== c.name) lines.push(`Full name: ${ch.fullName}`);
-      if (ch.age) lines.push(`Age: ${ch.age}`);
-      if (ch.role) lines.push(`Role: ${ch.role}`);
-      if (ch.occupation) lines.push(`Occupation: ${ch.occupation}`);
-      if (ch.personality?.traits?.length) lines.push(`Traits: ${ch.personality.traits.join(', ')}`);
-      if (ch.personality?.speechPattern) lines.push(`Speech pattern: ${ch.personality.speechPattern}`);
-      if (ch.appearance?.physical) lines.push(`Appearance: ${ch.appearance.physical}`);
-      if (ch.storyState?.currentLocation) lines.push(`Current location: ${ch.storyState.currentLocation}`);
-      if (ch.storyState?.emotionalState) lines.push(`Emotional state: ${ch.storyState.emotionalState}`);
-      if (ch.storyState && ch.storyState.alive === false) lines.push('⚠ STATUS: DEAD');
-      // Include relevant relationships (only to other characters in this chapter)
-      const relevantRels = (ch.relationships || []).filter(r => chapterCharNames.has((r.characterName || '').toLowerCase()));
-      if (relevantRels.length > 0) {
-        lines.push('Key relationships:');
-        for (const r of relevantRels) {
-          lines.push(`  - ${r.characterName}: ${r.type} — ${r.currentState || r.dynamic}`);
-        }
-      }
-      sections.push(lines.join('\n'));
-    }
+    for (const c of sel.primaryChars) sections.push(renderCharacterCard(c, cardOpts));
   }
-
-  // Brief mentions for secondary characters (name + role + relationship only)
-  if (hasRelevantContent && secondaryChars.length > 0) {
-    sections.push('\n## Also Referenced');
-    for (const c of secondaryChars) {
-      const rel = (c.character.relationships || []).find(r => primaryIds.has(r.characterId));
-      sections.push(`- ${c.name} (${c.character.role || 'unknown'}): ${rel?.dynamic || c.description || 'mentioned'}`);
-    }
+  if (sel.secondaryChars.length > 0) {
+    sections.push('\n## Also In The Story (recently on the page or connected — keep consistent if they appear)');
+    for (const c of sel.secondaryChars) sections.push(renderLightCharacter(c));
   }
-
-  // Locations
-  const locsToShow = hasRelevantContent ? relevantLocations : locations;
-  if (locsToShow.length > 0) {
+  if (sel.locations.length > 0) {
     sections.push('\n## Locations');
-    for (const l of locsToShow) {
-      const loc = l.location;
-      const lines = [`### ${l.name}`];
-      if (l.description) lines.push(l.description);
-      if (loc.locationType) lines.push(`Type: ${loc.locationType}`);
-      if (loc.currentState?.atmosphere) lines.push(`Atmosphere: ${loc.currentState.atmosphere}`);
-      if (loc.currentState?.condition) lines.push(`Condition: ${loc.currentState.condition}`);
-      if (loc.currentState?.sensoryDetails) {
-        const sd = loc.currentState.sensoryDetails;
-        const sensory = [sd.sights, sd.sounds, sd.smells, sd.textures].filter(Boolean);
-        if (sensory.length > 0) lines.push(`Sensory: ${sensory.join('; ')}`);
-      }
-      if (loc.storyRelevance?.accessRules) lines.push(`Access: ${loc.storyRelevance.accessRules}`);
-      if (loc.storyRelevance?.dangerLevel) lines.push(`Danger level: ${loc.storyRelevance.dangerLevel}`);
-      sections.push(lines.join('\n'));
-    }
+    for (const l of sel.locations) sections.push(renderWorldCard(l, state));
   }
-
-  // World elements
-  const othersToShow = hasRelevantContent ? relevantOthers : others;
-  if (othersToShow.length > 0) {
+  if (sel.artifacts.length > 0) {
+    sections.push('\n## Objects & Artifacts');
+    for (const a of sel.artifacts) sections.push(renderWorldCard(a, state));
+  }
+  if (sel.others.length > 0) {
     sections.push('\n## World Rules & Elements');
-    for (const e of othersToShow) {
-      sections.push(`### ${e.name} (${e.type})\n${e.description || 'No description'}`);
-    }
+    for (const e of sel.others) sections.push(renderWorldCard(e, state));
   }
 
-  return sections.join('\n');
+  return sections.length > 1 ? sections.join('\n') : '';
+}
+
+/**
+ * Canon cards + state/fact memory for prompts built outside buildGenerationPrompt
+ * (e.g. the creation-time Chapter 1), so every chapter sees the same profiles.
+ */
+export function buildCanonReferenceBlock(entries: AnyCanonEntry[], chapter: Chapter, allChapters: Chapter[]): string {
+  return buildCanonAndMemory(entries, chapter, allChapters, true);
+}
+
+/** Canon cards (when enabled) + CURRENT STATE / ESTABLISHED FACTS memory for a chapter. */
+function buildCanonAndMemory(
+  entries: AnyCanonEntry[],
+  chapter: Chapter,
+  allChapters: Chapter[],
+  includeCanon: boolean,
+): string {
+  const state = foldStoryState(allChapters, chapter.id);
+  const parts: string[] = [];
+  if (includeCanon && entries.length > 0) {
+    const canon = buildCanonContext(entries, chapter, allChapters, state);
+    if (canon) parts.push(canon);
+  }
+  const sel = selectRelevantCanon(entries, chapter, allChapters, state);
+  const memory = buildStoryMemoryBlock(allChapters, chapter, sel, state);
+  if (memory) parts.push(memory);
+  return parts.join('\n\n');
 }
 
 // ========== Chapter Outline Context ==========
@@ -531,9 +478,10 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
   };
   sections.push(`\n${modeInstructions[writingMode]}`);
 
-  // Canon context (characters, locations, world rules)
-  if (settings.ai.includeCanonInPrompt && canonEntries.length > 0) {
-    sections.push('\n' + buildCanonContext(canonEntries, chapter));
+  // Canon context (characters, locations, world rules) + state/fact memory
+  const canonAndMemory = buildCanonAndMemory(canonEntries, chapter, allChapters, !!settings.ai.includeCanonInPrompt);
+  if (canonAndMemory) {
+    sections.push('\n' + canonAndMemory);
   }
 
   // Outline context
@@ -681,10 +629,9 @@ export function buildSceneEditPrompt(
   sections.push('\n=== TONE & NARRATIVE ===');
   sections.push(buildToneInstructions(project));
 
-  // Canon context (smart-filtered)
-  if (settings.ai.includeCanonInPrompt && canonEntries.length > 0) {
-    sections.push('\n' + buildCanonContext(canonEntries, chapter));
-  }
+  // Canon context (smart-filtered) + state/fact memory
+  const canonAndMemory = buildCanonAndMemory(canonEntries, chapter, allChapters, !!settings.ai.includeCanonInPrompt);
+  if (canonAndMemory) sections.push('\n' + canonAndMemory);
 
   // Chapter context
   sections.push(`\n=== CHAPTER CONTEXT ===`);
@@ -720,21 +667,6 @@ export function buildSceneEditPrompt(
   sections.push(`\nApply the user's instruction to the scene. Return ONLY the updated prose text — no explanations, no markdown code blocks, no scene titles. Just the prose.`);
 
   return sections.join('\n');
-}
-
-// ========== Auto-fill Prompt (for canon entries) ==========
-
-export function buildAutoFillPrompt(entry: AnyCanonEntry, project: Project, settings: AppSettings): string {
-  return `You are Theodore, an expert story architect working on "${project.title}" (a ${project.subtype || project.type}).
-
-Given this ${entry.type} entry:
-Name: ${entry.name}
-Description: ${entry.description || '(none yet)'}
-
-Generate rich, detailed metadata for ALL fields. Be creative but consistent with the story's tone:
-${buildToneInstructions(project)}
-
-Return a complete JSON object matching the ${entry.type} schema. Every field should have meaningful content — no placeholders.`;
 }
 
 // ========== Validation Prompt ==========

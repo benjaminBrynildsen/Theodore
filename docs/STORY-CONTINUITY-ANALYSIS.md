@@ -1,5 +1,7 @@
 # Story Continuity: Where It Stands & What's Left
 
+> **Status (2026-09-30): all phases below are implemented on branch `docs/story-continuity-analysis`.** See §5 for what shipped, and §6 for the mobile app.
+
 > Scope: how Theodore carries characters, artifacts, and plot state from chapter to chapter, what `main` already does, and what's still causing pop points.
 > Audited against `main` @ `d48752e` (2026-06-16). Other branches were checked for unmerged continuity work and have none. `develop`'s 31 extra commits are UI, audio, and monetization only.
 > Date: 2026-09-30
@@ -143,3 +145,35 @@ Optional follow-up: show the folded state read-only in the canon panel ("As of C
 | P4 real auto-fill and arc waypoints | M | 🟠 | |
 
 Phase 1 and Phase 2 together should close most of the gap between "the plot carries over" and "the characters and objects carry over."
+
+---
+
+## 5. What was implemented
+
+| Plan item | Where |
+|---|---|
+| Extractor reads the whole chapter (opening + full ending for very long ones) at temperature 0.2 | `post-generation-pipeline.ts` `extractContinuity`, `story-memory.ts` `proseForExtraction` |
+| Continuity refreshes after Extend, AI edits, manual edits, and the dialogue polish. Debounced 60s, and skipped unless the story content actually changed (tags and typos are ignored) | `store/index.ts` `updateChapter` → `scheduleContinuityRefresh`; `needsReextraction` |
+| Extraction waits for the dialogue-polish rewrite instead of racing it | `prose-rewrites.ts`, `ChapterView.tsx` |
+| **Server:** background analysis calls are exempt from the one-at-a-time generation lock. They were colliding and failing with 429, so continuity memory was silently dropped | `server/index.ts` `LOCK_EXEMPT_ACTIONS` |
+| Thread ids stay stable across re-extraction, so later chapters' "resolved" markers still match | `extractContinuity` |
+| Character state, artifact state, established facts, and contradictions come from the same extraction call | `story-memory.ts` `parseMemorySections` |
+| State folded "as of" each chapter, plus new prompt sections: CURRENT STATE and ESTABLISHED FACTS | `foldStoryState`, `buildStoryMemoryBlock` (in chapter, scene-edit, and selection-edit prompts) |
+| Wider canon selection (premise + on-page refs + last two chapters + held objects); richer character, artifact, rule, and event cards; arc position per chapter | `selectRelevantCanon`, `renderCharacterCard`, `renderWorldCard` |
+| Placeholders never reach prompts (the filter also cleans existing projects), and `autoFill*` no longer invents defaults | `isPlaceholderText`, `ai-autofill.ts` |
+| "From the story" section in the canon panel, with Save to profile | `components/canon/StoryMemoryPanel.tsx` |
+| Contradiction list and "earlier chapter changed" notice, with Re-check and Dismiss | `components/features/ContinuityNotices.tsx`, `diffChapterMemory`, `flagDownstreamChapters` |
+| Real AI Auto-fill (fills empty fields only, grounded in written chapters); batch character profiles at project creation | `canon-autofill.ts`, `CanonDetailPanel.tsx`, `ChatCreation.tsx` |
+| Chapter 1 at creation now gets the same canon cards as every other chapter | `ChatCreation.tsx` via `buildCanonReferenceBlock` |
+| `fromDb` media case | `store/canon.ts` |
+| Tests | `npm run test:story-memory` |
+
+Cost notes: extraction now reads the full chapter, and it re-runs after meaningful edits and extends, so logged-in authors pay a little more per chapter. Guests keep the previous behaviour (one extraction per generation, plus manual Re-check) because of their 20-calls/hour limit. The premise cascade is still free (`plan-project`).
+
+## 6. Mobile app
+
+The iOS app (`theodore-mobile-app`, a separate repo this work couldn't access) builds its own prompts, so **the prompt and memory changes don't reach it automatically.** What does carry over:
+- **Server fix:** the lock exemption is on the shared API, so the mobile app's background calls stop failing with 429 too.
+- **Shared data:** extracted memory is stored in each chapter's `aiIntentMetadata` (`characterState`, `artifactState`, `facts`, `continuityIssues`, summaries, threads) and synced through the API. A chapter written on the web gives the mobile app better memory as soon as the app reads these fields.
+
+To bring the mobile app fully in line, port `src/lib/story-memory.ts` (pure, no store or network imports, the same way `dialogue-targets.ts` was ported), the extraction prompt in `post-generation-pipeline.ts`, and the prompt sections from `buildCanonAndMemory`. `scripts/test-story-memory.ts` can verify the port.

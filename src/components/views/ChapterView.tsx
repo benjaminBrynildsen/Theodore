@@ -28,6 +28,8 @@ import { useCreditsStore } from '../../store/credits';
 import { FEATURES } from '../../lib/feature-flags';
 import { api, ApiError } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
+import { registerProseRewrite } from '../../lib/prose-rewrites';
+import { ContinuityNotices } from '../features/ContinuityNotices';
 // Post-generation pipeline imported dynamically where needed
 import { cn, generateId } from '../../lib/utils';
 import type { Chapter, WritingMode, GenerationType, Scene } from '../../types';
@@ -455,7 +457,8 @@ export function ChapterView({ chapter }: Props) {
         // Bounded by a 45s timeout so a hung upstream can't leave the chapter
         // in a half-polished state forever.
         if (!isChildrensBook && needsDialogueClarityPass(initialProse)) {
-          void (async () => {
+          // Registered so continuity extraction waits for the polished text.
+          registerProseRewrite(chapter.id, (async () => {
             try {
               const polishPromise = generateText({
                 prompt: `Rewrite this chapter prose ONLY to improve dialogue speaker clarity. Keep all plot events, tone, pacing, and wording as intact as possible. Do not shorten. Do not summarize. Do not add new events.\n\nRules:\n- Whenever speaker changes, make speaker identity explicit nearby.\n- Avoid consecutive unattributed quote-only paragraphs when speakers alternate.\n- Keep natural prose quality; avoid over-tagging every line.\n\nCHAPTER PROSE:\n${initialProse}`,
@@ -475,7 +478,7 @@ export function ChapterView({ chapter }: Props) {
             } catch (e) {
               console.warn('[Generation] Dialogue clarity pass failed (non-blocking):', e);
             }
-          })();
+          })());
         }
 
         // Auto-run post-generation pipeline (entity scan + scene decomposition for sidebar/studio)
@@ -1640,6 +1643,9 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
               </div>
             );
           })()}
+
+          {/* Continuity: contradictions with earlier chapters + upstream changes */}
+          {!generating && !extending && chapter.prose?.trim() && <ContinuityNotices chapter={chapter} />}
 
           {/* Chapter / Scene Title */}
           <input

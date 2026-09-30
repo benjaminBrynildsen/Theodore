@@ -3,9 +3,10 @@ import { X, User, MapPin, Cog, Gem, Scale, Milestone, Plus, Trash2, Heart, Brain
 import { useCanonStore } from '../../store/canon';
 import { cn } from '../../lib/utils';
 import { autoFillCharacter, autoFillLocation, autoFillSystem, autoFillArtifact } from '../../lib/ai-autofill';
-import { buildAutoFillPrompt, buildValidationPrompt } from '../../lib/prompt-builder';
+import { buildValidationPrompt } from '../../lib/prompt-builder';
 import { useSettingsStore } from '../../store/settings';
 import { VoicePreview } from '../features/VoicePreview';
+import { StoryMemoryPanel } from './StoryMemoryPanel';
 import { IllustrateButton } from '../features/IllustrateButton';
 import { detectChanges, generateValidationIssues } from '../../lib/validation-engine';
 import { useValidationStore } from '../../store/validation';
@@ -694,37 +695,39 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
     setLastSnapshot(JSON.parse(JSON.stringify(currentEntry)));
   };
 
+  const [autoFillError, setAutoFillError] = useState<string | null>(null);
+
+  // Real AI fill of EMPTY fields only — grounded in the chapters written so far.
+  // Falls back to structural normalization (no invented facts) if the call fails.
   const handleAutoFill = async () => {
     setIsAutoFilling(true);
+    setAutoFillError(null);
+    const current = getEntry(entry.id) || entry;
     try {
-      // Build context-aware prompt using project settings
-      const { getActiveProject } = useStore.getState();
+      const { getActiveProject, getProjectChapters } = useStore.getState();
       const { settings } = useSettingsStore.getState();
       const project = getActiveProject();
-      
-      if (project) {
-        const prompt = buildAutoFillPrompt(entry, project, settings);
-        console.log('=== AUTO-FILL PROMPT ===');
-        console.log(prompt);
-        console.log('=== END PROMPT ===');
-      }
-
-      // Simulate AI delay — will be replaced with actual API call using the prompt above
-      await new Promise(r => setTimeout(r, 1500));
-      
-      if (entry.type === 'character') {
-        const filled = autoFillCharacter(entry as CharacterEntry);
-        handleUpdate({ character: filled });
-      } else if (entry.type === 'location') {
-        const filled = autoFillLocation(entry as LocationEntry);
-        handleUpdate({ location: filled });
-      } else if (entry.type === 'system') {
-        const filled = autoFillSystem(entry as SystemEntry);
-        handleUpdate({ system: filled });
-      } else if (entry.type === 'artifact') {
-        const filled = autoFillArtifact(entry as ArtifactEntry);
-        handleUpdate({ artifact: filled });
-      }
+      if (!project) throw new Error('No active project');
+      const { aiAutoFillEntry } = await import('../../lib/canon-autofill');
+      const filled = await aiAutoFillEntry(current, {
+        project,
+        chapters: getProjectChapters(project.id),
+        canon: useCanonStore.getState().getProjectEntries(project.id),
+        model: settings.ai?.preferredModel,
+      });
+      if (!filled) return;
+      const { __description, ...data } = filled as Record<string, unknown>;
+      handleUpdate({
+        [current.type]: data,
+        ...(typeof __description === 'string' ? { description: __description } : {}),
+      });
+    } catch (e: any) {
+      console.warn('[AutoFill] AI fill failed:', e);
+      setAutoFillError(e?.message === 'INSUFFICIENT_CREDITS' ? 'Not enough credits to auto-fill.' : 'Auto-fill failed — try again.');
+      if (current.type === 'character') handleUpdate({ character: autoFillCharacter(current as CharacterEntry) });
+      else if (current.type === 'location') handleUpdate({ location: autoFillLocation(current as LocationEntry) });
+      else if (current.type === 'system') handleUpdate({ system: autoFillSystem(current as SystemEntry) });
+      else if (current.type === 'artifact') handleUpdate({ artifact: autoFillArtifact(current as ArtifactEntry) });
     } finally {
       setIsAutoFilling(false);
     }
@@ -790,6 +793,10 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
         />
       </div>
 
+      {autoFillError && (
+        <div className="px-5 py-2 text-xs text-error border-b border-black/5">{autoFillError}</div>
+      )}
+
       {/* AI Illustration */}
       {(entry.type === 'character' || entry.type === 'location') && (
         <div className="px-5 py-3 border-b border-black/5">
@@ -805,6 +812,7 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto">
+        <StoryMemoryPanel entry={entry} onUpdate={handleUpdate} />
         {entry.type === 'character' && (
           <>
             <CharacterDetail entry={entry as CharacterEntry} onUpdate={handleUpdate} />

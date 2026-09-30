@@ -1,6 +1,7 @@
-// AI Auto-fill system for canon entries
-// Currently uses mock data — will connect to real AI API later
-// Every field is auto-generated but fully editable
+// Canon entry normalization + conversation-based canon extraction.
+// autoFill* only fill structure (every field present, lists as arrays); they
+// never invent story facts — unknown fields stay empty so prompts don't treat
+// generic filler as canon. Real AI fill lives in canon-autofill.ts.
 
 import type { CharacterEntry, LocationEntry, SystemEntry, ArtifactEntry, RuleEntry, EventEntry } from '../types/canon';
 import {
@@ -15,54 +16,43 @@ import {
   sanitizeEntityName,
 } from './entity-normalization';
 
-// Simulates AI generating rich metadata from a name + description
-// In production: sends context (all project data, premises, existing canon) to AI
-
 export function autoFillCharacter(entry: CharacterEntry): CharacterEntry['character'] {
   const name = entry.name;
-  const desc = entry.description;
-  
-  // This is where the AI call would go — for now, smart defaults based on what exists
   return {
     ...entry.character,
     fullName: entry.character.fullName || name,
-    age: entry.character.age || 'Early 30s',
+    age: entry.character.age || '',
     gender: entry.character.gender || '',
     pronouns: entry.character.pronouns || '',
-    species: entry.character.species || 'Human',
+    species: entry.character.species || '',
     occupation: entry.character.occupation || '',
     role: entry.character.role || 'supporting',
     aliases: entry.character.aliases.length ? entry.character.aliases : [],
     
     appearance: {
-      physical: entry.character.appearance.physical || `[AI will describe ${name}'s physical appearance based on story context]`,
+      physical: entry.character.appearance.physical || '',
       distinguishingFeatures: entry.character.appearance.distinguishingFeatures || '',
       style: entry.character.appearance.style || '',
     },
 
     personality: {
-      traits: entry.character.personality.traits.length ? entry.character.personality.traits : ['Determined', 'Guarded', 'Observant'],
-      strengths: entry.character.personality.strengths.length ? entry.character.personality.strengths : ['Resilient', 'Analytical'],
-      flaws: entry.character.personality.flaws.length ? entry.character.personality.flaws : ['Isolates when stressed', 'Struggles to trust'],
-      fears: entry.character.personality.fears.length ? entry.character.personality.fears : ['Abandonment', 'Repeating past mistakes'],
-      desires: entry.character.personality.desires.length ? entry.character.personality.desires : ['Connection', 'Understanding'],
-      values: entry.character.personality.values.length ? entry.character.personality.values : ['Truth', 'Independence'],
+      traits: entry.character.personality.traits,
+      strengths: entry.character.personality.strengths,
+      flaws: entry.character.personality.flaws,
+      fears: entry.character.personality.fears,
+      desires: entry.character.personality.desires,
+      values: entry.character.personality.values,
       quirks: entry.character.personality.quirks.length ? entry.character.personality.quirks : [],
-      speechPattern: entry.character.personality.speechPattern || `Tends to be precise with words. Uses metaphors from their background.`,
-      innerVoice: entry.character.personality.innerVoice || `Self-critical but quietly hopeful. Often argues with themselves.`,
+      speechPattern: entry.character.personality.speechPattern || '',
+      innerVoice: entry.character.personality.innerVoice || '',
     },
 
     background: {
       birthplace: entry.character.background.birthplace || '',
-      upbringing: entry.character.background.upbringing || `[AI will generate based on story context and character description]`,
-      family: entry.character.background.family.length ? entry.character.background.family : [
-        { name: '', relation: 'Mother', alive: true, description: '' },
-        { name: '', relation: 'Father', alive: true, description: '' },
-      ],
+      upbringing: entry.character.background.upbringing || '',
+      family: entry.character.background.family,
       education: entry.character.background.education || '',
-      formativeEvents: entry.character.background.formativeEvents.length ? entry.character.background.formativeEvents : [
-        { age: 'Childhood', event: 'A defining early experience', impact: 'Shaped their core worldview' },
-      ],
+      formativeEvents: entry.character.background.formativeEvents,
       secrets: entry.character.background.secrets.length ? entry.character.background.secrets : [],
       trauma: entry.character.background.trauma || '',
       proudestMoment: entry.character.background.proudestMoment || '',
@@ -71,7 +61,7 @@ export function autoFillCharacter(entry: CharacterEntry): CharacterEntry['charac
     relationships: entry.character.relationships,
 
     arc: {
-      startingState: entry.character.arc.startingState || `${name} begins the story...`,
+      startingState: entry.character.arc.startingState || '',
       internalConflict: entry.character.arc.internalConflict || '',
       externalConflict: entry.character.arc.externalConflict || '',
       wantVsNeed: {
@@ -79,14 +69,14 @@ export function autoFillCharacter(entry: CharacterEntry): CharacterEntry['charac
         need: entry.character.arc.wantVsNeed.need || '',
       },
       growthDirection: entry.character.arc.growthDirection || '',
-      currentState: entry.character.arc.currentState || 'Beginning of story',
+      currentState: entry.character.arc.currentState || '',
       endingState: entry.character.arc.endingState || '',
     },
 
     storyState: {
       ...entry.character.storyState,
-      alive: true,
-      emotionalState: entry.character.storyState.emotionalState || 'Guarded but curious',
+      alive: entry.character.storyState.alive !== false,
+      emotionalState: entry.character.storyState.emotionalState || '',
     },
   };
 }
@@ -113,11 +103,9 @@ export function autoFillLocation(entry: LocationEntry): LocationEntry['location'
     history: {
       founded: entry.location.history.founded || '',
       founder: entry.location.history.founder || '',
-      majorEvents: entry.location.history.majorEvents.length ? entry.location.history.majorEvents : [
-        { year: '', event: `${name} was established` },
-      ],
+      majorEvents: entry.location.history.majorEvents,
       ownership: entry.location.history.ownership.length ? entry.location.history.ownership : [],
-      culturalSignificance: entry.location.history.culturalSignificance || `[AI will analyze ${name}'s role in the story]`,
+      culturalSignificance: entry.location.history.culturalSignificance || '',
       legends: entry.location.history.legends || '',
     },
 
@@ -126,7 +114,7 @@ export function autoFillLocation(entry: LocationEntry): LocationEntry['location'
       population: entry.location.currentState.population || '',
       governance: entry.location.currentState.governance || '',
       economy: entry.location.currentState.economy || '',
-      atmosphere: entry.location.currentState.atmosphere || `[AI will describe the mood and feeling of ${name}]`,
+      atmosphere: entry.location.currentState.atmosphere || '',
       sensoryDetails: {
         sights: entry.location.currentState.sensoryDetails.sights || '',
         sounds: entry.location.currentState.sensoryDetails.sounds || '',
@@ -139,7 +127,7 @@ export function autoFillLocation(entry: LocationEntry): LocationEntry['location'
       firstAppearance: entry.location.storyRelevance.firstAppearance || 1,
       significance: entry.location.storyRelevance.significance || '',
       secretsHidden: entry.location.storyRelevance.secretsHidden,
-      dangerLevel: entry.location.storyRelevance.dangerLevel || 'Low',
+      dangerLevel: entry.location.storyRelevance.dangerLevel || '',
       accessRules: entry.location.storyRelevance.accessRules || '',
       connectedLocations: entry.location.storyRelevance.connectedLocations,
     },
@@ -147,7 +135,6 @@ export function autoFillLocation(entry: LocationEntry): LocationEntry['location'
 }
 
 export function autoFillSystem(entry: SystemEntry): SystemEntry['system'] {
-  const name = entry.name;
   const system = entry.system ?? {
     systemType: 'other',
     rules: { corePrinciples: [], limitations: [], costs: '', exceptions: [] },
@@ -159,13 +146,9 @@ export function autoFillSystem(entry: SystemEntry): SystemEntry['system'] {
     ...system,
     systemType: system.systemType || 'other',
     rules: {
-      corePrinciples: system.rules.corePrinciples.length
-        ? system.rules.corePrinciples
-        : [`${name} follows consistent operational principles.`],
-      limitations: system.rules.limitations.length
-        ? system.rules.limitations
-        : ['Usage has practical or narrative constraints.'],
-      costs: system.rules.costs || 'Using this system carries tradeoffs.',
+      corePrinciples: system.rules.corePrinciples,
+      limitations: system.rules.limitations,
+      costs: system.rules.costs || '',
       exceptions: system.rules.exceptions.length ? system.rules.exceptions : [],
     },
     structure: {
@@ -186,7 +169,6 @@ export function autoFillSystem(entry: SystemEntry): SystemEntry['system'] {
 }
 
 export function autoFillArtifact(entry: ArtifactEntry): ArtifactEntry['artifact'] {
-  const name = entry.name;
   const artifact = entry.artifact ?? {
     artifactType: '',
     physical: { appearance: '', material: '', size: '', weight: '', condition: '', distinguishingMarks: '' },
@@ -199,11 +181,11 @@ export function autoFillArtifact(entry: ArtifactEntry): ArtifactEntry['artifact'
     ...artifact,
     artifactType: artifact.artifactType || 'object',
     physical: {
-      appearance: artifact.physical.appearance || `${name} has a distinct visual signature tied to the story world.`,
+      appearance: artifact.physical.appearance || '',
       material: artifact.physical.material || '',
       size: artifact.physical.size || '',
       weight: artifact.physical.weight || '',
-      condition: artifact.physical.condition || 'Operational',
+      condition: artifact.physical.condition || '',
       distinguishingMarks: artifact.physical.distinguishingMarks || '',
     },
     properties: {

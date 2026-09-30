@@ -74,6 +74,8 @@ function fromDb(row: any): AnyCanonEntry {
       return { ...base, rule: data } as RuleEntry;
     case 'event':
       return { ...base, event: data } as EventEntry;
+    case 'media':
+      return { ...base, media: data } as MediaEntry;
     default:
       return base as AnyCanonEntry;
   }

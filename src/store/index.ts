@@ -483,6 +483,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     if (typeof updates.prose === 'string') {
       api.updateChapter(id, { prose: updates.prose, status: mergedUpdates.status }).catch(console.error);
     }
+    // Any prose change (extend, AI edit, manual edit, polish) re-extracts
+    // continuity memory once the text settles — no-op if the story didn't move.
+    if (current && typeof updates.prose === 'string' && updates.prose !== current.prose && updates.prose.trim()) {
+      import('../lib/post-generation-pipeline')
+        .then(({ scheduleContinuityRefresh }) => scheduleContinuityRefresh(id))
+        .catch(() => {});
+    }
     debounceSave(`chapter-${id}`, async () => {
       let payload: Partial<Chapter> = mergedUpdates;
       if (typeof updates.prose === 'string' && current) {
