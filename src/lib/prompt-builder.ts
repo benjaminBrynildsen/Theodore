@@ -7,15 +7,7 @@ import type { AppSettings, WritingStyleSettings } from '../types/settings';
 import type { AnyCanonEntry } from '../types/canon';
 import { buildContinuityContext, formatContinuityBlock } from './continuity-context';
 import { getDialogueTargetForProject, buildDialogueClause } from './dialogue-targets';
-import {
-  buildStoryMemoryBlock,
-  foldStoryState,
-  renderCharacterCard,
-  renderLightCharacter,
-  renderWorldCard,
-  selectRelevantCanon,
-  type StoryStateAt,
-} from './story-memory';
+import { buildCanonAndMemory } from './story-memory';
 
 // ========== Selection-Based Edit Prompt (Vibe Editor) ==========
 
@@ -296,64 +288,12 @@ function buildToneInstructions(project: Project): string {
 
 // ========== Canon Context ==========
 
-function buildCanonContext(entries: AnyCanonEntry[], chapter: Chapter, allChapters: Chapter[], state?: StoryStateAt): string {
-  if (entries.length === 0) return '';
-  const sel = selectRelevantCanon(entries, chapter, allChapters, state);
-  const sorted = [...allChapters].sort((a, b) => (a.number || 0) - (b.number || 0));
-  const chapterNumber = sorted.findIndex((c) => c.id === chapter.id) + 1 || undefined;
-  const cardOpts = { chapterNumber, totalChapters: sorted.length || undefined, relevantNames: sel.relevantNames, state };
-
-  const sections: string[] = ['=== CANON (established facts — do not contradict) ==='];
-
-  if (sel.primaryChars.length > 0) {
-    sections.push('\n## Characters');
-    for (const c of sel.primaryChars) sections.push(renderCharacterCard(c, cardOpts));
-  }
-  if (sel.secondaryChars.length > 0) {
-    sections.push('\n## Also In The Story (recently on the page or connected — keep consistent if they appear)');
-    for (const c of sel.secondaryChars) sections.push(renderLightCharacter(c));
-  }
-  if (sel.locations.length > 0) {
-    sections.push('\n## Locations');
-    for (const l of sel.locations) sections.push(renderWorldCard(l, state));
-  }
-  if (sel.artifacts.length > 0) {
-    sections.push('\n## Objects & Artifacts');
-    for (const a of sel.artifacts) sections.push(renderWorldCard(a, state));
-  }
-  if (sel.others.length > 0) {
-    sections.push('\n## World Rules & Elements');
-    for (const e of sel.others) sections.push(renderWorldCard(e, state));
-  }
-
-  return sections.length > 1 ? sections.join('\n') : '';
-}
-
 /**
  * Canon cards + state/fact memory for prompts built outside buildGenerationPrompt
  * (e.g. the creation-time Chapter 1), so every chapter sees the same profiles.
  */
 export function buildCanonReferenceBlock(entries: AnyCanonEntry[], chapter: Chapter, allChapters: Chapter[]): string {
   return buildCanonAndMemory(entries, chapter, allChapters, true);
-}
-
-/** Canon cards (when enabled) + CURRENT STATE / ESTABLISHED FACTS memory for a chapter. */
-function buildCanonAndMemory(
-  entries: AnyCanonEntry[],
-  chapter: Chapter,
-  allChapters: Chapter[],
-  includeCanon: boolean,
-): string {
-  const state = foldStoryState(allChapters, chapter.id);
-  const parts: string[] = [];
-  if (includeCanon && entries.length > 0) {
-    const canon = buildCanonContext(entries, chapter, allChapters, state);
-    if (canon) parts.push(canon);
-  }
-  const sel = selectRelevantCanon(entries, chapter, allChapters, state);
-  const memory = buildStoryMemoryBlock(allChapters, chapter, sel, state);
-  if (memory) parts.push(memory);
-  return parts.join('\n\n');
 }
 
 // ========== Chapter Outline Context ==========

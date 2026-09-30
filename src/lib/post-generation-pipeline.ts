@@ -15,20 +15,14 @@ import { tagSFX } from './sfx-tagger';
 import { FEATURES } from './feature-flags';
 import { generateId } from './utils';
 import type { Chapter, Scene } from '../types';
+import { memoryMeta, needsReextraction } from './story-memory';
 import {
-  buildPriorMemoryForCheck,
-  diffChapterMemory,
-  foldStoryState,
-  memoryMeta,
-  needsReextraction,
-  parseMemorySections,
-  proseContentHash,
-  proseForExtraction,
-  proseMentionsAny,
-  proseSignature,
-  stripProductionTags,
-  tokenOverlap,
-} from './story-memory';
+  EXTRACTION_REQUEST,
+  applyContinuityExtraction,
+  buildContinuityExtractionPrompt,
+  staleNoticeUpdates,
+  withIssueDismissed,
+} from './continuity-extraction';
 import { hasPendingProseRewrite, waitForProseRewrite } from './prose-rewrites';
 
 /**
@@ -351,172 +345,31 @@ async function extractContinuity(chapterId: string): Promise<void> {
   if (!project) return;
   const sourceProse = chapter.prose;
   const canon = useCanonStore.getState().getProjectEntries(project.id);
-
-  // Gather earlier chapters' open threads so the model can mark them resolved
-  const allChapters = store.getProjectChapters(project.id).sort((a, b) => (a.number || 0) - (b.number || 0));
-  const priorChapters = allChapters.filter((c) => (c.number || 0) < (chapter.number || 0));
-  const openSoFar: Array<{ id: string; character: string; thread: string }> = [];
-  const resolvedIds = new Set<string>();
-  for (const c of priorChapters) {
-    const meta = (c.aiIntentMetadata || {}) as any;
-    if (meta.openedThreads) for (const t of meta.openedThreads) openSoFar.push(t);
-    if (meta.resolvedThreadIds) for (const id of meta.resolvedThreadIds) resolvedIds.add(id);
-  }
-  const openThreadsList = openSoFar
-    .filter((t) => !resolvedIds.has(t.id))
-    .map((t) => `- [${t.id}] ${t.character}: ${t.thread}`)
-    .join('\n');
-
-  const priorState = foldStoryState(allChapters, chapter.id);
-  const priorMemory = buildPriorMemoryForCheck(priorState);
-  const knownNames = canon
-    .filter((e) => e.type === 'character' || e.type === 'artifact' || e.type === 'location')
-    .map((e) => `${e.name} (${e.type})`)
-    .slice(0, 80)
-    .join(', ');
-
-  const prompt = `You are Theodore, a story continuity analyst working on "${project.title}".
-
-Read the WHOLE chapter below and produce the sections that follow. Be concrete and specific — these notes are the only memory later chapters will have.
-
-1) SHORT_SUMMARY — one sentence (≤30 words), plot-focused. This is the tight memory used when generating much-later chapters.
-2) RICH_SUMMARY — 3-5 sentences (≤100 words) covering, in order:
-   • What physically and emotionally HAPPENS.
-   • WHY (motivations, causality — not just events).
-   • What CHANGES for the protagonist or central relationships (knowledge gained, beliefs shifted, alliances formed/broken).
-   • What STATE the chapter ends in (location, time of day, who is with whom, what is unresolved).
-3) OPEN_THREADS — any new unresolved promises, commitments, plans, secrets, or emotional threads a character introduces. Format: "CHARACTER: thread description". Only genuine open threads.
-4) RESOLVED_THREAD_IDS — given the existing open threads below, which ids did THIS chapter resolve? Only include ids from the existing list.
-5) CHARACTER_STATE — for each character who appears or changes, their state at the END of this chapter. One line each, pipe-separated, omit unknown fields:
-   - NAME | location: ... | with: ... | mood: ... | learned: new thing they now know; another | physical: injuries/visible changes | status: alive/dead/missing/captured | arc: where they are in their personal arc now
-6) ARTIFACT_STATE — important objects that appear, change hands, move, or change condition:
-   - OBJECT | holder: ... | location: ... | condition: ...
-7) FACTS — small concrete details this chapter ESTABLISHES that later chapters must keep consistent (appearance, ages, names of pets/places, vehicles, scars, habits, dates, relationships, how something works). Only details actually on the page, not guesses. Max 15.
-   - SUBJECT: fact
-8) CONTRADICTIONS — places where THIS chapter conflicts with the established memory below (wrong eye colour, an object in the wrong hands, a character knowing something they couldn't, a dead character acting). Only real conflicts, not new developments shown happening on the page.
-   - high|medium|low | "short exact quote from this chapter" | what conflicts | suggested fix
-
-Use these exact names when they refer to the same person, place, or object: ${knownNames || '(none yet)'}
-
-ESTABLISHED MEMORY FROM EARLIER CHAPTERS:
-${priorMemory || '(none yet)'}
-
-EXISTING OPEN THREADS:
-${openThreadsList || '(none)'}
-
-CHAPTER ${chapter.number}: ${chapter.title}
-${proseForExtraction(sourceProse)}
-
-Respond ONLY in this exact format:
-SHORT_SUMMARY: <one sentence>
-RICH_SUMMARY:
-<3-5 sentences>
-OPEN_THREADS:
-- CHARACTER: thread one
-RESOLVED_THREAD_IDS:
-- id1
-CHARACTER_STATE:
-- NAME | location: ... | mood: ...
-ARTIFACT_STATE:
-- OBJECT | holder: ...
-FACTS:
-- SUBJECT: fact
-CONTRADICTIONS:
-- medium | "quote" | problem | fix
-
-If a list has nothing, leave it empty (just the header).`;
+  const allChapters = store.getProjectChapters(project.id);
 
   console.info('[PostGen] Running continuity extraction for ch', chapter.number);
   const result = await generateText({
-    prompt,
+    prompt: buildContinuityExtractionPrompt({ projectTitle: project.title, chapter, allChapters, canon }),
     model: settings.ai.preferredModel || 'claude-sonnet',
-    maxTokens: 3000,
-    temperature: 0.2,
-    action: 'extract-continuity',
+    ...EXTRACTION_REQUEST,
     projectId: project.id,
     chapterId: chapter.id,
   });
 
-  const text = (typeof result === 'string' ? result : (result as any)?.text) || '';
-  const parsed = parseContinuityResponse(text, chapter.number || 0);
-  if (!parsed) return;
-  const memory = parseMemorySections(text, chapter.number || 0, canon);
-
   const latest = useStore.getState().chapters.find((c) => c.id === chapterId);
   if (!latest) return;
-  const previousMeta = memoryMeta(latest);
-  const hadMemory = !!(previousMeta.characterState || previousMeta.facts || previousMeta.artifactState);
-
-  // Keep thread ids stable across re-extraction so later chapters' resolved ids still match.
-  const previousThreads = ((latest.aiIntentMetadata || {}) as { openedThreads?: Array<{ id: string; character: string; thread: string }> }).openedThreads;
-  const usedIds = new Set<string>();
-  const openedThreads = parsed.openedThreads.map((t) => {
-    const match = (previousThreads || []).find((p) =>
-      !usedIds.has(p.id) &&
-      p.character.trim().toLowerCase() === t.character.trim().toLowerCase() &&
-      tokenOverlap(p.thread, t.thread) >= 0.5,
-    );
-    if (!match) return t;
-    usedIds.add(match.id);
-    return { ...t, id: match.id };
-  });
-
-  // Keep the author's dismissals when the same issue is found again.
-  const dismissed = new Set((previousMeta.continuityIssues || []).filter((i) => i.dismissed).map((i) => i.id));
-  const continuityIssues = memory.continuityIssues.map((i) => (dismissed.has(i.id) ? { ...i, dismissed: true } : i));
-
-  patchChapterMeta(chapterId, {
-    summary: parsed.summary,
-    richSummary: parsed.richSummary,
-    openedThreads,
-    resolvedThreadIds: parsed.resolvedThreadIds,
-    characterState: memory.characterState,
-    artifactState: memory.artifactState,
-    facts: memory.facts,
-    continuityIssues,
-    continuitySourceHash: proseContentHash(sourceProse),
-    continuitySourceSig: proseSignature(sourceProse),
-    continuitySourceLength: stripProductionTags(sourceProse).trim().length,
-    continuityExtractedAt: new Date().toISOString(),
-    continuityStale: undefined,
-  });
-  console.info('[PostGen] Continuity extracted:', {
-    summary: parsed.summary,
-    threads: openedThreads.length,
-    resolved: parsed.resolvedThreadIds.length,
-    characters: memory.characterState.length,
-    artifacts: memory.artifactState.length,
-    facts: memory.facts.length,
-    contradictions: continuityIssues.length,
-  });
+  const applied = applyContinuityExtraction(result.text || '', sourceProse, latest, canon);
+  if (!applied) return;
+  patchChapterMeta(chapterId, applied.metaPatch);
+  console.info('[PostGen] Continuity extracted:', applied.counts);
 
   // A re-extraction that changed established memory can invalidate later
   // chapters that were written on top of it — flag the ones that touch it.
-  if (hadMemory) {
-    const { changes, subjects } = diffChapterMemory(previousMeta, memory);
-    if (changes.length) flagDownstreamChapters(chapterId, changes, subjects);
-  }
-}
-
-function flagDownstreamChapters(chapterId: string, changes: string[], subjects: string[]): void {
-  const store = useStore.getState();
-  const chapter = store.chapters.find((c) => c.id === chapterId);
-  if (!chapter) return;
-  const later = store.getProjectChapters(chapter.projectId)
-    .filter((c) => (c.number || 0) > (chapter.number || 0) && c.prose?.trim());
-  for (const c of later) {
-    if (!proseMentionsAny(c.prose, subjects)) continue;
-    const prevNotice = memoryMeta(c).continuityStale;
-    const merged = prevNotice && prevNotice.fromChapter <= (chapter.number || 0)
-      ? Array.from(new Set([...prevNotice.changes, ...changes])).slice(-8)
-      : changes.slice(0, 8);
-    patchChapterMeta(c.id, {
-      continuityStale: {
-        fromChapter: Math.min(prevNotice?.fromChapter ?? Infinity, chapter.number || 0),
-        changes: merged,
-        at: new Date().toISOString(),
-      },
-    });
+  if (applied.memoryChanges) {
+    const fresh = useStore.getState().getProjectChapters(project.id);
+    for (const u of staleNoticeUpdates(latest, fresh, applied.memoryChanges)) {
+      patchChapterMeta(u.chapterId, { continuityStale: u.continuityStale });
+    }
   }
 }
 
@@ -524,59 +377,12 @@ function flagDownstreamChapters(chapterId: string, changes: string[], subjects: 
 export function dismissContinuityIssue(chapterId: string, issueId: string): void {
   const chapter = useStore.getState().chapters.find((c) => c.id === chapterId);
   if (!chapter) return;
-  const issues = (memoryMeta(chapter).continuityIssues || []).map((i) => (i.id === issueId ? { ...i, dismissed: true } : i));
-  patchChapterMeta(chapterId, { continuityIssues: issues });
+  patchChapterMeta(chapterId, { continuityIssues: withIssueDismissed(chapter, issueId) });
 }
 
 /** Clear a "earlier chapter changed" notice without re-checking. */
 export function dismissStaleNotice(chapterId: string): void {
   patchChapterMeta(chapterId, { continuityStale: undefined });
-}
-
-function parseContinuityResponse(text: string, chapterNumber: number): {
-  summary: string;
-  richSummary: string;
-  openedThreads: Array<{ id: string; character: string; thread: string; introducedInChapter: number }>;
-  resolvedThreadIds: string[];
-} | null {
-  if (!text) return null;
-  // SHORT_SUMMARY (new) — fall back to legacy "SUMMARY:" header so old responses keep parsing.
-  const shortMatch = text.match(/SHORT_SUMMARY:\s*(.+?)(?:\n|$)/i)
-    || text.match(/^SUMMARY:\s*(.+?)(?:\n|$)/im);
-  const summary = shortMatch ? shortMatch[1].trim() : '';
-  if (!summary) return null;
-
-  // RICH_SUMMARY: everything between RICH_SUMMARY: and the next ALL_CAPS header
-  const richMatch = text.match(/RICH_SUMMARY:\s*([\s\S]*?)(?=\n\s*(?:OPEN_THREADS|RESOLVED_THREAD_IDS):|$)/i);
-  const richSummary = richMatch ? richMatch[1].trim() : '';
-
-  const openSection = text.split(/OPEN_THREADS:/i)[1]?.split(/RESOLVED_THREAD_IDS:/i)[0] || '';
-  const openedThreads: Array<{ id: string; character: string; thread: string; introducedInChapter: number }> = [];
-  for (const line of openSection.split('\n')) {
-    const m = line.match(/^\s*[-•]\s*([^:]+):\s*(.+)$/);
-    if (m) {
-      const character = m[1].trim();
-      const thread = m[2].trim();
-      if (character && thread && thread.length > 3) {
-        openedThreads.push({
-          id: `t${chapterNumber}-${openedThreads.length}-${Math.random().toString(36).slice(2, 7)}`,
-          character,
-          thread,
-          introducedInChapter: chapterNumber,
-        });
-      }
-    }
-  }
-
-  const resolvedSection = (text.split(/RESOLVED_THREAD_IDS:/i)[1] || '')
-    .split(/\n\s*(?:CHARACTER_STATE|ARTIFACT_STATE|FACTS|CONTRADICTIONS):/i)[0];
-  const resolvedThreadIds: string[] = [];
-  for (const line of resolvedSection.split('\n')) {
-    const m = line.match(/^\s*[-•]\s*(\S+)/);
-    if (m) resolvedThreadIds.push(m[1].trim());
-  }
-
-  return { summary, richSummary, openedThreads, resolvedThreadIds };
 }
 
 /** Step 1: AI-powered entity/artifact scanning with refinement */

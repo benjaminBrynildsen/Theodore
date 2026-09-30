@@ -1,3 +1,7 @@
+// GENERATED from Theodore web src/lib/story-memory.ts by scripts/build-mobile-port.mjs.
+// Do not edit here — change the web source and regenerate, so both apps
+// keep writing and reading the same chapter memory.
+
 // ========== Story Memory ==========
 // Character / artifact state and established-fact memory across chapters.
 //
@@ -10,8 +14,8 @@
 // Pure functions only (no store / network imports) so the same logic can be
 // ported to the mobile app, the way dialogue-targets.ts was.
 
-import type { Chapter } from '../types';
-import type { AnyCanonEntry, CharacterEntry, ArtifactEntry } from '../types/canon';
+import type { Chapter } from './types';
+import type { AnyCanonEntry, CharacterEntry, ArtifactEntry } from './types';
 
 // ---------- Types ----------
 
