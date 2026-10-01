@@ -8,6 +8,7 @@ import type { AnyCanonEntry } from '../types/canon';
 import { buildContinuityContext, formatContinuityBlock } from './continuity-context';
 import { getDialogueTargetForProject, buildDialogueClause } from './dialogue-targets';
 import { buildCanonAndMemory } from './story-memory';
+import { buildThreadGuidanceBlock } from './story-threads';
 
 // ========== Selection-Based Edit Prompt (Vibe Editor) ==========
 
@@ -432,6 +433,12 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
   // Continuity context (story so far + open threads + recent dialogue + previous chapter ending)
   if (continuityBlock) {
     sections.push('\n' + continuityBlock);
+  }
+
+  // Thread map: what this chapter opens, hints, advances, reveals, closes, and must keep open
+  const threadGuidance = buildThreadGuidanceBlock(project.threadPlan, chapter.number);
+  if (threadGuidance) {
+    sections.push('\n' + threadGuidance);
   }
 
   // Chapter-specific instructions

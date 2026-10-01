@@ -7,6 +7,9 @@ import {
   stripProductionTags, diffChapterMemory, proseForExtraction, isPlaceholderText, resolveCanonEntry,
 } from '../src/lib/story-memory';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
+import {
+  parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
+} from '../src/lib/story-threads';
 
 // canon-autofill -> generate -> stores touch browser globals at import time.
 (globalThis as any).localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
@@ -209,6 +212,81 @@ t('auto-fill merge fills only empty fields', () => {
   assert.equal(out.arc.wantVsNeed.want, 'money');
   assert.equal(out.arc.wantVsNeed.need, 'rest');
   assert.ok(!('extra' in out));
+});
+
+t('thread plan: parse, clamp, every thread opens and closes in order', () => {
+  const raw = JSON.stringify({ threads: [
+    { title: 'Who killed Dad', tier: 'major', kind: 'twist', question: 'Who?', resolution: 'Uncle did',
+      beats: [{ chapter: 1, type: 'open', note: 'Dad dies' }, { chapter: 3, type: 'hint', note: 'Uncle lies' }, { chapter: 6, type: 'hint', note: 'ring' },
+              { chapter: 9, type: 'reveal', note: 'Uncle confesses' }, { chapter: 11, type: 'hint', note: 'late hint dropped' }, { chapter: 12, type: 'close', note: 'justice' }] },
+    { title: 'Missing dog', tier: 'hook', beats: [{ chapter: 5, type: 'open' }] },                // no close -> closes at last beat
+    { title: 'Backwards', tier: 'subplot', beats: [{ chapter: 8, type: 'open' }, { chapter: 4, type: 'close' }] }, // swapped
+    { title: 'Out of range', tier: 'nonsense', beats: [{ chapter: 0, type: 'open' }, { chapter: 99, type: 'close' }] },
+    { title: '' },
+  ] });
+  const plan = parseThreadPlan('```json\n' + raw + '\n```', 12)!;
+  assert.equal(plan.threads.length, 4);
+  const [major, dog, back, oor] = plan.threads;
+  assert.equal(major.opensIn, 1); assert.equal(major.closesIn, 12);
+  assert.ok(!major.beats.some((b) => b.note === 'late hint dropped'), 'hints after the reveal are dropped');
+  assert.equal(dog.opensIn, 5); assert.equal(dog.closesIn, 5);
+  assert.equal(back.opensIn, 4); assert.equal(back.closesIn, 8);
+  assert.equal(oor.tier, 'subplot'); assert.equal(oor.opensIn, 1); assert.equal(oor.closesIn, 12);
+  for (const th of plan.threads) {
+    assert.equal(th.beats[0].type, 'open'); assert.equal(th.beats.at(-1)!.type, 'close');
+    assert.equal(th.beats.filter((b) => b.type === 'open').length, 1);
+  }
+  assert.equal(parseThreadPlan('not json', 5), null);
+});
+
+t('thread plan: per-chapter guidance tells the writer what to open, hint, close and keep open', () => {
+  const plan = parseThreadPlan(JSON.stringify({ threads: [
+    { title: 'Twist', tier: 'major', kind: 'twist', beats: [{ chapter: 1, type: 'open', note: 'mysterious letter' }, { chapter: 3, type: 'hint', note: 'smudged postmark' }, { chapter: 8, type: 'reveal', note: 'mom wrote it' }, { chapter: 10, type: 'close' }] },
+    { title: 'Hook A', tier: 'hook', beats: [{ chapter: 3, type: 'open', note: 'door is locked' }, { chapter: 4, type: 'close', note: 'key found' }] },
+  ] }), 10)!;
+  const a3 = threadsForChapter(plan, 3);
+  assert.deepEqual(a3.opening.map((x) => x.title), ['Hook A']);
+  assert.equal(a3.hinting[0].note, 'smudged postmark');
+  const g5 = buildThreadGuidanceBlock(plan, 5);
+  assert.ok(g5.includes('KEEP OPEN') && g5.includes('Twist (closes Ch.10)'), g5);
+  const g3 = buildThreadGuidanceBlock(plan, 3);
+  assert.ok(g3.includes('OPEN [hook] Hook A: door is locked') && g3.includes('HINT [major, twist] Twist: smudged postmark'), g3);
+  assert.ok(!g3.includes('KEEP OPEN'), 'a thread hinted this chapter is not listed again as keep-open');
+  assert.ok(buildThreadGuidanceBlock(plan, 4).includes('CLOSE [hook] Hook A: key found'));
+  assert.equal(buildThreadGuidanceBlock(null, 3), '');
+});
+
+t('thread plan: status and health warnings', () => {
+  const plan = parseThreadPlan(JSON.stringify({ threads: [
+    { title: 'Late major', tier: 'major', kind: 'twist', beats: [{ chapter: 7, type: 'open' }, { chapter: 9, type: 'reveal' }, { chapter: 10, type: 'close' }] },
+  ] }), 10)!;
+  const w = analyzeThreadPlan(plan, 12).map((x) => x.message).join('\n');
+  assert.ok(w.includes('built for 10 chapters'));
+  assert.ok(w.includes('starts late'));
+  assert.ok(w.includes('without at least two earlier hints'));
+  assert.ok(w.includes('No thread activity'));
+  const ch = (n: number, prose = '') => ({ id: 'c' + n, number: n, prose }) as any;
+  assert.equal(threadStatus(plan.threads[0], [ch(7, 'x')]), 'open');
+  assert.equal(threadStatus(plan.threads[0], [ch(7, 'x'), ch(10, 'y')]), 'resolved');
+  assert.equal(threadStatus(plan.threads[0], [ch(7)]), 'planned');
+});
+
+t('thread plan prompt includes written chapters and tier rules', () => {
+  const chs = [
+    { id: 'a', number: 1, title: 'One', prose: 'x', premise: { purpose: 'p1' }, aiIntentMetadata: { richSummary: 'Kid runs away.', openedThreads: [{ character: 'Kid', thread: 'find the speed force' }] } },
+    { id: 'b', number: 2, title: 'Two', prose: '', premise: { purpose: 'p2', changes: 'c2' } },
+  ] as any;
+  const p = buildThreadPlanPrompt({ title: 'Fast', chapters: chs, canon: [] });
+  assert.ok(p.includes('[WRITTEN] Kid runs away.') && p.includes('find the speed force') && p.includes('[PLANNED] p2 — c2'));
+  assert.ok(p.includes('"major"') && p.includes('"hook"') && p.includes("don't move events"));
+});
+
+t('retimeThread keeps beats inside the new span', () => {
+  const plan = parseThreadPlan(JSON.stringify({ threads: [{ title: 'X', beats: [{ chapter: 2, type: 'open' }, { chapter: 4, type: 'hint' }, { chapter: 8, type: 'advance' }, { chapter: 9, type: 'close' }] }] }), 10)!;
+  const r = retimeThread(plan.threads[0], 3, 6, 10);
+  assert.deepEqual(r.beats.map((b) => [b.chapter, b.type]), [[3, 'open'], [4, 'hint'], [6, 'close']]);
+  const swapped = retimeThread(plan.threads[0], 7, 2, 10);
+  assert.equal(swapped.opensIn, 2); assert.equal(swapped.closesIn, 7);
 });
 
 console.log(`\n${passed} passed`);

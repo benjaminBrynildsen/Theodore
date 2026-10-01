@@ -161,6 +161,8 @@ export const projects = pgTable('projects', {
   listens: integer('listens').notNull().default(0),
   category: text('category'),
   tags: jsonb('tags').$type<string[]>().default([]),
+  // Book thread map (plot lines, subplots, hooks, twists with open/close chapters).
+  threadPlan: jsonb('thread_plan').$type<Record<string, any>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
