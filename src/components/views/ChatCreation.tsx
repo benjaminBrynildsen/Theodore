@@ -4,6 +4,7 @@ import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { buildCanonReferenceBlock } from '../../lib/prompt-builder';
+import { writingModel } from '../../lib/models';
 import * as pixel from '../../lib/pixel';
 import { track as jTrack } from '../../lib/journey';
 import { generateId, cn } from '../../lib/utils';
@@ -1459,7 +1460,7 @@ ${childrensRule}`,
               await generateStream(
                 {
                   prompt,
-                  model: 'claude-sonnet-4-6',
+                  model: writingModel(useSettingsStore.getState().settings.ai?.preferredModel),
                   maxTokens,
                   action: 'generate-chapter',
                   projectId,

@@ -48,11 +48,20 @@ export const useSettingsStore = create<SettingsState>()(persist((set) => ({
 }), {
   name: 'theodore-settings',
   partialize: (s) => ({ settings: s.settings }),
-  // Migrate persisted state to add `beta` block if missing (existing users
-  // upgrading from older settings without the beta section).
-  migrate: (persistedState: any) => {
+  // Without a version, zustand never calls migrate — v1 makes it run once.
+  version: 1,
+  migrate: (persistedState: any, version: number) => {
+    // Add `beta` block if missing (older settings without the beta section).
     if (persistedState?.settings && !persistedState.settings.beta) {
       persistedState.settings.beta = DEFAULT_SETTINGS.beta;
+    }
+    // v1: Claude Opus 5.5 is the default writer. Move users still on the old
+    // default (Sonnet / Auto) to Opus once; explicit GPT choices are kept.
+    if (version < 1 && persistedState?.settings?.ai) {
+      const current = persistedState.settings.ai.preferredModel;
+      if (!current || current === 'claude-sonnet' || current === 'auto') {
+        persistedState.settings.ai.preferredModel = 'claude-opus';
+      }
     }
     return persistedState;
   },

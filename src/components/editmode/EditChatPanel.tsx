@@ -81,7 +81,7 @@ export function EditChatPanel({ chapterId, scene }: Props) {
 
       const result = await generateText({
         prompt,
-        model: settings.ai.preferredModel || 'claude-sonnet',
+        model: settings.ai.preferredModel || 'claude-opus',
         maxTokens: 3000,
         action: 'chat-message',
         projectId: project.id,

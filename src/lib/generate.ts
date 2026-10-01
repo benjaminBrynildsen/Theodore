@@ -153,7 +153,11 @@ export async function generateStream(
 // Estimate credits before generation
 export function estimateCredits(inputTokens: number, outputTokens: number, model: string): number {
   const multipliers: Record<string, { input: number; output: number }> = {
+    'claude-opus': { input: 0.8, output: 2.4 },
+    'claude-fable': { input: 2, output: 6 },
     'claude-opus-4-6': { input: 1, output: 3 },
+    'claude-fable-5-1': { input: 2, output: 6 },
+    'claude-opus-5-5': { input: 0.8, output: 2.4 },
     'claude-sonnet-4-6': { input: 0.3, output: 1 },
     'claude-sonnet-4-5': { input: 0.3, output: 1 },
     'gpt-5.2': { input: 0.8, output: 2.5 },

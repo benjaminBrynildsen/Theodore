@@ -9,6 +9,7 @@ import { useCanonStore } from '../store/canon';
 import { useSettingsStore } from '../store/settings';
 import { useAuthStore } from '../store/auth';
 import { generateText } from './generate';
+import { analysisModel } from './models';
 import { buildSceneDecompositionPrompt, buildSceneProseSplitPrompt } from './prompt-builder';
 import { tagDialogue } from './dialogue-tagger';
 import { tagSFX } from './sfx-tagger';
@@ -350,7 +351,7 @@ async function extractContinuity(chapterId: string): Promise<void> {
   console.info('[PostGen] Running continuity extraction for ch', chapter.number);
   const result = await generateText({
     prompt: buildContinuityExtractionPrompt({ projectTitle: project.title, chapter, allChapters, canon }),
-    model: settings.ai.preferredModel || 'claude-sonnet',
+    model: analysisModel(settings.ai.preferredModel),
     ...EXTRACTION_REQUEST,
     projectId: project.id,
     chapterId: chapter.id,
@@ -425,7 +426,7 @@ export async function runSceneDecomposition(chapterId: string): Promise<Scene[] 
 
   const result = await generateText({
     prompt,
-    model: settings.ai.preferredModel || 'claude-sonnet',
+    model: analysisModel(settings.ai.preferredModel),
     maxTokens: 1500,
     action: 'generate-chapter-outline',
     projectId: project.id,

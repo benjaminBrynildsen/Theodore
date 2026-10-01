@@ -318,7 +318,7 @@ RULES:
 
       const result = await generateText({
         prompt,
-        model: settings.ai?.preferredModel || 'claude-sonnet',
+        model: settings.ai?.preferredModel || 'claude-opus',
         maxTokens: target.selection ? 2000 : 4000,
         action: 'inline-edit',
         projectId: project.id,
