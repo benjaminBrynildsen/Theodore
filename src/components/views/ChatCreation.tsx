@@ -1413,6 +1413,19 @@ ${childrensRule}`,
               await Promise.race([characterFillPromise, new Promise((r) => setTimeout(r, 15_000))]);
               const latestProject2 = useStore.getState().projects.find(p => p.id === projectId) || project;
               const isChildrens = latestProject2.subtype === 'childrens-book';
+              // Novels: map the book's plot threads instead of writing Chapter 1,
+              // so the author sees the whole shape of the book before anything
+              // is written. Picture books still get their first page.
+              if (!isChildrens) {
+                useGenerationStore.getState().setSubtitle('Mapping plot threads…');
+                try {
+                  const { buildThreadMap } = await import('../../lib/thread-planner');
+                  await buildThreadMap(projectId);
+                } catch (e) {
+                  console.warn('[Creation] Thread map failed (non-fatal):', e);
+                }
+                return;
+              }
               const cbs = (latestProject2 as any).childrensBookSettings || {};
               const allCh = useStore.getState().chapters.filter(c => c.projectId === projectId).sort((a, b) => a.number - b.number);
               const outlineContext = allCh.map(c => `${isChildrens ? 'Page' : 'Ch'} ${c.number}: ${c.title} — ${c.premise?.purpose || ''}`).join('\n');
@@ -2093,10 +2106,10 @@ ${childrensRule}`,
                           ? 'Creating…'
                           : bookType === 'childrens-book' ? 'Building your picture book…' : 'Building your novel…'
                         : selectedSettings?.title
-                        ? <>{bookType === 'childrens-book' ? 'Create ' : 'Read '}<em className="italic">{selectedSettings.title}</em> →</>
+                        ? <>{bookType === 'childrens-book' ? 'Create ' : 'Open '}<em className="italic">{selectedSettings.title}</em> →</>
                         : bookType === 'childrens-book'
                           ? "Create My Children's Book →"
-                          : "Read My Book (It's Ready) →"}
+                          : 'Open My Book →'}
                     </span>
                   </button>
                 </div>

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch } from 'lucide-react';
 import { ShareBookDialog } from '../share/ShareBookDialog';
 import { computeArcBreakpoints, getStructureById } from '../../lib/story-structures';
 import { useStore } from '../../store';
@@ -10,6 +10,7 @@ import { ChapterView } from './ChapterView';
 import { AuthView } from './AuthView';
 import { IllustrateButton } from '../features/IllustrateButton';
 import { ChildrensBookReader } from '../features/ChildrensBookReader';
+import { ThreadMap } from '../features/ThreadMap';
 import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../../lib/scaffold';
 import { generateStream } from '../../lib/generate';
 import { generateImageApi } from '../../lib/image-gen';
@@ -39,6 +40,7 @@ export function ProjectView() {
   const [scaffolding, setScaffolding] = useState(false);
   const [scaffoldError, setScaffoldError] = useState<string | null>(null);
   const [showArcLabels, setShowArcLabels] = useState(false);
+  const [showThreadsOverride, setShowThreadsOverride] = useState<boolean | null>(null);
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(() => new Set());
@@ -77,6 +79,8 @@ export function ProjectView() {
   const cbs = project.childrensBookSettings;
 
   // Dynamic narrative arc based on selected story structure
+  // Threads open by default until the first chapter is written (overview mode).
+  const showThreads = showThreadsOverride ?? (chapters.length >= 2 && !chapters.some((c) => c.prose?.trim()));
   const structureId = project.storyStructureId || 'plot-pyramid';
   const structure = getStructureById(structureId);
   const arcBreakpoints = useMemo(() => {
@@ -685,6 +689,21 @@ export function ProjectView() {
               Chapter Outline
             </button>
           ) : <div />}
+          <div className="flex items-center gap-2">
+          {!isChildrensBook && chapters.length >= 2 && (
+            <button
+              onClick={() => setShowThreadsOverride(!showThreads)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                showThreads
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'glass-pill text-text-tertiary hover:bg-white/60'
+              )}
+            >
+              <GitBranch size={13} />
+              Threads{project.threadPlan?.threads?.length ? ` · ${project.threadPlan.threads.length}` : ''}
+            </button>
+          )}
           {chapters.length >= 2 && structure && !structure.isProcess && (
             <button
               onClick={() => setShowArcLabels(!showArcLabels)}
@@ -699,7 +718,15 @@ export function ProjectView() {
               {structure.name}
             </button>
           )}
+          </div>
         </div>
+
+        {/* Thread map — plot lines, subplots, hooks and twists across the book */}
+        {!isChildrensBook && showThreads && chapters.length >= 2 && (
+          <div className="mb-6">
+            <ThreadMap project={project} chapters={chapters} />
+          </div>
+        )}
 
         {/* Building chapters skeleton — shown when navigated before derive finished */}
         {chapters.length === 0 && (

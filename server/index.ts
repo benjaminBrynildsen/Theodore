@@ -338,6 +338,7 @@ function buildProjectUpdate(bodyRaw: unknown) {
   if ('narrativeControls' in body) updates.narrativeControls = asObject(body.narrativeControls, DEFAULT_NARRATIVE_CONTROLS);
   if ('coverUrl' in body) updates.coverUrl = body.coverUrl === null ? null : asOptionalString(body.coverUrl);
   if ('status' in body && typeof body.status === 'string') updates.status = body.status;
+  if ('threadPlan' in body) updates.threadPlan = body.threadPlan ? asObject(body.threadPlan) : null;
 
   return updates;
 }
@@ -2095,14 +2096,14 @@ const LOCK_EXEMPT_ACTIONS = new Set([
   'plan-project',
   'extract-continuity', 'refine-entities', 'entity-refine',
   'generate-chapter-outline', 'scene-prose-split',
-  'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill',
+  'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill', 'plan-threads',
 ]);
 
 // Guest (unauthenticated) generation — only for plan-project during onboarding
 const GUEST_ALLOWED_ACTIONS = new Set([
   // Planning + outline
   'plan-project', 'scaffold-chapters', 'generate-chapter-outline',
-  'scene-prose-split', 'entity-refine', 'extract-continuity',
+  'scene-prose-split', 'entity-refine', 'extract-continuity', 'plan-threads',
   // Chapter writing + extending
   'generate-chapter', 'extend-chapter', 'dialogue-clarity-pass',
   // Editing flows
@@ -5784,6 +5785,7 @@ async function ensureAdditiveSchema() {
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS listens integer NOT NULL DEFAULT 0`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS category text`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tags jsonb DEFAULT '[]'::jsonb`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS thread_plan jsonb`,
     `DO $$ BEGIN
        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'projects_slug_unique') THEN
          BEGIN

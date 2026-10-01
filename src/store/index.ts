@@ -293,6 +293,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         storyStructureId: p.storyStructureId || p.story_structure_id,
         narrativeControls: p.narrativeControls || p.narrative_controls || {},
         coverUrl: p.coverUrl || p.cover_url || undefined,
+        threadPlan: p.threadPlan || p.thread_plan || null,
         status: p.status,
         chapterCount: typeof p.chapterCount === 'number' ? p.chapterCount : (typeof p.chapter_count === 'number' ? p.chapter_count : undefined),
         wordCount: typeof p.wordCount === 'number' ? p.wordCount : (typeof p.word_count === 'number' ? p.word_count : undefined),
