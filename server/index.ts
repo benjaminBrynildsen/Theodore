@@ -3662,9 +3662,12 @@ app.post('/api/generate/job', async (req, res) => {
     // DB-side concurrency check: reject if this user already has a live prose
     // job. Catches mobile resubmits where the in-memory `activeGenerationUsers`
     // map missed because the prior job is running on a peer instance.
-    const skipLockGen = ['plan-project'].includes(action);
+    // Background analysis jobs (e.g. thread mapping) neither wait for nor
+    // block chapter writing.
+    const skipLockGen = typeof action === 'string' && LOCK_EXEMPT_ACTIONS.has(action);
     if (!skipLockGen) {
       const recentCutoff = new Date(Date.now() - RESUME_WINDOW_MINUTES * 60 * 1000);
+      const exemptActions = Array.from(LOCK_EXEMPT_ACTIONS);
       const [existing] = await db.select({ id: genJobsTable.id })
         .from(genJobsTable)
         .where(
@@ -3673,6 +3676,7 @@ app.post('/api/generate/job', async (req, res) => {
             eq(genJobsTable.kind, 'prose'),
             or(eq(genJobsTable.status, 'pending'), eq(genJobsTable.status, 'processing')),
             sql`${genJobsTable.createdAt} > ${recentCutoff}`,
+            sql`coalesce(${genJobsTable.spec}->>'action', '') not in (${sql.join(exemptActions.map((a) => sql`${a}`), sql`, `)})`,
           ),
         )
         .limit(1);
