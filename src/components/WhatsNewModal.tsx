@@ -7,6 +7,7 @@ export const APP_VERSION = 57;
 const SEEN_KEY = 'theodore:welcome-version-seen';
 
 const NOTES = [
+  'Now writing with Claude Opus 5.5 — every chapter is written by Anthropic’s latest Opus model. Want even more? Pick Claude Fable 5.1 in Settings → AI & Generation.',
   'Characters stay themselves — Theodore now remembers where everyone is, what they know, and how they look from chapter to chapter.',
   'Objects stay put — artifacts keep track of who holds them and what condition they are in.',
   'Established details stick — facts from earlier chapters are carried forward so they don’t quietly change.',
@@ -80,7 +81,7 @@ export function WhatsNewModal() {
           Welcome to Version {APP_VERSION}
         </h2>
         <p className="text-sm text-text-secondary leading-relaxed mb-5">
-          Your story now reads as one continuous book. Theodore keeps track of your characters, objects, and details across every chapter.
+          A smarter writer and a story that reads as one continuous book. Theodore now keeps track of your characters, objects, and details across every chapter.
         </p>
 
         <ul className="space-y-3 mb-6">
