@@ -16,6 +16,7 @@ import { PendingNoticeModal } from './components/PendingNoticeModal';
 import { CreditNudge } from './components/credits/CreditNudge';
 import { UsageReceipt } from './components/credits/UsageReceipt';
 import { IosLaunchModalGate } from './components/IosLaunchModalGate';
+import { WhatsNewModal } from './components/WhatsNewModal';
 import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
@@ -796,6 +797,7 @@ export default function App() {
       <UsageReceipt />
       <PendingNoticeModal />
       <IosLaunchModalGate />
+      <WhatsNewModal />
       {showReadingMode && (
         <Suspense fallback={<ViewLoader label="Loading reading mode..." />}>
           <ReadingMode onClose={() => setShowReadingMode(false)} />
