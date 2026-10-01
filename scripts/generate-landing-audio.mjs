@@ -11,7 +11,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 const PROD = 'https://theodore.tools';
-const ADMIN_KEY = 'theodore-claude-admin-2026';
+const ADMIN_KEY = process.env.ADMIN_API_KEY;
+if (!ADMIN_KEY) {
+  console.error('Set ADMIN_API_KEY (same value as the server env var) to run this script.');
+  process.exit(1);
+}
 
 const BOOKS = [
   {
