@@ -142,7 +142,7 @@ export function VibeEditor({ chapter, onClose }: Props) {
 
       const result = await generateText({
         prompt,
-        model: settings.ai?.preferredModel || 'claude-sonnet',
+        model: settings.ai?.preferredModel || 'claude-opus',
         maxTokens: selection ? 2000 : 3000,
         action: 'vibe-edit',
         projectId: project.id,

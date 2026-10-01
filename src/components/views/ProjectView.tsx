@@ -94,7 +94,7 @@ export function ProjectView() {
     await generateStream(
       {
         prompt,
-        model: settings.ai?.preferredModel || 'claude-sonnet',
+        model: settings.ai?.preferredModel || 'claude-opus',
         maxTokens: 4096,
         action: 'scaffold-chapters',
         projectId: project.id,

@@ -42,7 +42,7 @@ export interface EditorSettings {
 
 export interface AISettings {
   // Model Preferences
-  preferredModel: 'gpt-4.1' | 'gpt-5.2' | 'gpt-4o' | 'auto' | 'claude-opus' | 'claude-sonnet';
+  preferredModel: 'gpt-4.1' | 'gpt-5.2' | 'gpt-4o' | 'auto' | 'claude-opus' | 'claude-fable' | 'claude-sonnet';
   temperature: number;               // 0.0-1.5
   
   // Generation Behavior
@@ -122,7 +122,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     theme: 'light',
   },
   ai: {
-    preferredModel: 'claude-sonnet',
+    preferredModel: 'claude-opus',
     temperature: 0.8,
     autoSuggest: false,
     suggestAfterMs: 2000,

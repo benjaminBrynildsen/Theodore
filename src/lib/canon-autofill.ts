@@ -138,7 +138,7 @@ ${JSON.stringify(skeleton)}`;
 
   const result = await generateText({
     prompt,
-    model: ctx.model || 'claude-sonnet',
+    model: ctx.model || 'claude-opus',
     maxTokens: 2000,
     temperature: 0.7,
     action: 'auto-fill',
@@ -186,7 +186,7 @@ Return ONLY JSON mapping each character's exact name to this shape (keep given d
 
   const result = await generateText({
     prompt,
-    model: ctx.model || 'claude-sonnet',
+    model: ctx.model || 'claude-opus',
     maxTokens: Math.min(6000, 700 + targets.length * 550),
     temperature: 0.8,
     action: 'auto-fill',
