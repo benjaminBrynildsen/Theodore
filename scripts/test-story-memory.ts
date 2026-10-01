@@ -15,6 +15,7 @@ import {
 (globalThis as any).localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 (globalThis as any).window = globalThis;
 const { fillEmpty } = await import('../src/lib/canon-autofill');
+const { threadMapPct, expectedThreadCount } = await import('../src/lib/thread-planner');
 
 let passed = 0;
 const t = (name: string, fn: () => void) => { fn(); passed++; console.log('ok -', name); };
@@ -287,6 +288,17 @@ t('retimeThread keeps beats inside the new span', () => {
   assert.deepEqual(r.beats.map((b) => [b.chapter, b.type]), [[3, 'open'], [4, 'hint'], [6, 'close']]);
   const swapped = retimeThread(plan.threads[0], 7, 2, 10);
   assert.equal(swapped.opensIn, 2); assert.equal(swapped.closesIn, 7);
+});
+
+t('thread map progress: creeps while reading, fills by threads found, never hits 100 early', () => {
+  assert.equal(expectedThreadCount(12), 14);
+  assert.equal(threadMapPct('reading', 0, 0, 14), 0);
+  const r60 = threadMapPct('reading', 60_000, 0, 14);
+  assert.ok(r60 > 10 && r60 < 20, String(r60));
+  assert.ok(threadMapPct('reading', 600_000, 0, 14) <= 20);
+  assert.equal(threadMapPct('mapping', 0, 7, 14), Math.round(20 + 37.5));
+  assert.equal(threadMapPct('mapping', 0, 40, 14), 95);
+  assert.equal(threadMapPct('saving', 0, 14, 14), 98);
 });
 
 console.log(`\n${passed} passed`);

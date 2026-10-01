@@ -79,6 +79,7 @@ export function GenerationProgressBar() {
     'generate-image': 'Generating cover for',
     'create-project': 'Creating',
     'inline-edit': 'Editing',
+    'map-threads': 'Mapping threads for',
   };
   const verb = verbForKind[kind];
 
