@@ -2090,6 +2090,17 @@ app.post('/api/transactions', async (req, res) => {
 
 // ========== AI Generation ==========
 
+// SSE keep-alive. Opus 5.x / Fable think before writing, so a stream can be
+// silent for a minute or more; proxies and mobile networks drop idle
+// connections. SSE comment lines are ignored by every client parser.
+// Stops on 'close', which Node emits when the response ends or the socket drops.
+function startSseHeartbeat(res: express.Response, everyMs = 15_000): void {
+  const timer = setInterval(() => {
+    try { res.write(': ping\n\n'); } catch { /* socket gone */ }
+  }, everyMs);
+  res.on('close', () => clearInterval(timer));
+}
+
 // Short background analysis calls that must not contend for the per-user
 // generation lock (which exists to stop parallel chapter generations).
 const LOCK_EXEMPT_ACTIONS = new Set([
@@ -2357,8 +2368,9 @@ app.post('/api/generate/guest/stream', async (req, res) => {
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
       });
+      startSseHeartbeat(res);
 
-      const cappedMaxTokens = Math.min(maxTokens || 2200, action === 'generate-chapter' ? 8000 : 2200);
+      const cappedMaxTokens = Math.min(maxTokens || 2200, action === 'generate-chapter' || action === 'plan-threads' ? 8000 : 2200);
       const result = await generateStream(
         { prompt, systemPrompt, model, maxTokens: cappedMaxTokens, temperature, userId: undefined, projectId: undefined, chapterId: undefined, action },
         res,
@@ -2416,7 +2428,7 @@ app.post('/api/generate/stream', async (req, res) => {
     if (!isFreeChatStream && user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
-    const skipLockStream = ['plan-project'].includes(action);
+    const skipLockStream = typeof action === 'string' && LOCK_EXEMPT_ACTIONS.has(action);
     if (!skipLockStream && hasFreshLock(activeGenerationUsers, user.id)) {
       return res.status(429).json({ error: 'Generation already in progress for this account.' });
     }
@@ -2429,6 +2441,7 @@ app.post('/api/generate/stream', async (req, res) => {
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
       });
+      startSseHeartbeat(res);
 
       const result = await generateStream(
         { prompt, systemPrompt, model, maxTokens, temperature, userId: user.id, projectId, chapterId, action },

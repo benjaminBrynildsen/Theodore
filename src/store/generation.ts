@@ -15,7 +15,8 @@ export type GenerationKind =
   | 'generate-audio'
   | 'generate-image'
   | 'create-project'
-  | 'inline-edit';
+  | 'inline-edit'
+  | 'map-threads';
 
 interface GenerationState {
   // null when no operation is active

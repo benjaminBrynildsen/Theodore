@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Eye, EyeOff, GitBranch, Info, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { useStore } from '../../store';
-import { buildThreadMap, pendingThreadMap } from '../../lib/thread-planner';
+import { buildThreadMap, pendingThreadMap, subscribeThreadMapProgress, type ThreadMapProgress } from '../../lib/thread-planner';
 import {
   TIER_LABELS,
   analyzeThreadPlan,
@@ -48,6 +48,29 @@ function Marker({ type, color }: { type: ThreadBeat['type']; color: string }) {
   return <span className="block w-[11px] h-[11px] rounded-full" style={{ background: color, boxShadow: ring }} />;
 }
 
+function BuildProgress({ progress }: { progress: ThreadMapProgress | null }) {
+  const secs = Math.round((progress?.elapsedMs || 0) / 1000);
+  const label = !progress || progress.phase === 'reading'
+    ? `Reading your outline and planning the threads… ${secs}s`
+    : progress.phase === 'saving'
+    ? 'Saving the map…'
+    : `${progress.threadsFound} of ~${progress.threadsExpected} threads mapped · ${secs}s`;
+  return (
+    <div className="w-full max-w-md mx-auto space-y-1.5" role="status" aria-live="polite">
+      <div className="h-1.5 rounded-full bg-black/[0.06] overflow-hidden">
+        <div
+          className="h-full rounded-full bg-text-primary transition-[width] duration-700 ease-out"
+          style={{ width: `${Math.max(4, progress?.pct ?? 4)}%` }}
+        />
+      </div>
+      <p className="text-[11px] text-text-tertiary text-center tabular-nums">{label}</p>
+      {(!progress || progress.phase === 'reading') && secs > 20 && (
+        <p className="text-[11px] text-text-tertiary text-center">Usually 1–2 minutes. You can keep working — the map appears here when it's ready.</p>
+      )}
+    </div>
+  );
+}
+
 const STATUS_STYLE = {
   planned: 'bg-black/5 text-text-tertiary',
   open: 'bg-amber-100 text-amber-800',
@@ -70,6 +93,9 @@ export function ThreadMap({ project, chapters }: Props) {
   const written = useMemo(() => new Set(sorted.filter((c) => c.prose?.trim()).map((c) => c.number)), [sorted]);
   const nextUnwritten = sorted.find((c) => !c.prose?.trim())?.number ?? 1;
   const [focusChapter, setFocusChapter] = useState<number>(nextUnwritten);
+
+  const [progress, setProgress] = useState<ThreadMapProgress | null>(null);
+  useEffect(() => subscribeThreadMapProgress(project.id, setProgress), [project.id]);
 
   // A build may already be running (started during project creation).
   useEffect(() => {
@@ -126,14 +152,17 @@ export function ThreadMap({ project, chapters }: Props) {
           See every plot line, subplot, hook and twist — where each one opens, where its clues are planted, and where it pays off.
           Each chapter is then written to follow the map.
         </p>
-        <button
-          onClick={build}
-          disabled={building}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold hover:shadow-md transition-all disabled:opacity-60"
-        >
-          {building ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
-          {building ? 'Mapping threads…' : 'Build thread map'}
-        </button>
+        {building ? (
+          <BuildProgress progress={progress} />
+        ) : (
+          <button
+            onClick={build}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold hover:shadow-md transition-all"
+          >
+            <GitBranch size={14} />
+            Build thread map
+          </button>
+        )}
         {error && <p className="text-xs text-error">{error}</p>}
       </div>
     );
@@ -168,6 +197,7 @@ export function ThreadMap({ project, chapters }: Props) {
         </button>
       </div>
       {error && <p className="text-xs text-error">{error}</p>}
+      {building && <BuildProgress progress={progress} />}
 
       {/* Legend: tiers (color + name) and beat shapes — identity is never color alone */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-text-secondary">
