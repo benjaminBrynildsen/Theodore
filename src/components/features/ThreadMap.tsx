@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Eye, EyeOff, GitBranch, Info, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { useStore } from '../../store';
-import { buildThreadMap, pendingThreadMap, subscribeThreadMapProgress, type ThreadMapProgress } from '../../lib/thread-planner';
+import { buildThreadMap, pendingThreadMap, resumeThreadMapIfPending, subscribeThreadMapProgress, type ThreadMapProgress } from '../../lib/thread-planner';
 import {
   TIER_LABELS,
   analyzeThreadPlan,
@@ -101,13 +101,16 @@ export function ThreadMap({ project, chapters }: Props) {
   const [progress, setProgress] = useState<ThreadMapProgress | null>(null);
   useEffect(() => subscribeThreadMapProgress(project.id, setProgress), [project.id]);
 
-  // A build may already be running (started during project creation).
+  // A build may already be running (started during project creation), or a
+  // server-side job may have been left running when the page was reloaded.
   useEffect(() => {
-    const pending = pendingThreadMap(project.id);
+    const pending = pendingThreadMap(project.id) || resumeThreadMapIfPending(project.id);
     if (!pending) return;
     setBuilding(true);
     let alive = true;
-    pending.catch(() => {}).finally(() => { if (alive) setBuilding(false); });
+    pending
+      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : 'Thread map failed.'); })
+      .finally(() => { if (alive) setBuilding(false); });
     return () => { alive = false; };
   }, [project.id]);
 
@@ -122,7 +125,11 @@ export function ThreadMap({ project, chapters }: Props) {
       await buildThreadMap(project.id);
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      setError(msg === 'INSUFFICIENT_CREDITS' ? 'Not enough credits to build the thread map.' : msg || 'Thread map failed.');
+      setError(
+        msg === 'INSUFFICIENT_CREDITS' ? 'Not enough credits to build the thread map.'
+          : /load failed|failed to fetch|network/i.test(msg) ? 'The connection dropped before the map could start. Check your signal and tap Build again.'
+          : msg || 'Thread map failed.',
+      );
     } finally {
       setBuilding(false);
     }
