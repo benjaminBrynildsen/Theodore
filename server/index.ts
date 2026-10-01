@@ -2089,6 +2089,15 @@ app.post('/api/transactions', async (req, res) => {
 
 // ========== AI Generation ==========
 
+// Short background analysis calls that must not contend for the per-user
+// generation lock (which exists to stop parallel chapter generations).
+const LOCK_EXEMPT_ACTIONS = new Set([
+  'plan-project',
+  'extract-continuity', 'refine-entities', 'entity-refine',
+  'generate-chapter-outline', 'scene-prose-split',
+  'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill',
+]);
+
 // Guest (unauthenticated) generation — only for plan-project during onboarding
 const GUEST_ALLOWED_ACTIONS = new Set([
   // Planning + outline
@@ -2270,8 +2279,12 @@ app.post('/api/generate', async (req, res) => {
     if (!isFreeChat && user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
-    // Skip lock for lightweight chat actions (plan-project = Imagine chat)
-    const skipLock = ['plan-project'].includes(action);
+    // Skip lock for lightweight chat actions (plan-project = Imagine chat) and
+    // background analysis passes. The post-generation pipeline fires several of
+    // these at once (continuity extraction, scene split, entity refine) while
+    // the dialogue polish may still hold the lock; locking them made all but
+    // one fail with 429 and silently dropped continuity memory.
+    const skipLock = typeof action === 'string' && LOCK_EXEMPT_ACTIONS.has(action);
     if (!skipLock && hasFreshLock(activeGenerationUsers, user.id)) {
       return res.status(429).json({ error: 'Generation already in progress for this account.' });
     }

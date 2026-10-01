@@ -1,0 +1,214 @@
+// Tests for story memory (src/lib/story-memory.ts), prompt assembly, and the
+// auto-fill merge. Run: npm run test:story-memory
+import assert from 'node:assert/strict';
+import {
+  parseMemorySections, foldStoryState, selectRelevantCanon, buildStoryMemoryBlock,
+  renderCharacterCard, renderWorldCard, needsReextraction, proseContentHash, proseSignature,
+  stripProductionTags, diffChapterMemory, proseForExtraction, isPlaceholderText, resolveCanonEntry,
+} from '../src/lib/story-memory';
+import { buildGenerationPrompt } from '../src/lib/prompt-builder';
+
+// canon-autofill -> generate -> stores touch browser globals at import time.
+(globalThis as any).localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+(globalThis as any).window = globalThis;
+const { fillEmpty } = await import('../src/lib/canon-autofill');
+
+let passed = 0;
+const t = (name: string, fn: () => void) => { fn(); passed++; console.log('ok -', name); };
+
+const baseChar = (id: string, name: string, extra: any = {}) => ({
+  id, projectId: 'p', type: 'character', name, description: '', tags: [], notes: '', version: 1, linkedCanonIds: [], createdAt: '', updatedAt: '',
+  character: {
+    fullName: name, aliases: [], age: '', gender: '', pronouns: '', species: '', occupation: '', role: 'supporting',
+    appearance: { physical: '', distinguishingFeatures: '', style: '' },
+    personality: { traits: [], strengths: [], flaws: [], fears: [], desires: [], values: [], quirks: [], speechPattern: '', innerVoice: '' },
+    background: { birthplace: '', upbringing: '', family: [], education: '', formativeEvents: [], secrets: [], trauma: '', proudestMoment: '' },
+    relationships: [],
+    arc: { startingState: '', internalConflict: '', externalConflict: '', wantVsNeed: { want: '', need: '' }, growthDirection: '', currentState: '', endingState: '' },
+    storyState: { alive: true, currentLocation: '', knowledgeState: [], emotionalState: '', allegiance: '', lastSeenChapter: 0 },
+    ...extra,
+  },
+}) as any;
+
+const maya = baseChar('c1', 'Maya Chen', { role: 'protagonist', pronouns: 'she/her', aliases: ['May'],
+  appearance: { physical: 'Tall, cropped black hair', distinguishingFeatures: 'scar over left eyebrow', style: '' },
+  arc: { startingState: 'runs from family', internalConflict: '', externalConflict: '', wantVsNeed: { want: 'the truth', need: 'to forgive' }, growthDirection: '', currentState: '', endingState: 'forces a reckoning' },
+  background: { birthplace: '', upbringing: '', family: [], education: '', formativeEvents: [], secrets: ['she read the letter first'], trauma: '', proudestMoment: '' } });
+const tim = baseChar('c2', 'Tim Alder');
+const legacy = baseChar('c3', 'Old Default', {
+  age: 'Early 30s',
+  personality: { traits: ['Determined', 'Guarded', 'Observant'], strengths: [], flaws: ['Isolates when stressed'], fears: [], desires: [], values: [], quirks: [],
+    speechPattern: 'Tends to be precise with words. Uses metaphors from their background.', innerVoice: 'Self-critical but quietly hopeful. Often argues with themselves.' },
+  appearance: { physical: "[AI will describe Old Default's physical appearance based on story context]", distinguishingFeatures: '', style: '' },
+  storyState: { alive: true, currentLocation: '', knowledgeState: [], emotionalState: 'Guarded but curious', allegiance: '', lastSeenChapter: 0 },
+});
+const key = { id: 'a1', projectId: 'p', type: 'artifact', name: 'The Brass Key', description: 'Opens the cabin cellar', tags: [], notes: '', version: 1, linkedCanonIds: [], createdAt: '', updatedAt: '',
+  artifact: { artifactType: 'key', physical: { appearance: 'Tarnished brass, three teeth', material: '', size: '', weight: '', condition: 'Operational', distinguishingMarks: '' },
+    properties: { abilities: [], limitations: ['only opens the cellar'], activationMethod: '', sideEffects: '', power: '' },
+    history: { creator: '', creationDate: '', purpose: '', previousOwners: [], legends: '', currentLocation: '', currentOwner: 'Maya Chen' },
+    storyRelevance: { firstAppearance: 1, significance: '', whoSeeksIt: [], prophecy: '' } } } as any;
+const cabin = { id: 'l1', projectId: 'p', type: 'location', name: 'The Cabin', description: 'Family cabin', tags: [], notes: '', version: 1, linkedCanonIds: [], createdAt: '', updatedAt: '',
+  location: { fullName: '', aliases: [], locationType: 'cabin', geography: {}, history: {}, currentState: { atmosphere: '[AI will describe the mood and feeling of The Cabin]', condition: '', sensoryDetails: { sights: '', sounds: '', smells: 'pine', textures: '' } }, storyRelevance: { accessRules: '', dangerLevel: '' } } } as any;
+const canon = [maya, tim, legacy, key, cabin];
+
+const extraction = `SHORT_SUMMARY: Maya finds the key.
+RICH_SUMMARY:
+Maya finds the key and gives it to Tim.
+OPEN_THREADS:
+- Maya: wants to open the cellar
+RESOLVED_THREAD_IDS:
+CHARACTER_STATE:
+- Maya | location: the cabin loft | with: Tim | mood: shaken | learned: Kelly lied; the key is old | physical: split lip | status: alive | arc: stopped running
+- Tim | location: porch | status: alive
+ARTIFACT_STATE:
+- the brass key | holder: Tim | location: his coat pocket | condition: bent
+FACTS:
+- Tim: drives a green 1987 Corolla
+- Maya: scar over left eyebrow
+CONTRADICTIONS:
+- high | "her blue eyes" | Maya's eyes were brown in Ch.1 | change to brown`;
+
+t('parse memory sections + name resolution', () => {
+  const m = parseMemorySections(extraction, 2, canon);
+  assert.equal(m.characterState.length, 2);
+  assert.equal(m.characterState[0].canonId, 'c1');          // "Maya" -> Maya Chen via first token
+  assert.deepEqual(m.characterState[0].learned, ['Kelly lied', 'the key is old']);
+  assert.equal(m.characterState[1].canonId, 'c2');
+  assert.equal(m.artifactState[0].canonId, 'a1');            // "the brass key" -> The Brass Key
+  assert.equal(m.artifactState[0].holder, 'Tim');
+  assert.equal(m.facts.length, 2);
+  assert.equal(m.facts[0].canonId, 'c2');
+  assert.equal(m.continuityIssues.length, 1);
+  assert.equal(m.continuityIssues[0].severity, 'high');
+  assert.equal(m.continuityIssues[0].quote, 'her blue eyes');
+});
+
+const mkChapter = (id: string, number: number, meta: any = {}, extra: any = {}) => ({
+  id, projectId: 'p', number, title: `T${number}`, timelinePosition: number, status: 'draft-generated',
+  premise: { purpose: '', changes: '', characters: [], emotionalBeat: '', setupPayoff: [], constraints: [] },
+  prose: 'Some prose.', referencedCanonIds: [], validationStatus: { isValid: true, checks: [] }, createdAt: '', updatedAt: '',
+  aiIntentMetadata: meta, ...extra,
+}) as any;
+
+t('fold state as of chapter (later wins, learned accumulates, stops before current)', () => {
+  const m2 = parseMemorySections(extraction, 2, canon);
+  const m3 = parseMemorySections(`CHARACTER_STATE:\n- Maya Chen | location: the harbour | learned: Kelly lied; Tim is her brother\nARTIFACT_STATE:\n- The Brass Key | holder: Maya\nFACTS:\n- Tim: drives a green 1987 Corolla`, 3, canon);
+  const chapters = [mkChapter('ch1', 1), mkChapter('ch2', 2, m2), mkChapter('ch3', 3, m3), mkChapter('ch4', 4)];
+  const at4 = foldStoryState(chapters, 'ch4');
+  const mayaState = at4.characters.get('id:c1')!;
+  assert.equal(mayaState.location, 'the harbour');
+  assert.equal(mayaState.mood, 'shaken');                     // carried from ch2
+  assert.deepEqual(mayaState.learned, ['Kelly lied', 'the key is old', 'Tim is her brother']);
+  assert.equal(at4.artifacts.get('id:a1')!.holder, 'Maya');
+  assert.equal(at4.facts.length, 2);                           // duplicate Corolla fact deduped
+  const at3 = foldStoryState(chapters, 'ch3');                 // regenerating ch3 must not see ch3's own state
+  assert.equal(at3.characters.get('id:c1')!.location, 'the cabin loft');
+  assert.equal(at3.asOfChapter, 2);
+});
+
+t('placeholders never reach cards', () => {
+  const card = renderCharacterCard(legacy);
+  assert.ok(!/Early 30s|Determined|Guarded but curious|AI will|precise with words|quietly hopeful|Isolates/.test(card), card);
+  const cabinCard = renderWorldCard(cabin);
+  assert.ok(!/AI will/.test(cabinCard) && /pine/.test(cabinCard), cabinCard);
+  const keyCard = renderWorldCard(key);
+  assert.ok(!/Operational/.test(keyCard) && /Held by: Maya Chen/.test(keyCard) && /only opens the cellar/.test(keyCard), keyCard);
+  assert.ok(isPlaceholderText('Auto-detected from chapter prose.'));
+});
+
+t('rich character card has pronouns, features, secrets, arc', () => {
+  const card = renderCharacterCard(maya, { chapterNumber: 3, totalChapters: 12 });
+  for (const s of ['Pronouns: she/her', 'scar over left eyebrow', 'Also called: May', 'Secrets', 'Wants: the truth / Needs: to forgive', 'starts: runs from family', 'ends: forces a reckoning', 'Ch.3 of 12'])
+    assert.ok(card.includes(s), `missing ${s}\n${card}`);
+});
+
+t('selection: refs + recent chapters widen, artifacts held by primary included', () => {
+  const ch1 = mkChapter('ch1', 1, {}, { referencedCanonIds: ['c2'] });
+  const ch2 = mkChapter('ch2', 2, {}, { premise: { purpose: 'Maya returns to the cabin', changes: '', characters: ['Maya'], emotionalBeat: '', setupPayoff: [], constraints: [] } });
+  const sel = selectRelevantCanon(canon, ch2, [ch1, ch2]);
+  assert.deepEqual(sel.primaryChars.map((c) => c.id), ['c1']);
+  assert.ok(sel.secondaryChars.some((c) => c.id === 'c2'), 'Tim from previous chapter refs');
+  assert.ok(sel.locations.some((l) => l.id === 'l1'), 'cabin mentioned in premise');
+  assert.ok(sel.artifacts.some((a) => a.id === 'a1'), 'key held by Maya');
+  // no premise, no refs -> protagonists only, not everything
+  const bare = mkChapter('x', 1);
+  const sel2 = selectRelevantCanon(canon, bare, [bare]);
+  assert.deepEqual(sel2.primaryChars.map((c) => c.id), ['c1']);
+});
+
+t('memory block renders state + facts', () => {
+  const m2 = parseMemorySections(extraction, 2, canon);
+  const ch2 = mkChapter('ch2', 2, m2);
+  const ch3 = mkChapter('ch3', 3, {}, { premise: { purpose: '', changes: '', characters: ['Maya Chen'], emotionalBeat: '', setupPayoff: [], constraints: [] } });
+  const all = [mkChapter('ch1', 1), ch2, ch3];
+  const block = buildStoryMemoryBlock(all, ch3, selectRelevantCanon(canon, ch3, all, foldStoryState(all, 'ch3')));
+  assert.ok(block.includes('CURRENT STATE (as of the end of Ch.2)'), block);
+  assert.ok(block.includes('Maya Chen') && block.includes('split lip'));
+  assert.ok(block.includes('The Brass Key') && block.includes('held by Tim'));
+  assert.ok(block.includes('ESTABLISHED FACTS') && block.includes('1987 Corolla'));
+});
+
+t('re-extraction gating ignores tags/typos, catches real rewrites', () => {
+  const prose = Array.from({ length: 300 }, (_, i) => `Sentence number ${i} about Maya and the cabin in winter.`).join(' ');
+  const meta: any = { continuitySourceHash: proseContentHash(prose), continuitySourceSig: proseSignature(prose), continuitySourceLength: stripProductionTags(prose).trim().length };
+  assert.equal(needsReextraction(meta, prose), false);
+  assert.equal(needsReextraction(meta, prose.replace('Sentence number 5', '[Maya] "Hi." {sfx:door creak} Sentence number 5')), false, 'tags only');
+  assert.equal(needsReextraction(meta, prose.replace('winter', 'wintr')), false, 'typo');
+  assert.equal(needsReextraction(meta, prose + ' ' + 'A whole new scene happens here. '.repeat(40)), true, 'extend');
+  const rewritten = prose.split('. ').map((s, i) => (i % 3 === 0 ? `Totally different event ${i} at the harbour with Tim` : s)).join('. ');
+  assert.equal(needsReextraction(meta, rewritten), true, 'rewrite');
+  assert.equal(needsReextraction({}, prose), true, 'never extracted');
+});
+
+t('extraction text keeps the ending of long chapters', () => {
+  const long = 'A'.repeat(50000) + 'THE ENDING';
+  const out = proseForExtraction(long, 30000);
+  assert.ok(out.endsWith('THE ENDING') && out.length < 30100);
+});
+
+t('memory diff flags only meaningful changes', () => {
+  const prev: any = { facts: [{ subject: 'Tim', fact: 'drives a green 1987 Corolla', chapter: 2 }], artifactState: [{ name: 'Key', holder: 'Tim' }], characterState: [{ name: 'Maya', status: 'alive' }] };
+  const reworded: any = { facts: [{ subject: 'Tim', fact: 'drives a green 1987 Corolla with a dent', chapter: 2 }], artifactState: [{ name: 'Key', holder: 'Tim' }], characterState: [{ name: 'Maya', status: 'alive' }] };
+  assert.equal(diffChapterMemory(prev, reworded).changes.length, 0);
+  const changed: any = { facts: [{ subject: 'Tim', fact: 'rides a red motorbike', chapter: 2 }], artifactState: [{ name: 'Key', holder: 'Kelly' }], characterState: [{ name: 'Maya', status: 'dead' }] };
+  const d = diffChapterMemory(prev, changed);
+  assert.equal(d.changes.length, 3);
+  assert.deepEqual(d.subjects.sort(), ['Key', 'Maya', 'Tim']);
+});
+
+t('resolveCanonEntry avoids ambiguous first names', () => {
+  const a = baseChar('x1', 'Sam Reed'), b = baseChar('x2', 'Sam Ortiz');
+  assert.equal(resolveCanonEntry('Sam', [a, b]), undefined);
+  assert.equal(resolveCanonEntry('Sam Reed', [a, b])?.id, 'x1');
+});
+
+t('full generation prompt includes canon cards + memory, no placeholders', () => {
+  const m2 = parseMemorySections(extraction, 2, canon);
+  const ch2 = mkChapter('ch2', 2, { ...m2, summary: 'Maya finds the key.', richSummary: 'Maya finds the key and gives it to Tim.' });
+  const ch3 = mkChapter('ch3', 3, {}, { prose: '', premise: { purpose: 'Maya confronts Tim about the key', changes: '', characters: ['Maya'], emotionalBeat: '', setupPayoff: [], constraints: [] } });
+  const project: any = { id: 'p', title: 'Larch Street', type: 'book', subtype: 'novel', narrativeControls: { toneMood: { lightDark: 50, hopefulGrim: 50, whimsicalSerious: 50 }, pacing: 'balanced', dialogueWeight: 'balanced', focusMix: { character: 40, plot: 40, world: 20 }, genreEmphasis: [] } };
+  const settings: any = { writingStyle: { emDashEnabled: false, smartQuotes: true, oxfordComma: true, ellipsisStyle: 'three-dots', paragraphLength: 'mixed', sceneBreakStyle: '***', chapterStartStyle: 'normal' }, ai: { includeCanonInPrompt: true, includeOutlineInPrompt: true, generateLength: 'standard' } };
+  const prompt = buildGenerationPrompt({ project, chapter: ch3, allChapters: [mkChapter('ch1', 1), ch2, ch3], canonEntries: canon, settings, writingMode: 'draft', generationType: 'full-chapter' });
+  for (const s of ['=== CANON', 'Pronouns: she/her', 'Held by: Tim', 'CURRENT STATE', 'ESTABLISHED FACTS', '1987 Corolla', 'Maya finds the key and gives it to Tim.', 'CHAPTER TO WRITE'])
+    assert.ok(prompt.includes(s), `missing ${s}`);
+  assert.ok(!/AI will|Guarded but curious|Operational/.test(prompt));
+});
+
+
+t('auto-fill merge fills only empty fields', () => {
+  (globalThis as any).localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+  (globalThis as any).window = globalThis;
+  const existing = { age: '', occupation: 'baker', personality: { traits: [], speechPattern: 'Tends to be precise with words. Uses metaphors from their background.', quirks: ['hums'] }, arc: { wantVsNeed: { want: '', need: 'rest' } } };
+  const gen = { age: '42', occupation: 'pilot', personality: { traits: ['wry', 'stubborn'], speechPattern: 'Clipped, no contractions', quirks: ['taps table'] }, arc: { wantVsNeed: { want: 'money', need: 'love' } }, extra: 'dropped' };
+  const out: any = fillEmpty(existing, gen);
+  assert.equal(out.age, '42');
+  assert.equal(out.occupation, 'baker');               // never overwritten
+  assert.deepEqual(out.personality.traits, ['wry', 'stubborn']);
+  assert.equal(out.personality.speechPattern, 'Clipped, no contractions'); // placeholder replaced
+  assert.deepEqual(out.personality.quirks, ['hums']);  // existing list kept
+  assert.equal(out.arc.wantVsNeed.want, 'money');
+  assert.equal(out.arc.wantVsNeed.need, 'rest');
+  assert.ok(!('extra' in out));
+});
+
+console.log(`\n${passed} passed`);

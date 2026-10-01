@@ -3,6 +3,7 @@ import { Send, Sparkles, ChevronDown, Settings2, ArrowLeft, BookOpen, ImageIcon,
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
+import { buildCanonReferenceBlock } from '../../lib/prompt-builder';
 import * as pixel from '../../lib/pixel';
 import { track as jTrack } from '../../lib/journey';
 import { generateId, cn } from '../../lib/utils';
@@ -1329,6 +1330,29 @@ ${childrensRule}`,
           console.warn('[Creation] Canon seeding failed (non-fatal):', e);
         }
 
+        // Give every seeded character a distinct, story-specific personality
+        // and voice (one call) so Chapter 1 and every later chapter write the
+        // same people. Chapter 1 waits briefly for it; failures are non-fatal.
+        const characterFillPromise = (async () => {
+          try {
+            const latestProject = useStore.getState().projects.find(p => p.id === projectId) || project;
+            if (latestProject.subtype === 'childrens-book') return;
+            if (!useAuthStore.getState().user) return; // guests: keep their hourly AI budget for writing
+            const { aiAutoFillCharacters } = await import('../../lib/canon-autofill');
+            const updated = await aiAutoFillCharacters({
+              project: latestProject,
+              chapters: useStore.getState().getProjectChapters(projectId),
+              canon: useCanonStore.getState().getProjectEntries(projectId),
+              model: useSettingsStore.getState().settings.ai?.preferredModel,
+            });
+            for (const entry of updated) {
+              useCanonStore.getState().updateEntry(entry.id, { character: entry.character });
+            }
+          } catch (e) {
+            console.warn('[Creation] Character auto-fill failed (non-fatal):', e);
+          }
+        })();
+
         // Run cover generation + Chapter 1 generation IN PARALLEL
         const coverPromise = (async () => {
           try {
@@ -1385,6 +1409,7 @@ ${childrensRule}`,
               .filter(c => c.projectId === projectId)
               .sort((a, b) => a.number - b.number)[0];
             if (ch1 && !ch1.prose?.trim()) {
+              await Promise.race([characterFillPromise, new Promise((r) => setTimeout(r, 15_000))]);
               const latestProject2 = useStore.getState().projects.find(p => p.id === projectId) || project;
               const isChildrens = latestProject2.subtype === 'childrens-book';
               const cbs = (latestProject2 as any).childrensBookSettings || {};
@@ -1421,9 +1446,15 @@ ${childrensRule}`,
                 indeterminate: false,
               });
 
+              // Same character/world profiles every later chapter will see.
+              const ch1CanonBlock = isChildrens ? '' : buildCanonReferenceBlock(
+                useCanonStore.getState().getProjectEntries(projectId),
+                ch1,
+                allCh,
+              );
               const prompt = isChildrens
                 ? `Write Page 1 of the children's picture book "${latestProject2.title}" for ages ${cbs.ageRange || '3-5'}.\n\nPage 1: ${ch1.title}\nWhat happens: ${ch1.premise?.purpose || ''}\n\nWhole story outline:\n${outlineContext}\n\nThis is a PICTURE BOOK PAGE, not a novel chapter — the illustration does most of the storytelling.\n- Write EXACTLY 2-3 short sentences (${TARGET_WORDS} words max).\n- Simple vocabulary appropriate for the age range.\n- Present tense, active voice, concrete sensory details.\n- No chapter heading, no page number, no stage directions.\n- Just the page text.`
-                : `Write Chapter 1 of "${latestProject2.title}".\n\nChapter 1: ${ch1.title}\nPremise: ${ch1.premise?.purpose || ''}\n\nFull outline:\n${outlineContext}\n\nWrite a complete, engaging first chapter of approximately ${TARGET_WORDS} words. Begin directly with prose — no chapter title or heading. Include dialogue, description, and interiority. Establish the protagonist, setting, and inciting tension.`;
+                : `Write Chapter 1 of "${latestProject2.title}".\n\n${ch1CanonBlock ? `${ch1CanonBlock}\n\n` : ''}Chapter 1: ${ch1.title}\nPremise: ${ch1.premise?.purpose || ''}\n\nFull outline:\n${outlineContext}\n\nWrite a complete, engaging first chapter of approximately ${TARGET_WORDS} words. Begin directly with prose — no chapter title or heading. Include dialogue, description, and interiority. Establish the protagonist, setting, and inciting tension.`;
 
               await generateStream(
                 {
@@ -1485,7 +1516,7 @@ ${childrensRule}`,
         })();
 
         // Wait for cover / hero / ch1 to finish
-        await Promise.all([coverPromise, heroPromise, ch1Promise]);
+        await Promise.all([coverPromise, heroPromise, ch1Promise, characterFillPromise]);
 
         useGenerationStore.getState().setPhase('done');
       })().catch((e) => {
