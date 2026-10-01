@@ -396,6 +396,14 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
       'This is the FINAL chapter of the novel. End on resolution — wrap the central arc, deliver the emotional payoff, ' +
       'and give the reader closure. Lingering ambiguity is fine; an unresolved cliffhanger is not.'
     );
+    const seriesThreads = (project.threadPlan?.threads || []).filter((t) => t.continues);
+    if (seriesThreads.length) {
+      sections.push(
+        `The book's own story closes completely, but the world does not: in the final pages, turn the series thread ` +
+        `(${seriesThreads.map((t) => t.title).join('; ')}) so the larger question feels bigger than before — a quiet, ` +
+        'resonant last note that leaves the reader wanting the next book. Do not answer it.'
+      );
+    }
   } else {
     sections.push(
       'End this chapter on a CLIFFHANGER — an unresolved hook that compels the reader to turn the page. ' +

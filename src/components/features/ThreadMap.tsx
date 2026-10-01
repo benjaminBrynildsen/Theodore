@@ -15,16 +15,19 @@ import {
 import { cn } from '../../lib/utils';
 import type { Chapter, Project } from '../../types';
 
-// Fixed categorical order (validated against the app surface #f2f2f7):
-// slot 1 blue = major, slot 2 orange = subplot, slot 3 aqua = hook.
+// Fixed categorical order (validated all-pairs against the app surface #f2f2f7):
+// slot 1 blue = major, slot 2 orange = subplot, slot 3 aqua = hook,
+// slot 7 violet = series (slot 4 yellow failed against orange).
 // Orange/aqua sit under 3:1 contrast, so every bar carries a text label
-// and the chapter panel gives a text view of the same data.
+// and the chapter panel gives a text view of the same data. Series bars also
+// carry a shape cue (they run off the edge with an arrow), not color alone.
 const TIER_COLOR: Record<ThreadTier, string> = {
   major: '#2a78d6',
   subplot: '#eb6834',
   hook: '#1baf7a',
+  series: '#4a3aa7',
 };
-const TIERS: ThreadTier[] = ['major', 'subplot', 'hook'];
+const TIERS: ThreadTier[] = ['series', 'major', 'subplot', 'hook'];
 const COL_MIN = 30; // px per chapter column
 
 const BEAT_LABEL: Record<ThreadBeat['type'], string> = {
@@ -75,6 +78,7 @@ const STATUS_STYLE = {
   planned: 'bg-black/5 text-text-tertiary',
   open: 'bg-amber-100 text-amber-800',
   resolved: 'bg-green-100 text-green-700',
+  continues: 'bg-violet-100 text-violet-700',
 } as const;
 
 interface Props {
@@ -130,7 +134,7 @@ export function ThreadMap({ project, chapters }: Props) {
   };
 
   const spoiler = (t: StoryThread, text: string) =>
-    hideSpoilers && (t.kind === 'twist' || t.tier === 'major') ? (
+    hideSpoilers && (t.kind === 'twist' || t.tier === 'major' || t.continues) ? (
       <span className="blur-[5px] select-none" aria-label="spoiler hidden">{text || 'hidden'}</span>
     ) : text;
 
@@ -271,16 +275,30 @@ export function ThreadMap({ project, chapters }: Props) {
                             style={{ gridColumn: `${Math.min(t.opensIn, Math.max(1, n - 6))} / ${n + 1}` }}
                           >
                             <span className="truncate font-medium">{t.kind === 'twist' && hideSpoilers ? 'Twist' : t.title}</span>
-                            <span className="text-text-tertiary tabular-nums flex-shrink-0">Ch.{t.opensIn}–{t.closesIn}</span>
+                            <span className="text-text-tertiary tabular-nums flex-shrink-0">{t.continues ? `Ch.${t.opensIn} → next book` : `Ch.${t.opensIn}–${t.closesIn}`}</span>
                             <span className={cn('px-1.5 rounded text-[10px] flex-shrink-0', STATUS_STYLE[status])}>{status}</span>
                           </div>
                         </div>
                         {/* Bar + beat markers on one grid row */}
                         <div className="grid items-center h-5" style={{ gridTemplateColumns: gridCols }}>
-                          <div
-                            className="h-[6px] rounded-full mx-[5px]"
-                            style={{ gridColumn: `${t.opensIn} / ${t.closesIn + 1}`, gridRow: 1, background: color, opacity: status === 'resolved' ? 0.55 : 1 }}
-                          />
+                          {t.continues ? (
+                            // Series thread: runs off the end of the book with an arrow.
+                            <div
+                              className="relative h-[6px] rounded-l-full ml-[5px]"
+                              style={{ gridColumn: `${t.opensIn} / ${n + 1}`, gridRow: 1, background: color }}
+                            >
+                              <span
+                                className="absolute -right-[1px] top-1/2 -translate-y-1/2 w-0 h-0"
+                                style={{ borderTop: '7px solid transparent', borderBottom: '7px solid transparent', borderLeft: `9px solid ${color}` }}
+                                aria-hidden
+                              />
+                            </div>
+                          ) : (
+                            <div
+                              className="h-[6px] rounded-full mx-[5px]"
+                              style={{ gridColumn: `${t.opensIn} / ${t.closesIn + 1}`, gridRow: 1, background: color, opacity: status === 'resolved' ? 0.55 : 1 }}
+                            />
+                          )}
                           {t.beats.map((b, i) => (
                             <span
                               key={i}
@@ -297,7 +315,7 @@ export function ThreadMap({ project, chapters }: Props) {
                       {isOpen && (
                         <div className="relative mt-1 mb-2 rounded-xl bg-white shadow-sm border border-black/5 p-3 text-xs space-y-2 sticky left-0 max-w-[min(100%,36rem)]">
                           {t.question && <p><span className="text-text-tertiary">Question: </span>{t.question}</p>}
-                          {t.resolution && <p><span className="text-text-tertiary">Pays off: </span>{spoiler(t, t.resolution)}</p>}
+                          {t.resolution && <p><span className="text-text-tertiary">{t.continues ? 'Where it’s heading: ' : 'Pays off: '}</span>{spoiler(t, t.resolution)}</p>}
                           {!!t.characters.length && <p><span className="text-text-tertiary">Who: </span>{t.characters.join(', ')}</p>}
                           <ol className="space-y-1">
                             {t.beats.map((b, i) => (
@@ -320,6 +338,9 @@ export function ThreadMap({ project, chapters }: Props) {
                                 {sorted.map((c) => <option key={c.id} value={c.number}>Ch.{c.number}</option>)}
                               </select>
                             </label>
+                            {t.continues ? (
+                              <span className="text-text-tertiary">Stays open — continues into the next book</span>
+                            ) : (
                             <label className="flex items-center gap-1 text-text-tertiary">
                               Closes
                               <select
@@ -330,6 +351,7 @@ export function ThreadMap({ project, chapters }: Props) {
                                 {sorted.map((c) => <option key={c.id} value={c.number}>Ch.{c.number}</option>)}
                               </select>
                             </label>
+                            )}
                             <button
                               onClick={() => { saveThreads(plan.threads.filter((x) => x.id !== t.id)); setExpandedId(null); }}
                               className="ml-auto flex items-center gap-1 px-2 py-1 rounded-md text-text-tertiary hover:text-error hover:bg-error/5"
@@ -377,7 +399,7 @@ export function ThreadMap({ project, chapters }: Props) {
         {!!focus.carrying.length && (
           <div className="flex gap-2">
             <span className="w-16 flex-shrink-0 text-text-tertiary">Keep open</span>
-            <span className="text-text-secondary">{focus.carrying.map((t) => `${t.kind === 'twist' && hideSpoilers ? 'Twist' : t.title} (Ch.${t.closesIn})`).join(' · ')}</span>
+            <span className="text-text-secondary">{focus.carrying.map((t) => `${t.kind === 'twist' && hideSpoilers ? 'Twist' : t.title} (${t.continues ? 'next book' : `Ch.${t.closesIn}`})`).join(' · ')}</span>
           </div>
         )}
         {!focus.opening.length && !focus.closing.length && !focus.hinting.length && !focus.advancing.length && !focus.revealing.length && !focus.carrying.length && (
