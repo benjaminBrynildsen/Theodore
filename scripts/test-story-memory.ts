@@ -301,4 +301,30 @@ t('thread map progress: creeps while reading, fills by threads found, never hits
   assert.equal(threadMapPct('saving', 0, 14, 14), 98);
 });
 
+t('series threads stay open past the book; everything else closes', () => {
+  const plan = parseThreadPlan(JSON.stringify({ threads: [
+    { title: 'Who harvests the speed force', tier: 'series', kind: 'mystery', beats: [{ chapter: 2, type: 'open', note: 'strange static' }, { chapter: 7, type: 'reveal', note: 'a lab exists' }, { chapter: 10, type: 'close', note: 'should not close' }] },
+    { title: 'Save the Hendersons', tier: 'major', beats: [{ chapter: 1, type: 'open' }, { chapter: 3, type: 'hint' }, { chapter: 6, type: 'hint' }, { chapter: 9, type: 'reveal' }, { chapter: 10, type: 'close' }] },
+  ] }), 10)!;
+  const series = plan.threads[0];
+  assert.equal(series.continues, true);
+  assert.equal(series.closesIn, 10);
+  assert.ok(!series.beats.some((b) => b.type === 'close'), 'no close beat');
+  assert.ok(series.beats.some((b) => b.chapter === 10 && b.type === 'advance'), 'stray close becomes a partial answer');
+  const last = threadsForChapter(plan, 10);
+  assert.deepEqual(last.closing.map((x) => x.title), ['Save the Hendersons']);
+  const g10 = buildThreadGuidanceBlock(plan, 10);
+  assert.ok(g10.includes('SERIES THREADS (stay open past this book)') && g10.includes('not a cliffhanger'), g10);
+  const g5 = buildThreadGuidanceBlock(plan, 5);
+  assert.ok(g5.includes('SERIES THREADS (never resolve in this book') && !g5.includes('KEEP OPEN (do not resolve or reveal yet): Who harvests'), g5);
+  const ch = (n: number, prose = 'x') => ({ id: 'c' + n, number: n, prose }) as any;
+  assert.equal(threadStatus(series, [ch(2), ch(10)]), 'continues');
+  assert.equal(retimeThread(series, 4, 6, 10).closesIn, 10, 'series end is pinned to the last chapter');
+  const w = analyzeThreadPlan(plan, 10).map((x) => x.message).join('\n');
+  assert.ok(!w.includes('No series thread') && !w.includes('may not feel finished'), w);
+  const noSeries = parseThreadPlan(JSON.stringify({ threads: [{ title: 'A', tier: 'major', beats: [{ chapter: 1, type: 'open' }, { chapter: 3, type: 'close' }] }] }), 10)!;
+  const w2 = analyzeThreadPlan(noSeries, 10).map((x) => x.message).join('\n');
+  assert.ok(w2.includes('No series thread') && w2.includes('may not feel finished'), w2);
+});
+
 console.log(`\n${passed} passed`);
