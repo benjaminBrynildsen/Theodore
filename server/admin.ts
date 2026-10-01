@@ -30,12 +30,21 @@ const ADMIN_EMAILS = new Set([
   'ben@germaniabrewhaus.com',
 ]);
 
-const ADMIN_API_KEY = process.env.ADMIN_API_KEY || 'theodore-claude-admin-2026';
+// Programmatic admin access only when a secret is configured. There is no
+// default: a fallback key in a public repo would let anyone call admin routes.
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || '';
+
+function isValidAdminKey(candidate: string | undefined): boolean {
+  if (!ADMIN_API_KEY || !candidate) return false;
+  const a = Buffer.from(candidate);
+  const b = Buffer.from(ADMIN_API_KEY);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 export async function requireAdmin(req: Request, res: Response): Promise<{ user: any } | null> {
   // Allow API key auth for programmatic access (Claude, scripts, etc.)
-  const apiKey = req.headers['x-admin-key'] as string;
-  if (apiKey && apiKey === ADMIN_API_KEY) {
+  const apiKey = req.headers['x-admin-key'] as string | undefined;
+  if (isValidAdminKey(apiKey)) {
     return { user: { id: 'api-admin', email: 'claude@admin', name: 'Claude Admin' } };
   }
 
