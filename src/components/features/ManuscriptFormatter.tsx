@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { FileOutput, Download, Check, Loader2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
-import { stripDialogueSpeakerTags } from '../../lib/clean-prose';
+import { isSceneBreakLine, stripDialogueSpeakerTags } from '../../lib/clean-prose';
 
 type SubmissionFormat = 'shunn' | 'standard-manuscript' | 'custom-publisher';
 type FontChoice = 'courier-new' | 'times-new-roman' | 'garamond';
@@ -111,7 +111,12 @@ export function ManuscriptFormatter() {
       lines.push(`CHAPTER ${ch.number}`);
       lines.push(ch.title.toUpperCase());
       lines.push('');
-      lines.push(stripDialogueSpeakerTags(ch.prose));
+      lines.push(
+        stripDialogueSpeakerTags(ch.prose)
+          .split('\n')
+          .map((l) => (isSceneBreakLine(l) ? `\n${preset.sceneBreakMarker}\n` : l))
+          .join('\n'),
+      );
       lines.push('');
     }
 

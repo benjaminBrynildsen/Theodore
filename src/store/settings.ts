@@ -49,7 +49,7 @@ export const useSettingsStore = create<SettingsState>()(persist((set) => ({
   name: 'theodore-settings',
   partialize: (s) => ({ settings: s.settings }),
   // Without a version, zustand never calls migrate — v1 makes it run once.
-  version: 1,
+  version: 2,
   migrate: (persistedState: any, version: number) => {
     // Add `beta` block if missing (older settings without the beta section).
     if (persistedState?.settings && !persistedState.settings.beta) {
@@ -62,6 +62,12 @@ export const useSettingsStore = create<SettingsState>()(persist((set) => ({
       if (!current || current === 'claude-sonnet' || current === 'auto') {
         persistedState.settings.ai.preferredModel = 'claude-opus';
       }
+    }
+    // v2: scene breaks get a visible marker, as in published books. A blank
+    // line can't be told apart from a paragraph break once it's on the page.
+    if (version < 2 && persistedState?.settings?.writingStyle) {
+      const ws = persistedState.settings.writingStyle;
+      if (!ws.sceneBreakStyle || ws.sceneBreakStyle === 'blank') ws.sceneBreakStyle = '***';
     }
     return persistedState;
   },

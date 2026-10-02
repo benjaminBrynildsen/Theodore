@@ -3,8 +3,17 @@
 
 export function stripDialogueSpeakerTags(text: string): string {
   if (!text) return text;
-  // Remove tags like [Narrator] "...", [Coach Dorsey] "..."
-  return text.replace(/\[([^\]\n]{1,80})\]\s*(?=["“'])/g, '');
+  return text
+    // Tags before a quote: [Narrator] "...", [Coach Dorsey] "..."
+    .replace(/\[([^\]\n]{1,80})\]\s*(?=["“'])/g, '')
+    // Tags opening a paragraph of narration: [Wes Garrity] Wes checked...
+    // (no colon inside, so author flags like [NEW: ...] are kept)
+    .replace(/^([ \t]*)\[[A-Z][^\]\n:]{0,60}\][ \t]+/gm, '$1');
+}
+
+/** A paragraph that is only a scene-break mark ("***", "* * *", "#", "---", "· · ·"). */
+export function isSceneBreakLine(line: string): boolean {
+  return /^[ \t]*(?:[-*_~=#•·◆◇—–][ \t]*){3,}$|^[ \t]*(?:#|[◆◇§]|—|–)[ \t]*$/.test(line);
 }
 
 // A line that is nothing but a scene-break mark the model wrote on its own

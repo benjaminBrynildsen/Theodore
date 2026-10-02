@@ -638,6 +638,26 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
   const { addIssues, addImpactReport } = useValidationStore();
   const { getProjectChapters } = useStore();
   const [isAutoFilling, setIsAutoFilling] = useState(false);
+  // Rename everywhere: the name when editing started, and the pending offer.
+  const [nameAtFocus, setNameAtFocus] = useState<string | null>(null);
+  const [renameOffer, setRenameOffer] = useState<{ from: string; to: string; preview: import('../../lib/rename-runner').RenamePreview } | null>(null);
+  const [renameDone, setRenameDone] = useState<string | null>(null);
+  const finishNameEdit = async () => {
+    const from = nameAtFocus;
+    setNameAtFocus(null);
+    const to = (getEntry(entry.id)?.name || '').trim();
+    if (!from || !to || from.trim() === to) return;
+    const { previewRename } = await import('../../lib/rename-runner');
+    const preview = previewRename(entry, from, to);
+    if (preview.mentions > 0 || preview.conflict) setRenameOffer({ from: from.trim(), to, preview });
+  };
+  const applyRenameEverywhere = async () => {
+    if (!renameOffer) return;
+    const { applyRename } = await import('../../lib/rename-runner');
+    const n = applyRename(entry, renameOffer.preview.pairs);
+    setRenameDone(`Renamed to ${renameOffer.to} in ${n} ${n === 1 ? 'chapter' : 'chapters'}, the story maps and related entries.`);
+    setRenameOffer(null);
+  };
   const [lastSnapshot, setLastSnapshot] = useState<AnyCanonEntry>(JSON.parse(JSON.stringify(entry)));
 
   const typeIcons: Record<string, React.ElementType> = {
@@ -745,6 +765,9 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
             type="text"
             value={entry.name}
             onChange={(e) => handleUpdate({ name: e.target.value })}
+            onFocus={() => { setNameAtFocus(entry.name); setRenameDone(null); }}
+            onBlur={finishNameEdit}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
             className="text-lg font-serif font-semibold bg-transparent border-none outline-none w-full"
             placeholder="Name..."
           />
@@ -781,6 +804,38 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
           <X size={16} />
         </button>
       </div>
+
+      {renameOffer && (
+        <div className="mx-5 mt-3 rounded-xl border border-black/10 bg-white/80 p-3 text-xs space-y-2" role="status">
+          {renameOffer.preview.conflict ? (
+            <p className="text-amber-800">
+              Another entry is already named "{renameOffer.preview.conflict}". Renaming the story text would merge the two names — choose a different name, or rename only this entry.
+            </p>
+          ) : (
+            <p className="text-text-primary">
+              "{renameOffer.from}" appears {renameOffer.preview.mentions} {renameOffer.preview.mentions === 1 ? 'time' : 'times'} in {renameOffer.preview.chapters} {renameOffer.preview.chapters === 1 ? 'chapter' : 'chapters'}.
+              Update it to "{renameOffer.to}" everywhere — prose, chapter outlines, story memory, the thread and character maps, and related entries?
+              {renameOffer.preview.pairs.length > 1 && (
+                <span className="block text-text-tertiary mt-1">
+                  Also: {renameOffer.preview.pairs.slice(1).map((p) => `${p.from} → ${p.to}`).join(', ')}
+                </span>
+              )}
+            </p>
+          )}
+          <div className="flex gap-2">
+            {!renameOffer.preview.conflict && (
+              <button onClick={applyRenameEverywhere} className="px-3 py-1.5 rounded-lg bg-text-primary text-text-inverse font-medium">Update everywhere</button>
+            )}
+            <button onClick={() => setRenameOffer(null)} className="px-3 py-1.5 rounded-lg glass-pill text-text-secondary">Only this entry</button>
+          </div>
+        </div>
+      )}
+      {renameDone && (
+        <div className="mx-5 mt-3 rounded-xl bg-green-50 text-green-800 p-2.5 text-xs flex items-start gap-2">
+          <span className="flex-1">{renameDone}</span>
+          <button onClick={() => setRenameDone(null)} className="text-green-700" aria-label="Dismiss">×</button>
+        </div>
+      )}
 
       {/* Description */}
       <div className="px-5 py-3 border-b border-black/5">
