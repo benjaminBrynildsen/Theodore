@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, User, MapPin, Cog, Gem, Scale, Milestone, Plus, Trash2, Heart, Brain, Sword, Eye, BookOpen, Clock, Sparkles, Loader2, Shield, AlertTriangle, GitBranch } from 'lucide-react';
+import { X, User, MapPin, Cog, Gem, Scale, Milestone, Plus, Trash2, Heart, Brain, Sword, Eye, BookOpen, Clock, Sparkles, Loader2, Shield, AlertTriangle, GitBranch, PenLine } from 'lucide-react';
 import { useCanonStore } from '../../store/canon';
 import { cn } from '../../lib/utils';
 import { autoFillCharacter, autoFillLocation, autoFillSystem, autoFillArtifact } from '../../lib/ai-autofill';
@@ -7,6 +7,7 @@ import { buildValidationPrompt } from '../../lib/prompt-builder';
 import { useSettingsStore } from '../../store/settings';
 import { VoicePreview } from '../features/VoicePreview';
 import { StoryMemoryPanel } from './StoryMemoryPanel';
+import { RenameDialog } from './RenameDialog';
 import { IllustrateButton } from '../features/IllustrateButton';
 import { detectChanges, generateValidationIssues } from '../../lib/validation-engine';
 import { useValidationStore } from '../../store/validation';
@@ -642,6 +643,7 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
   const [nameAtFocus, setNameAtFocus] = useState<string | null>(null);
   const [renameOffer, setRenameOffer] = useState<{ from: string; to: string; preview: import('../../lib/rename-runner').RenamePreview; aliases: Record<string, string> } | null>(null);
   const [renameDone, setRenameDone] = useState<string | null>(null);
+  const [showRename, setShowRename] = useState(false);
   const finishNameEdit = async () => {
     const from = nameAtFocus;
     setNameAtFocus(null);
@@ -779,7 +781,16 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
             className="text-lg font-serif font-semibold bg-transparent border-none outline-none w-full"
             placeholder="Name..."
           />
-          <div className="text-xs text-text-tertiary capitalize">{entry.type}</div>
+          <div className="flex items-center gap-2 text-xs text-text-tertiary">
+            <span className="capitalize">{entry.type}</span>
+            <button
+              onClick={() => setShowRename(true)}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:text-text-primary hover:bg-black/5"
+              title="Rename everywhere in the story"
+            >
+              <PenLine size={11} /> Rename
+            </button>
+          </div>
         </div>
         
         {/* Check Impact button */}
@@ -813,6 +824,7 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
         </button>
       </div>
 
+      {showRename && <RenameDialog entry={getEntry(entry.id) || entry} onClose={() => setShowRename(false)} />}
       {renameOffer && (
         <div className="mx-5 mt-3 rounded-xl border border-black/10 bg-white/80 p-3 text-xs space-y-2" role="status">
           {renameOffer.preview.conflict ? (

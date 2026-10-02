@@ -6,6 +6,8 @@ import { useSettingsStore } from '../../store/settings';
 import { cn } from '../../lib/utils';
 import { EditModeSidebar } from '../editmode/EditModeSidebar';
 import { CanonCleanupPanel } from '../canon/CanonCleanupPanel';
+import { RenameDialog } from '../canon/RenameDialog';
+import type { AnyCanonEntry } from '../../types/canon';
 import { InlineEditChat } from '../features/InlineEditChat';
 import { buildSceneDecompositionPrompt, buildSceneProseSplitPrompt } from '../../lib/prompt-builder';
 import { generateText } from '../../lib/generate';
@@ -150,6 +152,7 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
   const { settings } = useSettingsStore();
   const [activeSection, setActiveSection] = useState<'edit' | 'scenes' | 'artifacts'>('edit');
   const [rescanning, setRescanning] = useState(false);
+  const [renaming, setRenaming] = useState<AnyCanonEntry | null>(null);
 
   const chapter = chapters.find(c => c.id === chapterId);
   if (!chapter) return null;
@@ -494,6 +497,7 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
 
         {/* GENERATE SECTION */}
         {/* ARTIFACTS SECTION */}
+        {renaming && <RenameDialog entry={renaming} onClose={() => setRenaming(null)} />}
         {activeSection === 'artifacts' && (
           <div className="space-y-3 animate-fade-in">
             <div className="flex justify-end px-1">
@@ -532,22 +536,34 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
                         {typeEntries.map(entry => {
                           const isActive = useCanonStore.getState().activeEntryId === entry.id;
                           return (
-                          <button
+                          <div
                             key={entry.id}
-                            onClick={() => {
-                              const store = useCanonStore.getState();
-                              store.setActiveEntry(store.activeEntryId === entry.id ? null : entry.id);
-                            }}
                             className={cn(
-                              'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-left',
+                              'w-full flex items-center rounded-lg transition-all',
                               isActive ? 'bg-amber-100/80 ring-1 ring-amber-300' : 'glass-pill hover:bg-white/60'
                             )}
                           >
-                            <span className="text-[15px] font-medium truncate">{entry.name}</span>
-                            {entry.description && (
-                              <span className="text-xs text-text-tertiary truncate flex-1">{entry.description.slice(0, 40)}...</span>
-                            )}
-                          </button>
+                            <button
+                              onClick={() => {
+                                const store = useCanonStore.getState();
+                                store.setActiveEntry(store.activeEntryId === entry.id ? null : entry.id);
+                              }}
+                              className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left"
+                            >
+                              <span className="text-[15px] font-medium truncate">{entry.name}</span>
+                              {entry.description && (
+                                <span className="text-xs text-text-tertiary truncate flex-1">{entry.description.slice(0, 40)}...</span>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => setRenaming(entry)}
+                              className="p-2 mr-1 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-white/60 flex-shrink-0"
+                              title={`Rename ${entry.name}`}
+                              aria-label={`Rename ${entry.name}`}
+                            >
+                              <PenLine size={13} />
+                            </button>
+                          </div>
                           );
                         })}
                       </div>
