@@ -68,6 +68,8 @@ interface PendingAttachment {
 }
 
 const CHAT_SESSION_ID_KEY = 'theodore-chat-session-id-v1';
+// Story planning (chat replies, cast + outline) runs on Opus 5.5.
+const PLANNING_MODEL = 'claude-opus-5-5';
 const CHAT_ATTACHMENT_EXTENSIONS = ['.pdf', '.docx', '.txt', '.md', '.markdown'];
 const CHAT_ATTACHMENT_ACCEPT = CHAT_ATTACHMENT_EXTENSIONS.join(',');
 const MAX_ATTACHMENTS_PER_MESSAGE = 5;
@@ -652,12 +654,13 @@ export function ChatCreation({ onClose, guestMode, initialMessage, onRequireAuth
     if (!liveMessages.some((m) => m.role === 'user')) return null;
     try {
       const conversation = liveMessages.map((m) => `${m.role.toUpperCase()}: ${messagePromptText(m)}`).join('\n\n');
-      // Use Haiku for the derive — it's structured JSON output that
-      // doesn't need Sonnet's reasoning, and Haiku is ~3x faster.
+      // Opus (low effort) reads the whole conversation for the outline and
+      // cast; it runs in the background after each message.
       const result = await generate({
         userId,
         action: 'plan-project',
-        model: 'claude-haiku-4-5',
+        model: PLANNING_MODEL,
+        effort: 'low',
         temperature: 0.9,
         maxTokens: 4000,
         systemPrompt: `You maintain Theodore's live planning card while a conversation is still in progress.
@@ -710,12 +713,11 @@ Rules:
     }));
 
     try {
-      // Use Haiku for the scaffold — it's structured JSON output that
-      // doesn't need Sonnet's reasoning, and Haiku is ~3x faster.
+      // The chapter outline the whole book is built on — Opus.
       const result = await generate({
         userId,
         action: 'scaffold-chapters',
-        model: 'claude-haiku-4-5',
+        model: PLANNING_MODEL,
         temperature: 0.95,
         maxTokens: 4096,
         projectId: project.id,
@@ -823,11 +825,10 @@ Rules:
     }
     setIsTyping(true);
 
-    // The chat reply uses Haiku 4.5 — much faster than Sonnet for short
-    // back-and-forth. We do NOT ask for the JSON markers in the chat prompt
-    // anymore; that's handled by deriveSettingsFromConversation in the
-    // background, so the user sees the chat reply almost instantly.
-    const chatModel = 'claude-haiku-4-5';
+    // The chat reply uses Opus at low effort: a sharper story partner, still
+    // quick. JSON (settings, cast, outline) is derived separately in the
+    // background by deriveSettingsFromConversation.
+    const chatModel = PLANNING_MODEL;
     const conversation = newMessages.map((m) => `${m.role.toUpperCase()}: ${messagePromptText(m)}`).join('\n\n');
     const childrensRule = bookType === 'childrens-book'
       ? "The user is making a CHILDREN'S BOOK. Think in spreads, age-appropriate language, visual storytelling."
@@ -877,14 +878,15 @@ Rules:
           userId,
           action: 'plan-project',
           model: chatModel,
+          effort: 'low',
           temperature: settings.ai.temperature,
-          maxTokens: 120,
-          systemPrompt: `You are Theodore, a story editor. Be extremely brief.
+          maxTokens: 160,
+          systemPrompt: `You are Theodore, a story editor helping shape a novel. Be brief.
 RULES:
-- 1-2 sentences ONLY. Never more.
-- React to their idea in one sentence (show you get it).
-- Then suggest a direction: "I'm thinking [X]. Want to go with that, or something different?"
-- The user should be able to reply "yes" or "no" or one short sentence.
+- 2-3 sentences, under 60 words. One message only.
+- React to their idea in a few words (show you get it), then propose ONE specific direction that sharpens it: who the protagonist is (by role or trait), what they want, and what stands in the way.
+- End with one simple question they can answer "yes", "no", or in a short sentence.
+- Build on everything already agreed in the conversation; don't re-propose settled points.
 - NEVER list options, bullet points, or multiple questions.
 - NEVER repeat what they said. NEVER use paragraphs.
 - Do NOT name characters yet — refer to them by role or trait ("a retired detective", "the daughter", "a reclusive chef"). Names come later during outline generation.
@@ -953,68 +955,6 @@ ${childrensRule}`,
         }
       }
 
-      // After the very first user message, kick off a SECOND streamed reply
-      // that proposes a basic story shape and asks 2-3 yes/no/either-or
-      // questions to refine it. Subsequent messages get a single reply.
-      const userMessageCount = newMessages.filter((m) => m.role === 'user').length;
-      if (userMessageCount === 1) {
-        // Brief beat between the two replies so they don't visually collide.
-        await new Promise((resolve) => setTimeout(resolve, 600));
-        setIsTyping(true);
-
-        let followupId: string | null = null;
-        let followupAccumulated = '';
-        const conversationWithFirstReply = [
-          ...newMessages,
-          { id: 'first-reply', role: 'assistant' as const, content: accumulated, timestamp: new Date() },
-        ]
-          .map((m) => `${m.role.toUpperCase()}: ${messagePromptText(m)}`)
-          .join('\n\n');
-
-        try {
-          await generateStream(
-            {
-              userId,
-              action: 'plan-project',
-              model: chatModel,
-              temperature: settings.ai.temperature,
-              maxTokens: 100,
-              systemPrompt: `You are Theodore. Send a quick follow-up that proposes ONE specific story direction.
-RULES:
-- One sentence: "Here's what I'm thinking: [describe protagonist by role/trait + situation + conflict]."
-- Then ONE simple yes/no question: "Sound good?"
-- Total under 40 words. No lists, no options, no bullets.
-- Do NOT name characters — use roles like "a disgraced surgeon" or "two estranged sisters". Names are generated later.
-- If the user says yes, you have enough to build the novel.
-${childrensRule}`,
-              prompt: `Conversation so far:\n${conversationWithFirstReply}\n\nPropose one specific direction in under 40 words. End with "Sound good?" or similar.`,
-            },
-            (text) => {
-              followupAccumulated += text;
-              if (followupId === null) {
-                const id = generateId();
-                followupId = id;
-                setIsTyping(false);
-                setMessages((prev) => [
-                  ...prev,
-                  { id, role: 'assistant', content: followupAccumulated, timestamp: new Date(), model: chatModel },
-                ]);
-              } else {
-                const id = followupId;
-                setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: followupAccumulated } : m)));
-              }
-            },
-            undefined,
-            () => {
-              // Follow-up failure is non-fatal — first reply is already shown.
-              setIsTyping(false);
-            },
-          );
-        } catch {
-          // Same — non-fatal.
-          setIsTyping(false);
-        }
-      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       const errorContent = `I couldn't reach the model right now.\n\nError: ${msg}\n\nCheck Settings > Usage & Credits and try again.`;
@@ -1567,14 +1507,14 @@ ${childrensRule}`,
         indeterminate: true,
       });
 
-      // Single Haiku call for title + chapters with premises. ~2-4 seconds.
+      // Single call for title + chapters with premises.
       // This replaces the full derive — no background enrichment needed.
       try {
         const convo = messages.map(m => `${m.role}: ${m.content}`).join('\n');
         const quickResult = await generate({
           userId,
           action: 'plan-project',
-          model: 'claude-haiku-4-5',
+          model: PLANNING_MODEL,
           temperature: 0.95,
           maxTokens: 1500,
           prompt: `Naming-variety seed: ${Math.random().toString(36).slice(2, 10)}\n\nBased on this conversation, generate a complete novel outline.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown fences:\n{"title":"Book Title","chapters":[{"number":1,"title":"Chapter Title","premise":"One sentence synopsis of what happens"},...]}\n\nRules:\n- Generate exactly 12 chapters\n- Each premise must be a specific story synopsis using character names\n- No meta-language like "stakes are raised" — write like a synopsis\n- Name characters with real specificity drawn from the story's culture, era, and region. Vary across genres and across your own past outputs — surprise yourself with the surname.`,

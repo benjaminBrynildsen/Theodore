@@ -2218,6 +2218,7 @@ app.post('/api/guest/backup', async (req, res) => {
 app.post('/api/generate/guest', async (req, res) => {
   try {
     const { prompt, systemPrompt, model, maxTokens, temperature, action } = req.body;
+    const effort = req.body?.effort === 'low' ? 'low' as const : undefined;
     if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
     if (!action || !GUEST_ALLOWED_ACTIONS.has(action)) {
       return res.status(403).json({ error: 'Guest generation is only available for project planning.' });
@@ -2236,6 +2237,7 @@ app.post('/api/generate/guest', async (req, res) => {
         prompt, systemPrompt, model,
         maxTokens: Math.min(maxTokens || 2200, action === 'generate-chapter' ? 8000 : 2200),
         temperature,
+        effort,
         userId: undefined,
         projectId: undefined,
         chapterId: undefined,
@@ -2308,6 +2310,7 @@ app.post('/api/generate', async (req, res) => {
       const result = await generate({
         prompt, systemPrompt, model, maxTokens, temperature,
         userId: user.id, projectId, chapterId, action,
+        effort: req.body?.effort === 'low' ? 'low' : undefined,
       });
 
       const effectiveCredits = isFreeChat ? 0 : result.creditsUsed;
@@ -2356,6 +2359,7 @@ app.post('/api/generate', async (req, res) => {
 app.post('/api/generate/guest/stream', async (req, res) => {
   try {
     const { prompt, systemPrompt, model, maxTokens, temperature, action } = req.body;
+    const effort = req.body?.effort === 'low' ? 'low' as const : undefined;
     if (!prompt) return res.status(400).json({ error: 'Missing prompt' });
     if (!action || !GUEST_ALLOWED_ACTIONS.has(action)) {
       return res.status(403).json({ error: 'Guest generation is only available for allowed actions.' });
@@ -2373,7 +2377,7 @@ app.post('/api/generate/guest/stream', async (req, res) => {
 
       const cappedMaxTokens = Math.min(maxTokens || 2200, action === 'generate-chapter' || action === 'plan-threads' || action === 'plan-arcs' ? 8000 : action === 'extract-continuity' || action === 'canon-cleanup' ? 3500 : 2200);
       const result = await generateStream(
-        { prompt, systemPrompt, model, maxTokens: cappedMaxTokens, temperature, userId: undefined, projectId: undefined, chapterId: undefined, action },
+        { prompt, systemPrompt, model, maxTokens: cappedMaxTokens, temperature, userId: undefined, projectId: undefined, chapterId: undefined, action, effort },
         res,
       );
 
@@ -2445,7 +2449,7 @@ app.post('/api/generate/stream', async (req, res) => {
       startSseHeartbeat(res);
 
       const result = await generateStream(
-        { prompt, systemPrompt, model, maxTokens, temperature, userId: user.id, projectId, chapterId, action },
+        { prompt, systemPrompt, model, maxTokens, temperature, userId: user.id, projectId, chapterId, action, effort: req.body?.effort === 'low' ? 'low' as const : undefined },
         res,
       );
 
