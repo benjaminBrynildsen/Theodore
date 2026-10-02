@@ -92,7 +92,9 @@ export function applyRename(entry: AnyCanonEntry, pairs: RenamePair[]): number {
       }
       continue;
     }
-    const { id: _id, projectId: _p, type: _t, ...rest } = e as AnyCanonEntry & Record<string, unknown>;
+    const rest = Object.fromEntries(
+      Object.entries(e).filter(([k]) => k !== 'id' && k !== 'projectId' && k !== 'type'),
+    );
     if (!countMentions(JSON.stringify(rest), pairs)) continue;
     canon.updateEntry(e.id, renameDeep(rest, pairs) as Partial<AnyCanonEntry>);
   }
