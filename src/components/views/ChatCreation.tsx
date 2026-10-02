@@ -1,3 +1,5 @@
+import { buildNamingGuidance } from '../../lib/name-bank';
+import { authorNamesToAvoid } from '../../lib/author-names';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Sparkles, ChevronDown, Settings2, ArrowLeft, BookOpen, ImageIcon, Paperclip, X as XIcon, FileText, Loader2 } from 'lucide-react';
 import { useStore } from '../../store';
@@ -670,7 +672,7 @@ THEODORE_CANON_JSON:{"characters":[{"name":"...","role":"protagonist","descripti
 Rules:
 - Output only those two marker lines. No extra text.
 - Assume even the first user message is enough to draft concrete story seeds.
-- Name characters with real specificity. Pull from the world you've been told about: culture, era, region, family. Surprise yourself with the surname.
+${buildNamingGuidance({ avoid: authorNamesToAvoid() })}
 - chapterCount MUST match chapters.length. Generate ALL chapters — every single one must have a unique, specific title and premise. No generic fillers.
 - Each chapter premise must be a brief STORY SUMMARY of what happens — use character names and specific events, NOT meta-language like "stakes are raised" or "introduce the conflict". Write like a synopsis.
 - Infer at least 1 named protagonist and 1 named place immediately; include those names in chapter titles/premises.
@@ -721,7 +723,7 @@ Rules:
         temperature: 0.95,
         maxTokens: 4096,
         projectId: project.id,
-        prompt: buildScaffoldPrompt(project, targetCount, [], seedChapters),
+        prompt: buildScaffoldPrompt(project, targetCount, [], seedChapters, authorNamesToAvoid(project.id)),
       });
 
       return normalizeScaffoldResults(
@@ -1517,7 +1519,7 @@ ${childrensRule}`,
           model: PLANNING_MODEL,
           temperature: 0.95,
           maxTokens: 1500,
-          prompt: `Naming-variety seed: ${Math.random().toString(36).slice(2, 10)}\n\nBased on this conversation, generate a complete novel outline.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown fences:\n{"title":"Book Title","chapters":[{"number":1,"title":"Chapter Title","premise":"One sentence synopsis of what happens"},...]}\n\nRules:\n- Generate exactly 12 chapters\n- Each premise must be a specific story synopsis using character names\n- No meta-language like "stakes are raised" — write like a synopsis\n- Name characters with real specificity drawn from the story's culture, era, and region. Vary across genres and across your own past outputs — surprise yourself with the surname.`,
+          prompt: `Naming-variety seed: ${Math.random().toString(36).slice(2, 10)}\n\nBased on this conversation, generate a complete novel outline.\n\n${convo}\n\nReturn ONLY valid JSON, no markdown fences:\n{"title":"Book Title","chapters":[{"number":1,"title":"Chapter Title","premise":"One sentence synopsis of what happens"},...]}\n\nRules:\n- Generate exactly 12 chapters\n- Each premise must be a specific story synopsis using character names\n- No meta-language like "stakes are raised" — write like a synopsis\n\n\n${buildNamingGuidance({ avoid: authorNamesToAvoid() })}`,
         });
         try {
           const parsed = JSON.parse((quickResult.text || '').trim().match(/\{[\s\S]*\}/)?.[0] || '{}');

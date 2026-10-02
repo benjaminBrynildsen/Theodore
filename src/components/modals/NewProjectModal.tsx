@@ -1,3 +1,4 @@
+import { authorNamesToAvoid } from '../../lib/author-names';
 import { useState } from 'react';
 import { X, BookOpen, Film, Tv, Music, FileVideo, Clapperboard, Lock, Minus, Plus, ChevronDown, ChevronUp, Info, Loader2 } from 'lucide-react';
 import { useStore } from '../../store';
@@ -103,7 +104,7 @@ export function NewProjectModal({ onClose }: Props) {
           model: appSettings.ai.preferredModel || 'claude-opus',
           maxTokens: Math.max(4096, finalChapterCount * 400),
           projectId,
-          prompt: buildScaffoldPrompt(project, finalChapterCount, [], []),
+          prompt: buildScaffoldPrompt(project, finalChapterCount, [], [], authorNamesToAvoid(project.id)),
         });
         scaffoldResults = normalizeScaffoldResults(
           parseScaffoldResponse(result.text || ''),
