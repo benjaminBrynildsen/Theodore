@@ -5,7 +5,7 @@ import {
   parseMemorySections, foldStoryState, selectRelevantCanon, buildStoryMemoryBlock,
   renderCharacterCard, renderWorldCard, needsReextraction, proseContentHash, proseSignature,
   stripProductionTags, diffChapterMemory, proseForExtraction, isPlaceholderText, resolveCanonEntry,
-  mergeKnowledge, knowledgeFor, memoryOutdated, buildPriorMemoryForCheck,
+  mergeKnowledge, knowledgeFor, memoryOutdated, buildPriorMemoryForCheck, characterTimeline,
 } from '../src/lib/story-memory';
 import { applyContinuityExtraction, buildContinuityExtractionPrompt } from '../src/lib/continuity-extraction';
 import { junkNameReason, heuristicCleanup, parseCleanupResponse, combineProposals, referenceRemap, remapReferences, buildCleanupPrompt } from '../src/lib/canon-cleanup';
@@ -499,6 +499,35 @@ t('new canon from the extractor: validated and not already known', () => {
   const found = parseNewCanon(text, [maya]);
   assert.deepEqual(found.map((f) => `${f.type}:${f.name}`), ['character:Devon Okafor', 'location:Larkspur Drive', 'artifact:Brass Compass']);
   assert.equal(found[0].description, 'the new neighbor');
+});
+
+t('sanity: relationships + character timeline; open threads deduped; style defaults fill gaps', async () => {
+  const mk = (n: number, line: string, threads: any[] = []) => ({ id: 'r' + n, number: n, title: 'T', prose: 'x',
+    aiIntentMetadata: { characterState: parseMemorySections(`CHARACTER_STATE:\n${line}\nFACTS:`, n, [maya]).characterState, openedThreads: threads } }) as any;
+  const th = (n: number, text: string) => ({ id: `t${n}`, character: 'Maya', thread: text, introducedInChapter: n });
+  const chs = [
+    mk(1, '- Maya | mood: guarded | arc: shuts everyone out | relationships: Ezra: distrustful', [th(1, 'find the vault')]),
+    mk(2, '- Maya Chen | arc: lets Theo help once', [th(2, 'find the vault'), th(3, 'repay the debt')]),
+    mk(3, '- Maya | relationships: Ezra: wary allies; Theo: trusts him'),
+    { id: 'r4', number: 4, title: 'T', prose: '' } as any,
+  ];
+  const state = foldStoryState(chs, 'r4');
+  const m = [...state.characters.values()][0];
+  assert.equal(m.relationships, 'Ezra: wary allies; Theo: trusts him', 'latest relationships win');
+  assert.equal(m.arc, 'lets Theo help once', 'arc kept when a later chapter omits it');
+  const tl = characterTimeline(chs, maya);
+  assert.deepEqual(tl.map((x) => x.chapter), [1, 2, 3]);
+  assert.equal(tl[0].relationships, 'Ezra: distrustful');
+  const block = buildStoryMemoryBlock(chs, chs[3], selectRelevantCanon([maya], chs[3], chs, state), state);
+  assert.ok(block.includes('relationships: Ezra: wary allies'), block);
+
+  const p = buildGenerationPrompt({ project: { id: 'p', title: 'B', type: 'book', subtype: 'novel', narrativeControls: {} } as any, chapter: chs[3], allChapters: chs, canonEntries: [],
+    settings: { ai: { includeOutlineInPrompt: false }, writingStyle: { emDashEnabled: true } } as any, writingMode: 'draft', generationType: 'full-chapter' });
+  assert.ok(!p.includes('undefined'), 'missing style fields fall back to defaults');
+  assert.ok(p.includes('Use a blank line (double line break) for scene breaks'));
+  const open = p.split('=== OPEN NARRATIVE THREADS (must respect / can resolve) ===')[1]?.split('\n===')[0] || '';
+  assert.equal((open.match(/find the vault/g) || []).length, 1, 'repeated thread listed once');
+  assert.ok(open.includes('repay the debt'));
 });
 
 console.log(`\n${passed} passed`);

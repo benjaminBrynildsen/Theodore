@@ -5,9 +5,12 @@ import {
   artifactStateFor,
   characterStateFor,
   factsFor,
+  characterTimeline,
   foldStoryState,
   knowledgeFor,
+  resolveCanonEntry,
 } from '../../lib/story-memory';
+import { ARC_BEAT_LABEL, arcStageAt } from '../../lib/story-arcs';
 import type { AnyCanonEntry, ArtifactEntry, CharacterEntry } from '../../types/canon';
 
 interface Props {
@@ -27,12 +30,23 @@ export function StoryMemoryPanel({ entry, onUpdate }: Props) {
     [chapters, entry.projectId],
   );
   const state = useMemo(() => foldStoryState(projectChapters), [projectChapters]);
+  const project = useStore((s) => s.projects.find((p) => p.id === entry.projectId));
+  const timeline = useMemo(
+    () => (entry.type === 'character' ? characterTimeline(projectChapters, entry) : []),
+    [projectChapters, entry],
+  );
+  const plannedArc = entry.type === 'character'
+    ? project?.arcPlan?.characters.find((c) => resolveCanonEntry(c.name, [entry]) === entry)
+    : undefined;
+  const lastWritten = Math.max(0, ...projectChapters.filter((c) => c.prose?.trim()).map((c) => c.number || 0));
+  const nextBeat = plannedArc?.beats.find((b) => b.chapter > lastWritten);
+  const stage = plannedArc ? arcStageAt(plannedArc, lastWritten) : null;
 
   const charState = entry.type === 'character' ? characterStateFor(state, entry) : undefined;
   const artState = entry.type === 'artifact' ? artifactStateFor(state, entry) : undefined;
   const facts = factsFor(state, entry);
   const secrets = entry.type === 'character' ? knowledgeFor(state, entry) : { knows: [], doesNotKnow: [] };
-  if (!charState && !artState && facts.length === 0 && !secrets.knows.length && !secrets.doesNotKnow.length) return null;
+  if (!charState && !artState && facts.length === 0 && !secrets.knows.length && !secrets.doesNotKnow.length && !plannedArc) return null;
 
   const rows: [string, string | undefined][] = charState
     ? [
@@ -42,6 +56,7 @@ export function StoryMemoryPanel({ entry, onUpdate }: Props) {
         ['Mood', charState.mood],
         ['Physical', charState.physical],
         ['Arc so far', charState.arc],
+        ['Relationships', charState.relationships],
       ]
     : artState
     ? [
@@ -121,6 +136,31 @@ export function StoryMemoryPanel({ entry, onUpdate }: Props) {
           <ul className="list-disc pl-4 space-y-0.5 text-text-primary">
             {charState.learned.map((l) => <li key={l}>{l}</li>)}
           </ul>
+        </div>
+      )}
+      {plannedArc && (
+        <div className="text-xs space-y-0.5">
+          <div className="text-text-tertiary mb-1">Planned arc</div>
+          {plannedArc.want && <p><span className="text-text-tertiary">Wants: </span>{plannedArc.want}</p>}
+          {plannedArc.need && <p><span className="text-text-tertiary">Needs: </span>{plannedArc.need}</p>}
+          {plannedArc.flaw && <p><span className="text-text-tertiary">Flaw: </span>{plannedArc.flaw}</p>}
+          {stage && <p><span className="text-text-tertiary">Now: </span>{ARC_BEAT_LABEL[stage.type]} (Ch. {stage.chapter}){stage.note ? ` — ${stage.note}` : ''}</p>}
+          {nextBeat && <p><span className="text-text-tertiary">Next: </span>{ARC_BEAT_LABEL[nextBeat.type]} in Ch. {nextBeat.chapter}{nextBeat.note ? ` — ${nextBeat.note}` : ''}</p>}
+        </div>
+      )}
+      {timeline.length > 1 && (
+        <div className="text-xs">
+          <div className="text-text-tertiary mb-1">How they've developed</div>
+          <ol className="space-y-1">
+            {timeline.map((t) => (
+              <li key={t.chapter} className="flex gap-2">
+                <span className="w-10 flex-shrink-0 text-text-tertiary tabular-nums">Ch. {t.chapter}</span>
+                <span className="text-text-primary">
+                  {[t.arc, t.mood && `feeling ${t.mood}`, t.relationships].filter(Boolean).join(' · ')}
+                </span>
+              </li>
+            ))}
+          </ol>
         </div>
       )}
       {!!secrets.knows.length && (

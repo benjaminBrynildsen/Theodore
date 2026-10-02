@@ -16,6 +16,8 @@ import { tagSFX } from './sfx-tagger';
 import { FEATURES } from './feature-flags';
 import { generateId } from './utils';
 import type { Chapter, Scene } from '../types';
+import { threadsForChapter } from './story-threads';
+import { arcsForChapter } from './story-arcs';
 import { memoryMeta, memoryOutdated, needsReextraction, resolveCanonEntry, type NewCanonCandidate } from './story-memory';
 import {
   EXTRACTION_REQUEST,
@@ -151,6 +153,22 @@ async function cascadePremiseUpdates(chapterId: string): Promise<void> {
     `{"number":${c.number},"title":"${c.title}","purpose":"${(c.premise?.purpose || '').replace(/"/g, '\\"')}"}`
   ).join(',\n');
 
+  // The book's maps plan beats for these chapters; premise updates must keep them.
+  const plannedBeats = futureOutlineChapters.map((c) => {
+    const n = c.number || 0;
+    const t = threadsForChapter(project.threadPlan, n);
+    const a = arcsForChapter(project.arcPlan, n);
+    const beats = [
+      ...t.opening.map((x) => `opens "${x.title}"`),
+      ...t.hinting.map((x) => `hints "${x.thread.title}"`),
+      ...t.revealing.map((x) => `reveals "${x.thread.title}"`),
+      ...t.closing.map((x) => `closes "${x.title}"`),
+      ...a.arcBeats.map((x) => `${x.arc.name}: ${x.beat.type}`),
+      ...a.artifactBeats.map((x) => `${x.artifact.name}: ${x.beat.type}`),
+    ];
+    return beats.length ? `Ch ${n}: ${beats.join('; ')}` : '';
+  }).filter(Boolean).join('\n');
+
   const prompt = `You are a story editor ensuring plot consistency across a novel outline.
 
 Chapter ${chapter.number} ("${chapter.title}") was just written. Compare what was planned vs what was actually written:
@@ -172,7 +190,10 @@ Your job: If Chapter ${chapter.number}'s actual content meaningfully diverges fr
 - Settings or timeline changes
 
 Keep the same general story arc and ending direction, but adjust the specific beats so the story flows naturally from what was ACTUALLY written.
-
+${plannedBeats ? `
+PLANNED BEATS (from the book's thread and arc maps) — every updated premise must still deliver these in its chapter; change HOW they happen, never whether:
+${plannedBeats}
+` : ''}
 Return ONLY valid JSON, no markdown:
 {"updates":[{"number":3,"title":"Updated Title If Needed","purpose":"Updated premise reflecting the new story direction","changes":"What changed and why"}],"reason":"Brief explanation of what diverged"}
 

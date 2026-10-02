@@ -379,7 +379,7 @@ export function buildArcGuidanceBlock(plan: ArcPlan | null | undefined, chapter:
     lines.push(`- ${arc.name} — where they stand: last ${ARC_BEAT_LABEL[stage.type]} in Ch.${stage.chapter} (${stage.note || '—'})${need}. Act consistently with this; don't skip ahead in their change.`);
   }
   const charSection = lines.length
-    ? `=== CHARACTER ARCS (from the book's arc map — follow it) ===\n${lines.join('\n')}`
+    ? `=== CHARACTER ARCS (from the book's arc map — follow it; where the written chapters differ, the page wins) ===\n${lines.join('\n')}`
     : '';
 
   const obj: string[] = [];
@@ -396,7 +396,7 @@ export function buildArcGuidanceBlock(plan: ArcPlan | null | undefined, chapter:
   if (a.artifactsNotYet.length) {
     obj.push(`- NOT YET ON THE PAGE (do not mention): ${a.artifactsNotYet.map((x) => `${x.name} (appears Ch.${x.introducedIn})`).join('; ')}`);
   }
-  const objSection = obj.length ? `=== OBJECTS (from the book's arc map) ===\n${obj.join('\n')}` : '';
+  const objSection = obj.length ? `=== OBJECTS (from the book's arc map; if CURRENT STATE says otherwise, the page wins) ===\n${obj.join('\n')}` : '';
 
   return [charSection, objSection].filter(Boolean).join('\n\n');
 }

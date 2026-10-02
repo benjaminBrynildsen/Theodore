@@ -101,7 +101,7 @@ Read the WHOLE chapter below and produce the sections that follow. Be concrete a
 3) OPEN_THREADS — any new unresolved promises, commitments, plans, secrets, or emotional threads a character introduces. Format: "CHARACTER: thread description". Only genuine open threads.
 4) RESOLVED_THREAD_IDS — given the existing open threads below, which ids did THIS chapter resolve? Only include ids from the existing list.
 5) CHARACTER_STATE — for each character who appears or changes, their state at the END of this chapter. One line each, pipe-separated, omit unknown fields:
-   - NAME | location: ... | with: ... | mood: ... | learned: new thing they now know; another | physical: injuries/visible changes | status: alive/dead/missing/captured | arc: where they are in their personal arc now
+   - NAME | location: ... | with: ... | mood: ... | learned: new thing they now know; another | physical: injuries/visible changes | status: alive/dead/missing/captured | arc: where they are in their personal arc now | relationships: Name: how they stand with them now; Name: ...
 6) ARTIFACT_STATE — important objects that appear, change hands, move, or change condition:
    - OBJECT | holder: ... | location: ... | condition: ...
 7) FACTS — small concrete details this chapter ESTABLISHES that later chapters must keep consistent (appearance, ages, names of pets/places, vehicles, scars, habits, dates, relationships, how something works). Only details actually on the page, not guesses. Max 15.

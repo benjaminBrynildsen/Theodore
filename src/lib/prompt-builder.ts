@@ -3,7 +3,7 @@
 // Every generation call goes through here to ensure consistency
 
 import type { Project, Chapter, PremiseCard, WritingMode, GenerationType, Scene, EditChatMessage } from '../types';
-import type { AppSettings, WritingStyleSettings } from '../types/settings';
+import { DEFAULT_SETTINGS, type AppSettings, type WritingStyleSettings } from '../types/settings';
 import type { AnyCanonEntry } from '../types/canon';
 import { buildContinuityContext, formatContinuityBlock } from './continuity-context';
 import { getDialogueTargetForProject, buildDialogueClause } from './dialogue-targets';
@@ -98,7 +98,9 @@ export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
 
 // ========== Writing Style → Prompt Instructions ==========
 
-function buildStyleInstructions(style: WritingStyleSettings): string {
+function buildStyleInstructions(saved: WritingStyleSettings): string {
+  // Older saved settings can miss fields added later; fill them from defaults.
+  const style: WritingStyleSettings = { ...DEFAULT_SETTINGS.writingStyle, ...(saved || {}) };
   const rules: string[] = [];
 
   // Punctuation
@@ -180,7 +182,7 @@ function buildStyleInstructions(style: WritingStyleSettings): string {
 function buildCraftRules(): string {
   return `=== CRAFT RULES (apply to all generation) ===
 
-SCENES: Enter late, leave early. Start in the middle of action or tension, not with arrivals or greetings. End on a shift — a decision, a revelation, a door closing — not a resolution.
+SCENES: Start each new scene close to where its tension begins, not with arrivals or greetings — but never by skipping events the story has set up (see TRANSITIONS & FLOW). End on a shift — a decision, a revelation, a door closing — not a resolution.
 
 DIALOGUE: People rarely say what they mean. Layer subtext beneath the words. Use interruptions, deflections, non-answers. Never use dialogue to deliver backstory ("As you know, Tim...").
 SPEAKER ATTRIBUTION — follow standard published-novel practice so the reader always knows who is talking:
