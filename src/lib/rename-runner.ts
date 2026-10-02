@@ -83,12 +83,12 @@ export function applyRename(entry: AnyCanonEntry, pairs: RenamePair[]): number {
       if (e.type === 'character') {
         const c = (e as CharacterEntry).character;
         canon.updateEntry(e.id, {
-          name: pairs[0].to,
+          name: pairs.find((p) => p.from === e.name)?.to ?? e.name,
           description: replaceNames(e.description, pairs),
           character: renameDeep(c, pairs),
         } as Partial<AnyCanonEntry>);
       } else {
-        canon.updateEntry(e.id, { name: pairs[0].to, description: replaceNames(e.description, pairs) });
+        canon.updateEntry(e.id, { name: pairs.find((p) => p.from === e.name)?.to ?? e.name, description: replaceNames(e.description, pairs) });
       }
       continue;
     }

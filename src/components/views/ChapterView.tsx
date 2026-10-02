@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity, Tags, Volume2, Wand2, Headphones, Play } from 'lucide-react';
+import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity, Tags, Volume2, Wand2, Headphones, Play, RotateCcw, X } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
 import { triggerListen, playExistingAudio } from '../../lib/chapter-listen';
@@ -188,6 +188,9 @@ export function ChapterView({ chapter }: Props) {
   const [wordCount, setWordCount] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [extending, setExtending] = useState(false);
+  const [showRebuild, setShowRebuild] = useState(false);
+  const [rebuildNotes, setRebuildNotes] = useState('');
+  const [rebuildFromDraft, setRebuildFromDraft] = useState(true);
   const [generatedText, setGeneratedText] = useState('');
   const [generationPct, setGenerationPct] = useState(0);
   const accumulatedRef = useRef('');
@@ -275,7 +278,9 @@ export function ChapterView({ chapter }: Props) {
   }, [chapter.id]);
 
   // AI Generation handler
-  const handleGenerate = async () => {
+  // opts.instructions: one-off direction for a rebuild; opts.reference: the
+  // current draft, kept as a starting point (events stay, the writing is redone).
+  const handleGenerate = async (opts: { instructions?: string; reference?: string } = {}) => {
     if (!project) {
       setGenerationError('No active project selected. Open a project and try again.');
       return;
@@ -317,6 +322,25 @@ export function ChapterView({ chapter }: Props) {
       });
     }
 
+    // Rebuilding over existing prose: keep the current version in history first.
+    if (chapter.prose?.trim() && (opts.instructions !== undefined || opts.reference !== undefined)) {
+      const prose = chapter.prose;
+      updateChapter(chapter.id, {
+        prose,
+        scenes: chapter.scenes,
+        aiIntentMetadata: {
+          versionHistory: [{
+            id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            timestamp: new Date().toISOString(),
+            type: 'human-edit',
+            wordCount: prose.trim().split(/\s+/).length,
+            preview: prose.slice(0, 220),
+            prose,
+          }],
+        } as any,
+      });
+    }
+
     try {
     const projectChapters = getProjectChapters(project.id);
     const canonEntries = getProjectEntries(project.id);
@@ -336,13 +360,17 @@ export function ChapterView({ chapter }: Props) {
     // Children's books: the prompt already has strict word limits, no chunking needed
     // Framing notes go FIRST so the AI sees them before the chapter premise.
     // This ensures user direction overrides the original outline when they conflict.
-    const framingBlock = chapterFraming.trim()
-      ? `=== MANDATORY AUTHOR DIRECTION ===\nThe author has provided the following specific instructions for this chapter. These OVERRIDE the chapter premise below if they conflict. You MUST follow these directions:\n${chapterFraming.trim()}\n=== END AUTHOR DIRECTION ===\n\n`
+    const direction = [chapterFraming.trim(), opts.instructions?.trim()].filter(Boolean).join('\n');
+    const framingBlock = direction
+      ? `=== MANDATORY AUTHOR DIRECTION ===\nThe author has provided the following specific instructions for this chapter. These OVERRIDE the chapter premise below if they conflict. You MUST follow these directions:\n${direction}\n=== END AUTHOR DIRECTION ===\n\n`
+      : '';
+    const referenceBlock = opts.reference?.trim()
+      ? `\n\n=== CURRENT DRAFT OF THIS CHAPTER (starting point) ===\n${opts.reference.trim()}\n=== END CURRENT DRAFT ===\nRewrite this chapter from the top as a complete, finished chapter. Keep its events, what it establishes, and anything that works, unless the author's direction says otherwise. Improve how it unfolds: transitions between scenes, clear attribution of every line of dialogue, and moments that were rushed or skipped. Do not copy it line for line.`
       : '';
     const wordBlock = `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Write every event in order on the page; never skip a beat or summarize what happened to save space — if the premise is crowded, give each beat less ornament, not less presence. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
     const prompt = isChildrensBook
-      ? framingBlock + basePrompt
-      : framingBlock + basePrompt + wordBlock;
+      ? framingBlock + basePrompt + referenceBlock
+      : framingBlock + basePrompt + referenceBlock + wordBlock;
 
     let accumulated = '';
     await generateStream(
@@ -1528,6 +1556,24 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             </div>
           )}
 
+          {/* Rebuild chapter — rewrite from the top with optional direction */}
+          {chapter.prose?.trim() && (
+            <button
+              onClick={() => setShowRebuild(true)}
+              disabled={generating || extending}
+              className={cn(
+                'flex px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all items-center gap-1',
+                generating || extending
+                  ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                  : 'bg-white/60 border border-black/10 text-text-secondary hover:bg-white/80',
+              )}
+              title="Rebuild chapter — rewrite it from the top with your notes"
+            >
+              <RotateCcw size={13} />
+              <span className="hidden sm:inline">Rebuild</span>
+            </button>
+          )}
+
           {/* Version history — hidden on mobile */}
           {chapter.prose && (
             <button
@@ -2546,6 +2592,59 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       {/* Direction insert button removed — using inline + buttons in prose */}
 
       {/* Version Timeline */}
+      {showRebuild && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-4" onClick={() => setShowRebuild(false)}>
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white shadow-xl p-5 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Rebuild chapter"
+          >
+            <div className="flex items-center gap-2">
+              <RotateCcw size={16} className="text-text-tertiary" />
+              <h3 className="flex-1 font-serif text-lg font-semibold">Rebuild Chapter {chapter.number}</h3>
+              <button onClick={() => setShowRebuild(false)} className="p-1 rounded-lg text-text-tertiary hover:text-text-primary" aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+            <label className="block text-xs text-text-secondary">
+              What should change? <span className="text-text-tertiary">(optional)</span>
+              <textarea
+                value={rebuildNotes}
+                onChange={(e) => setRebuildNotes(e.target.value)}
+                rows={4}
+                autoFocus
+                placeholder="e.g. Slow down the drive to dinner. Make it clearer who's talking at the table. Danny should leave angrier."
+                className="w-full mt-1 px-3 py-2 rounded-lg glass-input text-sm resize-none leading-relaxed"
+              />
+            </label>
+            <label className="flex items-start gap-2 text-xs text-text-secondary cursor-pointer">
+              <input type="checkbox" checked={rebuildFromDraft} onChange={(e) => setRebuildFromDraft(e.target.checked)} className="mt-0.5" />
+              <span>
+                Use the current draft as a starting point
+                <span className="block text-text-tertiary">Keeps the events and rewrites how they unfold. Uncheck to write a fresh version from the outline.</span>
+              </span>
+            </label>
+            <p className="text-[11px] text-text-tertiary">The current version is saved in version history, so you can go back to it. Uses the word target in the toolbar ({wordTarget.toLocaleString()} words).</p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setShowRebuild(false)} className="px-3 py-2 rounded-xl text-sm text-text-secondary hover:bg-black/5">Cancel</button>
+              <button
+                onClick={() => {
+                  const notes = rebuildNotes;
+                  const reference = rebuildFromDraft ? chapter.prose : undefined;
+                  setShowRebuild(false);
+                  setRebuildNotes('');
+                  handleGenerate({ instructions: notes, reference });
+                }}
+                className="px-4 py-2 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold"
+              >
+                Rebuild chapter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showHistory && chapter.prose && (
         <VersionTimeline
           chapterId={chapter.id}
