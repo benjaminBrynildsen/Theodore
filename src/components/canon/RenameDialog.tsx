@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PenLine, X } from 'lucide-react';
 import { useCanonStore } from '../../store/canon';
 import { previewRename, applyRename } from '../../lib/rename-runner';
@@ -12,25 +12,16 @@ import type { AnyCanonEntry, CharacterEntry } from '../../types/canon';
 export function RenameDialog({ entry, onClose }: { entry: AnyCanonEntry; onClose: () => void }) {
   const [name, setName] = useState(entry.name);
   const aliasList = entry.type === 'character' ? ((entry as CharacterEntry).character?.aliases || []) : [];
-  const [aliases, setAliases] = useState<Record<string, string>>(() => Object.fromEntries(aliasList.map((a) => [a, ''])));
+  // Alias edits; an alias the author hasn't touched shows the rename's suggestion.
+  const [aliasEdits, setAliasEdits] = useState<Record<string, string>>({});
   const [done, setDone] = useState<string | null>(null);
 
   const preview = useMemo(() => previewRename(entry, entry.name, name), [entry, name]);
-  // Prefill aliases the rename already covers (e.g. the first name).
-  useEffect(() => {
-    setAliases((prev) => {
-      const next = { ...prev };
-      for (const a of Object.keys(next)) {
-        const covered = preview.pairs.find((p) => p.from === a)?.to;
-        if (covered && !next[a]) next[a] = covered;
-      }
-      return next;
-    });
-  }, [preview.pairs]);
+  const aliasValue = (a: string) => aliasEdits[a] ?? preview.pairs.find((p) => p.from === a)?.to ?? '';
 
   const changed = name.trim() && name.trim() !== entry.name;
-  const aliasPairs = Object.entries(aliases)
-    .map(([from, to]) => ({ from, to: to.trim() }))
+  const aliasPairs = aliasList
+    .map((from) => ({ from, to: aliasValue(from).trim() }))
     .filter((p) => p.to && p.to !== p.from && !preview.pairs.some((x) => x.from === p.from));
 
   const updateEverywhere = () => {
@@ -78,7 +69,7 @@ export function RenameDialog({ entry, onClose }: { entry: AnyCanonEntry; onClose
                   <p className="text-text-secondary">
                     "{entry.name}" appears {preview.mentions} {preview.mentions === 1 ? 'time' : 'times'} in {preview.chapters} {preview.chapters === 1 ? 'chapter' : 'chapters'}.
                   </p>
-                  {preview.pairs.slice(1).filter((p) => !(p.from in aliases)).map((p) => (
+                  {preview.pairs.slice(1).filter((p) => !aliasList.includes(p.from)).map((p) => (
                     <div key={p.from} className="text-text-tertiary">Also: {p.from} → {p.to}</div>
                   ))}
                 </div>
@@ -92,8 +83,8 @@ export function RenameDialog({ entry, onClose }: { entry: AnyCanonEntry; onClose
                   <label key={alias} className="flex items-center gap-2 text-xs">
                     <span className="w-28 truncate text-text-secondary">{alias} →</span>
                     <input
-                      value={aliases[alias] || ''}
-                      onChange={(e) => setAliases({ ...aliases, [alias]: e.target.value })}
+                      value={aliasValue(alias)}
+                      onChange={(e) => setAliasEdits({ ...aliasEdits, [alias]: e.target.value })}
                       placeholder={alias}
                       className="flex-1 min-w-0 px-2 py-1 rounded-md glass-input text-xs"
                     />
