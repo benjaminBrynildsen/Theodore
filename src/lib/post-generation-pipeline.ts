@@ -18,7 +18,9 @@ import { generateId } from './utils';
 import type { Chapter, Scene } from '../types';
 import { threadsForChapter } from './story-threads';
 import { arcsForChapter } from './story-arcs';
-import { memoryMeta, memoryOutdated, needsReextraction, resolveCanonEntry, type NewCanonCandidate } from './story-memory';
+import { memoryMeta, memoryOutdated, needsReextraction, resolveCanonEntry, type CharacterStateRecord, type NewCanonCandidate } from './story-memory';
+import { junkNameReason } from './canon-cleanup';
+import type { AnyCanonEntry, CharacterEntry } from '../types/canon';
 import {
   EXTRACTION_REQUEST,
   applyContinuityExtraction,
@@ -385,6 +387,7 @@ async function extractContinuity(chapterId: string): Promise<void> {
   patchChapterMeta(chapterId, applied.metaPatch);
   console.info('[PostGen] Continuity extracted:', applied.counts);
   addNewCanonFromChapter(project.id, latest, applied.newCanon);
+  addAliasesFromChapter((applied.metaPatch.characterState as CharacterStateRecord[] | undefined) || []);
 
   // A re-extraction that changed established memory can invalidate later
   // chapters that were written on top of it — flag the ones that touch it.
@@ -442,6 +445,21 @@ function addNewCanonFromChapter(projectId: string, chapter: Chapter, found: NewC
   const refs = Array.from(new Set([...(latest?.referencedCanonIds || []), ...ids]));
   useStore.getState().updateChapter(chapter.id, { referencedCanonIds: refs });
   console.info('[PostGen] New canon from chapter', chapter.number, found.map((f) => `${f.type}: ${f.name}`));
+}
+
+/** Nicknames and other names the prose used for known characters go into their aliases. */
+function addAliasesFromChapter(states: CharacterStateRecord[]): void {
+  const canon = useCanonStore.getState();
+  for (const s of states) {
+    if (!s.canonId || !s.called?.length) continue;
+    const entry = canon.getEntry(s.canonId);
+    if (entry?.type !== 'character') continue;
+    const c = (entry as CharacterEntry).character;
+    const known = new Set([entry.name, c.fullName, ...(c.aliases || [])].filter(Boolean).map((n) => n.toLowerCase()));
+    const fresh = s.called.filter((n) => n.length <= 40 && !known.has(n.toLowerCase()) && !junkNameReason(n));
+    if (!fresh.length) continue;
+    canon.updateEntry(entry.id, { character: { ...c, aliases: [...(c.aliases || []), ...fresh].slice(0, 12) } } as Partial<AnyCanonEntry>);
+  }
 }
 
 /** Mark one continuity issue as dismissed by the author. */
