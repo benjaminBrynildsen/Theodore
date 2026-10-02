@@ -344,7 +344,7 @@ export function ChapterView({ chapter }: Props) {
     const framingBlock = chapterFraming.trim()
       ? `=== MANDATORY AUTHOR DIRECTION ===\nThe author has provided the following specific instructions for this chapter. These OVERRIDE the chapter premise below if they conflict. You MUST follow these directions:\n${chapterFraming.trim()}\n=== END AUTHOR DIRECTION ===\n\n`
       : '';
-    const wordBlock = `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
+    const wordBlock = `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Write every event in order on the page; never skip a beat or summarize what happened to save space — if the premise is crowded, give each beat less ornament, not less presence. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
     const prompt = isChildrensBook
       ? framingBlock + basePrompt
       : framingBlock + basePrompt + wordBlock;
@@ -549,9 +549,10 @@ export function ChapterView({ chapter }: Props) {
     const framingPrefix = chapterFraming.trim()
       ? `=== MANDATORY AUTHOR DIRECTION ===\nThe author has provided specific instructions. These OVERRIDE the chapter premise if they conflict. You MUST follow these directions:\n${chapterFraming.trim()}\n=== END AUTHOR DIRECTION ===\n\n`
       : '';
-    // Give the model the actual tail of the draft so it continues from there
-    // instead of reinventing the chapter header and rehashing earlier beats.
-    const draftTail = (chapter.prose || '').slice(-6000);
+    // Give the model the whole draft (capped) so it knows what has already
+    // happened in the chapter and continues from the final sentence instead
+    // of skipping ahead or rehashing earlier beats.
+    const draftTail = (chapter.prose || '').slice(-60000);
     const currentDraftBlock = draftTail
       ? `\n\n=== CURRENT DRAFT (the chapter so far — your continuation MUST flow directly from the final sentence below) ===\n${draftTail}\n=== END CURRENT DRAFT ===\n`
       : '';
@@ -564,6 +565,7 @@ export function ChapterView({ chapter }: Props) {
       writingMode: (settings.ai?.writingMode as WritingMode) || 'draft',
       generationType: 'full-chapter' as GenerationType,
       previousChapterProse: prevChapter?.prose,
+      continuation: !!draftTail,
     }) + currentDraftBlock + (isChildrensBookType
       ? `\n\nAdd ${effectiveWordTarget} more words (2-3 sentences) that continue this picture-book page. Keep the same simple vocabulary, cadence, and tone. Do not add a chapter heading. Do not write more than is natural for a single spread.`
       : `\n\nContinue the CURRENT DRAFT above. Pick up exactly where the final sentence ends. DO NOT output any chapter heading, title, scene label, or restart sentence. DO NOT repeat any content from the current draft. Add approximately ${wordTarget} more words. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`);
