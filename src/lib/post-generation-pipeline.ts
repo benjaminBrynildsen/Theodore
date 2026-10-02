@@ -16,7 +16,7 @@ import { tagSFX } from './sfx-tagger';
 import { FEATURES } from './feature-flags';
 import { generateId } from './utils';
 import type { Chapter, Scene } from '../types';
-import { memoryMeta, memoryOutdated, needsReextraction } from './story-memory';
+import { memoryMeta, memoryOutdated, needsReextraction, resolveCanonEntry, type NewCanonCandidate } from './story-memory';
 import {
   EXTRACTION_REQUEST,
   applyContinuityExtraction,
@@ -363,6 +363,7 @@ async function extractContinuity(chapterId: string): Promise<void> {
   if (!applied) return;
   patchChapterMeta(chapterId, applied.metaPatch);
   console.info('[PostGen] Continuity extracted:', applied.counts);
+  addNewCanonFromChapter(project.id, latest, applied.newCanon);
 
   // A re-extraction that changed established memory can invalidate later
   // chapters that were written on top of it — flag the ones that touch it.
@@ -391,6 +392,35 @@ export async function catchUpStoryMemory(
     await runContinuityExtraction(todo[i].id);
     onProgress?.(i + 1, todo.length);
   }
+}
+
+/**
+ * Create canon entries for new characters, places and objects the extractor
+ * found on the page (already validated against junk names and existing canon),
+ * and link them to the chapter.
+ */
+function addNewCanonFromChapter(projectId: string, chapter: Chapter, found: NewCanonCandidate[]): void {
+  if (!found.length) return;
+  const canon = useCanonStore.getState();
+  const current = canon.getProjectEntries(projectId);
+  const ids: string[] = [];
+  for (const c of found) {
+    if (resolveCanonEntry(c.name, current)) continue;
+    const entry = c.type === 'character' ? canon.createCharacter(projectId, c.name)
+      : c.type === 'location' ? canon.createLocation(projectId, c.name)
+      : canon.createArtifact(projectId, c.name);
+    entry.description = c.description || `First appears in Chapter ${chapter.number}.`;
+    entry.tags = Array.from(new Set([...(entry.tags || []), 'from-story', `chapter-${chapter.number}`]));
+    entry.notes = `Added from Chapter ${chapter.number}.`;
+    canon.addEntry(entry);
+    current.push(entry);
+    ids.push(entry.id);
+  }
+  if (!ids.length) return;
+  const latest = useStore.getState().chapters.find((x) => x.id === chapter.id);
+  const refs = Array.from(new Set([...(latest?.referencedCanonIds || []), ...ids]));
+  useStore.getState().updateChapter(chapter.id, { referencedCanonIds: refs });
+  console.info('[PostGen] New canon from chapter', chapter.number, found.map((f) => `${f.type}: ${f.name}`));
 }
 
 /** Mark one continuity issue as dismissed by the author. */

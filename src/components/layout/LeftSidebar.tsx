@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, PenLine, Film, RefreshCw, Loader2 } from 'lucide-react';
+import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, PenLine, Film, RefreshCw, Loader2, Sparkles } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { cn } from '../../lib/utils';
 import { EditModeSidebar } from '../editmode/EditModeSidebar';
+import { CanonCleanupPanel } from '../canon/CanonCleanupPanel';
 import { InlineEditChat } from '../features/InlineEditChat';
 import { buildSceneDecompositionPrompt, buildSceneProseSplitPrompt } from '../../lib/prompt-builder';
 import { generateText } from '../../lib/generate';
@@ -28,6 +29,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
   const { entries, setActiveEntry, activeEntryId, createCharacter, createLocation, createSystem, createArtifact, createMedia, createRule, createEvent, addEntry } = useCanonStore();
   const [search, setSearch] = useState('');
   const [expandedType, setExpandedType] = useState<CanonType | null>('character');
+  const [cleaning, setCleaning] = useState(false);
 
   const projectEntries = entries.filter(e => e.projectId === projectId);
   const filteredEntries = search
@@ -60,6 +62,9 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
         </div>
       </div>
       
+      {cleaning ? (
+        <CanonCleanupPanel projectId={projectId} onClose={() => setCleaning(false)} />
+      ) : (
       <div className="flex-1 overflow-y-auto p-2">
         {canonSections.map(({ type, label, icon: Icon }) => {
           const typeEntries = filteredEntries.filter(e => e.type === type);
@@ -117,10 +122,21 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
         })}
       </div>
 
-      <div className="p-3 border-t border-white/20">
-        <div className="text-sm text-text-tertiary text-center">
+      )}
+
+      <div className="p-3 border-t border-white/20 flex items-center justify-center gap-3">
+        <div className="text-sm text-text-tertiary">
           {projectEntries.length} canon {projectEntries.length === 1 ? 'entry' : 'entries'}
         </div>
+        {!cleaning && projectEntries.length > 0 && (
+          <button
+            onClick={() => setCleaning(true)}
+            className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary px-2 py-1 rounded-lg hover:bg-white/40"
+            title="Find junk entries, duplicates and entries filed under the wrong type"
+          >
+            <Sparkles size={13} /> Clean up
+          </button>
+        )}
       </div>
     </>
   );

@@ -13,6 +13,8 @@ import { analysisModel } from './models';
 import { buildArcPlanPrompt, parseArcPlan, type ArcPlan } from './story-arcs';
 import { runPlanRequest, savedJobId } from './plan-transport';
 import { threadMapPct } from './thread-planner';
+import { resolveCanonEntry } from './story-memory';
+import { junkNameReason } from './canon-cleanup';
 
 export interface ArcMapProgress {
   phase: 'reading' | 'mapping' | 'saving';
@@ -59,6 +61,21 @@ export function resumeArcMapIfPending(projectId: string): Promise<ArcPlan> | und
   const jobId = savedJobId(JOB_KEY(projectId));
   if (!jobId || !useAuthStore.getState().user) return undefined;
   return buildArcMap(projectId, { resumeJobId: jobId });
+}
+
+/** Objects the arc map plans become canon entries, so they're in the story bible from the start. */
+function addPlannedObjectsToCanon(projectId: string, plan: ArcPlan): void {
+  const canon = useCanonStore.getState();
+  const current = canon.getProjectEntries(projectId);
+  for (const a of plan.artifacts) {
+    if (junkNameReason(a.name) || resolveCanonEntry(a.name, current, ['artifact'])) continue;
+    const entry = canon.createArtifact(projectId, a.name);
+    entry.description = [a.description, a.significance].filter(Boolean).join(' — ') || `Planned object; appears in Chapter ${a.introducedIn}.`;
+    entry.tags = Array.from(new Set([...(entry.tags || []), 'arc-map']));
+    entry.notes = `Planned by the arc map: appears in Ch.${a.introducedIn}, pays off in Ch.${a.payoffIn}.`;
+    canon.addEntry(entry);
+    current.push(entry);
+  }
 }
 
 export function buildArcMap(projectId: string, opts: { resumeJobId?: string } = {}): Promise<ArcPlan> {
@@ -137,6 +154,7 @@ export function buildArcMap(projectId: string, opts: { resumeJobId?: string } = 
       const plan = parseArcPlan(text, chapters.length);
       if (!plan) throw new Error('The character & object map came back incomplete. Try again.');
       useStore.getState().updateProject(projectId, { arcPlan: plan });
+      addPlannedObjectsToCanon(projectId, plan);
       if (ownsBar) useGenerationStore.getState().setPhase('done');
       return plan;
     } catch (e) {

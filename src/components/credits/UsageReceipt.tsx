@@ -22,6 +22,9 @@ const ACTION_LABELS: Record<string, string> = {
   'refine-entities': 'Characters refined',
   'extract-continuity': 'Continuity check',
   'scaffold-chapters': 'Chapters scaffolded',
+  'plan-threads': 'Thread map built',
+  'plan-arcs': 'Character & object map built',
+  'canon-cleanup': 'Canon reviewed',
 };
 
 function actionLabel(action: string): string {

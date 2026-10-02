@@ -117,7 +117,7 @@ function isAdaptiveOnlyModel(model: string): boolean {
 const LOW_EFFORT_ACTIONS = new Set([
   'extract-continuity', 'refine-entities', 'entity-refine', 'generate-chapter-outline',
   'scene-prose-split', 'dialogue-tagging', 'sfx-tagging', 'sfx-ambience',
-  'dialogue-clarity-pass', 'categorize',
+  'dialogue-clarity-pass', 'categorize', 'canon-cleanup',
 ]);
 
 function anthropicRequest(req: GenerateRequest, model: string, stream: boolean): { headers: Record<string, string>; body: Record<string, unknown> } {
