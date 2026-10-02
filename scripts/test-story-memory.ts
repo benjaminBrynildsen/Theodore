@@ -10,6 +10,8 @@ import {
 import { applyContinuityExtraction, buildContinuityExtractionPrompt } from '../src/lib/continuity-extraction';
 import { junkNameReason, heuristicCleanup, parseCleanupResponse, combineProposals, referenceRemap, remapReferences, buildCleanupPrompt } from '../src/lib/canon-cleanup';
 import { parseNewCanon } from '../src/lib/story-memory';
+import { buildRenamePairs, replaceNames, countMentions, renameDeep } from '../src/lib/rename';
+import { stripDialogueSpeakerTags, isSceneBreakLine } from '../src/lib/clean-prose';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
 import {
   parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
@@ -528,6 +530,29 @@ t('sanity: relationships + character timeline; open threads deduped; style defau
   const open = p.split('=== OPEN NARRATIVE THREADS (must respect / can resolve) ===')[1]?.split('\n===')[0] || '';
   assert.equal((open.match(/find the vault/g) || []).length, 1, 'repeated thread listed once');
   assert.ok(open.includes('repay the debt'));
+});
+
+t('rename everywhere: whole words, partial names, shared surnames left alone', () => {
+  const others = [baseChar('d', 'Danny Garrity'), baseChar('r', 'Ray Garrity')];
+  const pairs = buildRenamePairs('Wes Garrity', 'Cal Barlow', 'character', others);
+  assert.deepEqual(pairs.map((p) => `${p.from}>${p.to}`), ['Wes Garrity>Cal Barlow', 'Wes>Cal'], 'Garrity is shared, so the surname stays');
+  const text = `[Wes Garrity] Wes checked the date. "Hey, Wes," Danny said. Wes's truck. WES GARRITY. Westward. Wesley stayed.`;
+  assert.equal(replaceNames(text, pairs), `[Cal Barlow] Cal checked the date. "Hey, Cal," Danny said. Cal's truck. CAL BARLOW. Westward. Wesley stayed.`);
+  assert.equal(countMentions(text, pairs), 5);
+  const solo = buildRenamePairs('Iris Kowalski', 'June Novak', 'character', others);
+  assert.deepEqual(solo.map((p) => p.from), ['Iris Kowalski', 'Iris', 'Kowalski']);
+  assert.equal(replaceNames('Kowalski and Iris met Iris Kowalski.', solo), 'Novak and June met June Novak.', 'no chained replacement');
+  assert.deepEqual(buildRenamePairs('Halvorsen\'s Market', 'Kessler\'s Market', 'location'), [{ from: "Halvorsen's Market", to: "Kessler's Market" }]);
+  assert.deepEqual(buildRenamePairs('Same', 'Same', 'character'), []);
+  const meta = renameDeep({ summary: 'Wes finds a rod', versionHistory: [{ prose: 'Wes old draft' }], characterState: [{ name: 'Wes Garrity' }] }, pairs, new Set(['versionHistory']));
+  assert.equal(meta.summary, 'Cal finds a rod');
+  assert.equal(meta.characterState[0].name, 'Cal Barlow');
+  assert.equal(meta.versionHistory[0].prose, 'Wes old draft', 'past drafts untouched');
+});
+
+t('reader/export cleanup: narration tags stripped, scene breaks recognized', () => {
+  assert.equal(stripDialogueSpeakerTags('[Wes Garrity] Wes checked.\n[Narrator] The table.\n[NEW: idea] kept'), 'Wes checked.\nThe table.\n[NEW: idea] kept');
+  assert.deepEqual(['***', '* * *', '#', '# # #', '---', 'Hi', '- item'].map(isSceneBreakLine), [true, true, true, true, true, false, false]);
 });
 
 console.log(`\n${passed} passed`);
