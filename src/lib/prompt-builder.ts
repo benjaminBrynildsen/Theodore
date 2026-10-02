@@ -9,6 +9,7 @@ import { buildContinuityContext, formatContinuityBlock } from './continuity-cont
 import { getDialogueTargetForProject, buildDialogueClause } from './dialogue-targets';
 import { buildCanonAndMemory } from './story-memory';
 import { buildThreadGuidanceBlock } from './story-threads';
+import { buildArcGuidanceBlock } from './story-arcs';
 
 // ========== Selection-Based Edit Prompt (Vibe Editor) ==========
 
@@ -466,6 +467,12 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
   const threadGuidance = buildThreadGuidanceBlock(project.threadPlan, chapter.number);
   if (threadGuidance) {
     sections.push('\n' + threadGuidance);
+  }
+
+  // Arc map: character arc beats and object journeys for this chapter
+  const arcGuidance = buildArcGuidanceBlock(project.arcPlan, chapter.number);
+  if (arcGuidance) {
+    sections.push('\n' + arcGuidance);
   }
 
   // Chapter-specific instructions

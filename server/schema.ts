@@ -163,6 +163,8 @@ export const projects = pgTable('projects', {
   tags: jsonb('tags').$type<string[]>().default([]),
   // Book thread map (plot lines, subplots, hooks, twists with open/close chapters).
   threadPlan: jsonb('thread_plan').$type<Record<string, any>>(),
+  // Character arcs + artifact journeys across the book.
+  arcPlan: jsonb('arc_plan').$type<Record<string, any>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

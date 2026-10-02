@@ -16,7 +16,7 @@ import { tagSFX } from './sfx-tagger';
 import { FEATURES } from './feature-flags';
 import { generateId } from './utils';
 import type { Chapter, Scene } from '../types';
-import { memoryMeta, needsReextraction } from './story-memory';
+import { memoryMeta, memoryOutdated, needsReextraction } from './story-memory';
 import {
   EXTRACTION_REQUEST,
   applyContinuityExtraction,
@@ -371,6 +371,25 @@ async function extractContinuity(chapterId: string): Promise<void> {
     for (const u of staleNoticeUpdates(latest, fresh, applied.memoryChanges)) {
       patchChapterMeta(u.chapterId, { continuityStale: u.continuityStale });
     }
+  }
+}
+
+/**
+ * Re-read written chapters whose memory predates the current extraction
+ * format (story clock, who-knows-what), in chapter order so each one is
+ * checked against the updated memory before it. Stops at the first failure.
+ */
+export async function catchUpStoryMemory(
+  projectId: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  const todo = useStore.getState().getProjectChapters(projectId)
+    .filter(memoryOutdated)
+    .sort((a, b) => a.number - b.number);
+  onProgress?.(0, todo.length);
+  for (let i = 0; i < todo.length; i++) {
+    await runContinuityExtraction(todo[i].id);
+    onProgress?.(i + 1, todo.length);
   }
 }
 

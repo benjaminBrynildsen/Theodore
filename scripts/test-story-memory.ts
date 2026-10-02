@@ -5,11 +5,16 @@ import {
   parseMemorySections, foldStoryState, selectRelevantCanon, buildStoryMemoryBlock,
   renderCharacterCard, renderWorldCard, needsReextraction, proseContentHash, proseSignature,
   stripProductionTags, diffChapterMemory, proseForExtraction, isPlaceholderText, resolveCanonEntry,
+  mergeKnowledge, knowledgeFor, memoryOutdated, buildPriorMemoryForCheck,
 } from '../src/lib/story-memory';
+import { applyContinuityExtraction, buildContinuityExtractionPrompt } from '../src/lib/continuity-extraction';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
 import {
   parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
 } from '../src/lib/story-threads';
+import {
+  parseArcPlan, arcsForChapter, buildArcGuidanceBlock, analyzeArcPlan, buildArcPlanPrompt, artifactHolderBefore,
+} from '../src/lib/story-arcs';
 
 // canon-autofill -> generate -> stores touch browser globals at import time.
 (globalThis as any).localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
@@ -325,6 +330,115 @@ t('series threads stay open past the book; everything else closes', () => {
   const noSeries = parseThreadPlan(JSON.stringify({ threads: [{ title: 'A', tier: 'major', beats: [{ chapter: 1, type: 'open' }, { chapter: 3, type: 'close' }] }] }), 10)!;
   const w2 = analyzeThreadPlan(noSeries, 10).map((x) => x.message).join('\n');
   assert.ok(w2.includes('No series thread') && w2.includes('may not feel finished'), w2);
+});
+
+t('arc map: parse, normalize, per-chapter guidance', () => {
+  const plan = parseArcPlan('```json\n' + JSON.stringify({
+    characters: [
+      { name: 'Maya Chen', role: 'protagonist', shape: 'positive', want: 'the truth', need: 'to forgive', flaw: 'trusts no one',
+        beats: [{ chapter: 8, type: 'change', note: 'she lets him in' }, { chapter: 1, type: 'setup', note: 'shuts out her brother' }, { chapter: 3, type: 'setup', note: 'dup' },
+          { chapter: 5, type: 'turn', note: 'reads his side' }, { chapter: 7, type: 'crisis' }, { chapter: 9, type: 'test', note: 'after the change, dropped' }] },
+      { name: '', beats: [{ chapter: 1, type: 'setup' }] },
+    ],
+    artifacts: [
+      { name: 'Brass Key', description: 'heavy, green with age', significance: 'opens the vault',
+        beats: [{ chapter: 6, type: 'payoff', note: 'opens the vault' }, { chapter: 2, type: 'use', note: 'found in a drawer', holder: 'Maya Chen' }, { chapter: 4, type: 'handoff', note: 'stolen', holder: 'Ezra' }] },
+    ],
+  }) + '\n```', 10)!;
+  assert.equal(plan.characters.length, 1, 'nameless arc dropped');
+  const maya = plan.characters[0];
+  assert.deepEqual(maya.beats.map((b) => `${b.chapter}${b.type}`), ['1setup', '5turn', '7crisis', '8change'], 'one setup, nothing after change');
+  const key = plan.artifacts[0];
+  assert.equal(key.beats[0].type, 'introduce', 'first beat becomes the introduction');
+  assert.equal(key.introducedIn, 2);
+  assert.equal(key.payoffIn, 6);
+  assert.equal(artifactHolderBefore(key, 5), 'Ezra');
+
+  const a1 = arcsForChapter(plan, 1);
+  assert.equal(a1.arcBeats[0].beat.type, 'setup');
+  assert.deepEqual(a1.artifactsNotYet.map((x) => x.name), ['Brass Key']);
+  const g1 = buildArcGuidanceBlock(plan, 1);
+  assert.ok(g1.includes('Maya Chen — SETUP: shuts out her brother') && g1.includes('NOT YET ON THE PAGE (do not mention): Brass Key (appears Ch.2)'), g1);
+  const g2 = buildArcGuidanceBlock(plan, 2);
+  assert.ok(g2.includes('Brass Key — APPEARS') && g2.includes('it matters in Ch.6') && g2.includes('held by Maya Chen'), g2);
+  const g3 = buildArcGuidanceBlock(plan, 3);
+  assert.ok(g3.includes("where they stand: last setup in Ch.1") && g3.includes('still lacks: to forgive'), g3);
+  assert.ok(g3.includes('Brass Key — in play, held by Maya Chen'), g3);
+  const g9 = buildArcGuidanceBlock(plan, 9);
+  assert.ok(!g9.includes('Maya Chen') && !g9.includes('Brass Key'), 'arc complete and object paid off: nothing to carry');
+  assert.equal(analyzeArcPlan(plan, 10).filter((w) => w.level === 'warning').length, 0);
+});
+
+t('arc map: health checks and prompt', () => {
+  const plan = parseArcPlan(JSON.stringify({
+    characters: [{ name: 'Ezra', role: 'protagonist', beats: [{ chapter: 4, type: 'setup' }, { chapter: 5, type: 'change' }] }],
+    artifacts: [{ name: 'Letter', beats: [{ chapter: 3, type: 'introduce' }] }],
+  }), 10)!;
+  const w = analyzeArcPlan(plan, 12).map((x) => x.message).join('\n');
+  assert.ok(w.includes('built for 10 chapters'), w);
+  assert.ok(w.includes('too quickly') && w.includes('without a turn or crisis'), w);
+  assert.ok(w.includes('Letter is introduced in Ch.3 but never pays off'), w);
+  assert.equal(parseArcPlan('not json', 10), null);
+  const prompt = buildArcPlanPrompt({
+    title: 'Book', chapters: [{ id: 'a', number: 1, title: 'One', premise: { purpose: 'begin', characters: ['Maya Chen'] } } as any],
+    canon: [maya], threadPlan: { version: 1, generatedAt: '', chapterCount: 1, threads: [{ id: 't', title: 'The vault', tier: 'major', kind: 'mystery', question: '', resolution: '', opensIn: 1, closesIn: 1, characters: [], beats: [{ chapter: 1, type: 'reveal', note: '' }] }] },
+  });
+  assert.ok(prompt.includes('Maya Chen: protagonist') && prompt.includes('needs: to forgive') && prompt.includes('[major] The vault: Ch.1–1, reveal Ch.1'), prompt);
+});
+
+t('story clock + who knows what: parse, fold, prompt', () => {
+  const resp = (clock: string, knowledge: string) => `SHORT_SUMMARY: Things happen.
+RICH_SUMMARY:
+Stuff.
+OPEN_THREADS:
+RESOLVED_THREAD_IDS:
+CHARACTER_STATE:
+- Maya Chen | location: the docks
+ARTIFACT_STATE:
+FACTS:
+CONTRADICTIONS:
+STORY_CLOCK:
+${clock}
+KNOWLEDGE:
+${knowledge}`;
+  const ch = (n: number, prose = 'Some prose here.') => ({ id: 'k' + n, number: n, title: 'T' + n, prose, aiIntentMetadata: {} }) as any;
+  const c1 = ch(1);
+  const a1 = applyContinuityExtraction(resp('day: Day 1 | time: late evening | elapsed: one afternoon', '- Ezra stole the key | known by: Ezra | hidden from: Maya Chen; Theo\n- The vault exists | known by: no one'), c1.prose, c1, [maya])!;
+  assert.deepEqual(a1.metaPatch.storyClock, { day: 'Day 1', time: 'late evening', elapsed: 'one afternoon' });
+  assert.equal((a1.metaPatch.knowledge as any[]).length, 1, 'a secret no one knows or is kept from is dropped');
+  assert.equal(a1.metaPatch.continuityVersion, 2);
+  c1.aiIntentMetadata = a1.metaPatch;
+  assert.equal(memoryOutdated(c1), false);
+  assert.equal(memoryOutdated({ ...c1, aiIntentMetadata: { summary: 'x' } }), true, 'old extraction is outdated');
+  assert.equal(memoryOutdated({ ...c1, prose: '' }), false, 'unwritten chapters never need catch-up');
+
+  const c2 = ch(2);
+  const a2 = applyContinuityExtraction(resp('- day: Day 2 | time: dawn', '- Ezra stole the brass key | known by: Maya Chen'), c2.prose, c2, [maya])!;
+  c2.aiIntentMetadata = a2.metaPatch;
+  const c3 = ch(3, '');
+  const state = foldStoryState([c1, c2, c3], 'k3');
+  assert.equal(state.clock?.day, 'Day 2');
+  assert.equal(state.clock?.chapter, 2);
+  assert.equal(state.knowledge.length, 1);
+  assert.deepEqual(state.knowledge[0].knownBy, ['Ezra', 'Maya Chen'], 'learned it: added to who knows');
+  assert.deepEqual(state.knowledge[0].hiddenFrom, ['Theo'], 'no longer hidden from Maya');
+  assert.equal(state.knowledge[0].chapter, 2);
+
+  const kf = knowledgeFor(state, maya);
+  assert.equal(kf.knows.length, 1);
+  const theo = baseChar('c9', 'Theo Park');
+  assert.equal(knowledgeFor(state, theo).doesNotKnow.length, 1, 'first-name match');
+
+  const block = buildStoryMemoryBlock([c1, c2, c3], c3, selectRelevantCanon([maya], c3, [c1, c2, c3], state), state);
+  assert.ok(block.includes('=== STORY CLOCK ===') && block.includes('Ch.2 ended: Day 2, dawn'), block);
+  assert.ok(block.includes('WHO KNOWS WHAT') && block.includes('NOT known by: Theo'), block);
+  const check = buildPriorMemoryForCheck(state);
+  assert.ok(check.includes('STORY CLOCK: Ch.2 ended Day 2, dawn') && check.includes('SECRET: Ezra stole the brass key'), check);
+  const prompt = buildContinuityExtractionPrompt({ projectTitle: 'B', chapter: c3, allChapters: [c1, c2, c3], canon: [maya] });
+  assert.ok(prompt.includes('STORY_CLOCK:') && prompt.includes('KNOWLEDGE:') && prompt.includes('SECRET: Ezra'), 'extractor sees prior clock + secrets');
+
+  const merged = mergeKnowledge([], [{ secret: 'A plan', knownBy: [], hiddenFrom: ['X'], chapter: 1 }]);
+  assert.equal(merged[0].hiddenFrom[0], 'X');
 });
 
 console.log(`\n${passed} passed`);

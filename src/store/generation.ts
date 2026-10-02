@@ -16,7 +16,8 @@ export type GenerationKind =
   | 'generate-image'
   | 'create-project'
   | 'inline-edit'
-  | 'map-threads';
+  | 'map-threads'
+  | 'map-arcs';
 
 interface GenerationState {
   // null when no operation is active
