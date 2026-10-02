@@ -772,7 +772,7 @@ export function ChapterView({ chapter }: Props) {
 
     const scenePrompt = basePrompt +
       `\n\n=== SCENE TO WRITE ===\nScene ${scene.order}: "${scene.title}"\nSummary: ${scene.summary}` +
-      (prevSceneProse ? `\n\n=== PREVIOUS SCENES IN THIS CHAPTER ===\n${prevSceneProse.slice(-2000)}` : '') +
+      (prevSceneProse ? `\n\n=== PREVIOUS SCENES IN THIS CHAPTER ===\n${prevSceneProse.slice(-2000)}\n\nContinue from where the previous scene ends (the chapter-opening rule applied to the first scene only). If time or place changes, orient the reader in the first sentence.` : '') +
       `\n\nWrite ONLY this scene targeting approximately ${effectiveWordTarget} words. Write finished prose for this single scene only — no scene titles or headers.`;
 
     let accumulated = '';

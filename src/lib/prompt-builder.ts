@@ -213,7 +213,7 @@ DESCRIPTION: Earn every adjective. One precise detail beats three vague ones. An
 
 CAMERA TEST: Before ending a descriptive paragraph, ask: "Can a camera record this?" If yes, keep it. If no, rewrite it into a visible or audible concrete detail. Prefer "The coffee machine clicked," "A waitress wiped the counter," "Rain tapped the window" over abstract lines like "The past lingered in the room," "The night held its breath," or "Memories clung to the walls."
 
-TRANSITIONS: Cut between scenes at the point of highest tension or sharpest irony. Avoid "Later that evening" — instead, jump-cut and let context orient the reader.`;
+TRANSITIONS & FLOW: Play the story on the page. Every event the outline names, and every moment the story has set up (a confrontation, a decision, a reveal, a reunion), happens in scene — never skipped and summarized after the fact. Each scene follows from the one before: cause, then consequence. Only cut away when nothing important happens in between, and when you do, orient the reader in the first sentence of the new scene (when, where, who is present), e.g. "By the time they reached the ferry, the rain had stopped." A reader should never have to guess how the characters got here or what they missed.`;
 }
 
 // ========== Narrative Controls → Tone Instructions ==========
@@ -417,6 +417,17 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
       'a line of dialogue that recontextualizes everything, a physical threat closing in, an interrupted moment. ' +
       'Do NOT resolve the chapter\'s central tension before the final paragraph. ' +
       'Cut on the highest-tension beat. Avoid soft fades, falling-action wrap-ups, or "and then they went to sleep" endings.'
+    );
+  }
+
+  // Chapter-opening rule — pick up where the last chapter left off
+  if ((chapter.number || 0) > 1) {
+    sections.push('\n=== CHAPTER OPENING RULE ===');
+    sections.push(
+      'Open by picking up from the final moment of the previous chapter. If it ended on a cliffhanger, the reader ' +
+      'sees what happens next: answer or carry forward that moment on the page before moving on. If time or place ' +
+      'has changed, say so in the opening lines and briefly account for what happened in between. Do not open on an ' +
+      'unrelated scene that leaves the previous ending hanging.'
     );
   }
 
