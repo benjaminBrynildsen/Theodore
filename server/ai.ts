@@ -69,6 +69,8 @@ interface GenerateRequest {
   projectId?: string;
   chapterId?: string;
   action: string; // 'generate-chapter' | 'auto-fill' | 'validate' | 'recap' | etc.
+  /** Optional: 'low' for quick conversational replies. Only lowering is allowed. */
+  effort?: 'low';
 }
 
 interface GenerateResult {
@@ -136,7 +138,7 @@ function anthropicRequest(req: GenerateRequest, model: string, stream: boolean):
     ...(stream ? { stream: true } : {}),
   };
   if (isAdaptiveOnlyModel(model)) {
-    const effort = LOW_EFFORT_ACTIONS.has(String(req.action || '')) ? 'low' : 'medium';
+    const effort = req.effort === 'low' || LOW_EFFORT_ACTIONS.has(String(req.action || '')) ? 'low' : 'medium';
     body.output_config = { effort };
     // Thinking tokens count toward max_tokens; callers size limits for the reply alone.
     body.max_tokens = maxTokens + (effort === 'low' ? 4000 : 12000);

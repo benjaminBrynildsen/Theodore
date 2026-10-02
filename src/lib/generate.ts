@@ -13,6 +13,8 @@ interface GenerateOptions {
   chapterId?: string;
   action: string;
   userId?: string;
+  /** 'low' for quick conversational replies (Opus/Fable thinking effort). */
+  effort?: 'low';
 }
 
 interface GenerateResult {
