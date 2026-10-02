@@ -1537,7 +1537,15 @@ function buildAttributionMap(
   return map.size > 0 ? map : undefined;
 }
 
+// Lines that are only scene-break symbols ("---", "***", "* * *", "###", "◆")
+// must never be read aloud; the paragraph break already gives the pause.
+const SCENE_BREAK_LINE = /^[ \t]*(?:[-*_~=#•·◆◇—–][ \t]*){3,}$|^[ \t]*(?:#|[◆◇§]|—|–)[ \t]*$/gm;
+export function stripSceneBreakLines(prose: string): string {
+  return (prose || '').replace(SCENE_BREAK_LINE, '').replace(/\n{3,}/g, '\n\n');
+}
+
 export async function generateChapterAudio(req: TTSRequest & { knownCharacters?: string[]; onProgress?: (pct: number) => void }): Promise<TTSResult> {
+  req = { ...req, prose: stripSceneBreakLines(req.prose) };
   ensureAudioDir();
   ttsLog(`START generateChapterAudio chapterId=${req.chapterId} prose=${req.prose.length}chars`);
 

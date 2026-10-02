@@ -158,10 +158,11 @@ function buildStyleInstructions(style: WritingStyleSettings): string {
 
   // Scene breaks
   if (style.sceneBreakStyle !== 'blank') {
-    rules.push(`Use "${style.sceneBreakStyle}" for scene breaks within a chapter.`);
+    rules.push(`Use exactly "${style.sceneBreakStyle}" on its own line for scene breaks within a chapter — never any other marker.`);
   } else {
-    rules.push('Use a blank line (double line break) for scene breaks within a chapter.');
+    rules.push('Use a blank line (double line break) for scene breaks within a chapter. NEVER write "---", "***", "#" or any line of symbols as a scene break.');
   }
+  rules.push('This is book prose, not Markdown: no headings, no bold or italics markup, no horizontal rules, no bullet lists.');
 
   // Chapter start
   if (style.chapterStartStyle === 'drop-cap') {
@@ -180,11 +181,16 @@ function buildCraftRules(): string {
 
 SCENES: Enter late, leave early. Start in the middle of action or tension, not with arrivals or greetings. End on a shift — a decision, a revelation, a door closing — not a resolution.
 
-DIALOGUE: People rarely say what they mean. Layer subtext beneath the words. Use interruptions, deflections, non-answers. Use clear, explicit attribution — default to "said" for neutral delivery, and use action beats when they add meaningful character or motion. NEVER sacrifice speaker clarity. Every dialogue line in a multi-character scene should anchor to a named speaker (a "Name said" tag or an action beat that names them). If two or more characters are speaking, each time the speaker changes, make attribution explicit in the same or adjacent sentence. Do not stack multiple unattributed quote-only paragraphs in a row. Never use dialogue to deliver backstory ("As you know, Tim...").
-- VARY ATTRIBUTION STYLES — mix three forms across a scene so the rhythm doesn't flatten:
-  (1) Inline tag — short attribution attached to the quote: \`"Don't," she said, laughing under her breath.\`
-  (2) Wrapping action beat — narrative action before or after the line that identifies the speaker through behavior: \`Mara set the cup down. Her hand was steady. "I'm leaving in the morning."\`
-  (3) Pure beat (no tag) — only when the prior beat already locked the speaker.
+DIALOGUE: People rarely say what they mean. Layer subtext beneath the words. Use interruptions, deflections, non-answers. Never use dialogue to deliver backstory ("As you know, Tim...").
+SPEAKER ATTRIBUTION — follow standard published-novel practice so the reader always knows who is talking:
+- Start a new paragraph every time the speaker changes.
+- Attribute the first line of every exchange, and attribute again EVERY time the speaker changes, with a tag ("Name said" / "she asked") or an action beat in the same paragraph that NAMES the speaker.
+- With three or more characters in the scene, every spoken line carries attribution — no exceptions.
+- Untagged lines are allowed only in a back-and-forth between exactly two people, at most two in a row, and only when the speaker is unmistakable. Then re-anchor with a tag.
+- Default to "said" and "asked"; they're invisible to readers. Use names rather than "he"/"she" whenever two characters could be confused (for example, two men or two women in the scene).
+- Vary placement so it reads naturally:
+  (1) Inline tag — \`"Don't," Mara said, laughing under her breath.\`
+  (2) Action beat naming the speaker — \`Mara set the cup down. "I'm leaving in the morning."\`
 - When a speech act has a notable physical or emotional quality, NAME IT in the attribution. Prefer concrete cues that a listener could hear:
   • "...," she said, laughing softly.
   • "...," he whispered.
@@ -195,7 +201,7 @@ DIALOGUE: People rarely say what they mean. Layer subtext beneath the words. Use
   • "..." — a sharp, dry laugh.
   • He shouted over the wind, "..."
   These cues feed the audiobook layer. Vague cues ("she said quietly") help less than concrete ones ("she said, breath catching").
-- Don't over-decorate every line. Roughly 1 in 3 spoken lines deserves an expressive cue; the rest should stay clean with plain "said" or a beat.
+- Don't over-decorate. Roughly 1 in 3 spoken lines deserves an expressive cue; the rest still get clear attribution, just with plain "said" or a simple beat.
 
 CHARACTERS: On first appearance in a chapter, anchor with ONE visceral sensory detail — not a full description. Show personality through choices and behavior, not adjectives. Interior monologue should conflict with exterior action.
 

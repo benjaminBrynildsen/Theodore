@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Project, Chapter, Scene, EditChatMessage, ProseSelection } from '../types';
 import { api } from '../lib/api';
+import { normalizeSceneBreaks } from '../lib/clean-prose';
+import { useSettingsStore } from './settings';
 import { useCanonStore } from './canon';
 import { scanMetadataOccurrences, type MetadataScanResult } from '../lib/metadata-scan';
 import { refineEntitiesWithAI, type RefinedEntity } from '../lib/ai-entity-refine';
@@ -357,6 +359,21 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         createdAt: c.createdAt || c.created_at,
         updatedAt: c.updatedAt || c.updated_at,
       }));
+      // One-time cleanup: models sometimes write '---' / '***' lines as scene
+      // breaks even when the style is blank lines, and the reader shows them
+      // verbatim. Normalize to the author's style and save it back (with the
+      // scenes, so the server doesn't clear them on a prose-only update).
+      const breakStyle = useSettingsStore.getState().settings.writingStyle?.sceneBreakStyle || 'blank';
+      for (const ch of mapped) {
+        const prose = normalizeSceneBreaks(ch.prose, breakStyle);
+        const scenes = ch.scenes.map((s: Scene) => (s.prose ? { ...s, prose: normalizeSceneBreaks(s.prose, breakStyle) } : s));
+        const scenesChanged = scenes.some((s: Scene, i: number) => s.prose !== ch.scenes[i].prose);
+        if (prose !== ch.prose || scenesChanged) {
+          ch.prose = prose;
+          ch.scenes = scenes;
+          api.updateChapter(ch.id, { prose, scenes }).catch((e) => console.warn('[SceneBreaks] cleanup save failed:', e));
+        }
+      }
       const existingForProject = get().chapters.filter(ch => ch.projectId === projectId);
       // Do not wipe optimistic/local chapters when backend returns empty.
       if (mapped.length === 0 && existingForProject.length > 0) {
