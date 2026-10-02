@@ -2,6 +2,7 @@
 // Builds AI prompts that incorporate ALL settings, canon, and project context
 // Every generation call goes through here to ensure consistency
 
+import { OVERUSED_NAMES } from './name-bank';
 import type { Project, Chapter, PremiseCard, WritingMode, GenerationType, Scene, EditChatMessage } from '../types';
 import { DEFAULT_SETTINGS, type AppSettings, type WritingStyleSettings } from '../types/settings';
 import type { AnyCanonEntry } from '../types/canon';
@@ -199,6 +200,7 @@ SPEAKER ATTRIBUTION — follow standard published-novel practice so the reader a
 - Put the tag or beat early in long speeches, at the first natural pause, so the reader knows who is talking before the speech goes on.
 
 CHARACTERS: On first appearance in a chapter, anchor with ONE visceral sensory detail — not a full description. Show personality through choices and behavior, not adjectives. Interior monologue should conflict with exterior action.
+NEW NAMES: when a new character needs a name, fit it to their age, family background and the setting, and keep it distinct from the existing cast (different first letter and sound). Never use these overused names for new characters: ${OVERUSED_NAMES.join(', ')}.
 
 EMOTION: Never name the emotion. No "she felt angry" or "fear gripped him." Show it through the body: clenched jaw, shortened breath, hands that won't stay still. Trust the reader to feel it.
 

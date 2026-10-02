@@ -1,6 +1,7 @@
 // ========== Story Scaffolding ==========
 // Generates a full chapter skeleton (titles, premises, beats) from project metadata
 
+import { buildNamingGuidance } from './name-bank';
 import type { Project, Chapter, PremiseCard } from '../types';
 import type { AnyCanonEntry } from '../types/canon';
 import { getStructureById } from './story-structures';
@@ -37,10 +38,12 @@ export function buildScaffoldPrompt(
   chapterCount: number,
   canonEntries: AnyCanonEntry[],
   existingChapters: Chapter[],
+  avoidNames: string[] = [],
 ): string {
   const sections: string[] = [];
 
   sections.push(`Naming-variety seed: ${Math.random().toString(36).slice(2, 10)}`);
+  sections.push(buildNamingGuidance({ avoid: avoidNames }));
   sections.push(`You are Theodore, an expert story architect. Generate a complete ${chapterCount}-chapter outline for the following project.`);
 
   sections.push(`\n=== PROJECT ===`);

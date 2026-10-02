@@ -1,3 +1,4 @@
+import { authorNamesToAvoid } from '../../lib/author-names';
 import { useState, useMemo, useEffect } from 'react';
 import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch } from 'lucide-react';
 import { ArcMap } from '../features/ArcMap';
@@ -96,7 +97,7 @@ export function ProjectView() {
     setScaffoldError(null);
 
     const canonEntries = getProjectEntries(project.id);
-    const prompt = buildScaffoldPrompt(project, scaffoldCount, canonEntries, chapters);
+    const prompt = buildScaffoldPrompt(project, scaffoldCount, canonEntries, chapters, authorNamesToAvoid(project.id));
 
     let accumulated = '';
     await generateStream(

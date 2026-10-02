@@ -13,6 +13,7 @@ import { parseNewCanon } from '../src/lib/story-memory';
 import { buildRenamePairs, replaceNames, countMentions, renameDeep } from '../src/lib/rename';
 import { stripDialogueSpeakerTags, isSceneBreakLine } from '../src/lib/clean-prose';
 import { analyzeAttribution, needsDialogueClarityPass } from '../src/lib/dialogue-clarity';
+import { buildNamingGuidance, nameWords, NAME_GROUPS, OVERUSED_NAMES } from '../src/lib/name-bank';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
 import {
   parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
@@ -571,6 +572,25 @@ t('dialogue clarity: unattributed lines and subjectless beats are caught', () =>
   assert.equal(needsDialogueClarityPass(bad, names), true);
   const good = `"Can't," Wes said.\n\nDanny frowned. "Why?"\n\n"Inventory."\n\n"There's always inventory," Danny said.`;
   assert.equal(needsDialogueClarityPass(good, names), false, 'one untagged line in a two-person exchange is standard');
+});
+
+t('name bank: varied sample by background and generation, overused and author names excluded', () => {
+  const g = buildNamingGuidance({ avoid: ['Wes', 'Garrity', 'Brennan'], seed: 42 });
+  const sample = g.split('Name sample:')[1];
+  for (const grp of NAME_GROUPS) assert.ok(sample.includes(grp.label), grp.label);
+  for (const bad of ['Marcus', 'Priya', 'Callie', 'Elena', 'Brennan']) {
+    assert.ok(!new RegExp(`\\b${bad}\\b`).test(sample), `${bad} must not be offered`);
+  }
+  assert.ok(g.includes('Do NOT use these names') && g.includes('Wes, Garrity'), 'author names listed to avoid');
+  assert.notEqual(buildNamingGuidance({ seed: 1 }), buildNamingGuidance({ seed: 2 }), 'different books get different samples');
+  assert.ok(g.length < 9000, `guidance stays compact (${g.length})`);
+  assert.deepEqual(nameWords(['Wes Garrity', 'the courier', "O'Brien"]).sort(), ['Garrity', "O'Brien", 'Wes']);
+  for (const grp of NAME_GROUPS) {
+    for (const list of [grp.older, grp.middle, grp.younger, grp.child]) {
+      assert.ok(list.every((n) => /\/(f|m)$/.test(n)), `${grp.label}: every first name carries /f or /m`);
+    }
+  }
+  assert.ok(OVERUSED_NAMES.includes('Marcus'));
 });
 
 console.log(`\n${passed} passed`);
