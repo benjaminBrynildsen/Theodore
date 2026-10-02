@@ -28,6 +28,8 @@ export interface CharacterStateRecord {
   arc?: string;    // where the character is in their arc right now
   /** How they stand with others now: "Ezra: distrustful; Theo: protective". */
   relationships?: string;
+  /** Other names and nicknames used for them on the page ("Wesley", "Store"). */
+  called?: string[];
 }
 
 export interface ArtifactStateRecord {
@@ -354,6 +356,7 @@ export function parseMemorySections(text: string, chapterNumber: number, canon: 
       status: fields.status,
       arc: fields.arc,
       relationships: fields.relationships,
+      called: fields.called ? fields.called.split(/[;,]/).map((x) => x.replace(/\(.*?\)/g, '').trim().replace(/^["“']|["”']$/g, '').trim()).filter(Boolean).slice(0, 6) : undefined,
     });
   }
 

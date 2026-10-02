@@ -132,7 +132,7 @@ function CharacterDetail({ entry, onUpdate }: { entry: CharacterEntry; onUpdate:
             ))}
           </div>
         </div>
-        <TagList label="Aliases" tags={c.aliases} onChange={(v) => update('aliases', v)} />
+        <TagList label="Aliases & nicknames" tags={c.aliases} onChange={(v) => update('aliases', v)} />
       </Section>
 
       <Section title="Appearance" icon={Eye}>
@@ -640,7 +640,7 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
   const [isAutoFilling, setIsAutoFilling] = useState(false);
   // Rename everywhere: the name when editing started, and the pending offer.
   const [nameAtFocus, setNameAtFocus] = useState<string | null>(null);
-  const [renameOffer, setRenameOffer] = useState<{ from: string; to: string; preview: import('../../lib/rename-runner').RenamePreview } | null>(null);
+  const [renameOffer, setRenameOffer] = useState<{ from: string; to: string; preview: import('../../lib/rename-runner').RenamePreview; aliases: Record<string, string> } | null>(null);
   const [renameDone, setRenameDone] = useState<string | null>(null);
   const finishNameEdit = async () => {
     const from = nameAtFocus;
@@ -649,12 +649,20 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
     if (!from || !to || from.trim() === to) return;
     const { previewRename } = await import('../../lib/rename-runner');
     const preview = previewRename(entry, from, to);
-    if (preview.mentions > 0 || preview.conflict) setRenameOffer({ from: from.trim(), to, preview });
+    // Each alias / nickname gets its own new value; ones the rename already covers are prefilled.
+    const current = getEntry(entry.id);
+    const aliasList = current?.type === 'character' ? ((current as CharacterEntry).character.aliases || []) : [];
+    const aliases: Record<string, string> = {};
+    for (const a of aliasList) aliases[a] = preview.pairs.find((p) => p.from === a)?.to || '';
+    if (preview.mentions > 0 || preview.conflict || aliasList.length) setRenameOffer({ from: from.trim(), to, preview, aliases });
   };
   const applyRenameEverywhere = async () => {
     if (!renameOffer) return;
     const { applyRename } = await import('../../lib/rename-runner');
-    const n = applyRename(entry, renameOffer.preview.pairs);
+    const aliasPairs = Object.entries(renameOffer.aliases)
+      .map(([from, to]) => ({ from, to: to.trim() }))
+      .filter((p) => p.to && p.to !== p.from && !renameOffer.preview.pairs.some((x) => x.from === p.from));
+    const n = applyRename(entry, [...renameOffer.preview.pairs, ...aliasPairs]);
     setRenameDone(`Renamed to ${renameOffer.to} in ${n} ${n === 1 ? 'chapter' : 'chapters'}, the story maps and related entries.`);
     setRenameOffer(null);
   };
@@ -815,12 +823,32 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
             <p className="text-text-primary">
               "{renameOffer.from}" appears {renameOffer.preview.mentions} {renameOffer.preview.mentions === 1 ? 'time' : 'times'} in {renameOffer.preview.chapters} {renameOffer.preview.chapters === 1 ? 'chapter' : 'chapters'}.
               Update it to "{renameOffer.to}" everywhere — prose, chapter outlines, story memory, the thread and character maps, and related entries?
-              {renameOffer.preview.pairs.length > 1 && (
-                <span className="block text-text-tertiary mt-1">
-                  Also: {renameOffer.preview.pairs.slice(1).map((p) => `${p.from} → ${p.to}`).join(', ')}
-                </span>
-              )}
             </p>
+          )}
+          {!renameOffer.preview.conflict && (
+            <div className="space-y-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Names that change</div>
+              <div className="text-text-secondary">{renameOffer.from} → {renameOffer.to}</div>
+              {renameOffer.preview.pairs.slice(1).filter((p) => !(p.from in renameOffer.aliases)).map((p) => (
+                <div key={p.from} className="text-text-secondary">{p.from} → {p.to}</div>
+              ))}
+              {Object.keys(renameOffer.aliases).length > 0 && (
+                <>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary pt-1">Aliases & nicknames (leave blank to keep)</div>
+                  {Object.entries(renameOffer.aliases).map(([alias, value]) => (
+                    <label key={alias} className="flex items-center gap-2">
+                      <span className="w-28 truncate text-text-secondary">{alias} →</span>
+                      <input
+                        value={value}
+                        onChange={(e) => setRenameOffer({ ...renameOffer, aliases: { ...renameOffer.aliases, [alias]: e.target.value } })}
+                        placeholder={alias}
+                        className="flex-1 min-w-0 px-2 py-1 rounded-md glass-input text-xs"
+                      />
+                    </label>
+                  ))}
+                </>
+              )}
+            </div>
           )}
           <div className="flex gap-2">
             {!renameOffer.preview.conflict && (

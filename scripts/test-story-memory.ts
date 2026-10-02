@@ -555,4 +555,12 @@ t('reader/export cleanup: narration tags stripped, scene breaks recognized', () 
   assert.deepEqual(['***', '* * *', '#', '# # #', '---', 'Hi', '- item'].map(isSceneBreakLine), [true, true, true, true, true, false, false]);
 });
 
+t('nicknames: the extractor\'s "called" list is parsed for aliases', () => {
+  const mem = parseMemorySections(`CHARACTER_STATE:
+- Maya Chen | mood: tense | called: "Wesley" (by Ray); Store, May
+FACTS:`, 1, [maya]);
+  assert.deepEqual(mem.characterState[0].called, ['Wesley', 'Store', 'May']);
+  assert.equal(mem.characterState[0].canonId, 'c1');
+});
+
 console.log(`\n${passed} passed`);
