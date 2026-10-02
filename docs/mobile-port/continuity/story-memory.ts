@@ -30,6 +30,8 @@ export interface CharacterStateRecord {
   physical?: string;
   status?: string; // alive | dead | missing | captured | ...
   arc?: string;    // where the character is in their arc right now
+  /** How they stand with others now: "Ezra: distrustful; Theo: protective". */
+  relationships?: string;
 }
 
 export interface ArtifactStateRecord {
@@ -355,6 +357,7 @@ export function parseMemorySections(text: string, chapterNumber: number, canon: 
       physical: fields.physical,
       status: fields.status,
       arc: fields.arc,
+      relationships: fields.relationships,
     });
   }
 
@@ -515,6 +518,7 @@ export function foldStoryState(allChapters: Chapter[], beforeChapterId?: string)
         physical: s.physical || prev?.physical,
         status: s.status || prev?.status,
         arc: s.arc || prev?.arc,
+        relationships: s.relationships || prev?.relationships,
         learned: dedupedLearned.slice(-10),
         lastSeenChapter: n,
       });
@@ -828,6 +832,7 @@ export function buildStoryMemoryBlock(
       s.mood && `mood: ${s.mood}`,
       s.physical && `physical: ${s.physical}`,
       s.learned?.length ? `knows: ${s.learned.slice(-5).join('; ')}` : null,
+      s.relationships && `relationships: ${s.relationships}`,
     ].filter(Boolean);
     if (parts.length) charLines.push(`- ${s.name} (last on page Ch.${s.lastSeenChapter}): ${parts.join(' | ')}`);
   }
@@ -1033,6 +1038,26 @@ export function knowledgeFor(state: StoryStateAt, entry: AnyCanonEntry): { knows
     knows: state.knowledge.filter((k) => k.knownBy.some(isMe)),
     doesNotKnow: state.knowledge.filter((k) => k.hiddenFrom.some(isMe) && !k.knownBy.some(isMe)),
   };
+}
+
+export interface CharacterTimelineEntry {
+  chapter: number;
+  arc?: string;
+  mood?: string;
+  relationships?: string;
+  learned?: string[];
+}
+
+/** How a character developed, chapter by chapter, from the extracted memory. */
+export function characterTimeline(allChapters: Chapter[], entry: AnyCanonEntry): CharacterTimelineEntry[] {
+  const out: CharacterTimelineEntry[] = [];
+  for (const ch of [...allChapters].sort((a, b) => (a.number || 0) - (b.number || 0))) {
+    const s = (memoryMeta(ch).characterState || []).find((c) =>
+      (c.canonId && c.canonId === entry.id) || resolveCanonEntry(c.name, [entry]) === entry);
+    if (!s || !(s.arc || s.mood || s.relationships || s.learned?.length)) continue;
+    out.push({ chapter: ch.number || 0, arc: s.arc, mood: s.mood, relationships: s.relationships, learned: s.learned });
+  }
+  return out;
 }
 
 export function factsFor(state: StoryStateAt, entry: AnyCanonEntry): StoryFact[] {

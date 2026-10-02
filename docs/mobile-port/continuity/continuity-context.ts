@@ -16,6 +16,7 @@
 // consecutive chapter generations within a session.
 
 import type { Chapter, Project } from './types';
+import { tokenOverlap } from './story-memory';
 
 export interface ContinuityContext {
   earlyStoryArc: string;     // Tier 4 — 1-liner per chapter, ordered oldest first
@@ -162,7 +163,17 @@ export function buildContinuityContext(
       for (const id of meta.resolvedThreadIds) openThreadMap.delete(id);
     }
   }
-  const openThreads = Array.from(openThreadMap.values())
+  // Each chapter's extraction can re-note a thread that's still open ("find
+  // the vault" in Ch.1, 2, 3…). Keep the first mention of each, and only the
+  // most recent dozen — the thread map carries the book-level plan.
+  const distinct: NarrativeThread[] = [];
+  for (const t of openThreadMap.values()) {
+    const dup = distinct.some((d) =>
+      d.character.trim().toLowerCase() === t.character.trim().toLowerCase() && tokenOverlap(d.thread, t.thread) >= 0.6);
+    if (!dup) distinct.push(t);
+  }
+  const openThreads = distinct
+    .slice(-12)
     .map((t) => `- [Ch.${t.introducedInChapter}] ${t.character}: ${t.thread}`)
     .join('\n');
 
