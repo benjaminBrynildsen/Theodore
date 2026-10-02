@@ -21,6 +21,7 @@ import {
   foldStoryState,
   memoryMeta,
   parseMemorySections,
+  parseNewCanon,
   proseContentHash,
   proseForExtraction,
   proseMentionsAny,
@@ -28,6 +29,7 @@ import {
   stripProductionTags,
   tokenOverlap,
   type ChapterMemoryMeta,
+  type NewCanonCandidate,
   type StaleNotice,
 } from './story-memory';
 
@@ -107,6 +109,8 @@ Read the WHOLE chapter below and produce the sections that follow. Be concrete a
    day: ... | time: ... | elapsed: ...
 10) KNOWLEDGE — secrets, hidden identities, plans, lies and key discoveries in play, with who knows them at the END of this chapter. Include ones from the memory below whose holders changed here (someone learned or was told). Max 10.
    - SECRET | known by: Name; Name | hidden from: Name; Name
+11) NEW_CANON — named characters, places and objects that appear in THIS chapter, matter to the story (likely to come back), and are NOT in the known names below. Use the full proper name exactly as the prose gives it. Never list common words, sentence fragments, real-world brands or groups mentioned in passing, or a nickname of someone already known. Max 6.
+   - character|location|artifact | Full Name | one-line description
 
 Use these exact names when they refer to the same person, place, or object: ${knownNames || '(none yet)'}
 
@@ -139,6 +143,8 @@ STORY_CLOCK:
 day: ... | time: ... | elapsed: ...
 KNOWLEDGE:
 - SECRET | known by: ... | hidden from: ...
+NEW_CANON:
+- character | Full Name | description
 
 If a list has nothing, leave it empty (just the header).`;
 }
@@ -192,6 +198,8 @@ export function parseContinuityResponse(text: string, chapterNumber: number): {
 export interface AppliedExtraction {
   /** Merge into the chapter's aiIntentMetadata (a key set to undefined means delete it). */
   metaPatch: Record<string, unknown>;
+  /** New canon entries to create (validated, not already in canon). */
+  newCanon: NewCanonCandidate[];
   /** Meaningful memory changes vs the previous extraction, for flagging later chapters. */
   memoryChanges: { changes: string[]; subjects: string[] } | null;
   counts: Record<string, number>;
@@ -261,6 +269,7 @@ export function applyContinuityExtraction(
 
   return {
     metaPatch,
+    newCanon: parseNewCanon(text, canon),
     memoryChanges,
     counts: {
       threads: openedThreads.length,

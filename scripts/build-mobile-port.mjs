@@ -14,7 +14,7 @@ const banner = (src) => `// GENERATED from Theodore web ${src} by scripts/build-
 // keep writing and reading the same chapter memory.
 `;
 
-const MODULES = ['story-memory.ts', 'continuity-extraction.ts', 'continuity-context.ts'];
+const MODULES = ['story-memory.ts', 'continuity-extraction.ts', 'continuity-context.ts', 'canon-cleanup.ts', 'entity-normalization.ts'];
 for (const file of MODULES) {
   let src = readFileSync(join(root, 'src/lib', file), 'utf8');
   src = src

@@ -5,17 +5,8 @@ import { api } from '../lib/api';
 import { normalizeSceneBreaks } from '../lib/clean-prose';
 import { useSettingsStore } from './settings';
 import { useCanonStore } from './canon';
-import { scanMetadataOccurrences, type MetadataScanResult } from '../lib/metadata-scan';
-import { refineEntitiesWithAI, type RefinedEntity } from '../lib/ai-entity-refine';
+import { scanMetadataOccurrences } from '../lib/metadata-scan';
 import { analyzeSceneEmotion, hashProse, isMetadataStale } from '../lib/emotion-analyzer';
-import {
-  isLikelyCharacterNoise,
-  isLikelyEntityNoise,
-  normalizeEntityKeyForType,
-  sanitizeEntityName,
-} from '../lib/entity-normalization';
-const AUTO_METADATA_TAGS = ['auto-detected', 'chapter-scan'];
-type AutoCanonType = 'character' | 'location' | 'system' | 'artifact' | 'media';
 type ChapterSnapshotType = 'ai-generated' | 'human-edit' | 'auto-save';
 
 // Debounce helper for saving
@@ -57,108 +48,6 @@ function safeLocalStorage(): Storage {
     key: (i) => { try { return localStorage.key(i); } catch { return null; } },
     clear: () => { try { localStorage.clear(); } catch {} },
   };
-}
-
-function normalizeEntityName(value: string): string {
-  return sanitizeEntityName(value)
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function dedupeEntityNames(names: string[] | undefined, type: AutoCanonType): string[] {
-  const uniqueNames: string[] = [];
-  const seen = new Set<string>();
-
-  for (const raw of names || []) {
-    const normalized = normalizeEntityName(raw);
-    if (!normalized) continue;
-    if (type === 'character' ? isLikelyCharacterNoise(normalized) : isLikelyEntityNoise(normalized)) continue;
-    const key = normalizeEntityKeyForType(type, normalized);
-    if (!key) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    uniqueNames.push(normalized);
-  }
-
-  // Remove short names that are a token-subset of a longer name (e.g. "Jack" absorbed by "Jack Monroe")
-  const sorted = [...uniqueNames].sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length);
-  const result: string[] = [];
-  const absorbedKeys = new Set<string>();
-
-  for (const name of sorted) {
-    const key = normalizeEntityKeyForType(type, name);
-    if (absorbedKeys.has(key)) continue;
-    result.push(name);
-    const tokens = key.split(/\s+/);
-    if (tokens.length > 1) {
-      for (let len = 1; len < tokens.length; len++) {
-        for (let start = 0; start <= tokens.length - len; start++) {
-          absorbedKeys.add(tokens.slice(start, start + len).join(' '));
-        }
-      }
-    }
-  }
-  return result;
-}
-
-function createAutoCanonEntry(projectId: string, type: AutoCanonType, name: string) {
-  const canonStore = useCanonStore.getState();
-  if (type === 'character') return canonStore.createCharacter(projectId, name);
-  if (type === 'location') return canonStore.createLocation(projectId, name);
-  if (type === 'system') return canonStore.createSystem(projectId, name);
-  if (type === 'media') return canonStore.createMedia(projectId, name);
-  return canonStore.createArtifact(projectId, name);
-}
-
-function persistScannedMetadataToCanon(
-  projectId: string,
-  chapterNumber: number,
-  scan: MetadataScanResult,
-): string[] {
-  const canonStore = useCanonStore.getState();
-  const autoCanonTypes = new Set<AutoCanonType>(['character', 'location', 'system', 'artifact', 'media']);
-  const existingKeys = new Set(
-    canonStore.getProjectEntries(projectId)
-      .filter((entry): entry is typeof entry & { type: AutoCanonType } => autoCanonTypes.has(entry.type as AutoCanonType))
-      .map((entry) => {
-        const key = normalizeEntityKeyForType(entry.type, entry.name);
-        return key ? `${entry.type}:${key}` : '';
-      })
-      .filter(Boolean),
-  );
-  const detectedAt = new Date().toISOString();
-
-  const entitiesByType: Record<AutoCanonType, string[]> = {
-    character: dedupeEntityNames(scan.newEntities?.characters, 'character'),
-    location: dedupeEntityNames(scan.newEntities?.locations, 'location'),
-    system: dedupeEntityNames(scan.newEntities?.systems, 'system'),
-    artifact: dedupeEntityNames(scan.newEntities?.artifacts, 'artifact'),
-    media: dedupeEntityNames(scan.newEntities?.media, 'media'),
-  };
-
-  const createdEntryIds: string[] = [];
-  for (const type of Object.keys(entitiesByType) as AutoCanonType[]) {
-    for (const name of entitiesByType[type]) {
-      const normalized = normalizeEntityKeyForType(type, name);
-      if (!normalized) continue;
-      const key = `${type}:${normalized}`;
-      if (existingKeys.has(key)) continue;
-
-      const entry = createAutoCanonEntry(projectId, type, name);
-      // Use AI-generated description if available
-      const aiDesc = scan.entityDescriptions?.[name];
-      entry.description = aiDesc || entry.description || 'Auto-detected from chapter prose.';
-      entry.tags = Array.from(new Set([...(entry.tags || []), ...AUTO_METADATA_TAGS, `chapter-${chapterNumber}`]));
-      const detectionNote = `Auto-detected in Chapter ${chapterNumber} on ${detectedAt}.`;
-      entry.notes = entry.notes ? `${entry.notes}\n${detectionNote}` : detectionNote;
-
-      canonStore.addEntry(entry);
-      existingKeys.add(key);
-      createdEntryIds.push(entry.id);
-    }
-  }
-
-  return createdEntryIds;
 }
 
 function createVersionSnapshot(prose: string, type: ChapterSnapshotType) {
@@ -515,10 +404,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         const updated = get().chapters.find((c) => c.id === id);
         const scan = (updated?.aiIntentMetadata as any)?.metadataScan;
         if (scan) {
-          const createdCanonIds = persistScannedMetadataToCanon(current.projectId, current.number, scan);
+          // Link mentions of existing canon only. New canon comes from planning
+          // and the continuity extractor, never from scanning prose for words.
           const existingRefs = Array.isArray(updated?.referencedCanonIds) ? updated!.referencedCanonIds : [];
           const mentionRefs = (scan.existingMentions || []).map((mention: any) => mention.canonId);
-          const nextRefs = Array.from(new Set([...existingRefs, ...mentionRefs, ...createdCanonIds]));
+          const nextRefs = Array.from(new Set([...existingRefs, ...mentionRefs]));
           if (nextRefs.length !== existingRefs.length) {
             set((s) => ({
               chapters: s.chapters.map((c) => c.id === id ? { ...c, referencedCanonIds: nextRefs, updatedAt: new Date().toISOString() } : c),
@@ -526,15 +416,6 @@ export const useStore = create<AppState>()(persist((set, get) => ({
             payload = { ...payload, referencedCanonIds: nextRefs };
           }
 
-          console.info('[MetadataScan]', {
-            chapterId: id,
-            existingMentions: scan.existingMentions?.slice(0, 8),
-            newCharacters: scan.newEntities?.characters,
-            newLocations: scan.newEntities?.locations,
-            newSystems: scan.newEntities?.systems,
-            newArtifacts: scan.newEntities?.artifacts,
-            createdCanonEntries: createdCanonIds.length,
-          });
         }
       }
       await api.updateChapter(id, payload);
@@ -556,104 +437,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     const chapter = get().chapters.find((c) => c.id === chapterId);
     if (!chapter?.prose) return;
 
+    // Re-link this chapter to the canon it mentions. This no longer creates
+    // entries: capitalized-word scanning turned "We'll" and "Three" into
+    // characters. New canon comes from planning and the continuity extractor.
     const canonStore = useCanonStore.getState();
-    const prose = chapter.prose;
-
-    // 1. Remove ALL auto-detected entries for this chapter,
-    //    plus any auto-detected entry that is clearly noise (common word appearing lowercase in prose)
-    const projectEntries = canonStore.getProjectEntries(chapter.projectId);
-    const chapterTag = `chapter-${chapter.number}`;
-    for (const entry of projectEntries) {
-      if (!entry.tags?.includes('auto-detected')) continue;
-      const isThisChapter = entry.tags?.includes(chapterTag);
-      const lower = entry.name.toLowerCase();
-      const isSingleWord = !entry.name.includes(' ');
-      const isCommonWord = isSingleWord && (
-        lower.length < 4 ||
-        prose.includes(` ${lower} `) || prose.includes(` ${lower},`) || prose.includes(` ${lower}.`) ||
-        prose.includes(` ${lower};`) || prose.includes(` ${lower}!`) || prose.includes(` ${lower}?`) ||
-        prose.includes(` ${lower}\n`) || prose.includes(` ${lower}'`) || prose.includes(` ${lower}—`)
-      );
-      if (isThisChapter || isCommonWord) {
-        canonStore.deleteEntry(entry.id);
-      }
-    }
-
-    // 2. Re-run the regex scan with the cleaned canon list
     const freshCanon = canonStore.getProjectEntries(chapter.projectId);
     const scan = scanMetadataOccurrences(chapter.prose, freshCanon);
-
-    // 3. AI refinement — send regex candidates to LLM for proper classification + alias detection
-    try {
-      const refinement = await refineEntitiesWithAI(
-        chapter.prose,
-        scan.newEntities,
-        { projectId: chapter.projectId, chapterId },
-      );
-
-      // Replace regex candidates with AI-refined results
-      const refined: MetadataScanResult['newEntities'] = {
-        characters: [],
-        locations: [],
-        systems: [],
-        artifacts: [],
-        media: [],
-      };
-      const aliases: Record<string, string[]> = {};
-      const descriptions: Record<string, string> = {};
-
-      for (const entity of refinement.entities) {
-        if (entity.type === 'none') continue;
-        refined[entity.type === 'character' ? 'characters' :
-               entity.type === 'location' ? 'locations' :
-               entity.type === 'system' ? 'systems' :
-               entity.type === 'artifact' ? 'artifacts' : 'media'].push(entity.name);
-        if (entity.aliases?.length) {
-          aliases[entity.name] = entity.aliases;
-        }
-        if (entity.description) {
-          descriptions[entity.name] = entity.description;
-        }
-      }
-
-      scan.newEntities = refined;
-      scan.characterAliases = aliases;
-      scan.entityDescriptions = descriptions;
-
-      console.info('[AI Entity Refine] Refined candidates:', {
-        before: {
-          characters: refinement.entities.filter((e) => e.type !== 'none').length + refinement.entities.filter((e) => e.type === 'none').length,
-          rejected: refinement.entities.filter((e) => e.type === 'none').map((e) => e.name),
-          reclassified: refinement.entities.filter((e) => e.type !== 'none').map((e) => `${e.name} → ${e.type}`),
-        },
-        aliases,
-      });
-    } catch (err) {
-      console.warn('[AI Entity Refine] Failed, using regex results:', err);
-    }
-
-    // 4. Persist new entries (now with AI descriptions and aliases)
-    const createdIds = persistScannedMetadataToCanon(chapter.projectId, chapter.number, scan);
-
-    // 5. Update aliases on newly created character entries
-    if (scan.characterAliases) {
-      const latestCanon = canonStore.getProjectEntries(chapter.projectId);
-      for (const [charName, charAliases] of Object.entries(scan.characterAliases)) {
-        if (!charAliases.length) continue;
-        const entry = latestCanon.find(
-          (e) => e.type === 'character' && e.name.toLowerCase() === charName.toLowerCase(),
-        );
-        if (entry && entry.type === 'character') {
-          const existing = (entry as any).character?.aliases || [];
-          const merged = Array.from(new Set([...existing, ...charAliases]));
-          if (merged.length > existing.length) {
-            canonStore.updateEntry(entry.id, {
-              character: { ...(entry as any).character, aliases: merged },
-            } as any);
-          }
-        }
-      }
-    }
+    const createdIds: string[] = [];
 
     // 6. Collect all candidate ref IDs
     const mentionRefs = (scan.existingMentions || []).map((m: any) => m.canonId);

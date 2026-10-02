@@ -2108,14 +2108,14 @@ const LOCK_EXEMPT_ACTIONS = new Set([
   'plan-project',
   'extract-continuity', 'refine-entities', 'entity-refine',
   'generate-chapter-outline', 'scene-prose-split',
-  'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill', 'plan-threads', 'plan-arcs',
+  'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill', 'plan-threads', 'plan-arcs', 'canon-cleanup',
 ]);
 
 // Guest (unauthenticated) generation — only for plan-project during onboarding
 const GUEST_ALLOWED_ACTIONS = new Set([
   // Planning + outline
   'plan-project', 'scaffold-chapters', 'generate-chapter-outline',
-  'scene-prose-split', 'entity-refine', 'extract-continuity', 'plan-threads', 'plan-arcs',
+  'scene-prose-split', 'entity-refine', 'extract-continuity', 'plan-threads', 'plan-arcs', 'canon-cleanup',
   // Chapter writing + extending
   'generate-chapter', 'extend-chapter', 'dialogue-clarity-pass',
   // Editing flows
@@ -2371,7 +2371,7 @@ app.post('/api/generate/guest/stream', async (req, res) => {
       });
       startSseHeartbeat(res);
 
-      const cappedMaxTokens = Math.min(maxTokens || 2200, action === 'generate-chapter' || action === 'plan-threads' || action === 'plan-arcs' ? 8000 : action === 'extract-continuity' ? 3500 : 2200);
+      const cappedMaxTokens = Math.min(maxTokens || 2200, action === 'generate-chapter' || action === 'plan-threads' || action === 'plan-arcs' ? 8000 : action === 'extract-continuity' || action === 'canon-cleanup' ? 3500 : 2200);
       const result = await generateStream(
         { prompt, systemPrompt, model, maxTokens: cappedMaxTokens, temperature, userId: undefined, projectId: undefined, chapterId: undefined, action },
         res,

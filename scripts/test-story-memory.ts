@@ -8,6 +8,8 @@ import {
   mergeKnowledge, knowledgeFor, memoryOutdated, buildPriorMemoryForCheck,
 } from '../src/lib/story-memory';
 import { applyContinuityExtraction, buildContinuityExtractionPrompt } from '../src/lib/continuity-extraction';
+import { junkNameReason, heuristicCleanup, parseCleanupResponse, combineProposals, referenceRemap, remapReferences, buildCleanupPrompt } from '../src/lib/canon-cleanup';
+import { parseNewCanon } from '../src/lib/story-memory';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
 import {
   parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
@@ -439,6 +441,64 @@ ${knowledge}`;
 
   const merged = mergeKnowledge([], [{ secret: 'A plan', knownBy: [], hiddenFrom: ['X'], chapter: 1 }]);
   assert.equal(merged[0].hiddenFrom[0], 'X');
+});
+
+t('canon cleanup: junk names from the scanner are caught, real names pass', () => {
+  for (const junk of ["We'll", 'Three', 'Then Elena', 'Okay', 'And Marcus', 'twenty', "I'm", 'just a word']) {
+    assert.ok(junkNameReason(junk), `${junk} should be junk`);
+  }
+  for (const real of ['Iris Kowalski', 'Iris', 'Soren Thrace', 'David', 'Agnes', 'Devon Okafor', 'Larkspur Drive', "O'Donnell", "Jehovah's Witnesses", 'Marcus Chen']) {
+    assert.equal(junkNameReason(real), null, `${real} should pass the name check`);
+  }
+});
+
+t('canon cleanup: heuristics delete junk, merge first names and prefixed names', () => {
+  const ent = (id: string, name: string, type = 'character', extra: any = {}) => ({ ...baseChar(id, name), type, ...extra }) as any;
+  const entries = [
+    ent('1', 'Iris Kowalski', 'character', { description: 'lead' }), ent('2', 'Iris'), ent('3', "We'll"), ent('4', 'Three'),
+    ent('5', 'Elena Park'), ent('6', 'Then Elena'), ent('7', 'David'), ent('8', 'Larkspur Drive'),
+    ent('9', 'Soren Thrace'), ent('10', 'Soren Thrace'), ent('11', 'Marcus Chen'), ent('12', 'Marcus Webb'), ent('13', 'Marcus'),
+  ];
+  const props = heuristicCleanup(entries);
+  const by = (id: string) => props.find((p) => p.id === id);
+  assert.equal(by('3')?.kind, 'delete');
+  assert.equal(by('4')?.kind, 'delete');
+  assert.deepEqual([by('6')?.kind, (by('6') as any)?.intoId], ['merge', '5'], 'Then Elena → Elena Park');
+  assert.deepEqual([by('2')?.kind, (by('2') as any)?.intoId], ['merge', '1'], 'Iris → Iris Kowalski');
+  assert.equal(by('10')?.kind, 'merge', 'exact duplicate merged');
+  assert.equal(by('13'), undefined, 'ambiguous first name (two Marcuses) left for review');
+  assert.equal(by('7'), undefined);
+  assert.equal(by('8'), undefined, 'type problems are for the AI review');
+
+  const prompt = buildCleanupPrompt({ title: 'B', entries, outline: [{ number: 1, title: 'One' }] });
+  assert.ok(prompt.includes('8. [character] Larkspur Drive'), prompt);
+  const ai = parseCleanupResponse(JSON.stringify({ actions: [
+    { n: 8, action: 'move', type: 'location', reason: 'a street' },
+    { n: 3, action: 'delete' }, { n: 13, action: 'merge', into: 2, reason: 'into Iris, which is itself merging' },
+    { n: 7, action: 'move', type: 'character' }, { n: 99, action: 'delete' }, { n: 7, action: 'delete' },
+  ] }), entries);
+  assert.equal(ai.length, 4, 'no-op move and out-of-range dropped; first valid action per entry wins');
+  const combined = combineProposals(props, ai);
+  assert.equal(combined.filter((p) => p.id === '3').length, 1, 'one proposal per entry');
+  const chain = combined.find((p) => p.id === '13') as any;
+  assert.deepEqual([chain.kind, chain.intoId], ['merge', '1'], 'merge into a merging entry follows to the survivor');
+  assert.ok(combined.some((p) => p.kind === 'retype' && p.id === '8'));
+
+  const remap = referenceRemap(combined, { 8: 'loc-8' });
+  assert.deepEqual(remapReferences(['2', '3', '8', '1', '7', '11'], remap), ['1', 'loc-8', '11'], 'refs follow merges and moves, junk dropped, no duplicates');
+});
+
+t('new canon from the extractor: validated and not already known', () => {
+  const text = `NEW_CANON:
+- character | Devon Okafor | the new neighbor
+- character | We'll | junk
+- location | Larkspur Drive | the street where they live
+- object | Brass Compass | grandfather's compass
+- character | Maya | already known by first name
+- character | Then Elena | junk`;
+  const found = parseNewCanon(text, [maya]);
+  assert.deepEqual(found.map((f) => `${f.type}:${f.name}`), ['character:Devon Okafor', 'location:Larkspur Drive', 'artifact:Brass Compass']);
+  assert.equal(found[0].description, 'the new neighbor');
 });
 
 console.log(`\n${passed} passed`);

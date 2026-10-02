@@ -12,6 +12,7 @@
 
 import type { Chapter } from '../types';
 import type { AnyCanonEntry, CharacterEntry, ArtifactEntry } from '../types/canon';
+import { junkNameReason } from './canon-cleanup';
 
 // ---------- Types ----------
 
@@ -314,7 +315,7 @@ function pipeFields(line: string): { head: string; fields: Record<string, string
   return { head, fields };
 }
 
-export const MEMORY_HEADERS = ['CHARACTER_STATE', 'ARTIFACT_STATE', 'FACTS', 'CONTRADICTIONS', 'STORY_CLOCK', 'KNOWLEDGE'];
+export const MEMORY_HEADERS = ['CHARACTER_STATE', 'ARTIFACT_STATE', 'FACTS', 'CONTRADICTIONS', 'STORY_CLOCK', 'KNOWLEDGE', 'NEW_CANON'];
 const ALL_HEADERS = ['SHORT_SUMMARY', 'RICH_SUMMARY', 'OPEN_THREADS', 'RESOLVED_THREAD_IDS', ...MEMORY_HEADERS];
 
 export interface ParsedMemory {
@@ -409,6 +410,34 @@ export function parseMemorySections(text: string, chapterNumber: number, canon: 
   }
 
   return { characterState, artifactState, facts, continuityIssues, storyClock, knowledge };
+}
+
+export interface NewCanonCandidate {
+  type: 'character' | 'location' | 'artifact';
+  name: string;
+  description: string;
+}
+
+/**
+ * New named characters, places and objects the extractor found in a chapter.
+ * Names must pass the strict junk check and must not already be in canon
+ * (by name, full name, alias or a unique first name).
+ */
+export function parseNewCanon(text: string, canon: AnyCanonEntry[]): NewCanonCandidate[] {
+  const others = ALL_HEADERS.filter((x) => x !== 'NEW_CANON');
+  const out: NewCanonCandidate[] = [];
+  for (const line of bulletLines(section(text, 'NEW_CANON', others))) {
+    const [rawType, rawName, ...rest] = line.split('|').map((p) => p.trim());
+    const t = (rawType || '').toLowerCase();
+    const type = /char|person/.test(t) ? 'character' : /loc|place/.test(t) ? 'location' : /obj|artifact|item/.test(t) ? 'artifact' : null;
+    const name = (rawName || '').replace(/^["“']|["”']$/g, '').trim();
+    if (!type || !name || junkNameReason(name)) continue;
+    if (resolveCanonEntry(name, canon)) continue;
+    if (out.some((o) => norm(o.name) === norm(name))) continue;
+    out.push({ type, name, description: rest.join(' | ').trim() });
+    if (out.length >= 8) break;
+  }
+  return out;
 }
 
 /** Merge a chapter's knowledge records into the running list: same secret → union who knows it. */
