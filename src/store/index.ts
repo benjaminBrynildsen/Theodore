@@ -253,7 +253,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
       // breaks even when the style is blank lines, and the reader shows them
       // verbatim. Normalize to the author's style and save it back (with the
       // scenes, so the server doesn't clear them on a prose-only update).
-      const breakStyle = useSettingsStore.getState().settings.writingStyle?.sceneBreakStyle || 'blank';
+      const breakStyle = useSettingsStore.getState().settings.writingStyle?.sceneBreakStyle || '***';
       for (const ch of mapped) {
         const prose = normalizeSceneBreaks(ch.prose, breakStyle);
         const scenes = ch.scenes.map((s: Scene) => (s.prose ? { ...s, prose: normalizeSceneBreaks(s.prose, breakStyle) } : s));

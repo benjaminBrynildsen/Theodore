@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { X, ChevronLeft, ChevronRight, BookOpen, Minus, Plus, Sun, Moon, Coffee, List } from 'lucide-react';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
-import { stripDialogueSpeakerTags } from '../../lib/clean-prose';
+import { isSceneBreakLine, stripDialogueSpeakerTags } from '../../lib/clean-prose';
 
 interface Props {
   onClose: () => void;
@@ -401,8 +401,17 @@ export function ReadingMode({ onClose }: Props) {
         </div>
       )}
       <div className="flex-1 overflow-hidden">
-        {text.split('\n\n').filter(Boolean).map((para, i) => {
+        {text.split('\n\n').filter(Boolean).map((para, i, all) => {
           const isVeryFirst = i === 0 && isFirst && currentPage === 0;
+          if (isSceneBreakLine(para)) {
+            return (
+              <p key={i} className={cn('font-serif text-center select-none', t.accent)} style={{ fontSize, margin: '0.9em 0', letterSpacing: '0.5em' }} aria-label="Scene break">
+                * * *
+              </p>
+            );
+          }
+          // Standard book typography: the first paragraph after a scene break starts flush left.
+          const afterBreak = i > 0 && isSceneBreakLine(all[i - 1]);
           return (
             <p
               key={i}
@@ -410,7 +419,7 @@ export function ReadingMode({ onClose }: Props) {
               style={{
                 fontSize,
                 lineHeight: 1.65,
-                textIndent: isVeryFirst ? 0 : '1.5em',
+                textIndent: isVeryFirst || afterBreak ? 0 : '1.5em',
                 textAlign: 'justify',
                 marginBottom: isMobile ? '0.15em' : '0.3em',
               }}

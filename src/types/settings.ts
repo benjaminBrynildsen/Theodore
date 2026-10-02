@@ -104,7 +104,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     saidBookisms: true,
     contractionsAllowed: true,
     paragraphLength: 'mixed',
-    sceneBreakStyle: 'blank',
+    sceneBreakStyle: '***',
     chapterStartStyle: 'normal',
   },
   editor: {

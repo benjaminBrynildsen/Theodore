@@ -524,7 +524,7 @@ t('sanity: relationships + character timeline; open threads deduped; style defau
   const p = buildGenerationPrompt({ project: { id: 'p', title: 'B', type: 'book', subtype: 'novel', narrativeControls: {} } as any, chapter: chs[3], allChapters: chs, canonEntries: [],
     settings: { ai: { includeOutlineInPrompt: false }, writingStyle: { emDashEnabled: true } } as any, writingMode: 'draft', generationType: 'full-chapter' });
   assert.ok(!p.includes('undefined'), 'missing style fields fall back to defaults');
-  assert.ok(p.includes('Use a blank line (double line break) for scene breaks'));
+  assert.ok(p.includes('Use exactly "***" on its own line for scene breaks'), 'default is a visible scene break');
   const open = p.split('=== OPEN NARRATIVE THREADS (must respect / can resolve) ===')[1]?.split('\n===')[0] || '';
   assert.equal((open.match(/find the vault/g) || []).length, 1, 'repeated thread listed once');
   assert.ok(open.includes('repay the debt'));
