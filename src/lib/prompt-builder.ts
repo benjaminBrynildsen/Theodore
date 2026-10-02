@@ -359,6 +359,8 @@ export interface PromptContext {
   writingMode: WritingMode;
   generationType: GenerationType;
   previousChapterProse?: string; // DEPRECATED — use buildContinuityContext instead
+  /** Extending an existing draft: continue it rather than write the chapter from the top. */
+  continuation?: boolean;
 }
 
 export function buildGenerationPrompt(ctx: PromptContext): string {
@@ -421,7 +423,7 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
   }
 
   // Chapter-opening rule — pick up where the last chapter left off
-  if ((chapter.number || 0) > 1) {
+  if ((chapter.number || 0) > 1 && !ctx.continuation) {
     sections.push('\n=== CHAPTER OPENING RULE ===');
     sections.push(
       'Open by picking up from the final moment of the previous chapter. If it ended on a cliffhanger, the reader ' +
@@ -498,7 +500,11 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
     'dialogue-first': '\nWrite this chapter DIALOGUE-FIRST. Start with all the conversations that need to happen, with minimal action beats. Narration and description can be added later.',
     'action-skeleton': '\nWrite the ACTION SKELETON — the sequence of events and physical actions without dialogue or internal monologue. Focus on what happens, in what order, with what physical consequences.',
   };
-  sections.push(typeInstructions[generationType]);
+  sections.push(ctx.continuation
+    ? '\nCONTINUE the chapter draft provided below — do not restart it. Write the next events of this chapter in order, ' +
+      'fully on the page, starting from where the draft stops. Do not jump ahead to later beats or rush to the ending; ' +
+      'leave anything that does not fit for the next continuation.'
+    : typeInstructions[generationType]);
 
   return sections.join('\n');
 }
