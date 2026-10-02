@@ -80,6 +80,7 @@ export function GenerationProgressBar() {
     'create-project': 'Creating',
     'inline-edit': 'Editing',
     'map-threads': 'Mapping threads for',
+    'map-arcs': 'Mapping characters & objects for',
   };
   const verb = verbForKind[kind];
 

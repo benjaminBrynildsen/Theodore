@@ -1424,6 +1424,14 @@ ${childrensRule}`,
                 } catch (e) {
                   console.warn('[Creation] Thread map failed (non-fatal):', e);
                 }
+                // Then the character arcs + object journeys, built on the threads.
+                useGenerationStore.getState().setSubtitle('Mapping character arcs & objects…');
+                try {
+                  const { buildArcMap } = await import('../../lib/arc-planner');
+                  await buildArcMap(projectId);
+                } catch (e) {
+                  console.warn('[Creation] Arc map failed (non-fatal):', e);
+                }
                 return;
               }
               const cbs = (latestProject2 as any).childrensBookSettings || {};

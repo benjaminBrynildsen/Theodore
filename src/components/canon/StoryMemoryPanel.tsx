@@ -6,6 +6,7 @@ import {
   characterStateFor,
   factsFor,
   foldStoryState,
+  knowledgeFor,
 } from '../../lib/story-memory';
 import type { AnyCanonEntry, ArtifactEntry, CharacterEntry } from '../../types/canon';
 
@@ -30,7 +31,8 @@ export function StoryMemoryPanel({ entry, onUpdate }: Props) {
   const charState = entry.type === 'character' ? characterStateFor(state, entry) : undefined;
   const artState = entry.type === 'artifact' ? artifactStateFor(state, entry) : undefined;
   const facts = factsFor(state, entry);
-  if (!charState && !artState && facts.length === 0) return null;
+  const secrets = entry.type === 'character' ? knowledgeFor(state, entry) : { knows: [], doesNotKnow: [] };
+  if (!charState && !artState && facts.length === 0 && !secrets.knows.length && !secrets.doesNotKnow.length) return null;
 
   const rows: [string, string | undefined][] = charState
     ? [
@@ -118,6 +120,22 @@ export function StoryMemoryPanel({ entry, onUpdate }: Props) {
           <div className="text-text-tertiary mb-1">Knows</div>
           <ul className="list-disc pl-4 space-y-0.5 text-text-primary">
             {charState.learned.map((l) => <li key={l}>{l}</li>)}
+          </ul>
+        </div>
+      )}
+      {!!secrets.knows.length && (
+        <div className="text-xs">
+          <div className="text-text-tertiary mb-1">Secrets they know</div>
+          <ul className="list-disc pl-4 space-y-0.5 text-text-primary">
+            {secrets.knows.map((k) => <li key={k.secret}>{k.secret} <span className="text-text-tertiary">· since Ch. {k.chapter}</span></li>)}
+          </ul>
+        </div>
+      )}
+      {!!secrets.doesNotKnow.length && (
+        <div className="text-xs">
+          <div className="text-text-tertiary mb-1">Kept from them</div>
+          <ul className="list-disc pl-4 space-y-0.5 text-text-primary">
+            {secrets.doesNotKnow.map((k) => <li key={k.secret}>{k.secret}</li>)}
           </ul>
         </div>
       )}

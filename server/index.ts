@@ -339,6 +339,7 @@ function buildProjectUpdate(bodyRaw: unknown) {
   if ('coverUrl' in body) updates.coverUrl = body.coverUrl === null ? null : asOptionalString(body.coverUrl);
   if ('status' in body && typeof body.status === 'string') updates.status = body.status;
   if ('threadPlan' in body) updates.threadPlan = body.threadPlan ? asObject(body.threadPlan) : null;
+  if ('arcPlan' in body) updates.arcPlan = body.arcPlan ? asObject(body.arcPlan) : null;
 
   return updates;
 }
@@ -2107,14 +2108,14 @@ const LOCK_EXEMPT_ACTIONS = new Set([
   'plan-project',
   'extract-continuity', 'refine-entities', 'entity-refine',
   'generate-chapter-outline', 'scene-prose-split',
-  'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill', 'plan-threads',
+  'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill', 'plan-threads', 'plan-arcs',
 ]);
 
 // Guest (unauthenticated) generation — only for plan-project during onboarding
 const GUEST_ALLOWED_ACTIONS = new Set([
   // Planning + outline
   'plan-project', 'scaffold-chapters', 'generate-chapter-outline',
-  'scene-prose-split', 'entity-refine', 'extract-continuity', 'plan-threads',
+  'scene-prose-split', 'entity-refine', 'extract-continuity', 'plan-threads', 'plan-arcs',
   // Chapter writing + extending
   'generate-chapter', 'extend-chapter', 'dialogue-clarity-pass',
   // Editing flows
@@ -2370,7 +2371,7 @@ app.post('/api/generate/guest/stream', async (req, res) => {
       });
       startSseHeartbeat(res);
 
-      const cappedMaxTokens = Math.min(maxTokens || 2200, action === 'generate-chapter' || action === 'plan-threads' ? 8000 : 2200);
+      const cappedMaxTokens = Math.min(maxTokens || 2200, action === 'generate-chapter' || action === 'plan-threads' || action === 'plan-arcs' ? 8000 : action === 'extract-continuity' ? 3500 : 2200);
       const result = await generateStream(
         { prompt, systemPrompt, model, maxTokens: cappedMaxTokens, temperature, userId: undefined, projectId: undefined, chapterId: undefined, action },
         res,
@@ -5803,6 +5804,7 @@ async function ensureAdditiveSchema() {
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS category text`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tags jsonb DEFAULT '[]'::jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS thread_plan jsonb`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS arc_plan jsonb`,
     `DO $$ BEGIN
        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'projects_slug_unique') THEN
          BEGIN

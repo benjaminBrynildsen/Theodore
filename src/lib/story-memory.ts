@@ -42,6 +42,21 @@ export interface StoryFact {
   chapter: number;
 }
 
+/** When the chapter ends in story time. */
+export interface StoryClockRecord {
+  day?: string;     // "Day 3", "Tuesday, March 4", "the night of the festival"
+  time?: string;    // "late evening"
+  elapsed?: string; // how much time this chapter covered / skipped
+}
+
+/** A secret or key fact and who does / doesn't know it. */
+export interface KnowledgeRecord {
+  secret: string;
+  knownBy: string[];
+  hiddenFrom: string[];
+  chapter: number; // chapter that last changed who knows it
+}
+
 export interface ContinuityIssue {
   id: string;
   severity: 'high' | 'medium' | 'low';
@@ -64,11 +79,15 @@ export interface ChapterMemoryMeta {
   characterState?: CharacterStateRecord[];
   artifactState?: ArtifactStateRecord[];
   facts?: StoryFact[];
+  storyClock?: StoryClockRecord;
+  knowledge?: KnowledgeRecord[];
   continuityIssues?: ContinuityIssue[];
   continuitySourceHash?: string;
   continuitySourceSig?: number[];
   continuitySourceLength?: number;
   continuityExtractedAt?: string;
+  /** Extraction format version; below CONTINUITY_VERSION means the chapter lacks newer memory (clock, knowledge). */
+  continuityVersion?: number;
   continuityStale?: StaleNotice;
 }
 
@@ -87,6 +106,10 @@ export interface StoryStateAt {
   characters: Map<string, FoldedCharacterState>;
   artifacts: Map<string, FoldedArtifactState>;
   facts: StoryFact[];
+  /** Story time at the end of the latest chapter that recorded it. */
+  clock?: StoryClockRecord & { chapter: number };
+  /** Every tracked secret with who knows it, as of the last folded chapter. */
+  knowledge: KnowledgeRecord[];
 }
 
 // ---------- Small helpers ----------
@@ -142,6 +165,14 @@ export function signatureSimilarity(a: number[] | undefined, b: number[] | undef
   let same = 0;
   for (let i = 0; i < a.length; i++) if (a[i] === b[i]) same++;
   return same / a.length;
+}
+
+/** Current extraction format: 2 adds the story clock and who-knows-what. */
+export const CONTINUITY_VERSION = 2;
+
+/** Written chapter whose memory predates the current extraction format. */
+export function memoryOutdated(chapter: Chapter): boolean {
+  return !!chapter.prose?.trim() && (memoryMeta(chapter).continuityVersion || 1) < CONTINUITY_VERSION;
 }
 
 /** Whether prose moved far enough from what memory was extracted from to re-extract. */
@@ -283,7 +314,7 @@ function pipeFields(line: string): { head: string; fields: Record<string, string
   return { head, fields };
 }
 
-export const MEMORY_HEADERS = ['CHARACTER_STATE', 'ARTIFACT_STATE', 'FACTS', 'CONTRADICTIONS'];
+export const MEMORY_HEADERS = ['CHARACTER_STATE', 'ARTIFACT_STATE', 'FACTS', 'CONTRADICTIONS', 'STORY_CLOCK', 'KNOWLEDGE'];
 const ALL_HEADERS = ['SHORT_SUMMARY', 'RICH_SUMMARY', 'OPEN_THREADS', 'RESOLVED_THREAD_IDS', ...MEMORY_HEADERS];
 
 export interface ParsedMemory {
@@ -291,6 +322,13 @@ export interface ParsedMemory {
   artifactState: ArtifactStateRecord[];
   facts: StoryFact[];
   continuityIssues: ContinuityIssue[];
+  storyClock?: StoryClockRecord;
+  knowledge: KnowledgeRecord[];
+}
+
+function nameList(v: string | undefined): string[] {
+  if (!v || /^(no ?one|nobody|none)$/i.test(v.trim())) return [];
+  return v.split(/[;,]|\band\b/).map((x) => x.trim()).filter(Boolean).slice(0, 12);
 }
 
 export function parseMemorySections(text: string, chapterNumber: number, canon: AnyCanonEntry[]): ParsedMemory {
@@ -351,7 +389,48 @@ export function parseMemorySections(text: string, chapterNumber: number, canon: 
     });
   }
 
-  return { characterState, artifactState, facts, continuityIssues };
+  let storyClock: StoryClockRecord | undefined;
+  const clockText = section(text, 'STORY_CLOCK', others('STORY_CLOCK')).trim();
+  if (clockText) {
+    const line = clockText.split('\n').map((l) => l.replace(/^\s*[-•*]\s*/, '').trim()).find(Boolean) || '';
+    const { fields } = pipeFields(`clock | ${line}`);
+    const clock: StoryClockRecord = { day: fields.day, time: fields.time, elapsed: fields.elapsed };
+    if (clock.day || clock.time || clock.elapsed) storyClock = clock;
+  }
+
+  const knowledge: KnowledgeRecord[] = [];
+  for (const line of bulletLines(section(text, 'KNOWLEDGE', others('KNOWLEDGE')))) {
+    const { head, fields } = pipeFields(line);
+    if (!head || head.length < 4) continue;
+    const knownBy = nameList(fields['known by']);
+    const hiddenFrom = nameList(fields['hidden from'] || fields['not known by']);
+    if (!knownBy.length && !hiddenFrom.length) continue;
+    knowledge.push({ secret: head, knownBy, hiddenFrom, chapter: chapterNumber });
+  }
+
+  return { characterState, artifactState, facts, continuityIssues, storyClock, knowledge };
+}
+
+/** Merge a chapter's knowledge records into the running list: same secret → union who knows it. */
+export function mergeKnowledge(prior: KnowledgeRecord[], next: KnowledgeRecord[]): KnowledgeRecord[] {
+  const out = prior.map((k) => ({ ...k, knownBy: [...k.knownBy], hiddenFrom: [...k.hiddenFrom] }));
+  for (const k of next) {
+    const match = out.find((o) => tokenOverlap(o.secret, k.secret) >= 0.6);
+    if (!match) {
+      out.push({ ...k, knownBy: [...k.knownBy], hiddenFrom: [...k.hiddenFrom] });
+      continue;
+    }
+    const known = new Map(match.knownBy.map((n) => [norm(n), n]));
+    for (const n of k.knownBy) if (!known.has(norm(n))) known.set(norm(n), n);
+    match.knownBy = [...known.values()];
+    // Whoever knows it now is no longer kept in the dark.
+    const hidden = new Map([...match.hiddenFrom, ...k.hiddenFrom].map((n) => [norm(n), n]));
+    for (const key of known.keys()) hidden.delete(key);
+    match.hiddenFrom = [...hidden.values()];
+    match.secret = k.secret;
+    match.chapter = k.chapter;
+  }
+  return out;
 }
 
 // ---------- Folding: the world as of a chapter ----------
@@ -371,11 +450,15 @@ export function foldStoryState(allChapters: Chapter[], beforeChapterId?: string)
   const facts: StoryFact[] = [];
   const factKeys = new Set<string>();
   let asOfChapter: number | null = null;
+  let clock: StoryStateAt['clock'];
+  let knowledge: KnowledgeRecord[] = [];
 
   for (const ch of prior) {
     const meta = memoryMeta(ch);
     const n = ch.number || 0;
     if (meta.characterState || meta.artifactState || meta.facts) asOfChapter = n;
+    if (meta.storyClock) clock = { ...meta.storyClock, chapter: n };
+    if (meta.knowledge?.length) knowledge = mergeKnowledge(knowledge, meta.knowledge);
 
     for (const s of meta.characterState || []) {
       const key = entityKey(s.name, s.canonId);
@@ -426,7 +509,7 @@ export function foldStoryState(allChapters: Chapter[], beforeChapterId?: string)
     }
   }
 
-  return { asOfChapter, characters, artifacts, facts };
+  return { asOfChapter, characters, artifacts, facts, clock, knowledge };
 }
 
 // ---------- Canon selection ----------
@@ -728,6 +811,26 @@ export function buildStoryMemoryBlock(
     );
   }
 
+  if (state.clock) {
+    const c = state.clock;
+    const when = [c.day, c.time].filter(Boolean).join(', ');
+    sections.push(
+      `=== STORY CLOCK ===\n` +
+      `Ch.${c.chapter} ended${when ? `: ${when}` : ''}${c.elapsed ? ` (that chapter covered ${c.elapsed})` : ''}.\n` +
+      'Time only moves forward from here. When time passes between scenes, say how much; keep travel, healing and deadlines realistic.',
+    );
+  }
+
+  if (state.knowledge.length) {
+    const lines = state.knowledge.slice(-25).map((k) =>
+      `- ${k.secret} | known by: ${k.knownBy.join(', ') || 'no one yet'}${k.hiddenFrom.length ? ` | NOT known by: ${k.hiddenFrom.join(', ')}` : ''}`,
+    );
+    sections.push(
+      `=== WHO KNOWS WHAT — characters act and speak only from what they know ===\n${lines.join('\n')}\n` +
+      'A character who does not know something must not refer to it or act on it. If someone learns it in this chapter, show the moment they learn it.',
+    );
+  }
+
   const relevantFacts = state.facts.filter((f) => isRelevant(f.subject, f.canonId, sel, ids));
   const factPool = relevantFacts.length ? relevantFacts : state.facts;
   const facts = factPool.slice(-maxFacts);
@@ -753,6 +856,13 @@ export function buildPriorMemoryForCheck(state: StoryStateAt, maxFacts = 120): s
     if (parts.length) lines.push(`- ${a.name}: ${parts.join(' | ')}`);
   }
   for (const f of state.facts.slice(-maxFacts)) lines.push(`- ${f.subject}: ${f.fact} [Ch.${f.chapter}]`);
+  if (state.clock) {
+    const c = state.clock;
+    lines.push(`- STORY CLOCK: Ch.${c.chapter} ended ${[c.day, c.time].filter(Boolean).join(', ') || '(unknown)'}`);
+  }
+  for (const k of state.knowledge.slice(-40)) {
+    lines.push(`- SECRET: ${k.secret} | known by: ${k.knownBy.join(', ') || 'no one'}${k.hiddenFrom.length ? ` | NOT known by: ${k.hiddenFrom.join(', ')}` : ''}`);
+  }
   return lines.join('\n');
 }
 
@@ -876,6 +986,20 @@ export function characterStateFor(state: StoryStateAt, entry: AnyCanonEntry): Fo
 export function artifactStateFor(state: StoryStateAt, entry: AnyCanonEntry): FoldedArtifactState | undefined {
   return state.artifacts.get(entityKey(entry.name, entry.id))
     ?? [...state.artifacts.values()].find((s) => !s.canonId && namesFor(entry).some((n) => norm(n) === norm(s.name)));
+}
+
+/** Secrets this character knows, and ones kept from them. */
+export function knowledgeFor(state: StoryStateAt, entry: AnyCanonEntry): { knows: KnowledgeRecord[]; doesNotKnow: KnowledgeRecord[] } {
+  const names = [entry.name, ...((entry as CharacterEntry).character?.aliases || [])].map(norm).filter(Boolean);
+  const first = norm(entry.name).split(' ')[0];
+  const isMe = (n: string) => {
+    const x = norm(n);
+    return names.includes(x) || (!!first && first.length > 2 && x === first);
+  };
+  return {
+    knows: state.knowledge.filter((k) => k.knownBy.some(isMe)),
+    doesNotKnow: state.knowledge.filter((k) => k.hiddenFrom.some(isMe) && !k.knownBy.some(isMe)),
+  };
 }
 
 export function factsFor(state: StoryStateAt, entry: AnyCanonEntry): StoryFact[] {

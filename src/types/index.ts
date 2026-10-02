@@ -20,6 +20,7 @@ export interface Project {
   coverUrl?: string;
   status: ProjectStatus;
   threadPlan?: import('../lib/story-threads').ThreadPlan | null; // book thread map
+  arcPlan?: import('../lib/story-arcs').ArcPlan | null; // character arcs + artifact journeys
   chapterCount?: number; // populated from list-projects response (not stored)
   wordCount?: number; // populated from list-projects response (not stored)
   createdAt: string;

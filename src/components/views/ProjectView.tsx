@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch } from 'lucide-react';
+import { ArcMap } from '../features/ArcMap';
+import { StoryMemoryCatchUp } from '../features/StoryMemoryCatchUp';
 import { ShareBookDialog } from '../share/ShareBookDialog';
 import { computeArcBreakpoints, getStructureById } from '../../lib/story-structures';
 import { useStore } from '../../store';
@@ -41,6 +43,7 @@ export function ProjectView() {
   const [scaffoldError, setScaffoldError] = useState<string | null>(null);
   const [showArcLabels, setShowArcLabels] = useState(false);
   const [showThreadsOverride, setShowThreadsOverride] = useState<boolean | null>(null);
+  const [showArcsOverride, setShowArcsOverride] = useState<boolean | null>(null);
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(() => new Set());
@@ -81,6 +84,7 @@ export function ProjectView() {
   // Dynamic narrative arc based on selected story structure
   // Threads open by default until the first chapter is written (overview mode).
   const showThreads = showThreadsOverride ?? (chapters.length >= 2 && !chapters.some((c) => c.prose?.trim()));
+  const showArcs = showArcsOverride ?? (chapters.length >= 2 && !chapters.some((c) => c.prose?.trim()) && !!project?.arcPlan);
   const structureId = project.storyStructureId || 'plot-pyramid';
   const structure = getStructureById(structureId);
   const arcBreakpoints = useMemo(() => {
@@ -704,6 +708,20 @@ export function ProjectView() {
               Threads{project.threadPlan?.threads?.length ? ` · ${project.threadPlan.threads.length}` : ''}
             </button>
           )}
+          {!isChildrensBook && chapters.length >= 2 && (
+            <button
+              onClick={() => setShowArcsOverride(!showArcs)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                showArcs
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'glass-pill text-text-tertiary hover:bg-white/60'
+              )}
+            >
+              <Users size={13} />
+              Characters & objects
+            </button>
+          )}
           {chapters.length >= 2 && structure && !structure.isProcess && (
             <button
               onClick={() => setShowArcLabels(!showArcLabels)}
@@ -725,6 +743,15 @@ export function ProjectView() {
         {!isChildrensBook && showThreads && chapters.length >= 2 && (
           <div className="mb-6">
             <ThreadMap project={project} chapters={chapters} />
+          </div>
+        )}
+
+        {!isChildrensBook && <StoryMemoryCatchUp projectId={project.id} chapters={chapters} />}
+
+        {/* Arc map — character arcs and object journeys across the book */}
+        {!isChildrensBook && showArcs && chapters.length >= 2 && (
+          <div className="mb-6">
+            <ArcMap project={project} chapters={chapters} />
           </div>
         )}
 

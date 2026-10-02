@@ -19,6 +19,7 @@
 import type { Chapter } from './types';
 import type { AnyCanonEntry } from './types';
 import {
+  CONTINUITY_VERSION,
   buildPriorMemoryForCheck,
   diffChapterMemory,
   foldStoryState,
@@ -36,7 +37,7 @@ import {
 
 export const EXTRACTION_REQUEST = {
   action: 'extract-continuity',
-  maxTokens: 3000,
+  maxTokens: 3500,
   temperature: 0.2,
 } as const;
 
@@ -105,6 +106,11 @@ Read the WHOLE chapter below and produce the sections that follow. Be concrete a
    - SUBJECT: fact
 8) CONTRADICTIONS — places where THIS chapter conflicts with the established memory below (wrong eye colour, an object in the wrong hands, a character knowing something they couldn't, a dead character acting). Only real conflicts, not new developments shown happening on the page.
    - high|medium|low | "short exact quote from this chapter" | what conflicts | suggested fix
+   Also flag time running backwards or impossibly fast against the STORY CLOCK, and a character using a SECRET they are listed as not knowing.
+9) STORY_CLOCK — when this chapter ENDS in story time, one line: day (e.g. "Day 3", "Tuesday", "the night of the festival" — continue the numbering from the memory below), time of day, and how much time the chapter covered.
+   day: ... | time: ... | elapsed: ...
+10) KNOWLEDGE — secrets, hidden identities, plans, lies and key discoveries in play, with who knows them at the END of this chapter. Include ones from the memory below whose holders changed here (someone learned or was told). Max 10.
+   - SECRET | known by: Name; Name | hidden from: Name; Name
 
 Use these exact names when they refer to the same person, place, or object: ${knownNames || '(none yet)'}
 
@@ -133,6 +139,10 @@ FACTS:
 - SUBJECT: fact
 CONTRADICTIONS:
 - medium | "quote" | problem | fix
+STORY_CLOCK:
+day: ... | time: ... | elapsed: ...
+KNOWLEDGE:
+- SECRET | known by: ... | hidden from: ...
 
 If a list has nothing, leave it empty (just the header).`;
 }
@@ -236,11 +246,14 @@ export function applyContinuityExtraction(
     characterState: memory.characterState,
     artifactState: memory.artifactState,
     facts: memory.facts,
+    storyClock: memory.storyClock,
+    knowledge: memory.knowledge,
     continuityIssues,
     continuitySourceHash: proseContentHash(sourceProse),
     continuitySourceSig: proseSignature(sourceProse),
     continuitySourceLength: stripProductionTags(sourceProse).trim().length,
     continuityExtractedAt: now,
+    continuityVersion: CONTINUITY_VERSION,
     continuityStale: undefined,
   };
 
@@ -259,6 +272,7 @@ export function applyContinuityExtraction(
       characters: memory.characterState.length,
       artifacts: memory.artifactState.length,
       facts: memory.facts.length,
+      secrets: memory.knowledge.length,
       contradictions: continuityIssues.length,
     },
   };
