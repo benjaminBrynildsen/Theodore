@@ -29,6 +29,7 @@ import { FEATURES } from '../../lib/feature-flags';
 import { api, ApiError } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { registerProseRewrite } from '../../lib/prose-rewrites';
+import { normalizeSceneBreaks } from '../../lib/clean-prose';
 import { analysisModel } from '../../lib/models';
 import { ContinuityNotices } from '../features/ContinuityNotices';
 // Post-generation pipeline imported dynamically where needed
@@ -382,6 +383,7 @@ export function ChapterView({ chapter }: Props) {
         // Generation complete — clean up AI artifacts and save to chapter
         // Strip leading chapter title/heading lines (e.g. "**Chapter 1: Title**", "# Chapter 1", "Chapter 1: Title")
         accumulated = accumulated.replace(/^\s*(\*{1,2})?#*\s*(Chapter\s+\d+[:\s].*?)(\*{1,2})?\s*\n+/i, '').trimStart();
+        accumulated = normalizeSceneBreaks(accumulated, settings.writingStyle?.sceneBreakStyle);
 
         const initialProse = accumulated;
         const initialWordCount = initialProse.trim().split(/\s+/).filter(Boolean).length;
@@ -462,7 +464,7 @@ export function ChapterView({ chapter }: Props) {
           registerProseRewrite(chapter.id, (async () => {
             try {
               const polishPromise = generateText({
-                prompt: `Rewrite this chapter prose ONLY to improve dialogue speaker clarity. Keep all plot events, tone, pacing, and wording as intact as possible. Do not shorten. Do not summarize. Do not add new events.\n\nRules:\n- Whenever speaker changes, make speaker identity explicit nearby.\n- Avoid consecutive unattributed quote-only paragraphs when speakers alternate.\n- Keep natural prose quality; avoid over-tagging every line.\n\nCHAPTER PROSE:\n${initialProse}`,
+                prompt: `Rewrite this chapter prose ONLY to improve dialogue speaker clarity. Keep all plot events, tone, pacing, and wording as intact as possible. Do not shorten. Do not summarize. Do not add new events.\n\nRules (standard published-novel attribution):\n- New paragraph whenever the speaker changes.\n- Attribute every speaker change with a tag (\"Name said\") or an action beat that names the speaker.\n- With three or more characters present, every spoken line is attributed.\n- Untagged lines only in a two-person exchange, at most two in a row.\n- Use names rather than he/she when two characters could be confused.\n- Prefer plain \"said\"/\"asked\"; keep the prose natural.\n\nCHAPTER PROSE:\n${initialProse}`,
                 model: analysisModel(settings.ai?.preferredModel),
                 maxTokens: wordTargetMaxTokens,
                 action: 'dialogue-clarity-pass',
@@ -472,7 +474,7 @@ export function ChapterView({ chapter }: Props) {
               const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 45_000));
               const repaired = await Promise.race([polishPromise, timeout]);
               if (repaired && (repaired as any).text?.trim()) {
-                const polished = (repaired as any).text.trim();
+                const polished = normalizeSceneBreaks((repaired as any).text.trim(), settings.writingStyle?.sceneBreakStyle);
                 updateChapter(chapter.id, { prose: polished });
                 api.updateChapter(chapter.id, { prose: polished }).catch(() => {});
               }
@@ -591,7 +593,7 @@ export function ChapterView({ chapter }: Props) {
         const baseProse = latest?.prose ?? chapter.prose;
         const rawExtension = extension.trim();
         if (rawExtension) {
-          const { cleanedBase, cleanedExtension } = cleanExtendMerge(baseProse, rawExtension);
+          const { cleanedBase, cleanedExtension } = cleanExtendMerge(baseProse, normalizeSceneBreaks(rawExtension, settings.writingStyle?.sceneBreakStyle));
           const joiner = cleanedBase.endsWith('\n') ? '\n' : '\n\n';
           const extendedProse = cleanedExtension
             ? `${cleanedBase}${joiner}${cleanedExtension}`
@@ -789,7 +791,7 @@ export function ChapterView({ chapter }: Props) {
       },
       () => {
         updateScene(chapter.id, scene.id, {
-          prose: accumulated,
+          prose: normalizeSceneBreaks(accumulated, settings.writingStyle?.sceneBreakStyle),
           status: 'drafted',
         });
         syncScenesToProse(chapter.id);
