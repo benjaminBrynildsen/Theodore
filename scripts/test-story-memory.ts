@@ -12,6 +12,7 @@ import { junkNameReason, heuristicCleanup, parseCleanupResponse, combineProposal
 import { parseNewCanon } from '../src/lib/story-memory';
 import { buildRenamePairs, replaceNames, countMentions, renameDeep } from '../src/lib/rename';
 import { stripDialogueSpeakerTags, isSceneBreakLine } from '../src/lib/clean-prose';
+import { analyzeAttribution, needsDialogueClarityPass } from '../src/lib/dialogue-clarity';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
 import {
   parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
@@ -561,6 +562,15 @@ t('nicknames: the extractor\'s "called" list is parsed for aliases', () => {
 FACTS:`, 1, [maya]);
   assert.deepEqual(mem.characterState[0].called, ['Wesley', 'Store', 'May']);
   assert.equal(mem.characterState[0].canonId, 'c1');
+});
+
+t('dialogue clarity: unattributed lines and subjectless beats are caught', () => {
+  const names = ['Wes Garrity', 'Danny Garrity'];
+  const bad = `"Can't," Wes said. "Inventory."\n\n"You don't know when I'm playing."\n\n"There's always inventory."\n\nHe chuckled. "Sure."\n\n"Right." — a dry laugh.\n\nDanny set the case down. "Memphis."`;
+  assert.deepEqual(analyzeAttribution(bad, names), { dialogueParagraphs: 6, unattributed: 4, longestRun: 4 });
+  assert.equal(needsDialogueClarityPass(bad, names), true);
+  const good = `"Can't," Wes said.\n\nDanny frowned. "Why?"\n\n"Inventory."\n\n"There's always inventory," Danny said.`;
+  assert.equal(needsDialogueClarityPass(good, names), false, 'one untagged line in a two-person exchange is standard');
 });
 
 console.log(`\n${passed} passed`);

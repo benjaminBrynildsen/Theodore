@@ -29,6 +29,8 @@ import { FEATURES } from '../../lib/feature-flags';
 import { api, ApiError } from '../../lib/api';
 import { buildGenerationPrompt } from '../../lib/prompt-builder';
 import { registerProseRewrite } from '../../lib/prose-rewrites';
+import type { CharacterEntry } from '../../types/canon';
+import { needsDialogueClarityPass as needsClarityPass } from '../../lib/dialogue-clarity';
 import { normalizeSceneBreaks } from '../../lib/clean-prose';
 import { analysisModel } from '../../lib/models';
 import { ContinuityNotices } from '../features/ContinuityNotices';
@@ -245,19 +247,12 @@ export function ChapterView({ chapter }: Props) {
   const effectiveWordTarget = isChildrensBookType ? childrensPageTargetWords : wordTarget;
   const effectiveMaxTokens = isChildrensBookType ? childrensPageMaxTokens : wordTargetMaxTokens;
 
+  // Character names (and aliases) let the clarity check see named action beats.
   const needsDialogueClarityPass = (text: string) => {
-    const paragraphs = text.split(/\n\n+/).map((p) => p.trim()).filter(Boolean);
-    const quoteOnly = (p: string) => /^["“][\s\S]*["”]\s*[.!?…]*\s*$/.test(p) && !/[A-Za-z]+\s+(said|asked|replied|whispered|murmured|snapped|shouted)\b/i.test(p);
-    let consecutiveQuoteOnly = 0;
-    for (const p of paragraphs) {
-      if (quoteOnly(p)) {
-        consecutiveQuoteOnly++;
-        if (consecutiveQuoteOnly >= 2) return true;
-      } else {
-        consecutiveQuoteOnly = 0;
-      }
-    }
-    return false;
+    const names = getProjectEntries(chapter.projectId)
+      .filter((e) => e.type === 'character')
+      .flatMap((e) => [e.name, ...(((e as CharacterEntry).character?.aliases) || [])]);
+    return needsClarityPass(text, names);
   };
 
   useEffect(() => {

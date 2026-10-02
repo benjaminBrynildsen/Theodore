@@ -194,17 +194,9 @@ SPEAKER ATTRIBUTION — follow standard published-novel practice so the reader a
 - Vary placement so it reads naturally:
   (1) Inline tag — \`"Don't," Mara said, laughing under her breath.\`
   (2) Action beat naming the speaker — \`Mara set the cup down. "I'm leaving in the morning."\`
-- When a speech act has a notable physical or emotional quality, NAME IT in the attribution. Prefer concrete cues that a listener could hear:
-  • "...," she said, laughing softly.
-  • "...," he whispered.
-  • "...," she sighed.
-  • He chuckled. "..."
-  • Her voice dropped to a near-whisper. "..."
-  • She exhaled slowly. "..."
-  • "..." — a sharp, dry laugh.
-  • He shouted over the wind, "..."
-  These cues feed the audiobook layer. Vague cues ("she said quietly") help less than concrete ones ("she said, breath catching").
-- Don't over-decorate. Roughly 1 in 3 spoken lines deserves an expressive cue; the rest still get clear attribution, just with plain "said" or a simple beat.
+- An action beat only identifies the speaker if its subject is clear: a name, or "he"/"she" when only one such person is in the scene. Never leave a line attached to a gesture or sound with no subject (not: "..." — a dry laugh.).
+- Keep tags plain and few adverbs; let the words and the beats carry the tone. (Tag verbs follow the WRITING STYLE RULES above.)
+- Put the tag or beat early in long speeches, at the first natural pause, so the reader knows who is talking before the speech goes on.
 
 CHARACTERS: On first appearance in a chapter, anchor with ONE visceral sensory detail — not a full description. Show personality through choices and behavior, not adjectives. Interior monologue should conflict with exterior action.
 
