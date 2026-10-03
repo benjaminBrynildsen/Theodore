@@ -1,3 +1,4 @@
+import { ensureSceneCoverage } from '../../lib/scene-split';
 import { useEffect, useCallback } from 'react';
 import { X, Loader2, Plus, RefreshCw } from 'lucide-react';
 import { useStore } from '../../store';
@@ -151,7 +152,8 @@ export function EditModeSidebar({ projectId, chapterId }: Props) {
         }
       }
 
-      setChapterScenes(chapterId, newScenes);
+      // Every word must land in a scene, or narration skips it.
+      setChapterScenes(chapterId, freshChapter.prose ? ensureSceneCoverage(freshChapter.prose, newScenes) : newScenes);
     } catch (error) {
       console.error('Failed to generate scenes:', error);
     } finally {

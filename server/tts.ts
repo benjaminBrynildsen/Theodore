@@ -1462,7 +1462,7 @@ async function callElevenLabsTTSChunked(
   charLimit: number, bodyTemplate: Record<string, any>
 ): Promise<Buffer> {
   const apiKey = process.env.ELEVENLABS_API_KEY!;
-  const sentences = text.match(/[^.!?]+[.!?]+[\s]*/g) || [text];
+  const sentences = text.match(/[^.!?]*[.!?]+[\s]*|[^.!?]+$/g) || [text];
   const chunks: string[] = [];
   let current = '';
 
@@ -1601,7 +1601,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         if (chunk.length <= MAX_CHUNK_CHARS) {
           safeChunks.push(chunk);
         } else {
-          const sentences = chunk.match(/[^.!?]+[.!?]+[\s]*/g) || [chunk];
+          const sentences = chunk.match(/[^.!?]*[.!?]+[\s]*|[^.!?]+$/g) || [chunk];
           let sc = '';
           for (const s of sentences) {
             if (sc.length + s.length > MAX_CHUNK_CHARS && sc.length > 0) {
@@ -1859,7 +1859,7 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         if (chunk.length <= MAX_CHUNK_CHARS) {
           safeChunks.push(chunk);
         } else {
-          const sentences = chunk.match(/[^.!?]+[.!?]+[\s]*/g) || [chunk];
+          const sentences = chunk.match(/[^.!?]*[.!?]+[\s]*|[^.!?]+$/g) || [chunk];
           let sc = '';
           for (const s of sentences) {
             if (sc.length + s.length > MAX_CHUNK_CHARS && sc.length > 0) {

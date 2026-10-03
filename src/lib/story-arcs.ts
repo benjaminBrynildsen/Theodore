@@ -43,6 +43,10 @@ export interface CharacterArc {
   startState: string;
   endState: string;
   beats: ArcBeat[];
+  /** Chapter where the reader properly meets them (usually their first; later after a cold open). */
+  introducedIn: number;
+  /** What the introduction should establish about them, from the plan. */
+  introduction?: string;
 }
 
 export interface ArtifactBeat {
@@ -174,6 +178,7 @@ DESIGN RULES:
    - shape: "positive" (grows out of the flaw), "negative" (falls further into it), or "flat" (holds firm and changes others).
    - beats, in order: one "setup" early (the flaw on display), "test" beats where the flaw costs them, at least one "setback", a "turn" near the middle (a crack in the false belief), a "crisis" late (the lowest point, the hardest choice), and one "change" at or near the climax (they act from the need, not the flaw). Flat arcs: "setup", "test" beats and a final "change" that notes how they changed others.
    - Change is gradual. Space the beats out; no character changes in a single chapter.
+   - introduce: the chapter where the reader properly MEETS them — usually the first chapter they're in. For the protagonist that is normally Ch 1; if Ch 1 is a cold open or flash-forward ("24 hours earlier" follows), it can be Ch 2. Its note says what the introduction should establish (who they are, what they do, what's missing in their life).
 2. ARTIFACT JOURNEYS (${objectCount}): objects that matter to the plot — a key, a letter, a weapon, a device, an heirloom. Use the canon objects first; add any the outline clearly needs. For each:
    - description: the concrete physical details that make it recognizable.
    - significance: what it really means or does.
@@ -183,7 +188,7 @@ ${written.length ? `3. Chapters marked [WRITTEN] already happened. Keep beats th
 Beat notes are one short sentence saying what happens on the page.
 
 Return ONLY JSON, no markdown:
-{"characters":[{"name":"Name","role":"protagonist|antagonist|supporting","shape":"positive|negative|flat","want":"...","need":"...","flaw":"...","start":"...","end":"...","beats":[{"chapter":1,"type":"setup","note":"..."},{"chapter":4,"type":"test","note":"..."}]}],"artifacts":[{"name":"Object","description":"...","significance":"...","beats":[{"chapter":2,"type":"introduce","note":"...","holder":"Name"},{"chapter":9,"type":"payoff","note":"..."}]}]}`;
+{"characters":[{"name":"Name","role":"protagonist|antagonist|supporting","shape":"positive|negative|flat","want":"...","need":"...","flaw":"...","start":"...","end":"...","introduce":{"chapter":1,"note":"..."},"beats":[{"chapter":1,"type":"setup","note":"..."},{"chapter":4,"type":"test","note":"..."}]}],"artifacts":[{"name":"Object","description":"...","significance":"...","beats":[{"chapter":2,"type":"introduce","note":"...","holder":"Name"},{"chapter":9,"type":"payoff","note":"..."}]}]}`;
 }
 
 // ---------- Parsing + validation ----------
@@ -239,6 +244,9 @@ export function normalizeCharacterArc(raw: RawJson, n: number): CharacterArc | n
     startState: str(raw.start ?? raw.startState),
     endState: str(raw.end ?? raw.endState),
     beats,
+    // No later than their first beat; a cold open can push it past Ch.1.
+    introducedIn: Math.min(clampChapter(raw.introduce?.chapter ?? raw.introducedIn, n) ?? beats[0].chapter, beats[0].chapter),
+    ...(str(raw.introduce?.note) ? { introduction: str(raw.introduce?.note) } : {}),
   };
 }
 

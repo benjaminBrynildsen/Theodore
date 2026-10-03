@@ -1,3 +1,4 @@
+import { generateRemainingScenes } from '../../lib/scene-audio';
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Loader2, X, Volume2, VolumeX, Headphones } from 'lucide-react';
 import { useStore } from '../../store';
@@ -92,6 +93,8 @@ export function AudioPlayerBar() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeUpdateRef = useRef(0);
   const sceneIndexRef = useRef(0);
+  // Set when a scene ended before the next one finished rendering: resume as it arrives.
+  const waitingForSceneRef = useRef<string | null>(null); // chapter id we're waiting on
   // Cumulative time of all scenes that have already finished playing in the
   // current chapter. For multi-scene chapters, audio.currentTime resets to 0
   // on each scene transition; we add this offset so the displayed currentTime
@@ -143,6 +146,17 @@ export function AudioPlayerBar() {
         audio.src = cached.sceneAudioUrls[sceneIndexRef.current];
         audio.load();
         audio.play();
+        return;
+      }
+
+      // More scenes are still rendering: wait for the next one instead of
+      // moving on to the next chapter (which skipped the rest of this one).
+      const available = cached?.sceneAudioUrls?.length || 0;
+      if (cached?.expectedScenes && cached.expectedScenes > available) {
+        if (audio.duration && isFinite(audio.duration)) {
+          sceneStartOffsetRef.current += audio.duration;
+        }
+        waitingForSceneRef.current = chId;
         return;
       }
 
@@ -339,6 +353,31 @@ export function AudioPlayerBar() {
     };
 
     audio.addEventListener('ended', onEnded);
+    // Resume a chapter whose next scene arrives while we're waiting for it.
+    const unsubscribeWaiting = useAudioStore.subscribe((state) => {
+      if (!waitingForSceneRef.current) return;
+      const chId = state.currentChapterId;
+      // The listener paused or switched chapters while we waited: drop the wait.
+      if (chId !== waitingForSceneRef.current || userPausedRef.current) {
+        waitingForSceneRef.current = null;
+        return;
+      }
+      const cached = chId ? state.chapterAudio[chId] : null;
+      const urls = cached?.sceneAudioUrls || [];
+      if (urls.length > sceneIndexRef.current + 1) {
+        waitingForSceneRef.current = null;
+        sceneIndexRef.current++;
+        audio.src = urls[sceneIndexRef.current];
+        audio.load();
+        audio.play().catch(() => { pendingPlayRef.current = audio.src; });
+      } else if (!cached?.expectedScenes) {
+        // Generation finished without more scenes (or failed): stop cleanly.
+        waitingForSceneRef.current = null;
+        sceneIndexRef.current = 0;
+        sceneStartOffsetRef.current = 0;
+        setPlaying(false);
+      }
+    });
     audio.addEventListener('ended', onPlayEndedTrack);
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
     audio.addEventListener('durationchange', onDurationChange);
@@ -348,6 +387,7 @@ export function AudioPlayerBar() {
     audio.addEventListener('pause', onPause);
 
     return () => {
+      unsubscribeWaiting();
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('ended', onPlayEndedTrack);
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
@@ -662,54 +702,35 @@ export function AudioPlayerBar() {
           audioUrl: result.audioUrl,
           sceneAudioUrls: [result.audioUrl],
           sceneIds: [firstScene.id],
+          expectedScenes: scenes.length,
           durationEstimate: result.durationEstimate,
           generatedAt: new Date().toISOString(),
         });
 
-        // Generate remaining scenes in PARALLEL batches of 3 — much faster
-        // than the old sequential loop, especially with multi-voice on (each
-        // scene independently runs per-segment Grok TTS in parallel server-side).
-        // appendSceneAudio merges each result into the active version as it
-        // lands, so the player chains scenes progressively.
-        const remaining = scenes.slice(1);
-        const BATCH_SIZE = 3;
-        for (let b = 0; b < remaining.length; b += BATCH_SIZE) {
-          const batch = remaining.slice(b, b + BATCH_SIZE);
-          useGenerationStore.getState().setSubtitle(
-            `Scene ${b + 2}${batch.length > 1 ? `-${b + 1 + batch.length}` : ''} of ${scenes.length}…`
-          );
-          await Promise.all(
-            batch.map(async (scene: any) => {
-              const sceneSFXData = (scene.sfx || []).map((s: any) => ({
-                prompt: s.prompt, audioUrl: s.audioUrl, position: s.position, enabled: s.enabled,
-              }));
-              try {
-                const sceneResult = await api.ttsGenerate({
-                  chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
-                  prose: scene.prose,
-                  narratorVoice,
-                  model: effectiveModel,
-                  provider: requestProvider as any,
-                  speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
-                  multiVoice: vp.effectiveMultiVoice,
-                  characterVoices: vp.characterVoices,
-                  characterDescriptions: vp.characterDescriptions,
-                  characterAliases: vp.characterAliases,
-                  characterGenders: vp.characterGenders,
-                  sceneSFX: sceneSFXData,
-                  isGuest,
-                });
-                useAudioStore.getState().appendSceneAudio(chapterId, {
-                  sceneAudioUrl: sceneResult.audioUrl,
-                  sceneId: scene.id,
-                  durationDelta: sceneResult.durationEstimate,
-                });
-              } catch (e: any) {
-                console.error(`Scene "${scene.title || scene.id}" generation failed:`, e);
-              }
-            }),
-          );
-        }
+        // Remaining scenes render in parallel batches of 3 and join the
+        // playlist in story order as soon as each is playable.
+        await generateRemainingScenes({
+          chapterId,
+          scenes: scenes.slice(1),
+          generate: (scene: any) => api.ttsGenerate({
+            chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
+            prose: scene.prose,
+            narratorVoice,
+            model: effectiveModel,
+            provider: requestProvider as any,
+            speed: (effectiveProvider === 'openai' || effectiveProvider === 'fish') ? 1.0 : speed,
+            multiVoice: vp.effectiveMultiVoice,
+            characterVoices: vp.characterVoices,
+            characterDescriptions: vp.characterDescriptions,
+            characterAliases: vp.characterAliases,
+            characterGenders: vp.characterGenders,
+            sceneSFX: (scene.sfx || []).map((s: any) => ({
+              prompt: s.prompt, audioUrl: s.audioUrl, position: s.position, enabled: s.enabled,
+            })),
+            isGuest,
+          }),
+          onProgress: (done, total) => useGenerationStore.getState().setSubtitle(`Scene ${done + 1} of ${total + 1} ready…`),
+        });
       } else {
         const allSceneSFX = (chapter.scenes || []).flatMap((s: any) =>
           (s.sfx || []).map((sfx: any) => ({

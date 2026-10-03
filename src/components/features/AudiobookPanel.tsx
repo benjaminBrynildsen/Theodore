@@ -1,3 +1,4 @@
+import { generateRemainingScenes } from '../../lib/scene-audio';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Headphones, Play, Pause, Download, Loader2, Volume2, VolumeX, User, Wand2, RotateCcw, ChevronDown, ChevronUp, Clock, Trash2, Layers, Music, Sparkles, Zap, Tags, Mic } from 'lucide-react';
@@ -1136,12 +1137,14 @@ export function AudiobookPanel() {
         totalDuration += r0.durationEstimate;
         totalCredits += r0.creditsUsed ?? 0;
 
-        // Store scene 1 and start playback right away
+        // Store scene 1 and start playback right away. expectedScenes tells the
+        // player more are coming, so it waits for scene 2 instead of moving on.
         audioStore.addChapterAudio(chapterId, {
           chapterId,
           audioUrl: r0.audioUrl,
           sceneAudioUrls: [r0.audioUrl],
           sceneIds: [s0.id],
+          expectedScenes: scenes.length,
           durationEstimate: totalDuration,
           generatedAt: new Date().toISOString(),
         });
@@ -1149,59 +1152,36 @@ export function AudiobookPanel() {
         // Auto-play scene 1
         window.dispatchEvent(new CustomEvent('theodore:playChapter', { detail: { chapterId } }));
 
-        // ── Remaining scenes: generate in batches of 3 (Fish Audio limit is 5 concurrent) ──
+        // ── Remaining scenes: batches of 3 (Fish Audio limit is 5 concurrent),
+        // added to the playlist in story order as each becomes playable ──
         useGenerationStore.getState().setSubtitle(`Scenes 2-${scenes.length} generating…`);
-
-        const remaining = scenes.slice(1);
-        const BATCH_SIZE = 3;
-        const remainingResults: Awaited<ReturnType<typeof api.ttsGenerate>>[] = [];
-
-        for (let b = 0; b < remaining.length; b += BATCH_SIZE) {
-          const batch = remaining.slice(b, b + BATCH_SIZE);
-          const batchResults = await Promise.all(
-            batch.map(async (scene: any) => {
-              const sceneSFX = (scene.sfx || []).map((sfx: any) => ({
-                prompt: sfx.prompt, audioUrl: sfx.audioUrl, position: sfx.position, enabled: sfx.enabled,
-              }));
-              return api.ttsGenerate({
-                chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
-                prose: scene.prose,
-                narratorVoice,
-                characterVoices: charVoiceMap,
-                characterDescriptions: charDescriptions,
-                characterAliases: charAliases,
-                characterGenders: charGenders,
-                model: ttsModel,
-                provider,
-                speed: (provider === 'openai' || provider === 'fish' || provider === 'grok') ? 1.0 : speed,
-                multiVoice: effectiveMultiVoice,
-                sceneSFX,
-                isGuest,
-              });
-            })
-          );
-          remainingResults.push(...batchResults);
-          useGenerationStore.getState().setSubtitle(`${b + batch.length + 1} of ${scenes.length} scenes done…`);
-        }
-
-        // Append remaining scene URLs in order
-        for (let i = 0; i < remainingResults.length; i++) {
-          const r = remainingResults[i];
-          sceneAudioUrls.push(r.audioUrl);
-          sceneIds.push(scenes[i + 1].id);
+        const remainingResults = await generateRemainingScenes({
+          chapterId,
+          scenes: scenes.slice(1),
+          generate: (scene: any) => api.ttsGenerate({
+            chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
+            prose: scene.prose,
+            narratorVoice,
+            characterVoices: charVoiceMap,
+            characterDescriptions: charDescriptions,
+            characterAliases: charAliases,
+            characterGenders: charGenders,
+            model: ttsModel,
+            provider,
+            speed: (provider === 'openai' || provider === 'fish' || provider === 'grok') ? 1.0 : speed,
+            multiVoice: effectiveMultiVoice,
+            sceneSFX: (scene.sfx || []).map((sfx: any) => ({
+              prompt: sfx.prompt, audioUrl: sfx.audioUrl, position: sfx.position, enabled: sfx.enabled,
+            })),
+            isGuest,
+          }),
+          onProgress: (done, total) => useGenerationStore.getState().setSubtitle(`${done + 1} of ${total + 1} scenes done…`),
+        });
+        for (const r of remainingResults) {
+          if (!r) continue;
           totalDuration += r.durationEstimate;
           totalCredits += r.creditsUsed ?? 0;
         }
-
-        // Update audio store with all scenes — player auto-chains them via onEnded
-        audioStore.addChapterAudio(chapterId, {
-          chapterId,
-          audioUrl: sceneAudioUrls[0],
-          sceneAudioUrls,
-          sceneIds,
-          durationEstimate: totalDuration,
-          generatedAt: new Date().toISOString(),
-        });
 
         if (totalCredits > 0) {
           useCreditsStore.getState().recordUsage({
@@ -1209,7 +1189,7 @@ export function AudiobookPanel() {
             creditsUsed: totalCredits,
             tokensInput: 0, tokensOutput: 0,
             model: ttsModel,
-            creditsRemaining: remainingResults[remainingResults.length - 1]?.creditsRemaining ?? null,
+            creditsRemaining: [...remainingResults].reverse().find(Boolean)?.creditsRemaining ?? null,
           });
         }
 
