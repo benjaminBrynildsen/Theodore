@@ -25,6 +25,7 @@ const ACTION_LABELS: Record<string, string> = {
   'plan-threads': 'Thread map built',
   'plan-arcs': 'Character & object map built',
   'canon-cleanup': 'Canon reviewed',
+  'write-synopsis': 'Synopsis written',
 };
 
 function actionLabel(action: string): string {

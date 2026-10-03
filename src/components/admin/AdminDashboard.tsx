@@ -116,6 +116,7 @@ const ACTION_LABELS: Record<string, string> = {
   'entity-refine': '🧩 Canon Refinement',
   'auto-fill': '🧩 Canon Auto-fill',
   'canon-cleanup': '🧹 Canon Cleanup',
+  'write-synopsis': '📜 Synopsis',
   'plan-threads': '🧵 Thread Map',
   'plan-arcs': '🧭 Character & Object Map',
   'generate-stream': '💬 Chatted in Imagine',

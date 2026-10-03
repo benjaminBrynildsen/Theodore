@@ -16,6 +16,7 @@ import { analyzeAttribution, needsDialogueClarityPass } from '../src/lib/dialogu
 import { buildNamingGuidance, nameWords, NAME_GROUPS, OVERUSED_NAMES } from '../src/lib/name-bank';
 import { introductionsForChapter, buildIntroductionBlock } from '../src/lib/introductions';
 import { cleanExtendMerge } from '../src/lib/extend-merge';
+import { buildSynopsisPrompt, parseSynopsis, synopsisSourceKey } from '../src/lib/synopsis';
 import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, ensureSceneCoverage, evenSplit } from '../src/lib/scene-split';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
 import {
@@ -666,6 +667,25 @@ t('scene audio: published strictly in story order; failures skipped, not blockin
   pub.settle(3, 'd');
   assert.deepEqual(seen, [0, 2, 3]);
   assert.equal(pub.published, 4);
+});
+
+t('synopsis: principles in the prompt, ending kept separate, staleness tracked', () => {
+  const chs = [
+    { id: 's1', number: 1, title: 'Closing Walkthrough', prose: 'x', aiIntentMetadata: { richSummary: 'Wes finds a glass rod under the closet floor.' } },
+    { id: 's2', number: 2, title: 'Tuesdays', prose: '', premise: { purpose: 'Wes tests the rod at Brookhaven.' } },
+  ] as any;
+  const project = { id: 'p', title: 'The Late Shift', narrativeControls: { genreEmphasis: ['literary', 'speculative'] } } as any;
+  const prompt = buildSynopsisPrompt({ project, chapters: chs, canon: [maya] });
+  assert.ok(prompt.includes('[WRITTEN]: Wes finds a glass rod') && prompt.includes('[PLANNED]: Wes tests the rod'), prompt);
+  assert.ok(prompt.includes('Present tense') && prompt.includes('cause and effect') && prompt.includes('Tell the climax and the ending plainly'));
+  assert.ok(prompt.includes('Maya Chen (protagonist)'));
+  const key = synopsisSourceKey(project, chs);
+  const syn = parseSynopsis('```json\n{"logline":"A night manager finds a rod.","body":["P1","P2"],"ending":"E1\n\nE2"}\n```', key, true)!;
+  assert.deepEqual([syn.body, syn.ending, syn.fromOutline], [['P1', 'P2'], ['E1', 'E2'], true]);
+  assert.equal(parseSynopsis('{"logline":"x","body":[]}', key, false), null, 'empty body rejected');
+  const changed = [{ ...chs[0] }, { ...chs[1], premise: { purpose: 'Wes tests the rod at the lake.' } }];
+  assert.notEqual(synopsisSourceKey(project, changed), key, 'premise change makes it stale');
+  assert.equal(synopsisSourceKey(project, [...chs].reverse()), key, 'order-independent');
 });
 
 console.log(`\n${passed} passed`);
