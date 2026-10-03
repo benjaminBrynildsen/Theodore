@@ -18,6 +18,8 @@ import { generateId } from './utils';
 import type { Chapter, Scene } from '../types';
 import { threadsForChapter } from './story-threads';
 import { arcsForChapter } from './story-arcs';
+import { coversProse, evenSplit, groupParagraphs, sanitizeAssignments, splitAtSceneBreaks } from './scene-split';
+import { isSceneBreakLine } from './clean-prose';
 import { memoryMeta, memoryOutdated, needsReextraction, resolveCanonEntry, type CharacterStateRecord, type NewCanonCandidate } from './story-memory';
 import { junkNameReason } from './canon-cleanup';
 import type { AnyCanonEntry, CharacterEntry } from '../types/canon';
@@ -538,17 +540,29 @@ export async function runSceneDecomposition(chapterId: string): Promise<Scene[] 
     status: 'outline' as const,
   }));
 
-  // Split prose across scenes using AI paragraph-to-scene mapping
+  // Split prose across scenes. Every paragraph must land in a scene — audio is
+  // generated from scene prose, so dropped text would be missing from narration.
   if (chapter.prose?.trim()) {
-    const paragraphs = chapter.prose.split(/\n\n+/).filter((p) => p.trim());
-    
-    try {
-      // Ask AI to assign each paragraph to a scene based on content/location
-      const sceneList = newScenes.map((s) => `Scene ${s.order}: "${s.title}" — ${s.summary}`).join('\n');
-      const paragraphList = paragraphs.map((p, i) => `[P${i + 1}]: ${p.slice(0, 150)}...`).join('\n');
-      
-      const mapResult = await generateText({
-        prompt: `You have ${newScenes.length} scenes and ${paragraphs.length} paragraphs from a chapter. Assign each paragraph to the scene it belongs to based on LOCATION, CHARACTERS PRESENT, and NARRATIVE CONTEXT.
+    const prose = chapter.prose;
+    const segments = splitAtSceneBreaks(prose);
+    const paragraphs = prose.split(/\n\n+/).filter((p) => p.trim() && !isSceneBreakLine(p.trim()));
+    let sceneProse: string[] | null = null;
+
+    if (segments.length >= 2) {
+      // The chapter's own scene breaks are exact boundaries.
+      while (newScenes.length < segments.length) {
+        const n = newScenes.length + 1;
+        newScenes.push({ id: generateId(), title: `Scene ${n}`, summary: '', prose: '', order: n, status: 'outline' as const });
+      }
+      newScenes.splice(segments.length);
+      sceneProse = segments;
+    } else {
+      try {
+        // Ask AI to assign each paragraph to a scene based on content/location
+        const sceneList = newScenes.map((s, i) => `Scene ${i + 1}: "${s.title}" — ${s.summary}`).join('\n');
+        const paragraphList = paragraphs.map((p, i) => `[P${i + 1}]: ${p.slice(0, 150)}...`).join('\n');
+        const mapResult = await generateText({
+          prompt: `You have ${newScenes.length} scenes and ${paragraphs.length} paragraphs from a chapter. Assign each paragraph to the scene it belongs to based on LOCATION, CHARACTERS PRESENT, and NARRATIVE CONTEXT.
 
 SCENES:
 ${sceneList}
@@ -558,46 +572,29 @@ ${paragraphList}
 
 Return ONLY a JSON array of scene numbers, one per paragraph, in order. Example for 8 paragraphs across 3 scenes: [1,1,1,2,2,3,3,3]
 Paragraphs must stay in order — scene numbers can only stay the same or increase, never decrease.`,
-        model: 'gpt-4.1-mini',
-        maxTokens: 200,
-        temperature: 0.1,
-        action: 'generate-chapter-outline',
-        projectId: project.id,
-        chapterId,
-      });
-
-      const mapText = (mapResult.text || '').trim();
-      const jsonMatch = mapText.match(/\[[\s\S]*?\]/);
-      if (jsonMatch) {
-        const assignments = JSON.parse(jsonMatch[0]) as number[];
-        if (assignments.length === paragraphs.length) {
-          // Group paragraphs by scene assignment
-          for (let i = 0; i < assignments.length; i++) {
-            const sceneOrder = assignments[i];
-            const scene = newScenes.find((s) => s.order === sceneOrder);
-            if (scene) {
-              scene.prose = scene.prose ? scene.prose + '\n\n' + paragraphs[i] : paragraphs[i];
-              scene.status = 'drafted';
-            }
-          }
-        } else {
-          throw new Error('Assignment length mismatch');
-        }
-      } else {
-        throw new Error('No JSON array in response');
+          model: 'gpt-4.1-mini',
+          maxTokens: Math.max(200, paragraphs.length * 4 + 50),
+          temperature: 0.1,
+          action: 'generate-chapter-outline',
+          projectId: project.id,
+          chapterId,
+        });
+        const arr = (mapResult.text || '').match(/\[[\s\S]*?\]/);
+        if (!arr) throw new Error('No JSON array in response');
+        const raw = JSON.parse(arr[0]) as unknown[];
+        if (raw.length < paragraphs.length * 0.9) throw new Error('Assignment too short');
+        sceneProse = groupParagraphs(paragraphs, sanitizeAssignments(raw, paragraphs.length, newScenes.length), newScenes.length);
+      } catch (e) {
+        console.warn('[PostGen] AI paragraph mapping failed, falling back to even split:', e);
       }
-    } catch (e) {
-      console.warn('[PostGen] AI paragraph mapping failed, falling back to even split:', e);
-      // Fallback: even split by paragraphs
-      const perScene = Math.ceil(paragraphs.length / newScenes.length);
-      for (let i = 0; i < newScenes.length; i++) {
-        const slice = paragraphs.slice(i * perScene, (i + 1) * perScene);
-        if (slice.length) {
-          newScenes[i].prose = slice.join('\n\n');
-          newScenes[i].status = 'drafted';
-        }
-      }
+      if (!sceneProse || !coversProse(prose, sceneProse)) sceneProse = evenSplit(paragraphs, newScenes.length);
     }
+
+    newScenes.forEach((scene, i) => {
+      scene.order = i + 1;
+      scene.prose = sceneProse![i] || '';
+      if (scene.prose) scene.status = 'drafted';
+    });
   }
 
   store.setChapterScenes(chapterId, newScenes);

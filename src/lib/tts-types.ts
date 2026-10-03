@@ -155,6 +155,8 @@ export interface ChapterAudio {
   audioUrl: string;
   sceneAudioUrls?: string[];
   sceneIds?: string[];          // scene IDs matching sceneAudioUrls for music lookup
+  /** While scenes are still generating: how many the chapter will have. The player waits for them instead of moving on. */
+  expectedScenes?: number;
   durationEstimate: number;
   generatedAt: string;
   activeVersion: number;

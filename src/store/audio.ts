@@ -49,6 +49,8 @@ interface AudioState {
    * audio lands, without waiting for the whole chapter's batch to finish.
    */
   appendSceneAudio: (chapterId: string, scene: { sceneAudioUrl: string; sceneId: string; durationDelta: number }) => void;
+  /** Scenes still to come for a chapter's audio (undefined = complete). */
+  setExpectedScenes: (chapterId: string, expected: number | undefined) => void;
   removeChapterAudio: (chapterId: string) => void;
   removeAudioVersion: (chapterId: string, version: number) => void;
   setActiveVersion: (chapterId: string, version: number) => void;
@@ -169,6 +171,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
         audioUrl: audio.audioUrl,
         sceneAudioUrls: audio.sceneAudioUrls,
         sceneIds: audio.sceneIds,
+        expectedScenes: audio.expectedScenes,
         durationEstimate: audio.durationEstimate,
         generatedAt: audio.generatedAt,
         activeVersion: nextVersion,
@@ -202,6 +205,13 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
           } : v)
         : versions;
       return { chapterAudio: { ...s.chapterAudio, [chapterId]: { ...updated, versions: nextVersions } } };
+    }),
+
+  setExpectedScenes: (chapterId, expected) =>
+    set((s) => {
+      const existing = s.chapterAudio[chapterId];
+      if (!existing) return s;
+      return { chapterAudio: { ...s.chapterAudio, [chapterId]: { ...existing, expectedScenes: expected } } };
     }),
 
   removeChapterAudio: (chapterId) =>

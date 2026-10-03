@@ -16,6 +16,7 @@ import { analyzeAttribution, needsDialogueClarityPass } from '../src/lib/dialogu
 import { buildNamingGuidance, nameWords, NAME_GROUPS, OVERUSED_NAMES } from '../src/lib/name-bank';
 import { introductionsForChapter, buildIntroductionBlock } from '../src/lib/introductions';
 import { cleanExtendMerge } from '../src/lib/extend-merge';
+import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, ensureSceneCoverage, evenSplit } from '../src/lib/scene-split';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
 import {
   parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
@@ -631,6 +632,40 @@ t('extend merge: a continuation that finishes a cut-off word keeps the fragment'
   assert.equal(m6.cleanedBase + m6.joiner + m6.cleanedExtension, 'He waited.\n\nDanny came in, shaggy hair.');
   const m4 = cleanExtendMerge('It was late.', '## Chapter 3: Night\n\nIt was later.');
   assert.equal(m4.cleanedExtension, 'It was later.');
+});
+
+t('scene split: never loses text; scene breaks are exact boundaries', () => {
+  const prose = 'A one.\n\nA two.\n\n***\n\nB one.\n\n# # #\n\nC one.\n\nC two.';
+  assert.deepEqual(splitAtSceneBreaks(prose), ['A one.\n\nA two.', 'B one.', 'C one.\n\nC two.']);
+  const paras = ['p1', 'p2', 'p3', 'p4', 'p5'];
+  // bad model output: unknown 0, out of range 9, going backwards, too short
+  const a = sanitizeAssignments([1, 0, 3, 2, 9], paras.length, 3);
+  assert.deepEqual(a, [0, 0, 2, 2, 2], 'invalid numbers follow the previous paragraph; never backwards');
+  assert.deepEqual(sanitizeAssignments([1, 2], 5, 3), [0, 1, 1, 1, 1], 'missing tail follows the last scene');
+  const grouped = groupParagraphs(paras, a, 3);
+  assert.ok(coversProse(paras.join('\n\n'), grouped), 'all paragraphs kept');
+  assert.equal(coversProse('A. B. C.', ['A.', 'C.']), false);
+  // A manual split that missed the opening is repaired from the scene breaks.
+  const scenes = [{ order: 1, prose: 'A two.' }, { order: 2, prose: 'B one.' }, { order: 3, prose: 'C one.\n\nC two.' }];
+  const fixed = ensureSceneCoverage(prose, scenes);
+  assert.deepEqual(fixed.map((x) => x.prose), ['A one.\n\nA two.', 'B one.', 'C one.\n\nC two.']);
+  assert.equal(ensureSceneCoverage(prose, fixed), fixed, 'complete scenes untouched');
+  assert.deepEqual(evenSplit(paras, 2), ['p1\n\np2\n\np3', 'p4\n\np5']);
+});
+
+t('scene audio: published strictly in story order; failures skipped, not blocking', async () => {
+  const { createOrderedPublisher } = await import('../src/lib/scene-audio');
+  const seen: number[] = [];
+  const pub = createOrderedPublisher<string>(4, (i) => seen.push(i));
+  pub.settle(2, 'c');
+  assert.deepEqual(seen, [], 'scene 3 waits for 1 and 2');
+  pub.settle(0, 'a');
+  assert.deepEqual(seen, [0]);
+  pub.settle(1, null);
+  assert.deepEqual(seen, [0, 2], 'failed scene skipped; scene 3 follows');
+  pub.settle(3, 'd');
+  assert.deepEqual(seen, [0, 2, 3]);
+  assert.equal(pub.published, 4);
 });
 
 console.log(`\n${passed} passed`);

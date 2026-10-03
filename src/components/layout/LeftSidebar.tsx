@@ -1,3 +1,4 @@
+import { ensureSceneCoverage } from '../../lib/scene-split';
 import { useState, useEffect, useCallback } from 'react';
 import { Users, MapPin, Cog, Gem, Scale, Milestone, Plus, ChevronRight, Search, FileText, PenLine, Film, RefreshCw, Loader2, Sparkles } from 'lucide-react';
 import { useStore } from '../../store';
@@ -288,7 +289,8 @@ function ChapterSidebar({ projectId, chapterId }: { projectId: string; chapterId
         newScenes[0].status = 'drafted';
       }
 
-      setChapterScenes(chapterId, newScenes);
+      // Every word must land in a scene, or narration skips it.
+      setChapterScenes(chapterId, freshChapter.prose ? ensureSceneCoverage(freshChapter.prose, newScenes) : newScenes);
     } catch (error) {
       console.error('Failed to rescan scenes:', error);
     } finally {
