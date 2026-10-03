@@ -186,6 +186,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         coverUrl: p.coverUrl || p.cover_url || undefined,
         threadPlan: p.threadPlan || p.thread_plan || null,
         arcPlan: p.arcPlan || p.arc_plan || null,
+        synopsis: p.synopsis || null,
         status: p.status,
         chapterCount: typeof p.chapterCount === 'number' ? p.chapterCount : (typeof p.chapter_count === 'number' ? p.chapter_count : undefined),
         wordCount: typeof p.wordCount === 'number' ? p.wordCount : (typeof p.word_count === 'number' ? p.word_count : undefined),

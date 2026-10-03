@@ -1,7 +1,8 @@
 import { authorNamesToAvoid } from '../../lib/author-names';
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch, BookText } from 'lucide-react';
 import { ArcMap } from '../features/ArcMap';
+import { SynopsisPanel } from '../features/SynopsisPanel';
 import { StoryMemoryCatchUp } from '../features/StoryMemoryCatchUp';
 import { ShareBookDialog } from '../share/ShareBookDialog';
 import { computeArcBreakpoints, getStructureById } from '../../lib/story-structures';
@@ -45,6 +46,7 @@ export function ProjectView() {
   const [showArcLabels, setShowArcLabels] = useState(false);
   const [showThreadsOverride, setShowThreadsOverride] = useState<boolean | null>(null);
   const [showArcsOverride, setShowArcsOverride] = useState<boolean | null>(null);
+  const [showSynopsis, setShowSynopsis] = useState(false);
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(() => new Set());
@@ -427,16 +429,30 @@ export function ProjectView() {
               : ` · ${project.targetLength} length`}
           </p>
         </div>
-        {!isGuest && (
-          <div className="flex items-center justify-center mt-3">
+        <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+          {chapters.length > 0 && !isChildrensBook && (
+            <button
+              onClick={() => setShowSynopsis(!showSynopsis)}
+              className={cn(
+                'inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full glass hover:bg-white/70 text-text-secondary',
+                showSynopsis && 'bg-white/80 text-text-primary',
+              )}
+              aria-expanded={showSynopsis}
+            >
+              <BookText size={12} /> Read synopsis
+              <ChevronDown size={12} className={cn('transition-transform', showSynopsis && 'rotate-180')} />
+            </button>
+          )}
+          {!isGuest && (
             <button
               onClick={() => setShowShareDialog(true)}
               className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full glass hover:bg-white/70 text-text-secondary"
             >
               <Share2 size={12} /> Share book
             </button>
-          </div>
-        )}
+          )}
+        </div>
+        {showSynopsis && <SynopsisPanel project={project} chapters={chapters} />}
       </div>
       {showShareDialog && (
         <ShareBookDialog

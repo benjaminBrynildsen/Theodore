@@ -340,6 +340,7 @@ function buildProjectUpdate(bodyRaw: unknown) {
   if ('status' in body && typeof body.status === 'string') updates.status = body.status;
   if ('threadPlan' in body) updates.threadPlan = body.threadPlan ? asObject(body.threadPlan) : null;
   if ('arcPlan' in body) updates.arcPlan = body.arcPlan ? asObject(body.arcPlan) : null;
+  if ('synopsis' in body) updates.synopsis = body.synopsis ? asObject(body.synopsis) : null;
 
   return updates;
 }
@@ -2108,14 +2109,14 @@ const LOCK_EXEMPT_ACTIONS = new Set([
   'plan-project',
   'extract-continuity', 'refine-entities', 'entity-refine',
   'generate-chapter-outline', 'scene-prose-split',
-  'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill', 'plan-threads', 'plan-arcs', 'canon-cleanup',
+  'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill', 'plan-threads', 'plan-arcs', 'canon-cleanup', 'write-synopsis',
 ]);
 
 // Guest (unauthenticated) generation — only for plan-project during onboarding
 const GUEST_ALLOWED_ACTIONS = new Set([
   // Planning + outline
   'plan-project', 'scaffold-chapters', 'generate-chapter-outline',
-  'scene-prose-split', 'entity-refine', 'extract-continuity', 'plan-threads', 'plan-arcs', 'canon-cleanup',
+  'scene-prose-split', 'entity-refine', 'extract-continuity', 'plan-threads', 'plan-arcs', 'canon-cleanup', 'write-synopsis',
   // Chapter writing + extending
   'generate-chapter', 'extend-chapter', 'dialogue-clarity-pass',
   // Editing flows
@@ -5809,6 +5810,7 @@ async function ensureAdditiveSchema() {
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tags jsonb DEFAULT '[]'::jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS thread_plan jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS arc_plan jsonb`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS synopsis jsonb`,
     `DO $$ BEGIN
        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'projects_slug_unique') THEN
          BEGIN
