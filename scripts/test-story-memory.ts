@@ -14,6 +14,8 @@ import { buildRenamePairs, replaceNames, countMentions, renameDeep } from '../sr
 import { stripDialogueSpeakerTags, isSceneBreakLine } from '../src/lib/clean-prose';
 import { analyzeAttribution, needsDialogueClarityPass } from '../src/lib/dialogue-clarity';
 import { buildNamingGuidance, nameWords, NAME_GROUPS, OVERUSED_NAMES } from '../src/lib/name-bank';
+import { introductionsForChapter, buildIntroductionBlock } from '../src/lib/introductions';
+import { cleanExtendMerge } from '../src/lib/extend-merge';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
 import {
   parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
@@ -591,6 +593,44 @@ t('name bank: varied sample by background and generation, overused and author na
     }
   }
   assert.ok(OVERUSED_NAMES.includes('Marcus'));
+});
+
+t('introductions: leads are introduced once, when they first appear; a cold open can move it', () => {
+  const wes = baseChar('w', 'Wes Garrity', { role: 'protagonist', age: '38', occupation: 'night manager at Halvorsen\'s Market' });
+  const ray = baseChar('r', 'Ray Garrity', { role: 'antagonist' });
+  const kay = baseChar('k', 'Kayleigh Sutter');
+  const ch = (n: number, prose = '', chars: string[] = []) => ({ id: 'i' + n, number: n, title: 'T', prose, premise: { characters: chars } }) as any;
+  const c1 = ch(1, '', ['Kayleigh Sutter']), c2 = ch(2, '', ['Ray Garrity', 'Wes Garrity']);
+  const i1 = introductionsForChapter({ chapter: c1, allChapters: [c1, c2], canon: [wes, ray, kay] });
+  assert.deepEqual(i1.map((x) => x.name), ['Wes Garrity'], 'protagonist in Ch.1 by default; side characters never');
+  assert.ok(i1[0].facts.includes('age 38') && i1[0].facts.some((f) => f.includes('night manager')));
+  const block = buildIntroductionBlock(i1);
+  assert.ok(block.includes('INTRODUCING') && block.includes('Wes Garrity (protagonist)') && block.includes('never a mirror scene'), block);
+  const written1 = ch(1, 'Wes Garrity straightened the bananas.');
+  const i2 = introductionsForChapter({ chapter: c2, allChapters: [written1, c2], canon: [wes, ray, kay] });
+  assert.deepEqual(i2.map((x) => x.name), ['Ray Garrity'], 'Wes already on the page; Ray appears now');
+  const plan = parseArcPlan(JSON.stringify({ characters: [{ name: 'Wes Garrity', role: 'protagonist', introduce: { chapter: 2, note: 'after the cold open' }, beats: [{ chapter: 2, type: 'setup' }, { chapter: 9, type: 'change' }] }] }), 10)!;
+  assert.equal(plan.characters[0].introducedIn, 2);
+  assert.deepEqual(introductionsForChapter({ chapter: c1, allChapters: [c1, c2], canon: [wes], plan }).map((x) => x.name), [], 'cold open: not in Ch.1');
+  const i2p = introductionsForChapter({ chapter: c2, allChapters: [c1, c2], canon: [wes], plan });
+  assert.equal(i2p[0]?.note, 'after the cold open');
+  assert.equal(buildIntroductionBlock([]), '');
+});
+
+t('extend merge: a continuation that finishes a cut-off word keeps the fragment', () => {
+  const base = 'The front door banged before she could answer.\n\nDanny came in, sh';
+  const m = cleanExtendMerge(base, 'aggy hair, guitar case bumping the doorframe.');
+  assert.equal(m.cleanedBase + m.joiner + m.cleanedExtension, 'The front door banged before she could answer.\n\nDanny came in, shaggy hair, guitar case bumping the doorframe.');
+  const m2 = cleanExtendMerge('He waited. Then the door', 'opened slowly.');
+  assert.equal(m2.cleanedBase + m2.joiner + m2.cleanedExtension, 'He waited. Then the door opened slowly.');
+  const m3 = cleanExtendMerge('He waited. Then the door', 'The door opened.');
+  assert.equal(m3.cleanedBase + m3.joiner + m3.cleanedExtension, 'He waited.\n\nThe door opened.', 'fresh sentence: dangling fragment trimmed');
+  const m5 = cleanExtendMerge('He waited. Then the door', 'Then the door opened slowly.');
+  assert.equal(m5.cleanedBase + m5.joiner + m5.cleanedExtension, 'He waited. Then the door opened slowly.', 'restated sentence stays in its paragraph');
+  const m6 = cleanExtendMerge('He waited.\n\nDanny came in, sh', 'Danny came in, shaggy hair.');
+  assert.equal(m6.cleanedBase + m6.joiner + m6.cleanedExtension, 'He waited.\n\nDanny came in, shaggy hair.');
+  const m4 = cleanExtendMerge('It was late.', '## Chapter 3: Night\n\nIt was later.');
+  assert.equal(m4.cleanedExtension, 'It was later.');
 });
 
 console.log(`\n${passed} passed`);

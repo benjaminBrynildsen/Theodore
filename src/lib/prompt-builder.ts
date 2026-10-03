@@ -11,6 +11,7 @@ import { getDialogueTargetForProject, buildDialogueClause } from './dialogue-tar
 import { buildCanonAndMemory } from './story-memory';
 import { buildThreadGuidanceBlock } from './story-threads';
 import { buildArcGuidanceBlock } from './story-arcs';
+import { buildIntroductionBlock, introductionsForChapter } from './introductions';
 
 // ========== Selection-Based Edit Prompt (Vibe Editor) ==========
 
@@ -199,7 +200,7 @@ SPEAKER ATTRIBUTION — follow standard published-novel practice so the reader a
 - Keep tags plain and few adverbs; let the words and the beats carry the tone. (Tag verbs follow the WRITING STYLE RULES above.)
 - Put the tag or beat early in long speeches, at the first natural pause, so the reader knows who is talking before the speech goes on.
 
-CHARACTERS: On first appearance in a chapter, anchor with ONE visceral sensory detail — not a full description. Show personality through choices and behavior, not adjectives. Interior monologue should conflict with exterior action.
+CHARACTERS: Side characters get ONE vivid, concrete detail on first appearance — not a full description. Main characters get a proper introduction the first time the reader meets them (see INTRODUCING when present); after that, one detail re-anchors them. The first time someone who matters is named, make clear in a phrase what they are to the point-of-view character (his brother, her ex-husband, the night manager) unless the thread map keeps that relationship hidden. Show personality through choices and behavior, not adjectives. Interior monologue should conflict with exterior action.
 NEW NAMES: when a new character needs a name, fit it to their age, family background and the setting, and keep it distinct from the existing cast (different first letter and sound). Never use these overused names for new characters: ${OVERUSED_NAMES.join(', ')}.
 
 EMOTION: Never name the emotion. No "she felt angry" or "fear gripped him." Show it through the body: clenched jaw, shortened breath, hands that won't stay still. Trust the reader to feel it.
@@ -463,6 +464,12 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
   const threadGuidance = buildThreadGuidanceBlock(project.threadPlan, chapter.number);
   if (threadGuidance) {
     sections.push('\n' + threadGuidance);
+  }
+
+  // Main characters the reader properly meets in this chapter
+  const introBlock = buildIntroductionBlock(introductionsForChapter({ chapter, allChapters, canon: canonEntries, plan: project.arcPlan }));
+  if (introBlock) {
+    sections.push('\n' + introBlock);
   }
 
   // Arc map: character arc beats and object journeys for this chapter
