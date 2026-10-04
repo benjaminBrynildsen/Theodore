@@ -704,6 +704,7 @@ export function AudioPlayerBar() {
           sceneIds: [firstScene.id],
           expectedScenes: scenes.length,
           durationEstimate: result.durationEstimate,
+          pace: result.pace,
           generatedAt: new Date().toISOString(),
         });
 
@@ -715,6 +716,7 @@ export function AudioPlayerBar() {
           generate: (scene: any) => api.ttsGenerate({
             chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
             prose: scene.prose,
+            leadIn: 'scene',
             narratorVoice,
             model: effectiveModel,
             provider: requestProvider as any,
@@ -759,6 +761,7 @@ export function AudioPlayerBar() {
           chapterId,
           audioUrl: result.audioUrl,
           durationEstimate: result.durationEstimate,
+          pace: result.pace,
           generatedAt: new Date().toISOString(),
         });
 

@@ -2929,6 +2929,8 @@ interface TTSJobSpec {
   sceneSFX?: any[];
   chapterNumber?: number;
   chapterTitle?: string;
+  /** 'scene' for scene files after the first: open with the scene-break silence. */
+  leadIn?: 'scene';
   isFreeAudioSample?: boolean;
 }
 
@@ -3058,6 +3060,7 @@ async function runTTSJob(jobId: string) {
       sceneSFX: spec.sceneSFX || [],
       chapterNumber: spec.chapterNumber || undefined,
       chapterTitle: spec.chapterTitle || undefined,
+      leadIn: spec.leadIn,
       attributionSegments,
       onProgress: (pct) => {
         liveProgress.set(jobId, pct);
@@ -3169,6 +3172,7 @@ async function runTTSJob(jobId: string) {
         creditsUsed: actualCreditsUsed,
         creditsRemaining,
         diagnostic: result.diagnostic,
+        pace: result.pace,
       },
       error: null,
     });
@@ -3269,6 +3273,7 @@ app.post('/api/tts/generate', async (req, res) => {
 
     let { narratorVoice, provider } = req.body;
     const { chapterId, prose, characterVoices, characterAliases, characterGenders, characterDescriptions, narratorStyle, model, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle } = req.body;
+    const leadIn = req.body.leadIn === 'scene' ? 'scene' as const : undefined;
     if (!chapterId || !prose) return res.status(400).json({ error: 'chapterId and prose are required' });
 
     // Credit check
@@ -3332,7 +3337,7 @@ app.post('/api/tts/generate', async (req, res) => {
     const jobId = `tts-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const spec: TTSJobSpec = {
       chapterId, prose, narratorVoice, characterVoices, characterAliases, characterGenders, characterDescriptions, narratorStyle,
-      model, provider, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle,
+      model, provider, speed, multiVoice, sceneSFX, chapterNumber, chapterTitle, leadIn,
       isFreeAudioSample,
     };
     await createPersistedJob({ id: jobId, spec, userId: auth.user.id, isGuest: false });

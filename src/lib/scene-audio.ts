@@ -5,6 +5,7 @@
 // rest of the chapter still plays.
 
 import { useAudioStore } from '../store/audio';
+import type { NarrationPace } from './tts-types';
 
 /** Publishes results in index order as soon as the next one in line settles. null = failed (skipped). */
 export function createOrderedPublisher<T>(count: number, publish: (index: number, value: T) => void) {
@@ -26,6 +27,7 @@ export function createOrderedPublisher<T>(count: number, publish: (index: number
 export interface SceneAudioResult {
   audioUrl: string;
   durationEstimate: number;
+  pace?: NarrationPace;
   creditsUsed?: number | null;
   creditsRemaining?: number | null;
 }
@@ -52,6 +54,7 @@ export async function generateRemainingScenes<S extends { id: string }>(args: {
       sceneAudioUrl: r.audioUrl,
       sceneId: scenes[i].id,
       durationDelta: r.durationEstimate,
+      pace: r.pace,
     });
   });
   let done = 0;

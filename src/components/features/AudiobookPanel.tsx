@@ -15,7 +15,7 @@ import { useGenerationStore } from '../../store/generation';
 import { useMusicStore } from '../../store/music';
 import { cn } from '../../lib/utils';
 import { api, ApiError } from '../../lib/api';
-import { ELEVENLABS_VOICES, getVoiceName, resolveVoiceId } from '../../lib/tts-types';
+import { ELEVENLABS_VOICES, getVoiceName, paceWpm, resolveVoiceId } from '../../lib/tts-types';
 import type { ElevenLabsVoice } from '../../lib/tts-types';
 import type { CharacterEntry } from '../../types/canon';
 import { autoAssignVoice, autoAssignVoiceFromPool, voiceAssignmentReason } from '../../lib/voice-assign';
@@ -1146,6 +1146,7 @@ export function AudiobookPanel() {
           sceneIds: [s0.id],
           expectedScenes: scenes.length,
           durationEstimate: totalDuration,
+          pace: r0.pace,
           generatedAt: new Date().toISOString(),
         });
 
@@ -1161,6 +1162,7 @@ export function AudiobookPanel() {
           generate: (scene: any) => api.ttsGenerate({
             chapterId: `${chapterId}-scene-${scene.id}${versionSuffix}`,
             prose: scene.prose,
+            leadIn: 'scene',
             narratorVoice,
             characterVoices: charVoiceMap,
             characterDescriptions: charDescriptions,
@@ -1234,6 +1236,7 @@ export function AudiobookPanel() {
           chapterId,
           audioUrl: result.audioUrl,
           durationEstimate: result.durationEstimate,
+          pace: result.pace,
           generatedAt: new Date().toISOString(),
         });
       }
@@ -1540,7 +1543,7 @@ export function AudiobookPanel() {
                       <div className="text-[10px] text-text-tertiary flex items-center gap-1">
                         <span>
                           {isGenerating ? 'Generating...' :
-                           audio ? `Audio ready · ~${formatTime(audio.durationEstimate)}` :
+                           audio ? `Audio ready · ~${formatTime(audio.durationEstimate)}${paceWpm(audio.pace) ? ` · ${paceWpm(audio.pace)} wpm` : ''}` :
                            allScenesGenerated ? `All scenes ready · ~${formatTime(scenesTotalDuration)}` :
                            `${wordCount.toLocaleString()} words · ~${estMinutes} min`}
                           {hasScenes && !isPlayable && ` · ${scenes.length} scenes`}
@@ -1758,7 +1761,7 @@ export function AudiobookPanel() {
                               <span>{formatDate(v.generatedAt)}</span>
                             </div>
                             <span className={cn(isActive ? 'text-white/50' : 'text-text-tertiary')}>
-                              ~{formatTime(v.durationEstimate)}
+                              ~{formatTime(v.durationEstimate)}{paceWpm(v.pace) ? ` · ${paceWpm(v.pace)} wpm` : ''}
                             </span>
                             {!isActive && (
                               <button

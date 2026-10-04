@@ -136,8 +136,28 @@ export function getVoiceName(voiceId: string): string {
   return getVoiceInfo(voiceId)?.name || voiceId.slice(0, 8);
 }
 
+/** Measured narration pace: speech and silence time, words spoken. */
+export interface NarrationPace {
+  words: number;
+  speechSeconds: number;
+  silenceSeconds: number;
+}
+
+/** Combine scene paces into the chapter's. */
+export function mergePace(a?: NarrationPace, b?: NarrationPace): NarrationPace | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return { words: a.words + b.words, speechSeconds: a.speechSeconds + b.speechSeconds, silenceSeconds: a.silenceSeconds + b.silenceSeconds };
+}
+
+/** Words per minute while speaking (silence excluded); 0 when unknown. */
+export function paceWpm(pace?: NarrationPace): number {
+  return pace && pace.speechSeconds > 0 ? Math.round(pace.words / (pace.speechSeconds / 60)) : 0;
+}
+
 export interface AudioVersion {
   version: number;
+  pace?: NarrationPace;
   audioUrl: string;
   sceneAudioUrls?: string[];
   sceneIds?: string[];
@@ -157,6 +177,7 @@ export interface ChapterAudio {
   sceneIds?: string[];          // scene IDs matching sceneAudioUrls for music lookup
   /** While scenes are still generating: how many the chapter will have. The player waits for them instead of moving on. */
   expectedScenes?: number;
+  pace?: NarrationPace;
   durationEstimate: number;
   generatedAt: string;
   activeVersion: number;
