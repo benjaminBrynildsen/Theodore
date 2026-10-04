@@ -1,8 +1,38 @@
 # TTS Pause Playbook
 
-**Last update:** 2026-06-02 (pause-iteration v3)
-**Scope:** server-side prose-to-TTS preprocessing
-**Files:** `server/tts.ts` (`addTTSPacing`), `server/grok-tag-injector.ts` (`injectPauseTags`, `injectGrokAudioTags`)
+**Last update:** 2026-10-04 (real-silence assembly)
+**Scope:** how narration gets its pauses
+**Files:** `server/audio-assembly.ts` (splitting, gaps, assembly, verification), `server/tts.ts` (`buildVoicePieces`, `narrateAndSave`, provider paths)
+
+## Current: real silence, inserted by us (all providers)
+
+Pauses between paragraphs, speakers and scenes are no longer requested from the TTS model with newlines or tags. Models honoured those unevenly (rushed paragraphs next to dead air), so every provider now goes through one pipeline:
+
+1. **Split** the chapter into pieces — one per paragraph, or per speaker turn in multi-voice — and record the boundary after each (`splitNarration`, `buildVoicePieces`). A quote and its "she said" stay in the same paragraph, so no gap is added between them.
+2. **Synthesize** each piece (parallel, with retry). The model is asked for a natural audiobook pace (~150–160 wpm), not for pauses.
+3. **Trim** each clip's own edge silence (−50 dB), keeping a 0.04 s lead and 0.09 s tail, with 8 ms fades.
+4. **Match loudness** across voices (median per voice, capped ±6 dB).
+5. **Insert room tone** (very quiet pink noise, never digital zero) for each gap, minus the ~0.13 s the kept edges already give.
+6. **One loudness pass** for the whole chapter (`loudnorm I=-18 TP=-3 LRA=11`), encoded once to 128 kbps MP3.
+7. **Verify** with `silencedetect` that each planned gap ≥ 0.35 s is in the output at about its length, and **measure** pace: words per minute of speech, silence excluded. Both are logged; pace is returned to the client and shown as "NNN wpm" on the chapter and in version history.
+
+| Boundary | Gap (standard) |
+|---|---|
+| After the chapter title | 1.5 s |
+| Scene break (`***`, `* * *`, `---`, `#`, `◆`) | 2.5 s |
+| Paragraph | 0.75 s |
+| Speaker change in a quick exchange (short dialogue → dialogue) | 0.45 s |
+| Within a paragraph (quote ↔ tag) | none |
+
+Every gap is varied ±10% with a jitter seeded by the chapter id, so the rhythm doesn't sound mechanical yet a regeneration of the same chapter lands its gaps in the same places. `PACE_GAP_SCALE` (relaxed 1.25×, standard, brisk 0.8×) is ready for a listener pace setting.
+
+**Scene breaks** are normalized to a standalone `***` paragraph before splitting (`normalizeSceneBreakLines`); the marker itself is never spoken. When a chapter is rendered scene by scene, scenes 2..N are requested with `leadIn: 'scene'` and open with the scene gap, so the pause between scene files matches a break inside one file.
+
+**Within a piece** Grok multi-voice still gets `injectGrokAudioTags` (ellipsis/em-dash beats); OpenAI gets plain text; ellipses become an em dash so they aren't read aloud.
+
+## Legacy (before 2026-10-04): pauses requested from the model
+
+Kept for history; `addTTSPacing` and the Fish `(break)` pacing have been removed.
 
 ## Two pause systems run depending on the engine
 

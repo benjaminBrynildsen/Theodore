@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { ElevenLabsVoice, ChapterAudio, AudioVersion, ElevenLabsModel } from '../lib/tts-types';
-import { DEFAULT_NARRATOR_VOICE } from '../lib/tts-types';
+import type { ElevenLabsVoice, ChapterAudio, AudioVersion, ElevenLabsModel, NarrationPace } from '../lib/tts-types';
+import { DEFAULT_NARRATOR_VOICE, mergePace } from '../lib/tts-types';
 
 // Legacy alias
 type OpenAIVoice = ElevenLabsVoice;
@@ -48,7 +48,7 @@ interface AudioState {
    * scene-iteration flows so the player can chain to scene N+1 the moment its
    * audio lands, without waiting for the whole chapter's batch to finish.
    */
-  appendSceneAudio: (chapterId: string, scene: { sceneAudioUrl: string; sceneId: string; durationDelta: number }) => void;
+  appendSceneAudio: (chapterId: string, scene: { sceneAudioUrl: string; sceneId: string; durationDelta: number; pace?: NarrationPace }) => void;
   /** Scenes still to come for a chapter's audio (undefined = complete). */
   setExpectedScenes: (chapterId: string, expected: number | undefined) => void;
   removeChapterAudio: (chapterId: string) => void;
@@ -155,6 +155,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
         sceneAudioUrls: audio.sceneAudioUrls,
         sceneIds: audio.sceneIds,
         durationEstimate: audio.durationEstimate,
+        pace: audio.pace,
         generatedAt: audio.generatedAt,
         voiceConfig: {
           narratorVoice: s.narratorVoice,
@@ -173,6 +174,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
         sceneIds: audio.sceneIds,
         expectedScenes: audio.expectedScenes,
         durationEstimate: audio.durationEstimate,
+        pace: audio.pace,
         generatedAt: audio.generatedAt,
         activeVersion: nextVersion,
         versions: allVersions,
@@ -192,6 +194,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
         sceneAudioUrls: [...existingUrls, scene.sceneAudioUrl],
         sceneIds: [...existingIds, scene.sceneId],
         durationEstimate: existing.durationEstimate + scene.durationDelta,
+        pace: mergePace(existing.pace, scene.pace),
       };
       // Mirror onto the active version so it's persisted if the user re-selects this version later.
       const versions = existing.versions || [];
@@ -202,6 +205,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
             sceneAudioUrls: updated.sceneAudioUrls,
             sceneIds: updated.sceneIds,
             durationEstimate: updated.durationEstimate,
+            pace: updated.pace,
           } : v)
         : versions;
       return { chapterAudio: { ...s.chapterAudio, [chapterId]: { ...updated, versions: nextVersions } } };
@@ -264,6 +268,7 @@ export const useAudioStore = create<AudioState>()(persist((set, get) => ({
             sceneAudioUrls: target.sceneAudioUrls,
             sceneIds: target.sceneIds,
             durationEstimate: target.durationEstimate,
+            pace: target.pace,
             generatedAt: target.generatedAt,
             activeVersion: version,
           },

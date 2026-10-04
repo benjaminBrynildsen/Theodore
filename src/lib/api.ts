@@ -111,6 +111,8 @@ export const api = {
     sceneSFX?: Array<{ prompt: string; audioUrl?: string; position: string; enabled: boolean }>;
     chapterNumber?: number;
     chapterTitle?: string;
+    /** 'scene' for scene files after the first: they open with the scene-break pause. */
+    leadIn?: 'scene';
     isGuest?: boolean;
   }) => {
     // Async job-based generation: submit job, then poll for completion.
@@ -150,6 +152,7 @@ export const api = {
         segments?: number;
         creditsUsed?: number;
         creditsRemaining?: number;
+        pace?: { words: number; speechSeconds: number; silenceSeconds: number };
         error?: string;
       }>(`/tts/job/${jobResponse.jobId}`);
 
@@ -164,6 +167,7 @@ export const api = {
           segments: status.segments!,
           creditsUsed: status.creditsUsed!,
           creditsRemaining: status.creditsRemaining!,
+          pace: status.pace,
         };
       }
 

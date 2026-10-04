@@ -3,16 +3,20 @@ import { Sparkles, X } from 'lucide-react';
 import { useAuthStore } from '../store/auth';
 
 /** Bump this (and the notes) to greet everyone once with a new release. */
-export const APP_VERSION = 57;
+export const APP_VERSION = 58;
 const SEEN_KEY = 'theodore:welcome-version-seen';
 
 const NOTES = [
-  'Now available: Opus 5.5 and Fable 5.1 — every chapter is now written with Claude Opus 5.5 by default. Want even more? Switch to Claude Fable 5.1 in Settings → AI & Generation.',
-  'Characters stay themselves — Theodore now remembers where everyone is, what they know, and how they look from chapter to chapter.',
-  'Objects stay put — artifacts keep track of who holds them and what condition they are in.',
-  'Established details stick — facts from earlier chapters are carried forward so they don’t quietly change.',
-  'Continuity check — chapters flag anything that contradicts what came before, with one-tap re-check.',
-  'Smarter Auto-fill — character profiles are filled from your actual story, never generic placeholders.',
+  'Audiobooks that breathe — narration now has real, measured pauses between paragraphs, speakers and scenes, with even loudness across voices. Regenerate a chapter’s audio, then tap its version badge (e.g. v4/4) to compare it with the earlier version. Each version now shows its speaking pace in words per minute.',
+  'Scene breaks you can hear — a *** break gets a proper pause in the audio and a centered break on the page.',
+  'Audio no longer skips — scenes play strictly in order, and the player waits for the next one instead of jumping ahead.',
+  'Character & object map — plan who changes, how, and when, and where key objects travel through the book.',
+  'Story clock and who-knows-what — Theodore tracks the passage of time and which characters know which secrets.',
+  'Proper introductions — main characters are introduced the way published novels do it, the first time the reader meets them.',
+  'Read synopsis — a one-page synopsis of your book, written to editor standards, with the ending behind a spoiler tap.',
+  'Rename everywhere — change a character’s name once and it updates through every chapter; nicknames are listed under aliases.',
+  'Rebuild chapter and canon Clean up — redo a chapter from a prompt, and sweep junk entries out of your canon in one step.',
+  'Fresher names — a large name bank keeps new characters from all sounding the same.',
 ];
 
 const isAndroid = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
@@ -81,7 +85,7 @@ export function WhatsNewModal() {
           Welcome to Version {APP_VERSION}
         </h2>
         <p className="text-sm text-text-secondary leading-relaxed mb-5">
-          A smarter writer and a story that reads as one continuous book. Theodore now keeps track of your characters, objects, and details across every chapter.
+          Narration with real pauses, plus new tools for planning, naming and summarizing your book.
         </p>
 
         <ul className="space-y-3 mb-6">

@@ -3,10 +3,11 @@
 
 import fs from 'fs';
 import path from 'path';
+import { assembleNarration, countWords, mapLimit, speakingWpm, splitNarration, verifyGaps, type Boundary } from './audio-assembly.js';
 import crypto from 'crypto';
 import { execFile } from 'child_process';
 import { generateSFX } from './sfx.js';
-import { injectGrokAudioTags, injectPauseTags } from './grok-tag-injector.js';
+import { injectGrokAudioTags } from './grok-tag-injector.js';
 
 // ========== Direction Tag Detection ==========
 
@@ -42,68 +43,6 @@ function expandPacingTags(text: string): string {
 
 // ========== TTS Pacing Pass ==========
 
-/**
- * Pre-process prose for more natural TTS delivery.
- * Adds micro-pauses at natural breath points without changing meaning.
- */
-// Voice-specific pacing: some voices are naturally faster and need more pauses.
-// Fable = v1.11 baseline. Rushed voices get v1.12+ expanded pauses.
-const RUSHED_VOICES = new Set(['alloy', 'echo', 'shimmer', 'marin', 'cedar', 'onyx', 'nova', 'ash', 'sage', 'verse', 'ballad', 'coral']);
-
-function addTTSPacing(text: string, voice?: string): string {
-  let result = text;
-  const cleanVoice = (voice || '').replace(/^openai:/, '').toLowerCase();
-  const isRushed = RUSHED_VOICES.has(cleanVoice);
-
-  // Helper: repeat \n — rushed voices get double + 2 extra on each
-  const nl = (count: number) => '\n'.repeat(isRushed ? count * 2 + 2 : count);
-  // Sentences get an extra +3 for rushed voices on top of that
-  const snl = (count: number) => '\n'.repeat(isRushed ? count * 2 + 5 : count);
-
-  // 0a. Scene breaks (***  or  ---  or  ___  on their own line). Must run
-  // BEFORE the asterisk strip and the paragraph-break collapse — otherwise
-  // the markers get eaten and the surrounding pause merges with normal
-  // paragraph breaks. Long-pause render: 15nl on each side of an em-dash.
-  result = result.replace(/\n+\s*(?:\*{3,}|-{3,}|_{3,})\s*\n+/g, `${nl(15)}—${nl(15)}`);
-
-  // 0b. Strip remaining asterisks (narrator reads them aloud)
-  result = result.replace(/\*/g, '');
-
-  // Pause-iteration v2 (2026-06-02) — bumped every boundary one tier so
-  // chapters don't feel rushed. New scene-break rule above; tighter
-  // ellipsis. See docs/tts-pauses.md for the playbook.
-  // 1. Paragraph breaks (was nl(7))
-  result = result.replace(/\n\n+/g, `${nl(10)}—${nl(10)}`);
-
-  // 2. Every sentence boundary (was snl(6))
-  result = result.replace(/([.!?])\s+([A-Z])/g, `$1${snl(8)}$2`);
-
-  // 3. Before dialogue after narration (was nl(7))
-  // dlgMatch tracks snl(8) — non-rushed 8, rushed 8*2+5=21.
-  const dlgMatch = isRushed ? 21 : 8;
-  result = result.replace(new RegExp(`([.!?])${'\n'.repeat(dlgMatch)}([""\\u201C])`, 'g'), `$1${nl(10)}$2`);
-
-  // 4. After dialogue closing before narration
-  result = result.replace(/([""\u201D][.!?]?)\s+([A-Z][a-z])/g, `$1${nl(10)}$2`);
-
-  // 5. Dialogue comma attribution
-  result = result.replace(/([""\u201D]),?\s+([a-z])/g, `$1,${nl(8)}$2`);
-
-  // 6. Em dash pauses
-  result = result.replace(/\s*—\s*/g, `${nl(8)}—${nl(8)}`);
-
-  // 7. Semicolons
-  result = result.replace(/;\s+/g, `;${nl(8)}`);
-
-  // 8. Ellipsis — v4: strip the literal dots entirely and substitute a
-  // big newline-pause instead. Ben asked us to get rid of audible
-  // ellipses a long time ago; we were still preserving the dots.
-  const ellipsisPause = nl(15);
-  result = result.replace(/\.{3}/g, ellipsisPause);
-  result = result.replace(/…/g, ellipsisPause);
-
-  return result;
-}
 
 // ========== Types ==========
 
@@ -157,6 +96,8 @@ export interface TTSRequest {
   sceneSFX?: SceneSFXInput[]; // scene-level SFX (background ambience, intro/outro sounds)
   chapterNumber?: number;   // prepend "Chapter N: Title" announcement
   chapterTitle?: string;
+  /** 'scene' when this is a later scene of a chapter rendered scene by scene: start with the scene-break silence. */
+  leadIn?: Boundary;
 }
 
 export interface TTSResult {
@@ -165,6 +106,8 @@ export interface TTSResult {
   segments: number;
   creditsUsed: number;
   diagnostic?: string; // optional debug info surfaced to client (multi-voice path)
+  /** Measured pacing (speech rate with silence excluded, gap verification). */
+  pace?: NarrationPaceStats;
 }
 
 // ========== Constants ==========
@@ -231,16 +174,10 @@ const OPENAI_API = 'https://api.openai.com/v1/audio/speech';
 
 const OPENAI_TTS_INSTRUCTIONS = `You are a professional audiobook narrator delivering a compelling, emotionally rich performance.
 
-PACING — THIS IS THE MOST CRITICAL INSTRUCTION:
-- Read SLOWLY. Much slower than you think. Like a premium Audible narrator, not a podcast host.
-- PAUSE between EVERY sentence. Every single one. Hold real silence — at least a full beat — before starting the next sentence.
-- Treat every period, exclamation mark, and question mark as a FULL STOP. Do not rush into the next sentence.
-- Paragraph breaks and line breaks mean LONG pauses — hold for TWO full beats of silence.
-- Before and after dialogue: pause noticeably. The listener needs to register the speaker change.
-- Scene transitions deserve the LONGEST pauses — three full beats of silence.
-- Em dashes and ellipses mean DELIBERATE pauses — hold them.
-- When you encounter multiple line breaks in a row, that means an even LONGER pause. Honor every single one.
-- If in doubt, pause LONGER rather than shorter. Rushing is the #1 worst thing a narrator can do.
+PACING:
+- Read at a natural audiobook pace — unhurried and clear, like a premium Audible narrator (about 150-160 words per minute).
+- Let sentence ends land with a short natural beat; em dashes and ellipses get a brief deliberate pause.
+- You will be given one paragraph or one line of dialogue at a time. The silence between paragraphs, speakers and scenes is added afterward, so do not stretch the start or end of the clip with extra silence.
 
 VOCAL DELIVERY:
 - DO NOT be monotone. This is the most important rule. Your voice must rise and fall with the story.
@@ -253,8 +190,6 @@ VOCAL DELIVERY:
 - Lean into emotion. If a character is heartbroken, let your voice crack slightly. If they're furious, let the edge come through.
 
 TRANSITIONS:
-- Pause briefly before and after dialogue — don't rush from narration into quotes.
-- Scene breaks or paragraph shifts deserve a full beat of silence.
 - Build tension gradually — don't peak too early in dramatic passages.
 
 OVERALL:
@@ -630,67 +565,6 @@ export async function getFishVoicesWithPreviews(): Promise<(FishAudioVoiceInfo &
   }
 }
 
-/**
- * Add natural pacing for Fish Audio using [pause] / [long pause] tags.
- * Fish S2-pro supports inline tags: [pause], [long pause], [whisper],
- * [laughing], [sigh], [excited], [angry], [sad], [emphasis], etc.
- */
-function addFishPacing(text: string): string {
-  let result = text;
-
-  // A/B test CONFIRMED: (break) creates real pauses in Fish Audio S2-pro.
-  // (long-break) does NOT work. Stack multiple (break) for longer pauses.
-  // Works with both normalize=true and normalize=false.
-
-  // 0. Strip asterisks (narrator reads them aloud)
-  result = result.replace(/\*/g, '');
-
-  // 1. Protect common abbreviations
-  const abbrevs = ['Mr', 'Mrs', 'Ms', 'Dr', 'St', 'Jr', 'Sr', 'Prof', 'Gen', 'Gov', 'Sgt', 'Cpl', 'Lt', 'Col', 'Capt', 'Rev', 'vs', 'etc', 'approx'];
-  for (const a of abbrevs) {
-    result = result.replace(new RegExp(`\\b${a}\\.`, 'g'), `${a}\u00B7`);
-  }
-
-  const closeQuotes = '[""\u201D\u201C\'\u2019\u2018\u00BB)\\]]';
-
-  // 2. Every sentence boundary → (break)
-  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)[ \\t]+`, 'g'), '$1$2 (break) ');
-  result = result.replace(new RegExp(`([.!?])(${closeQuotes}?)\\n(?!\\n)`, 'g'), '$1$2 (break) ');
-  result = result.replace(new RegExp(`([.!?])(${closeQuotes})(${closeQuotes})[ \\t]+`, 'g'), '$1$2$3 (break) ');
-
-  // 3. Before/after dialogue → double (break)
-  const openQuotes = '[""\u201C\u2018\u00AB]';
-  result = result.replace(new RegExp(`\\(break\\) (${openQuotes})`, 'g'), '(break) (break) $1');
-  result = result.replace(new RegExp(`(${closeQuotes}[.!?]) \\(break\\) ([A-Z])`, 'g'), '$1 (break) (break) $2');
-  result = result.replace(/(["\u201D\u201C]),?\s+([a-z])/g, '$1, (break) $2');
-
-  // 4. Em dashes
-  result = result.replace(/\s*—\s*/g, ' (break) ');
-
-  // 5. Semicolons and colons
-  result = result.replace(/;\s+/g, '; (break) ');
-  result = result.replace(/:\s+/g, ': (break) ');
-
-  // 6. Ellipsis → (break)
-  result = result.replace(/\.{3}/g, '(break)');
-  result = result.replace(/…/g, '(break)');
-
-  // 7. Paragraph breaks → triple (break) for scene-change feel
-  result = result.replace(/\n\n+/g, ' (break) (break) (break) ');
-
-  // 8. Convert any remaining bracket tags
-  result = result.replace(/\[(pause|short pause)\]/gi, '(break)');
-  result = result.replace(/\[(long pause|dramatic pause)\]/gi, '(break) (break)');
-
-  // Deduplicate: max 4 consecutive (break)
-  result = result.replace(/(\(break\)\s*){5,}/g, '(break) (break) (break) (break) ');
-
-  // Clean up
-  result = result.replace(/  +/g, ' ');
-  result = result.replace(/\u00B7/g, '.');
-
-  return result;
-}
 
 // Build a spoken chapter title announcement with provider-specific pauses
 function buildChapterAnnouncement(
@@ -724,27 +598,6 @@ function buildChapterAnnouncement(
   }
 }
 
-// Cached 0.8-second silence buffer for inter-chunk pauses (Fish Audio path).
-// Generated once via ffmpeg, reused for every generation.
-let _silenceCache: Buffer | null = null;
-async function getFishSilenceBuffer(): Promise<Buffer> {
-  if (_silenceCache) return _silenceCache;
-  return new Promise((resolve, reject) => {
-    const args = ['-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono', '-t', '0.8',
-      '-b:a', '192k', '-f', 'mp3', 'pipe:1'];
-    const proc = execFile('ffmpeg', args, { encoding: 'buffer', maxBuffer: 200_000 }, (err, stdout) => {
-      if (err) {
-        // Fallback: 50ms of MP3 silence frame (valid MPEG audio frame header + padding)
-        console.warn('[tts] ffmpeg silence generation failed, using minimal fallback');
-        _silenceCache = Buffer.alloc(400, 0);
-        resolve(_silenceCache);
-        return;
-      }
-      _silenceCache = stdout as unknown as Buffer;
-      resolve(_silenceCache);
-    });
-  });
-}
 
 async function callFishAudioTTS(text: string, voiceId: string): Promise<Buffer> {
   const apiKey = process.env.FISH_AUDIO_API_KEY;
@@ -1538,14 +1391,187 @@ function buildAttributionMap(
 }
 
 // Lines that are only scene-break symbols ("---", "***", "* * *", "###", "◆")
-// must never be read aloud; the paragraph break already gives the pause.
+// must never be read aloud. They are normalized to a standalone "***"
+// paragraph so the narration splitters see the break and put a scene-length
+// silence there; the marker itself is never synthesized.
 const SCENE_BREAK_LINE = /^[ \t]*(?:[-*_~=#•·◆◇—–][ \t]*){3,}$|^[ \t]*(?:#|[◆◇§]|—|–)[ \t]*$/gm;
-export function stripSceneBreakLines(prose: string): string {
-  return (prose || '').replace(SCENE_BREAK_LINE, '').replace(/\n{3,}/g, '\n\n');
+export function normalizeSceneBreakLines(prose: string): string {
+  return (prose || '').replace(SCENE_BREAK_LINE, '\n***\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// ========== Paced narration (real silence) ==========
+// Pieces (paragraphs / speaker turns) are synthesised separately and joined by
+// server/audio-assembly.ts with exact gaps. See docs/tts-pauses.md.
+
+export interface NarrationPaceStats {
+  words: number;
+  speechSeconds: number;
+  silenceSeconds: number;
+  wpm: number;
+  gapsChecked: number;
+  gapsMatched: number;
+  worstGapDeviation: number;
+}
+
+export interface VoicePiece {
+  text: string;
+  gapAfter: Boundary;
+  voice: string;
+  type?: 'narration' | 'dialogue';
+  tone?: string;
+  /** Inline SFX prompts that play as this piece starts (ElevenLabs path). */
+  sfxBefore?: string[];
+}
+
+/** Marks paragraph ends before dialogue parsing, so piece boundaries can be told apart. */
+const PARA_MARK = '\uE000';
+const SCENE_LINE = /^\s*(?:[-*_~=#•·◆◇—–]\s*){3,}$/;
+
+export function markParagraphs(prose: string): string {
+  return prose.replace(/\n\s*\n/g, `${PARA_MARK}\n\n`);
+}
+
+/**
+ * Parsed multi-voice segments → pieces with the right gap after each:
+ * same paragraph (a quote and its "she said") → no added gap; paragraph
+ * break → paragraph gap, or the shorter speaker gap between short dialogue
+ * paragraphs (a conversation); scene break → scene gap; an inline SFX → at
+ * least a paragraph gap before the speech it introduces.
+ */
+export function buildVoicePieces(segments: TTSSegment[]): VoicePiece[] {
+  const pieces: VoicePiece[] = [];
+  let paraBreak = false;
+  let pendingSfx: string[] = [];
+  const close = (next: { type?: string; text: string }) => {
+    const prev = pieces[pieces.length - 1];
+    if (!prev || prev.gapAfter === 'scene') return;
+    if (pendingSfx.length) prev.gapAfter = 'paragraph';
+    else if (!paraBreak) prev.gapAfter = 'none';
+    else {
+      const conversation = prev.type === 'dialogue' && next.type === 'dialogue' && prev.text.length < 400;
+      prev.gapAfter = conversation ? 'speaker' : 'paragraph';
+    }
+  };
+  for (const seg of segments) {
+    if (seg.type === 'sfx') {
+      if (seg.sfxPrompt) pendingSfx.push(seg.sfxPrompt);
+      continue;
+    }
+    const parts = seg.text.split(PARA_MARK);
+    parts.forEach((raw, k) => {
+      if (k > 0) paraBreak = true;
+      const text = raw.trim();
+      if (!text) return;
+      if (SCENE_LINE.test(text)) {
+        const prev = pieces[pieces.length - 1];
+        if (prev) prev.gapAfter = 'scene';
+        paraBreak = false;
+        return;
+      }
+      close({ type: seg.type, text });
+      pieces.push({
+        text,
+        gapAfter: 'none',
+        voice: seg.voice,
+        type: seg.type === 'dialogue' ? 'dialogue' : 'narration',
+        tone: seg.tone,
+        ...(pendingSfx.length ? { sfxBefore: pendingSfx } : {}),
+      });
+      pendingSfx = [];
+      paraBreak = false;
+    });
+  }
+  if (pendingSfx.length && pieces.length) {
+    const last = pieces[pieces.length - 1];
+    last.sfxBefore = [...(last.sfxBefore || []), ...pendingSfx];
+  }
+  return pieces;
+}
+
+/** What a voice should say for one piece: no markup, no audible ellipses. */
+function speakablePiece(text: string): string {
+  return text
+    .replace(/\{sfx:[^}]+\}\s*/g, '')
+    .replace(/\*/g, '')
+    .replace(/\s*(?:\.{3}|…)\s*/g, ' — ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function plainAnnouncement(number?: number, title?: string): string {
+  if (!number) return '';
+  const t = title?.trim();
+  return t ? `Chapter ${number}. ${t}.` : `Chapter ${number}.`;
+}
+
+async function withTTSRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      lastErr = e;
+      const msg = String(e?.message || e);
+      if (/insufficient_quota|invalid|401|403|400/i.test(msg) && !/429|rate/i.test(msg)) throw e;
+      await new Promise((r) => setTimeout(r, 800 * 2 ** attempt));
+      ttsLog(`${label}: retry ${attempt + 1} after ${msg.slice(0, 120)}`);
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Synthesise pieces (bounded concurrency, retries), assemble with real
+ * silence, save, verify the gaps and measure pace.
+ */
+async function narrateAndSave(args: {
+  chapterId: string;
+  pieces: Array<VoicePiece>;
+  synth: (piece: VoicePiece) => Promise<Buffer>;
+  concurrency: number;
+  onProgress?: (pct: number) => void;
+  label: string;
+  /** Optional post-processing of the assembled MP3 (e.g. SFX mixing), given piece start times. */
+  postProcess?: (mp3: Buffer, pieceStarts: number[]) => Promise<Buffer>;
+  leadIn?: Boundary;
+}): Promise<{ filename: string; filepath: string; durationSeconds: number; pace: NarrationPaceStats; pieceCount: number }> {
+  const pieces = args.pieces.filter((p) => p.text.replace(/\[[^\]]+\]/g, '').replace(/[.\s,;:!?\-—]/g, '').length > 0);
+  if (!pieces.length) throw new Error('Nothing to narrate');
+  let done = 0;
+  const audio = await mapLimit(pieces, args.concurrency, async (p, i) => {
+    const buf = await withTTSRetry(() => args.synth(p), `${args.label} piece ${i + 1}/${pieces.length}`);
+    args.onProgress?.(Math.round((++done / pieces.length) * 90));
+    return buf;
+  });
+  const assembled = await assembleNarration(
+    pieces.map((p, i) => ({ audio: audio[i], gapAfter: p.gapAfter, voice: p.voice })),
+    { seed: args.chapterId.replace(/-v\d+$/, ''), leadIn: args.leadIn },
+  );
+  let mp3 = assembled.mp3;
+  if (args.postProcess) mp3 = await args.postProcess(mp3, assembled.pieceStarts);
+  const check = await verifyGaps(assembled.mp3, assembled.plannedGaps).catch(() => ({ checked: 0, matched: 0, worstDeviation: 0 }));
+  const words = pieces.reduce((n, p) => n + countWords(p.text), 0);
+  const pace: NarrationPaceStats = {
+    words,
+    speechSeconds: Math.round(assembled.speechSeconds * 10) / 10,
+    silenceSeconds: Math.round(assembled.silenceSeconds * 10) / 10,
+    wpm: speakingWpm(words, assembled.speechSeconds),
+    gapsChecked: check.checked,
+    gapsMatched: check.matched,
+    worstGapDeviation: check.worstDeviation,
+  };
+  ttsLog(`${args.label}: ${pieces.length} pieces, ${pace.wpm} wpm speech, ${pace.silenceSeconds}s silence, gaps ${check.matched}/${check.checked} (worst ±${check.worstDeviation}s)`);
+  const hash = crypto.createHash('md5').update(args.chapterId + Date.now()).digest('hex').slice(0, 12);
+  const filename = `ch-${hash}.mp3`;
+  const filepath = path.join(AUDIO_DIR, filename);
+  ensureAudioDir();
+  fs.writeFileSync(filepath, mp3);
+  const durationSeconds = Math.round((await measureMp3DurationFromFile(filepath)) ?? assembled.totalSeconds);
+  return { filename, filepath, durationSeconds, pace, pieceCount: pieces.length };
 }
 
 export async function generateChapterAudio(req: TTSRequest & { knownCharacters?: string[]; onProgress?: (pct: number) => void }): Promise<TTSResult> {
-  req = { ...req, prose: stripSceneBreakLines(req.prose) };
+  req = { ...req, prose: normalizeSceneBreakLines(req.prose) };
   ensureAudioDir();
   ttsLog(`START generateChapterAudio chapterId=${req.chapterId} prose=${req.prose.length}chars`);
 
@@ -1563,85 +1589,29 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   // Budget provider path: OpenAI TTS (single-voice, no multi-character routing)
   // Only use OpenAI path if provider is explicitly 'openai' — don't guess from model name
   if ((req.provider || '').toLowerCase() === 'openai') {
-    const clean = stripCharacterTags(req.prose)
-      .replace(/\{sfx:[^}]+\}\s*/g, '')
-      .replace(/\*/g, '')
-      .trim();
-    const announcement = req.chapterNumber
-      ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'openai')
-      : '';
+    const clean = stripCharacterTags(req.prose).replace(/\{sfx:[^}]+\}\s*/g, '').trim();
     let proseBody = clean;
-    if (req.chapterNumber) {
-      proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
-    }
-    const paced = announcement + addTTSPacing(proseBody, voiceMap.narrator);
+    if (req.chapterNumber) proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
     const openaiSpeed = Math.max(0.5, Math.min(2.0, (req.speed ?? 1.0)));
-
-    // OpenAI TTS has a ~4096 token input limit. Chunk long text by paragraphs
-    // to stay safely under the limit (~1500 tokens ≈ 6000 chars).
-    const MAX_CHUNK_CHARS = 5500;
-    const chunks: string[] = [];
-    if (paced.length <= MAX_CHUNK_CHARS) {
-      chunks.push(paced);
-    } else {
-      const paragraphs = paced.split(/\n\n+/);
-      let current = '';
-      for (const para of paragraphs) {
-        if (current.length + para.length + 2 > MAX_CHUNK_CHARS && current.length > 0) {
-          chunks.push(current.trim());
-          current = para;
-        } else {
-          current += (current ? '\n\n' : '') + para;
-        }
-      }
-      if (current.trim()) chunks.push(current.trim());
-      // Safety: if any single chunk is still too long, split by sentences
-      const safeChunks: string[] = [];
-      for (const chunk of chunks) {
-        if (chunk.length <= MAX_CHUNK_CHARS) {
-          safeChunks.push(chunk);
-        } else {
-          const sentences = chunk.match(/[^.!?]*[.!?]+[\s]*|[^.!?]+$/g) || [chunk];
-          let sc = '';
-          for (const s of sentences) {
-            if (sc.length + s.length > MAX_CHUNK_CHARS && sc.length > 0) {
-              safeChunks.push(sc.trim());
-              sc = s;
-            } else {
-              sc += s;
-            }
-          }
-          if (sc.trim()) safeChunks.push(sc.trim());
-        }
-      }
-      chunks.length = 0;
-      chunks.push(...safeChunks);
-    }
-
-    ttsLog(`OpenAI TTS: ${chunks.length} chunks for ${paced.length} chars (parallel)`);
-    // Generate all chunks in parallel
-    const audioBuffers = await Promise.all(
-      chunks.map(async (chunk, ci) => {
-        const buf = await callOpenAITTS(chunk, voiceMap.narrator, openaiSpeed);
-        req.onProgress?.(Math.round(((ci + 1) / chunks.length) * 100));
-        return buf;
-      })
-    );
-
-    // Concatenate MP3 buffers (MP3 frames are independently decodable)
-    const combined = Buffer.concat(audioBuffers);
-    const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
-    const filename = `ch-${hash}.mp3`;
-    const filepath = path.join(AUDIO_DIR, filename);
-    fs.writeFileSync(filepath, combined);
-    const durationEstimate = await measureMp3Duration(filepath, clean.length, openaiSpeed);
+    const pieces = splitNarration(proseBody, plainAnnouncement(req.chapterNumber, req.chapterTitle))
+      .map((p) => ({ text: speakablePiece(p.text), gapAfter: p.gapAfter, voice: voiceMap.narrator }));
+    const out = await narrateAndSave({
+      chapterId: req.chapterId,
+      pieces,
+      leadIn: req.leadIn,
+      synth: (p) => callOpenAITTS(p.text, p.voice, openaiSpeed),
+      concurrency: 6,
+      onProgress: req.onProgress,
+      label: 'OpenAI TTS',
+    });
     // Budget tier pricing: ~5x cheaper than ElevenLabs baseline in Theodore credits
     const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
     return {
-      audioUrl: `/uploads/audio/${filename}`,
-      durationEstimate,
-      segments: chunks.length,
+      audioUrl: `/uploads/audio/${out.filename}`,
+      durationEstimate: out.durationSeconds,
+      segments: out.pieceCount,
       creditsUsed,
+      pace: out.pace,
     };
   }
 
@@ -1678,8 +1648,13 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
     // Order matters: pauses first, dialogue tags second. The dialogue
     // injector walks quotes — adding pauses afterward would land them
     // inside taggedBody and survive the multi-voice split.
+    // Paragraph and scene pauses are real silence now (see narrateAndSave);
+    // paragraph ends are marked so pieces know where they fall. The dialogue
+    // cue injector (whisper/laugh/…) still runs on the full prose.
+    void announcement;
+    const intro = plainAnnouncement(req.chapterNumber, req.chapterTitle);
     const proseWithAnnouncement = injectGrokAudioTags(
-      injectPauseTags(announcement + proseBody),
+      markParagraphs((intro ? `${intro}\n\n` : '') + proseBody),
     );
     let segments = parseDialogue(proseWithAnnouncement, req.knownCharacters, req.characterAliases, req.characterGenders, attributionMap);
     segments = applyVoiceMap(segments, voiceMap);
@@ -1767,48 +1742,27 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
         XAI_INLINE_TAGS.has(tag.toLowerCase().trim()) ? m : '',
       );
 
-    let completed = 0;
-    const audioBuffers = await Promise.all(
-      speechSegs.map(async (seg, idx) => {
-        // Strip non-xAI bracket tags (speaker tags, direction tags) but keep
-        // xAI audio tags like [laugh] so they actually render in TTS. Tags
-        // were injected onto the prose BEFORE segmentation so the cues
-        // travel inside each dialogue segment.
-        let speakable = stripNonXaiBrackets(seg.text).trim();
-        const next = speechSegs[idx + 1];
-        // Trailing pause at end-of-segment before voice change. v6.7:
-        // scoped to dialogue → dialogue ONLY (character A → character B).
-        // Previously fired on every voice change including dialogue ↔
-        // narration, which stacked on top of the [pause] from
-        // injectPauseTags step 2 AND the audio cut between segments —
-        // multi-voice ended up with triple-pauses at every dialogue
-        // boundary vs single-voice's single pause. Limiting to
-        // char→char keeps the back-and-forth handoff readable while
-        // matching single-voice pacing on dialogue ↔ narration.
-        const isCharToChar = seg.type === 'dialogue' && next?.type === 'dialogue';
-        if (next && next.voice && next.voice !== seg.voice && isCharToChar) {
-          speakable = `${speakable} [pause]`;
-        }
-        const buf = await callGrokTTS(speakable, seg.voice);
-        completed++;
-        req.onProgress?.(Math.round((completed / speechSegs.length) * 100));
-        return buf;
-      }),
-    );
-
-    const combined = Buffer.concat(audioBuffers);
-    const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
-    const filename = `ch-${hash}.mp3`;
-    const filepath = path.join(AUDIO_DIR, filename);
-    fs.writeFileSync(filepath, combined);
-    const durationEstimate = await measureMp3Duration(filepath, req.prose.length);
+    const pieces = buildVoicePieces(merged)
+      .map((p) => ({ ...p, text: speakablePiece(stripNonXaiBrackets(p.text)) }));
+    // The announcement is its own piece: give it the title pause.
+    if (intro && pieces[0] && pieces[0].text.startsWith('Chapter')) pieces[0].gapAfter = 'title';
+    const out = await narrateAndSave({
+      chapterId: req.chapterId,
+      pieces,
+      leadIn: req.leadIn,
+      synth: (p) => callGrokTTS(p.text, p.voice),
+      concurrency: 6,
+      onProgress: req.onProgress,
+      label: 'Grok multi-voice',
+    });
     const creditsUsed = Math.max(10, Math.ceil(req.prose.length / 1000) * 6);
     return {
-      audioUrl: `/uploads/audio/${filename}`,
-      durationEstimate,
-      segments: speechSegs.length,
+      audioUrl: `/uploads/audio/${out.filename}`,
+      durationEstimate: out.durationSeconds,
+      segments: out.pieceCount,
       creditsUsed,
       diagnostic,
+      pace: out.pace,
     };
   }
 
@@ -1816,175 +1770,61 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   // xAI allows 15K chars per request — we chunk much smaller for parallelism
   // and to match the pacing/boundary logic we already use for OpenAI.
   if ((req.provider || '').toLowerCase() === 'grok') {
-    const clean = stripCharacterTags(req.prose)
-      .replace(/\{sfx:[^}]+\}\s*/g, '')
-      .replace(/\*/g, '')
-      .trim();
-    const announcement = req.chapterNumber
-      ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'grok')
-      : '';
+    const clean = stripCharacterTags(req.prose).replace(/\{sfx:[^}]+\}\s*/g, '').trim();
     let proseBody = clean;
-    if (req.chapterNumber) {
-      proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
-    }
-    // Grok narrator path uses xAI's native [pause]/[long-pause] tags
-    // (v3, 2026-06-02) — same tag scheme as the multi-voice path. The old
-    // newline-based addTTSPacing was a port from the OpenAI path and
-    // under-paused on Grok. Chunk on RAW paragraph boundaries first, then
-    // run injectPauseTags per chunk so the splitter sees clean prose.
-    const paced = announcement + proseBody;
-
-    // Chunk long text. Keep chunks well below xAI's 15K limit for safety +
-    // parallelism. Split on paragraph boundaries first, with sentence-level
-    // fallback for ultra-long paragraphs so we never cut mid-sentence.
-    const MAX_CHUNK_CHARS = 5500;
-    const chunks: string[] = [];
-    if (paced.length <= MAX_CHUNK_CHARS) {
-      chunks.push(paced);
-    } else {
-      const paragraphs = paced.split(/\n\n+/);
-      let current = '';
-      for (const para of paragraphs) {
-        if (current.length + para.length + 2 > MAX_CHUNK_CHARS && current.length > 0) {
-          chunks.push(current.trim());
-          current = para;
-        } else {
-          current += (current ? '\n\n' : '') + para;
-        }
-      }
-      if (current.trim()) chunks.push(current.trim());
-      // Safety: if any single chunk is still too long, split by sentences
-      const safeChunks: string[] = [];
-      for (const chunk of chunks) {
-        if (chunk.length <= MAX_CHUNK_CHARS) {
-          safeChunks.push(chunk);
-        } else {
-          const sentences = chunk.match(/[^.!?]*[.!?]+[\s]*|[^.!?]+$/g) || [chunk];
-          let sc = '';
-          for (const s of sentences) {
-            if (sc.length + s.length > MAX_CHUNK_CHARS && sc.length > 0) {
-              safeChunks.push(sc.trim());
-              sc = s;
-            } else {
-              sc += s;
-            }
-          }
-          if (sc.trim()) safeChunks.push(sc.trim());
-        }
-      }
-      chunks.length = 0;
-      chunks.push(...safeChunks);
-    }
-
-    // Filter out empty/whitespace-only chunks — past Fish bug caused duplicates.
-    const validChunks = chunks.filter(c => c.replace(/[.\s,;:!?\-—]/g, '').length > 0);
-    // Inject xAI pause tags per chunk AFTER chunking so the paragraph
-    // splitter saw clean prose. callGrokTTS will then add dialogue-cue
-    // tags (whisper/laugh/etc.) on top.
-    const taggedChunks = validChunks.map((c) => injectPauseTags(c));
-    ttsLog(`Grok TTS: ${taggedChunks.length} chunks for ${paced.length} chars (parallel, tag-based pauses), voice=${voiceMap.narrator}`);
-
-    // Generate all chunks in parallel. If any one fails, fail the whole
-    // generation — partial audio would silently drop a segment of the chapter.
-    const audioBuffers = await Promise.all(
-      taggedChunks.map(async (chunk, ci) => {
-        const buf = await callGrokTTS(chunk, voiceMap.narrator);
-        req.onProgress?.(Math.round(((ci + 1) / taggedChunks.length) * 100));
-        return buf;
-      })
-    );
-
-    // Concatenate MP3 buffers (MP3 frames are independently decodable)
-    const combined = Buffer.concat(audioBuffers);
-    const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
-    const filename = `ch-${hash}.mp3`;
-    const filepath = path.join(AUDIO_DIR, filename);
-    fs.writeFileSync(filepath, combined);
-    const durationEstimate = await measureMp3Duration(filepath, clean.length);
+    if (req.chapterNumber) proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
+    // Pauses between paragraphs are real silence now; within a paragraph xAI
+    // paces from punctuation ("combine tags with punctuation" per xAI docs).
+    const pieces = splitNarration(proseBody, plainAnnouncement(req.chapterNumber, req.chapterTitle))
+      .map((p) => ({ text: speakablePiece(p.text), gapAfter: p.gapAfter, voice: voiceMap.narrator }));
+    const out = await narrateAndSave({
+      chapterId: req.chapterId,
+      pieces,
+      leadIn: req.leadIn,
+      synth: (p) => callGrokTTS(p.text, p.voice),
+      concurrency: 6,
+      onProgress: req.onProgress,
+      label: 'Grok TTS',
+    });
     // Grok is ~$4.20/1M chars (cheaper than OpenAI's $15/1M).
     // Pricing: 6 credits per 1K chars, min 10 — matches budget-tier feel.
     const creditsUsed = Math.max(10, Math.ceil(clean.length / 1000) * 6);
     return {
-      audioUrl: `/uploads/audio/${filename}`,
-      durationEstimate,
-      segments: validChunks.length,
+      audioUrl: `/uploads/audio/${out.filename}`,
+      durationEstimate: out.durationSeconds,
+      segments: out.pieceCount,
       creditsUsed,
+      pace: out.pace,
     };
   }
 
   // ── Fish Audio path: single-voice, high-quality narration ──
   if ((req.provider || '').toLowerCase() === 'fish') {
-    const clean = stripCharacterTags(req.prose)
-      .replace(/\{sfx:[^}]+\}\s*/g, '')
-      .trim();
-    const announcement = req.chapterNumber
-      ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'fish')
-      : '';
-    // Strip any existing "Chapter N" / "Chapter N: Title" from the start of prose
-    // to avoid the narrator saying the chapter title twice
+    const clean = stripCharacterTags(req.prose).replace(/\{sfx:[^}]+\}\s*/g, '').trim();
     let proseBody = clean;
-    if (req.chapterNumber) {
-      proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
-    }
-    // Add announcement AFTER pacing so its pauses aren't deduplicated
-    const paced = announcement + addFishPacing(proseBody);
-
-    // Smaller chunks + parallel generation for speed.
-    // Fish Audio's concurrency limit is 5 (starter tier), so we target 3-5 chunks.
-    const MAX_CHUNK_CHARS = 3000;
-    const chunks: string[] = [];
-    const paragraphs = paced.split(/\n\n+/);
-    let current = '';
-    for (const para of paragraphs) {
-      if (current.length + para.length + 2 > MAX_CHUNK_CHARS && current.length > 0) {
-        chunks.push(current.trim());
-        current = para;
-      } else {
-        current += (current ? '\n\n' : '') + para;
-      }
-    }
-    if (current.trim()) chunks.push(current.trim());
-
-    // Strip 'fish:' prefix from voice ID
+    if (req.chapterNumber) proseBody = proseBody.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
     const fishVoiceId = voiceMap.narrator.replace(/^fish:/, '');
-    ttsLog(`Fish Audio TTS: ${chunks.length} chunks for ${paced.length} chars (parallel), voice=${fishVoiceId}`);
-
-    // Filter out empty/whitespace-only chunks that would cause duplicate audio
-    const validChunks = chunks.filter(c => c.replace(/[.\s,;:!?\-—]/g, '').length > 0);
-    ttsLog(`Fish Audio TTS: ${validChunks.length} valid chunks (${chunks.length - validChunks.length} empty removed)`);
-
-    // Generate chunks sequentially — concurrency is handled at the scene level
-    // (multiple scenes run in parallel, so each scene's chunks must be sequential
-    // to avoid exceeding Fish Audio's 5 concurrent request limit)
-    const audioBuffers: Buffer[] = [];
-    for (let ci = 0; ci < validChunks.length; ci++) {
-      const buf = await callFishAudioTTS(validChunks[ci], fishVoiceId);
-      audioBuffers.push(buf);
-      req.onProgress?.(Math.round(((ci + 1) / validChunks.length) * 100));
-    }
-
-    // Insert 0.8s of silence between chunks for natural paragraph pauses.
-    // MP3 silence: a valid silent MPEG frame repeated. We use ffmpeg-generated
-    // silence cached in memory to avoid shelling out on every generation.
-    const silenceBuf = await getFishSilenceBuffer();
-    const parts: Buffer[] = [];
-    for (let i = 0; i < audioBuffers.length; i++) {
-      parts.push(audioBuffers[i]);
-      if (i < audioBuffers.length - 1) parts.push(silenceBuf);
-    }
-    const combined = Buffer.concat(parts);
-    const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
-    const filename = `ch-${hash}.mp3`;
-    const filepath = path.join(AUDIO_DIR, filename);
-    fs.writeFileSync(filepath, combined);
-    const durationEstimate = await measureMp3Duration(filepath, clean.length);
+    const pieces = splitNarration(proseBody, plainAnnouncement(req.chapterNumber, req.chapterTitle))
+      .map((p) => ({ text: speakablePiece(p.text), gapAfter: p.gapAfter, voice: fishVoiceId }));
+    // One request at a time per scene: Fish allows 5 concurrent, and scenes
+    // already run in parallel.
+    const out = await narrateAndSave({
+      chapterId: req.chapterId,
+      pieces,
+      leadIn: req.leadIn,
+      synth: (p) => callFishAudioTTS(p.text, p.voice),
+      concurrency: 1,
+      onProgress: req.onProgress,
+      label: 'Fish TTS',
+    });
     // Same credit cost as OpenAI (similar API price)
     const creditsUsed = Math.max(20, Math.ceil(clean.length / 1000) * 20);
     return {
-      audioUrl: `/uploads/audio/${filename}`,
-      durationEstimate,
-      segments: chunks.length,
+      audioUrl: `/uploads/audio/${out.filename}`,
+      durationEstimate: out.durationSeconds,
+      segments: out.pieceCount,
       creditsUsed,
+      pace: out.pace,
     };
   }
 
@@ -2037,14 +1877,13 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   console.log(`[TTS] Prose first 200 chars: ${req.prose.slice(0, 200)}`);
 
   // Prepend chapter announcement for ElevenLabs
-  const elAnnouncement = req.chapterNumber
-    ? buildChapterAnnouncement(req.chapterNumber, req.chapterTitle, 'elevenlabs')
-    : '';
+  const elIntro = plainAnnouncement(req.chapterNumber, req.chapterTitle);
   let elProse = req.prose;
   if (req.chapterNumber) {
     elProse = elProse.replace(/^Chapter\s+\d+[.:]\s*[^\n]*/i, '').trim();
   }
-  const proseWithAnnouncement = elAnnouncement + elProse;
+  // Paragraph ends are marked so pieces get real paragraph / scene pauses.
+  const proseWithAnnouncement = markParagraphs((elIntro ? `${elIntro}\n\n` : '') + elProse);
 
   // Parse prose into segments (narration, dialogue, sfx markers)
   let segments: TTSSegment[];
@@ -2076,122 +1915,57 @@ export async function generateChapterAudio(req: TTSRequest & { knownCharacters?:
   // Merge consecutive speech segments (preserves sfx markers between them)
   const merged = mergeConsecutiveSegments(segments);
 
-  // Generate TTS for speech segments, track inline SFX with their timestamps
-  // Inline SFX are overlaid on top of the narration at the point they appear — not concatenated
-  const speechBuffers: Buffer[] = [];
-  // Track: at what byte offset in the concatenated speech does each inline SFX go?
-  // We'll convert to time offset later using ffmpeg
-  const inlineSFXOverlays: { sfxPrompt: string; afterSpeechIndex: number }[] = [];
+  // Speech pieces with real pauses between them (see narrateAndSave). Inline
+  // SFX play as the piece they precede starts; their positions come from the
+  // assembled timeline, so the added silence never throws them off.
+  const pieces = buildVoicePieces(merged)
+    .filter((p) => p.text.replace(/\[[^\]]+\]/g, '').replace(/[\u{1F600}-\u{1F9FF}]/gu, '').trim())
+    .map((p) => ({ ...p, text: p.text.replace(/\{sfx:[^}]+\}\s*/g, '').replace(/\*/g, '').replace(/\s*(?:\.{3}|…)\s*/g, ' — ').trim() }));
+  if (elIntro && pieces[0] && pieces[0].text.startsWith('Chapter')) pieces[0].gapAfter = 'title';
 
-  let pendingSFX: string[] = []; // SFX prompts waiting to be attached to the next speech segment
-  const totalSpeechSegs = merged.filter(s => s.type !== 'sfx' && s.text.trim()).length;
-  let completedSpeechSegs = 0;
-
-  for (const seg of merged) {
-    if (seg.type === 'sfx') {
-      pendingSFX.push(seg.sfxPrompt || '');
-      continue;
+  const postProcess = async (mp3: Buffer, pieceStarts: number[]): Promise<Buffer> => {
+    const inlineSFXFiles: { audioUrl: string; atSpeechIndex: number }[] = [];
+    for (let i = 0; i < pieces.length; i++) {
+      for (const sfxPrompt of pieces[i].sfxBefore || []) {
+        const resolved = await resolveInlineSFX(sfxPrompt, sceneSFX);
+        if (!resolved) continue;
+        const tmpPath = path.join(AUDIO_DIR, `tmp-inline-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.mp3`);
+        fs.writeFileSync(tmpPath, resolved);
+        inlineSFXFiles.push({ audioUrl: tmpPath, atSpeechIndex: i });
+      }
     }
-    if (!seg.text.trim()) continue;
-    // ElevenLabs rejects inputs that are empty after stripping speaker tags/emojis
-    const textContent = seg.text.replace(/\[[^\]]+\]/g, '').replace(/[\u{1F600}-\u{1F9FF}]/gu, '').trim();
-    if (!textContent) continue;
-
-    // If there are pending SFX (inline sound effects), add natural pauses
-    // around them so narration doesn't feel rushed
-    let ttsText = seg.text;
-    if (pendingSFX.length > 0 && speechBuffers.length > 0) {
-      // Add a pause at the start of text following an SFX marker
-      ttsText = '... ' + ttsText;
-    }
-
-    const buf = await callElevenLabsTTS(ttsText, seg.voice, model, speed, seg.tone);
-    completedSpeechSegs++;
-    req.onProgress?.(Math.round((completedSpeechSegs / totalSpeechSegs) * 90)); // cap at 90%, final 10% for mixing
-
-    // Attach any pending SFX to play at the START of this speech segment
-    for (const sfxPrompt of pendingSFX) {
-      inlineSFXOverlays.push({ sfxPrompt, afterSpeechIndex: speechBuffers.length });
-    }
-    pendingSFX = [];
-
-    speechBuffers.push(buf);
-  }
-
-  // If there are trailing SFX with no following speech, attach to the last segment
-  if (pendingSFX.length > 0 && speechBuffers.length > 0) {
-    for (const sfxPrompt of pendingSFX) {
-      inlineSFXOverlays.push({ sfxPrompt, afterSpeechIndex: speechBuffers.length - 1 });
-    }
-  }
-
-  // Intro/outro SFX are now mixed via ffmpeg (not concatenated) for volume control + fade
-  // Skip the old prepend/append approach
-  console.log(`[TTS] Will mix ${introSFX.length} intro, ${outroSFX.length} outro via ffmpeg`);
-
-  // Concatenate speech into one buffer
-  let combined = Buffer.concat(speechBuffers);
-  ttsLog(`SPEECH CONCAT: ${speechBuffers.length} buffers → ${combined.length} bytes`);
-
-  // Resolve inline SFX audio files and compute byte offsets → time offsets
-  // Then overlay them + background SFX in a single ffmpeg pass
-  const inlineSFXFiles: { audioUrl: string; atSpeechIndex: number }[] = [];
-  for (const overlay of inlineSFXOverlays) {
-    const resolved = await resolveInlineSFX(overlay.sfxPrompt, sceneSFX);
-    if (resolved) {
-      // Save to temp file for ffmpeg
-      const tmpPath = path.join(AUDIO_DIR, `tmp-inline-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.mp3`);
-      fs.writeFileSync(tmpPath, resolved);
-      inlineSFXFiles.push({ audioUrl: tmpPath, atSpeechIndex: overlay.afterSpeechIndex });
-      console.log(`  [TTS] Inline SFX: "${overlay.sfxPrompt}" → overlay at segment ${overlay.afterSpeechIndex}`);
-    }
-  }
-
-  // Mix everything with ffmpeg: inline SFX overlays + background loops + intro/outro
-  if (inlineSFXFiles.length > 0 || backgroundSFX.length > 0 || introSFX.length > 0 || outroSFX.length > 0) {
+    if (!inlineSFXFiles.length && !backgroundSFX.length && !introSFX.length && !outroSFX.length) return mp3;
     ttsLog(`MIXING SFX: inline=${inlineSFXFiles.length} bg=${backgroundSFX.length} intro=${introSFX.length} outro=${outroSFX.length}`);
-    combined = await mixAllSFX(combined, speechBuffers, inlineSFXFiles, backgroundSFX, introSFX, outroSFX);
-    ttsLog(`MIX COMPLETE: combined.length=${combined.length}`);
-    // Clean up temp inline SFX files
-    for (const f of inlineSFXFiles) {
-      try { fs.unlinkSync(f.audioUrl); } catch {}
+    try {
+      return await mixAllSFX(mp3, [], inlineSFXFiles, backgroundSFX, introSFX, outroSFX, pieceStarts);
+    } finally {
+      for (const f of inlineSFXFiles) {
+        try { fs.unlinkSync(f.audioUrl); } catch {}
+      }
     }
-  }
+  };
 
-  // Save to file
-  ttsLog(`REACHED SAVE POINT | chapterId=${req.chapterId} | combined.length=${combined.length}`);
-
-  const hash = crypto.createHash('md5').update(req.chapterId + Date.now()).digest('hex').slice(0, 12);
-  const filename = `ch-${hash}.mp3`;
-  const filepath = path.join(AUDIO_DIR, filename);
-  try {
-    ensureAudioDir();
-    const logMsg = `[${new Date().toISOString()}] Writing ${(combined.length / 1024).toFixed(0)}KB to ${filepath}\n`;
-    fs.appendFileSync(path.join(AUDIO_DIR, 'write.log'), logMsg);
-    console.log(`[TTS] Writing ${(combined.length / 1024).toFixed(0)}KB to ${filepath}`);
-    fs.writeFileSync(filepath, combined);
-    const exists = fs.existsSync(filepath);
-    const stat = exists ? fs.statSync(filepath) : null;
-    const successMsg = `[${new Date().toISOString()}] Saved: ${filepath} (exists=${exists}, size=${stat?.size || 0})\n`;
-    fs.appendFileSync(path.join(AUDIO_DIR, 'write.log'), successMsg);
-    console.log(`[TTS] Saved audio: ${filepath} (exists=${exists}, size=${stat?.size || 0})`);
-  } catch (writeErr: any) {
-    const errMsg = `[${new Date().toISOString()}] FAILED: ${writeErr.message} | AUDIO_DIR=${AUDIO_DIR} | filepath=${filepath} | combined.length=${combined.length}\n`;
-    try { fs.appendFileSync(path.join(AUDIO_DIR, 'write.log'), errMsg); } catch {}
-    console.error(`[TTS] FAILED to write audio file: ${writeErr.message}`);
-  }
-
-  const durationEstimate = await measureMp3Duration(filepath, req.prose.length, speed);
+  const out = await narrateAndSave({
+    chapterId: req.chapterId,
+    pieces,
+    leadIn: req.leadIn,
+    synth: (p) => callElevenLabsTTS(p.text, p.voice, model, speed, p.tone),
+    concurrency: 3,
+    onProgress: req.onProgress,
+    label: 'ElevenLabs',
+    postProcess,
+  });
 
   // Character-based credit cost: 100 credits per 1,000 characters
   const charCount = req.prose.length;
   const creditsUsed = Math.max(100, Math.ceil(charCount / 1000) * 100);
 
   return {
-    audioUrl: `/uploads/audio/${filename}`,
-    durationEstimate,
-    segments: speechBuffers.length,
+    audioUrl: `/uploads/audio/${out.filename}`,
+    durationEstimate: out.durationSeconds,
+    segments: out.pieceCount,
     creditsUsed,
+    pace: out.pace,
   };
 }
 
@@ -2318,6 +2092,8 @@ async function mixAllSFX(
   bgSFX: SceneSFXInput[],
   introSFXList: SceneSFXInput[] = [],
   outroSFXList: SceneSFXInput[] = [],
+  /** Start time (s) of each speech piece, when already known from assembly. */
+  segStarts?: number[],
 ): Promise<Buffer> {
   const tmpDir = path.join(AUDIO_DIR, 'tmp-' + Date.now());
   fs.mkdirSync(tmpDir, { recursive: true });
@@ -2340,11 +2116,13 @@ async function mixAllSFX(
     }
 
     // Compute cumulative time offset for each segment
-    const segTimeOffsets: number[] = [];
+    const segTimeOffsets: number[] = segStarts ? [...segStarts] : [];
     let cumTime = 0;
-    for (const dur of segDurations) {
-      segTimeOffsets.push(cumTime);
-      cumTime += dur;
+    if (!segStarts) {
+      for (const dur of segDurations) {
+        segTimeOffsets.push(cumTime);
+        cumTime += dur;
+      }
     }
 
     // Build ffmpeg inputs and filter

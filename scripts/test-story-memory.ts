@@ -19,6 +19,9 @@ import { cleanExtendMerge } from '../src/lib/extend-merge';
 import { buildSynopsisPrompt, parseSynopsis, synopsisSourceKey } from '../src/lib/synopsis';
 import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, ensureSceneCoverage, evenSplit } from '../src/lib/scene-split';
 import { buildGenerationPrompt } from '../src/lib/prompt-builder';
+import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS } from '../server/audio-assembly';
+import { buildVoicePieces, markParagraphs, normalizeSceneBreakLines } from '../server/tts';
+import { mergePace, paceWpm } from '../src/lib/tts-types';
 import {
   parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
 } from '../src/lib/story-threads';
@@ -686,6 +689,53 @@ t('synopsis: principles in the prompt, ending kept separate, staleness tracked',
   const changed = [{ ...chs[0] }, { ...chs[1], premise: { purpose: 'Wes tests the rod at the lake.' } }];
   assert.notEqual(synopsisSourceKey(project, changed), key, 'premise change makes it stale');
   assert.equal(synopsisSourceKey(project, [...chs].reverse()), key, 'order-independent');
+});
+
+// ---------- Audio pacing (real silence) ----------
+t('normalizeSceneBreakLines keeps every break as a *** paragraph', () => {
+  const out = normalizeSceneBreakLines('One.\n\n* * *\n\nTwo.\n\n---\n\nThree.\n#\nFour.');
+  assert.equal(out, 'One.\n\n***\n\nTwo.\n\n***\n\nThree.\n\n***\n\nFour.');
+});
+
+t('splitNarration: title, paragraph, speaker and scene gaps; break never spoken', () => {
+  const pieces = splitNarration('She walked in.\n\n"Hi."\n\n"Hello."\n\n***\n\nLater that night.', 'Chapter 1. The Door.');
+  assert.deepEqual(pieces.map((p) => p.gapAfter), ['title', 'paragraph', 'speaker', 'scene', 'none']);
+  assert.ok(pieces.every((p) => !/\*/.test(p.text)));
+});
+
+t('buildVoicePieces: quote and its tag stay together; paragraph and scene gaps', () => {
+  const prose = markParagraphs(normalizeSceneBreakLines('He waited.\n\n"Go," she said.\n\n---\n\nMorning came.'));
+  const [a, b] = prose.split('"Go,"');
+  const segs = [
+    { type: 'narration', text: a, voice: 'n' },
+    { type: 'dialogue', text: '"Go,"', voice: 'v' },
+    { type: 'narration', text: b, voice: 'n' },
+  ] as any;
+  const pieces = buildVoicePieces(segs);
+  assert.deepEqual(pieces.map((p) => [p.text, p.gapAfter]), [
+    ['He waited.', 'paragraph'],
+    ['"Go,"', 'none'],
+    ['she said.', 'scene'],
+    ['Morning came.', 'none'],
+  ]);
+});
+
+t('jitteredGap is deterministic and stays within ±10%', () => {
+  for (let i = 0; i < 50; i++) {
+    const g = jitteredGap(GAP_SECONDS.paragraph, 'ch-1', i);
+    assert.equal(g, jitteredGap(GAP_SECONDS.paragraph, 'ch-1', i));
+    assert.ok(g >= GAP_SECONDS.paragraph * 0.9 - 1e-9 && g <= GAP_SECONDS.paragraph * 1.1 + 1e-9);
+  }
+  assert.equal(jitteredGap(0, 'ch-1', 3), 0);
+});
+
+t('pace: words per minute of speech, merged across scenes', () => {
+  assert.equal(countWords('One two, three — four.'), 4);
+  assert.equal(speakingWpm(300, 120), 150);
+  const merged = mergePace({ words: 150, speechSeconds: 60, silenceSeconds: 10 }, { words: 160, speechSeconds: 60, silenceSeconds: 12 });
+  assert.deepEqual(merged, { words: 310, speechSeconds: 120, silenceSeconds: 22 });
+  assert.equal(paceWpm(merged), 155);
+  assert.equal(paceWpm(undefined), 0);
 });
 
 console.log(`\n${passed} passed`);
