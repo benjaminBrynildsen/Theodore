@@ -8,6 +8,7 @@ import { buildSceneEditPrompt } from '../../lib/prompt-builder';
 import { generateText } from '../../lib/generate';
 import { generateId } from '../../lib/utils';
 import { cn } from '../../lib/utils';
+import { editingModel } from '../../lib/models';
 import type { EditChatMessage, Scene } from '../../types';
 
 interface Props {
@@ -81,7 +82,7 @@ export function EditChatPanel({ chapterId, scene }: Props) {
 
       const result = await generateText({
         prompt,
-        model: settings.ai.preferredModel || 'claude-opus',
+        model: editingModel(),
         maxTokens: 3000,
         action: 'chat-message',
         projectId: project.id,

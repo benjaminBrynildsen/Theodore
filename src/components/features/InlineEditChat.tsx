@@ -6,7 +6,7 @@ import { useSettingsStore } from '../../store/settings';
 import { generateText, generateStream } from '../../lib/generate';
 import { useGenerationStore } from '../../store/generation';
 import { buildEditChatContext, buildSelectionEditPrompt } from '../../lib/prompt-builder';
-import { analysisModel } from '../../lib/models';
+import { editingModel } from '../../lib/models';
 import { generateId, cn } from '../../lib/utils';
 import { schedulePostEditPipeline } from '../../lib/post-generation-pipeline';
 import type { EditChatMessage, ProseSelection } from '../../types';
@@ -251,7 +251,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
       await generateStream(
         {
           action: 'chapter-edit-chat',
-          model: analysisModel(settings.ai?.preferredModel),
+          model: editingModel(),
           effort: 'low',
           temperature: settings.ai?.temperature ?? 0.8,
           maxTokens: 200,
@@ -336,7 +336,7 @@ RULES:
         : Math.min(24000, Math.max(4000, Math.ceil(prose.length / 4 * 2.2)));
       const result = await generateText({
         prompt,
-        model: settings.ai?.preferredModel || 'claude-opus',
+        model: editingModel(),
         maxTokens,
         action: 'inline-edit',
         projectId: project.id,
