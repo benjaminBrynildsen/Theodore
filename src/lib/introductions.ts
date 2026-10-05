@@ -35,6 +35,7 @@ function factsFor(entry: AnyCanonEntry | undefined): string[] {
   return [
     c?.age && `age ${c.age}`,
     c?.occupation && c.occupation,
+    c?.condition && `condition: ${c.condition}`,
     c?.appearance?.physical && `looks: ${c.appearance.physical}`,
     entry.description,
   ].filter((x): x is string => !!x && !!String(x).trim()).slice(0, 4).map((x) => x.slice(0, 160));

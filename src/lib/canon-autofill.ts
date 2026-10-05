@@ -106,7 +106,9 @@ export interface AutoFillContext {
  * (e.g. `entry.character`), or null when nothing was empty.
  */
 export async function aiAutoFillEntry(entry: AnyCanonEntry, ctx: AutoFillContext): Promise<Json | null> {
-  const data = ((entry as unknown as Json)[entry.type] || {}) as Json;
+  const raw = ((entry as unknown as Json)[entry.type] || {}) as Json;
+  // Older characters predate the condition field; give it a slot to fill.
+  const data = entry.type === 'character' ? { condition: '', ...raw } : raw;
   const skeleton = emptySkeleton(data) as Json;
   const descriptionEmpty = isPlaceholderText(entry.description);
   if (!Object.keys(skeleton || {}).length && !descriptionEmpty) return null;
@@ -131,7 +133,7 @@ ${otherCanonSummary(ctx.canon, entry.id) || '(none)'}
 
 Rules:
 - Be concrete and particular to THIS story; no generic filler ("determined", "a defining experience").
-${entry.type === 'character' ? '- Give them a voice that sounds different from the other characters: speechPattern should name real verbal habits (sentence length, vocabulary, tics).\n- Arc: startingState → endingState should be a real change that fits the story outline.\n' : ''}- Leave a field as "" or [] if the story gives no basis for it rather than inventing something that could conflict later.
+${entry.type === 'character' ? '- Give them a voice that sounds different from the other characters: speechPattern should name real verbal habits (sentence length, vocabulary, tics).\n- Arc: startingState → endingState should be a real change that fits the story outline.\n- condition: only if the story gives them an illness, injury, disability, age, language barrier or state of mind that limits what they can do — say concretely what they can and can\'t do (speak, move, understand, remember). Otherwise "".\n' : ''}- Leave a field as "" or [] if the story gives no basis for it rather than inventing something that could conflict later.
 
 Return ONLY JSON: {"description": "...", "data": <the object below with values filled in>}
 ${JSON.stringify(skeleton)}`;
@@ -164,7 +166,7 @@ export async function aiAutoFillCharacters(ctx: AutoFillContext): Promise<Charac
   if (!targets.length) return [];
 
   const fields = {
-    age: '', occupation: '',
+    age: '', occupation: '', condition: '',
     appearance: { physical: '', distinguishingFeatures: '', style: '' },
     personality: { traits: [], flaws: [], fears: [], desires: [], quirks: [], speechPattern: '', innerVoice: '' },
     arc: { startingState: '', internalConflict: '', wantVsNeed: { want: '', need: '' }, endingState: '' },
@@ -173,13 +175,15 @@ export async function aiAutoFillCharacters(ctx: AutoFillContext): Promise<Charac
 
   const prompt = `You are Theodore, story architect for "${ctx.project.title}" (${ctx.project.subtype || ctx.project.type}).
 
-Write profiles for these characters. Make each one DISTINCT — different speech rhythms, vocabulary, habits, and wants — so they never sound alike on the page. Keep everything consistent with the outline and with details already given.
+Write profiles for these characters — every one as fully as a lead, supporting characters included. Make each one DISTINCT — different speech rhythms, vocabulary, habits, and wants — so they never sound alike on the page. Keep everything consistent with the outline and with details already given.
 
 Characters:
 ${targets.map((c) => `- ${c.name} (${c.character?.role || 'unknown role'})${c.description && !isPlaceholderText(c.description) ? `: ${c.description}` : ''}${c.character?.age ? ` | age: ${c.character.age}` : ''}${c.character?.pronouns ? ` | pronouns: ${c.character.pronouns}` : ''}${c.character?.appearance?.physical && !isPlaceholderText(c.character.appearance.physical) ? ` | looks: ${c.character.appearance.physical}` : ''}`).join('\n')}
 
 Story outline:
 ${storySoFar(ctx.chapters) || '(no outline yet)'}
+
+"condition": only when the outline gives a character an illness, injury, disability, age, language barrier or state of mind that limits what they can do (a patient, a small child, someone grieving into silence) — say concretely what they can and can't do. Otherwise "".
 
 Return ONLY JSON mapping each character's exact name to this shape (keep given details; use "" / [] where the story gives no basis):
 {"<name>": ${JSON.stringify(fields)}}`;
@@ -199,7 +203,7 @@ Return ONLY JSON mapping each character's exact name to this shape (keep given d
   for (const c of targets) {
     const gen = byName.get(c.name.trim().toLowerCase());
     if (!gen) continue;
-    updated.push({ ...c, character: fillEmpty(c.character, gen) });
+    updated.push({ ...c, character: fillEmpty({ condition: '', ...c.character }, gen) });
   }
   return updated;
 }

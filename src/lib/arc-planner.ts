@@ -15,6 +15,7 @@ import { runPlanRequest, savedJobId } from './plan-transport';
 import { threadMapPct } from './thread-planner';
 import { resolveCanonEntry } from './story-memory';
 import { junkNameReason } from './canon-cleanup';
+import type { CharacterEntry } from '../types/canon';
 
 export interface ArcMapProgress {
   phase: 'reading' | 'mapping' | 'saving';
@@ -73,6 +74,40 @@ function addPlannedObjectsToCanon(projectId: string, plan: ArcPlan): void {
     entry.description = [a.description, a.significance].filter(Boolean).join(' — ') || `Planned object; appears in Chapter ${a.introducedIn}.`;
     entry.tags = Array.from(new Set([...(entry.tags || []), 'arc-map']));
     entry.notes = `Planned by the arc map: appears in Ch.${a.introducedIn}, pays off in Ch.${a.payoffIn}.`;
+    canon.addEntry(entry);
+    current.push(entry);
+  }
+}
+
+/**
+ * The map's character limits and supporting cast go into the story bible:
+ * a limit fills an empty "Condition & limits", and a recurring character
+ * with no profile yet gets one, so the writer sees them like any lead.
+ * Never overwrites what the author wrote.
+ */
+function syncPlannedCastToCanon(projectId: string, plan: ArcPlan): void {
+  const canon = useCanonStore.getState();
+  const current = canon.getProjectEntries(projectId);
+  const people = [
+    ...plan.characters.map((c) => ({ name: c.name, who: '', limits: c.limits, role: c.role })),
+    ...(plan.cast || []).map((m) => ({ name: m.name, who: m.who, limits: m.limits, role: 'supporting' as const })),
+  ];
+  for (const p of people) {
+    if (junkNameReason(p.name)) continue;
+    const existing = resolveCanonEntry(p.name, current, ['character']) as CharacterEntry | undefined;
+    if (existing) {
+      if (p.limits && !existing.character?.condition?.trim()) {
+        canon.updateEntry(existing.id, { character: { ...existing.character, condition: p.limits } } as Partial<CharacterEntry>);
+      }
+      continue;
+    }
+    if (!p.who) continue; // arc characters without a profile are rare; the cast note is what describes someone new
+    const entry = canon.createCharacter(projectId, p.name);
+    entry.description = p.who;
+    entry.character.role = p.role;
+    if (p.limits) entry.character.condition = p.limits;
+    entry.tags = Array.from(new Set([...(entry.tags || []), 'arc-map']));
+    entry.notes = 'Added from the character & object map.';
     canon.addEntry(entry);
     current.push(entry);
   }
@@ -155,6 +190,7 @@ export function buildArcMap(projectId: string, opts: { resumeJobId?: string } = 
       if (!plan) throw new Error('The character & object map came back incomplete. Try again.');
       useStore.getState().updateProject(projectId, { arcPlan: plan });
       addPlannedObjectsToCanon(projectId, plan);
+      syncPlannedCastToCanon(projectId, plan);
       if (ownsBar) useGenerationStore.getState().setPhase('done');
       return plan;
     } catch (e) {

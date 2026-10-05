@@ -31,6 +31,13 @@ export interface CharacterEntry extends CanonBase {
     species: string; // human, elf, AI, etc.
     occupation: string;
     role: 'protagonist' | 'antagonist' | 'supporting' | 'minor' | 'mentioned';
+    /**
+     * Condition & limits: an illness, injury, disability, age, language or
+     * state of mind that limits what they can do, said concretely ("barely
+     * speaks — a word or two at a time; bedridden"). Writers treat it as a
+     * hard limit. Empty when none.
+     */
+    condition?: string;
     
     // Appearance
     appearance: {

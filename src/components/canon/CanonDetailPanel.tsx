@@ -116,6 +116,13 @@ function CharacterDetail({ entry, onUpdate }: { entry: CharacterEntry; onUpdate:
           <Field label="Species" value={c.species} onChange={(v) => update('species', v)} />
           <Field label="Occupation" value={c.occupation} onChange={(v) => update('occupation', v)} />
         </div>
+        <Field
+          label="Condition & limits"
+          value={c.condition || ''}
+          onChange={(v) => update('condition', v)}
+          multiline
+          placeholder="Anything that limits what they can do: illness, injury, disability, age, language. Say what they can and can't do, e.g. “Severe stroke: speaks a word or two at a time, can't walk unaided.” Leave empty if none."
+        />
         <div>
           <label className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">Role</label>
           <div className="flex gap-1 mt-1">
