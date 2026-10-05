@@ -19,6 +19,7 @@ import { cleanExtendMerge } from '../src/lib/extend-merge';
 import { buildSynopsisPrompt, parseSynopsis, synopsisSourceKey } from '../src/lib/synopsis';
 import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, ensureSceneCoverage, evenSplit } from '../src/lib/scene-split';
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
+import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS } from '../server/audio-assembly';
 import { buildVoicePieces, markParagraphs, normalizeSceneBreakLines } from '../server/tts';
 import { mergePace, paceWpm } from '../src/lib/tts-types';
@@ -709,6 +710,7 @@ t('chapter edits see the thread map, the arc map and the whole chapter', () => {
   assert.ok(full.includes('tired realtor'), 'arc map in edit prompt');
   assert.ok(full.includes('never reveal or resolve anything a thread is meant to keep open'));
   assert.ok(full.includes('THE LAST LINE.'), 'whole chapter sent, not the first 6000 chars');
+  assert.ok(full.includes('[P1] Wes checked') && full.includes('"changes"'), 'full-chapter edits ask for tracked changes');
   const sel = buildSelectionEditPrompt({ project, chapter, allChapters: [chapter], canonEntries: [], settings, instruction: 'x', selectedText: 'Wes checked the fridge.', fullProse: prose, chatHistory: [] });
   assert.ok(sel.includes('The frost closet'), 'selection edits get the plan too');
   const chat = buildEditChatContext({ project, chapter, allChapters: [chapter], canonEntries: [] });
@@ -755,6 +757,33 @@ t('arc map: limits on arcs, a supporting cast with limits, no duplicates of arc 
   ]);
   const prompt = buildArcPlanPrompt({ title: 'T', chapters: [{ id: 'a', number: 1, title: 'A', premise: {} } as any, { id: 'b', number: 2, title: 'B', premise: {} } as any], canon: [baseChar('n', 'Ruth', { condition: 'bedridden' })] as any });
   assert.ok(prompt.includes('limits: bedridden') && prompt.includes('SUPPORTING CAST') && prompt.includes('"cast"'));
+});
+
+t('tracked edits: only marked paragraphs change; rejects leave the original; junk is dropped', () => {
+  const prose = 'One.\n\nTwo.\n\n\nThree.\n\nFour.';
+  const paras = splitParagraphs(prose);
+  assert.deepEqual(paras, ['One.', 'Two.', 'Three.', 'Four.']);
+  const reply = '```json\n{"summary":"Tightened","changes":[' +
+    '{"op":"replace","p":2,"text":"[P2] Two, sharper.","why":"punchier"},' +
+    '{"op":"insert_after","p":3,"text":"New beat.\n\nAnother."},' +
+    '{"op":"delete","p":4},' +
+    '{"op":"replace","p":2,"text":"second rewrite of 2 is ignored"},' +
+    '{"op":"replace","p":1,"text":"One."},' +
+    '{"op":"replace","p":9,"text":"out of range"},' +
+    '{"op":"insert_after","p":0,"text":"Opening."}]}\n```';
+  const r = parseTrackedEdits(reply, paras)!;
+  assert.equal(r.summary, 'Tightened');
+  assert.deepEqual(r.suggestions.map((x) => [x.op, x.p]), [['insert_after', 0], ['replace', 2], ['insert_after', 3], ['delete', 4]]);
+  assert.equal(r.suggestions[1].after, 'Two, sharper.', 'stray [P#] label stripped');
+  assert.equal(r.suggestions[1].before, 'Two.');
+  const all = new Set(r.suggestions.map((x) => x.id));
+  assert.equal(applySuggestions(paras, r.suggestions, all), 'Opening.\n\nOne.\n\nTwo, sharper.\n\nThree.\n\nNew beat.\n\nAnother.');
+  const onlyRewrite = new Set([r.suggestions[1].id]);
+  assert.equal(applySuggestions(paras, r.suggestions, onlyRewrite), 'One.\n\nTwo, sharper.\n\nThree.\n\nFour.');
+  const range = firstChangeRange(paras, r.suggestions, onlyRewrite)!;
+  assert.equal(applySuggestions(paras, r.suggestions, onlyRewrite).slice(range[0], range[1]), 'Two, sharper.');
+  assert.equal(parseTrackedEdits('no json here', paras), null);
+  assert.deepEqual(parseTrackedEdits('{"summary":"Fine as is","changes":[]}', paras), { summary: 'Fine as is', suggestions: [] });
 });
 
 // ---------- Audio pacing (real silence) ----------

@@ -11,6 +11,8 @@ import { generateId, cn } from '../../lib/utils';
 import { schedulePostEditPipeline } from '../../lib/post-generation-pipeline';
 import type { EditChatMessage, ProseSelection } from '../../types';
 import { DIRECTION_TAG_GROUPS } from '../../lib/direction-tagger';
+import { applySuggestions, firstChangeRange, parseTrackedEdits, splitParagraphs, type EditSuggestion } from '../../lib/tracked-edits';
+import { TrackedChangesReview } from './TrackedChangesReview';
 import { Mic } from 'lucide-react';
 export type { ProseSelection };
 
@@ -153,6 +155,8 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
   // The edit we've proposed and are waiting to apply (set after a discuss turn).
   const [pendingEdit, setPendingEdit] = useState<{ selection: ProseSelection | null; instruction: string } | null>(null);
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  // Whole-chapter edits come back as suggestions to accept or reject.
+  const [review, setReview] = useState<{ summary: string; suggestions: EditSuggestion[]; paragraphs: string[]; baseProse: string } | null>(null);
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -367,9 +371,19 @@ RULES:
         });
         schedulePostEditPipeline(chapterId);
       } else if (responseText && !target.selection) {
-        onProseUpdate(responseText, 0, 0);
-        schedulePostEditPipeline(chapterId);
-        appendMessage({ id: generateId(), role: 'assistant', content: 'Done — applied to the full chapter.', timestamp: new Date().toISOString() });
+        // Nothing changes until the author reviews the suggestions.
+        setUndoStack((prev) => prev.slice(0, -1));
+        const paragraphs = splitParagraphs(prose);
+        const marked = parseTrackedEdits(responseText, paragraphs);
+        if (!marked) {
+          appendMessage({ id: generateId(), role: 'assistant', content: "The suggestions came back in a shape I couldn't read, so nothing changed. Want to try again?", timestamp: new Date().toISOString() });
+        } else if (!marked.suggestions.length) {
+          appendMessage({ id: generateId(), role: 'assistant', content: marked.summary || 'No changes needed for that.', timestamp: new Date().toISOString() });
+        } else {
+          setReview({ summary: marked.summary, suggestions: marked.suggestions, paragraphs, baseProse: prose });
+          const count = marked.suggestions.length;
+          appendMessage({ id: generateId(), role: 'assistant', content: `${count} suggested change${count === 1 ? '' : 's'} — review below. Untick any you don't want, then apply.`, timestamp: new Date().toISOString() });
+        }
       } else {
         setUndoStack((prev) => prev.slice(0, -1));
         appendMessage({ id: generateId(), role: 'assistant', content: 'Hmm, that came back empty — want to try a different angle?', timestamp: new Date().toISOString() });
@@ -395,6 +409,22 @@ RULES:
     } finally {
       setEditPhase('idle');
     }
+  };
+
+  const applyReview = (accepted: Set<string>) => {
+    if (!review) return;
+    if (prose !== review.baseProse) {
+      setReview(null);
+      appendMessage({ id: generateId(), role: 'assistant', content: 'The chapter changed since these suggestions were made, so I set them aside. Ask again and I’ll mark up the current version.', timestamp: new Date().toISOString() });
+      return;
+    }
+    pushUndo('tracked changes');
+    const next = applySuggestions(review.paragraphs, review.suggestions, accepted);
+    const range = firstChangeRange(review.paragraphs, review.suggestions, accepted);
+    onProseUpdate(next, range?.[0] ?? 0, range?.[1] ?? 0);
+    schedulePostEditPipeline(chapterId);
+    appendMessage({ id: generateId(), role: 'assistant', content: `Applied ${accepted.size} of ${review.suggestions.length} changes.`, timestamp: new Date().toISOString() });
+    setReview(null);
   };
 
   const handleSend = async () => {
@@ -526,7 +556,7 @@ RULES:
           <div className="animate-fade-in px-3 py-3">
             <div className="flex items-center gap-2 text-xs text-text-secondary mb-2">
               <Loader2 size={13} className="animate-spin text-purple-500" />
-              <span className="font-medium">{selection ? 'Rewriting selection…' : 'Editing chapter…'}</span>
+              <span className="font-medium">{selection ? 'Rewriting selection…' : 'Marking up the chapter…'}</span>
             </div>
             <div className="space-y-1.5">
               <div className="h-2 bg-purple-100 rounded-full animate-pulse w-3/4" />
@@ -536,8 +566,23 @@ RULES:
         )}
       </div>
 
+      {/* Suggested changes to review */}
+      {review && editPhase === 'idle' && (
+        <div className="px-3 pb-2">
+          <TrackedChangesReview
+            summary={review.summary}
+            suggestions={review.suggestions}
+            onApply={applyReview}
+            onDiscard={() => {
+              setReview(null);
+              appendMessage({ id: generateId(), role: 'assistant', content: 'Discarded those suggestions.', timestamp: new Date().toISOString() });
+            }}
+          />
+        </div>
+      )}
+
       {/* Apply-edit action — appears after a proposal, one tap to run the rewrite */}
-      {pendingEdit && editPhase === 'idle' && (
+      {pendingEdit && !review && editPhase === 'idle' && (
         <div className="px-3 pb-2 animate-fade-in">
           <button
             onClick={() => applyEdit(pendingEdit)}

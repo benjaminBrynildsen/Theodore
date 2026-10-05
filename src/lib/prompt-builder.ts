@@ -3,6 +3,7 @@
 // Every generation call goes through here to ensure consistency
 
 import { OVERUSED_NAMES } from './name-bank';
+import { TRACKED_EDIT_FORMAT, numberedProse, splitParagraphs } from './tracked-edits';
 import type { Project, Chapter, PremiseCard, WritingMode, GenerationType, Scene, EditChatMessage } from '../types';
 import { DEFAULT_SETTINGS, type AppSettings, type WritingStyleSettings } from '../types/settings';
 import type { AnyCanonEntry } from '../types/canon';
@@ -125,14 +126,15 @@ export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
     sections.push(`\nRewrite ONLY the selected text according to the user's instruction. Return ONLY the replacement text — no explanations, no markdown, no quotes, no "here's the rewrite". Just the new prose that will replace the selection. Keep the same approximate length unless the user asks to expand or shorten. Maintain voice, tense, and POV consistency with the surrounding text.`);
   } else {
     // Full prose mode — edit the entire chapter
-    // The whole chapter: the reply replaces it, so anything not shown would be lost.
-    sections.push(`\n=== CURRENT CHAPTER PROSE ===`);
-    sections.push(fullProse);
+    // The whole chapter, numbered: the reply marks up only the paragraphs
+    // that change (tracked changes), so nothing else can be lost or reworded.
+    sections.push(`\n=== CURRENT CHAPTER PROSE (numbered paragraphs) ===`);
+    sections.push(numberedProse(splitParagraphs(fullProse)));
 
     sections.push(`\n=== USER INSTRUCTION ===`);
     sections.push(instruction);
 
-    sections.push(`\nApply the user's instruction to the entire chapter. Return ONLY the updated full prose, from the first line to the last — every part of the chapter, including the parts the instruction doesn't touch, which stay as they are. No explanations, no markdown code blocks, no titles. Just the prose text.`);
+    sections.push(`\nApply the user's instruction to the chapter. ${TRACKED_EDIT_FORMAT}`);
   }
 
   return sections.join('\n');
