@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { CreditGrantPanel } from './CreditGrantPanel';
 import {
   Users, CreditCard, TrendingUp, Activity, FileText,
   ChevronRight, ChevronDown, ArrowLeft, BarChart3, Zap, BookOpen,
@@ -1109,6 +1110,14 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                 </div>
               )}
             </div>
+
+            {/* Credits: add or remove */}
+            <CreditGrantPanel
+              userId={userDetail.user.id}
+              email={userDetail.user.email}
+              current={userDetail.user.creditsRemaining || 0}
+              onChanged={(after) => setUserDetail((d) => (d ? { ...d, user: { ...d.user, creditsRemaining: after } } : d))}
+            />
 
             {/* Projects */}
             {userDetail.projects.length > 0 && (
