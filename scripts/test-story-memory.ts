@@ -20,6 +20,7 @@ import { buildSynopsisPrompt, parseSynopsis, synopsisSourceKey } from '../src/li
 import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, ensureSceneCoverage, evenSplit } from '../src/lib/scene-split';
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
 import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
+import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS, countSentenceBreaks, countClauseBreaks, stretchPauses, CLAUSE_PAUSE_SECONDS } from '../server/audio-assembly';
 import { buildVoicePieces, markParagraphs, normalizeSceneBreakLines } from '../server/tts';
@@ -758,6 +759,19 @@ t('arc map: limits on arcs, a supporting cast with limits, no duplicates of arc 
   ]);
   const prompt = buildArcPlanPrompt({ title: 'T', chapters: [{ id: 'a', number: 1, title: 'A', premise: {} } as any, { id: 'b', number: 2, title: 'B', premise: {} } as any], canon: [baseChar('n', 'Ruth', { condition: 'bedridden' })] as any });
   assert.ok(prompt.includes('limits: bedridden') && prompt.includes('SUPPORTING CAST') && prompt.includes('"cast"'));
+});
+
+t('rebuild notes: split into items, numbered brief, per-note check', () => {
+  assert.deepEqual(splitNotes('- Slow down the drive.\n- Danny leaves angrier\n3) Cut the diner scene'), ['Slow down the drive.', 'Danny leaves angrier', 'Cut the diner scene']);
+  assert.deepEqual(splitNotes('Make Wes more scared. He should hear the fridge hum. Yes. Add a call from Mara at the end.'),
+    ['Make Wes more scared.', 'He should hear the fridge hum. Yes.', 'Add a call from Mara at the end.']);
+  assert.deepEqual(splitNotes('   '), []);
+  const block = buildRevisionBlock(['Cut the diner scene', 'Danny leaves angrier'], true);
+  assert.ok(block.includes('1. Cut the diner scene') && block.includes('outrank the current draft'));
+  const check = parseNotesCheck('{"results":[{"n":1,"status":"done","detail":"diner gone"},{"n":2,"status":"partly"},{"n":9,"status":"done"}]}', ['Cut the diner scene', 'Danny leaves angrier', 'Add the call'], 'now')!;
+  assert.deepEqual(check.results.map((r) => r.status), ['done', 'partly', 'missing']);
+  assert.deepEqual(outstandingNotes(check), ['Danny leaves angrier', 'Add the call']);
+  assert.equal(parseNotesCheck('nope', ['a']), null);
 });
 
 t('tracked edits: only marked paragraphs change; rejects leave the original; junk is dropped', () => {

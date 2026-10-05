@@ -2110,6 +2110,7 @@ const LOCK_EXEMPT_ACTIONS = new Set([
   'extract-continuity', 'refine-entities', 'entity-refine',
   'generate-chapter-outline', 'scene-prose-split',
   'dialogue-tagging', 'sfx-tagging', 'sfx-ambience', 'auto-fill', 'plan-threads', 'plan-arcs', 'canon-cleanup', 'write-synopsis',
+  'rebuild-notes-check',
 ]);
 
 // Guest (unauthenticated) generation — only for plan-project during onboarding
@@ -2118,7 +2119,7 @@ const GUEST_ALLOWED_ACTIONS = new Set([
   'plan-project', 'scaffold-chapters', 'generate-chapter-outline',
   'scene-prose-split', 'entity-refine', 'extract-continuity', 'plan-threads', 'plan-arcs', 'canon-cleanup', 'write-synopsis',
   // Chapter writing + extending
-  'generate-chapter', 'extend-chapter', 'dialogue-clarity-pass',
+  'generate-chapter', 'extend-chapter', 'dialogue-clarity-pass', 'rebuild-notes-check',
   // Editing flows
   'inline-edit',
   // Post-generation enhancements

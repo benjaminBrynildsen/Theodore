@@ -36,6 +36,8 @@ import { normalizeSceneBreaks } from '../../lib/clean-prose';
 import { analysisModel } from '../../lib/models';
 import { DEFAULT_DIALS, buildDialsBlock, formatWords, measureDialoguePct, normalizeDials, type ChapterDials } from '../../lib/chapter-dials';
 import { ChapterDialsPanel } from '../features/ChapterDialsPanel';
+import { RebuildNotesCheck } from '../features/RebuildNotesCheck';
+import { buildNotesCheckPrompt, buildRevisionBlock, parseNotesCheck, splitNotes, type RebuildCheck } from '../../lib/rebuild-notes';
 import { ContinuityNotices } from '../features/ContinuityNotices';
 // Post-generation pipeline imported dynamically where needed
 import { cn, generateId } from '../../lib/utils';
@@ -203,6 +205,13 @@ export function ChapterView({ chapter }: Props) {
     setDials(normalizeDials(saved || lastUsed));
   }, [chapter.id, chapter.projectId, chapter.aiIntentMetadata]);
 
+  const saveRebuildCheck = (check: RebuildCheck | null) => {
+    const latest = useStore.getState().chapters.find((c) => c.id === chapter.id) || chapter;
+    const nextMeta = { ...((latest.aiIntentMetadata || {}) as Record<string, unknown>), rebuildCheck: check } as unknown as Chapter['aiIntentMetadata'];
+    updateChapter(chapter.id, { aiIntentMetadata: nextMeta });
+    api.updateChapter(chapter.id, { aiIntentMetadata: nextMeta }).catch(() => {});
+  };
+
   const rememberDials = () => {
     const nextMeta = { ...((chapter.aiIntentMetadata || {}) as Record<string, unknown>), chapterDials: dials } as unknown as Chapter['aiIntentMetadata'];
     updateChapter(chapter.id, { aiIntentMetadata: nextMeta });
@@ -269,6 +278,8 @@ export function ChapterView({ chapter }: Props) {
       });
     }
 
+    if ((chapter.aiIntentMetadata as Record<string, unknown> | undefined)?.rebuildCheck) saveRebuildCheck(null);
+
     // Rebuilding over existing prose: keep the current version in history first.
     if (chapter.prose?.trim() && (opts.instructions !== undefined || opts.reference !== undefined)) {
       const prose = chapter.prose;
@@ -307,18 +318,27 @@ export function ChapterView({ chapter }: Props) {
     // Children's books: the prompt already has strict word limits, no chunking needed
     // Framing notes go FIRST so the AI sees them before the chapter premise.
     // This ensures user direction overrides the original outline when they conflict.
-    const direction = [chapterFraming.trim(), opts.instructions?.trim()].filter(Boolean).join('\n');
+    // Standing framing notes go first; one-off rebuild notes are the brief and
+    // go after the draft (see revisionBlock), closest to where writing starts.
+    const rebuildNotes = splitNotes(opts.instructions || '');
+    const direction = chapterFraming.trim();
     const framingBlock = direction
       ? `=== MANDATORY AUTHOR DIRECTION ===\nThe author has provided the following specific instructions for this chapter. These OVERRIDE the chapter premise below if they conflict. You MUST follow these directions:\n${direction}\n=== END AUTHOR DIRECTION ===\n\n`
       : '';
     const referenceBlock = opts.reference?.trim()
-      ? `\n\n=== CURRENT DRAFT OF THIS CHAPTER (starting point) ===\n${opts.reference.trim()}\n=== END CURRENT DRAFT ===\nRewrite this chapter from the top as a complete, finished chapter. Keep its events, what it establishes, and anything that works, unless the author's direction says otherwise. Improve how it unfolds: transitions between scenes, clear attribution of every line of dialogue, and moments that were rushed or skipped. Do not copy it line for line.`
+      ? `\n\n=== CURRENT DRAFT OF THIS CHAPTER (starting point) ===\n${opts.reference.trim()}\n=== END CURRENT DRAFT ===\n${rebuildNotes.length
+        ? 'This draft is raw material for a revision. Rewrite the chapter from the top as a complete, finished chapter that carries out the revision notes below; carry over the events and details the notes leave alone. Do not copy it line for line.'
+        : 'Rewrite this chapter from the top as a complete, finished chapter. Keep its events, what it establishes, and anything that works, unless the author\'s direction says otherwise. Improve how it unfolds: transitions between scenes, clear attribution of every line of dialogue, and moments that were rushed or skipped. Do not copy it line for line.'}`
+      : '';
+    const revisionBlock = rebuildNotes.length ? `\n\n${buildRevisionBlock(rebuildNotes, !!opts.reference?.trim())}` : '';
+    const notesReminder = rebuildNotes.length
+      ? `\n\nBefore you start: the ${rebuildNotes.length} revision note${rebuildNotes.length === 1 ? '' : 's'} above are the point of this rebuild. Every one must be carried out on the page.`
       : '';
     const wordBlock = `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Write every event in order on the page; never skip a beat or summarize what happened to save space — if the premise is crowded, give each beat less ornament, not less presence. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
     if (!isChildrensBook) rememberDials();
     const prompt = isChildrensBook
-      ? framingBlock + basePrompt + referenceBlock
-      : framingBlock + basePrompt + referenceBlock + '\n\n' + buildDialsBlock(dials) + wordBlock;
+      ? framingBlock + basePrompt + referenceBlock + revisionBlock + notesReminder
+      : framingBlock + basePrompt + referenceBlock + revisionBlock + '\n\n' + buildDialsBlock(dials) + wordBlock + notesReminder;
 
     let accumulated = '';
     await generateStream(
@@ -453,6 +473,27 @@ export function ChapterView({ chapter }: Props) {
               console.warn('[Generation] Dialogue clarity pass failed (non-blocking):', e);
             }
           })());
+        }
+
+        // Rebuild with notes: check each note against the new chapter (non-blocking).
+        if (rebuildNotes.length) {
+          void (async () => {
+            try {
+              const result = await generateText({
+                prompt: buildNotesCheckPrompt(rebuildNotes, initialProse),
+                model: analysisModel(settings.ai?.preferredModel),
+                maxTokens: 1200,
+                effort: 'low',
+                action: 'rebuild-notes-check',
+                projectId: project.id,
+                chapterId: chapter.id,
+              });
+              const check = parseNotesCheck(result.text || '', rebuildNotes);
+              if (check) saveRebuildCheck(check);
+            } catch (e) {
+              console.warn('[Rebuild] Notes check failed (non-blocking):', e);
+            }
+          })();
         }
 
         // Auto-run post-generation pipeline (entity scan + scene decomposition for sidebar/studio)
@@ -1639,6 +1680,15 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
 
           {/* Continuity: contradictions with earlier chapters + upstream changes */}
           {!generating && !extending && chapter.prose?.trim() && <ContinuityNotices chapter={chapter} />}
+
+          {/* Rebuild notes: which were carried out */}
+          {!generating && !extending && !!(chapter.aiIntentMetadata as Record<string, unknown> | undefined)?.rebuildCheck && (
+            <RebuildNotesCheck
+              check={(chapter.aiIntentMetadata as unknown as { rebuildCheck: RebuildCheck }).rebuildCheck}
+              onRedo={(notes) => { setRebuildNotes(notes.join('\n')); setRebuildFromDraft(true); setShowRebuild(true); }}
+              onDismiss={() => saveRebuildCheck(null)}
+            />
+          )}
 
           {/* Chapter / Scene Title */}
           <input
