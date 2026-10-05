@@ -33,12 +33,15 @@ export type Boundary = 'none' | 'sentence' | 'speaker' | 'paragraph' | 'scene' |
 /** Seconds of silence after a piece, by what follows it. */
 export const GAP_SECONDS: Record<Boundary, number> = {
   none: 0,
-  sentence: 0.3,   // only when an over-long paragraph had to be split
-  speaker: 0.45,   // back-and-forth dialogue: a beat, not a full stop
-  paragraph: 0.75,
-  scene: 2.5,
-  title: 1.5,
+  sentence: 0.6,   // between sentences (also used when an over-long paragraph had to be split)
+  speaker: 0.75,   // back-and-forth dialogue: a beat, not a full stop
+  paragraph: 1.1,
+  scene: 3.0,
+  title: 2.0,
 };
+
+/** Shortest a pause inside a sentence (comma, dash, colon) is allowed to be. */
+export const CLAUSE_PAUSE_SECONDS = 0.28;
 
 /** Gap lengths are scaled by the pace setting. */
 export const PACE_GAP_SCALE = { relaxed: 1.25, standard: 1, brisk: 0.8 } as const;
@@ -211,6 +214,99 @@ export interface AudioPiece {
   gapAfter: Boundary;
   voice?: string;    // for cross-voice loudness matching
   words?: number;
+  /** The text spoken, so pauses inside the clip can be matched to its sentences. */
+  text?: string;
+}
+
+// ---------- Pauses inside a clip ----------
+//
+// A voice reads a paragraph's sentences back to back with short, uneven
+// breaths between them. Rather than synthesising sentence by sentence (which
+// breaks intonation), find the clip's own pauses and lengthen them: the
+// longest ones line up with sentence ends (as many as the text has), and get
+// the sentence pause; shorter clause pauses (commas, dashes) get a small floor.
+
+/** Sentence ends inside a piece of text (not counting the final one). */
+export function countSentenceBreaks(text: string): number {
+  const t = (text || '').replace(/\[[^\]]+\]/g, ' ').trim();
+  const breaks = t.match(/[.!?…]+["”’)\]]*\s+(?=["“‘(]?[\p{Lu}\p{N}])/gu);
+  return breaks ? breaks.length : 0;
+}
+
+/** Pauses inside sentences the text calls for (commas, semicolons, colons, dashes). */
+export function countClauseBreaks(text: string): number {
+  const t = (text || '').replace(/\[[^\]]+\]/g, ' ');
+  return (t.match(/[,;:](?=\s)|\s[—–]\s?|—|\.{3}(?=\s*[\p{Ll}])|…(?=\s*[\p{Ll}])/gu) || []).length;
+}
+
+/** A clause pause must be at least this long in the voice's own reading to be stretched (shorter = inside a word). */
+const MIN_CLAUSE_RUN_SECONDS = 0.11;
+
+export interface SilentRun { start: number; end: number } // sample indices
+
+const FRAME = Math.round(SAMPLE_RATE * 0.01); // 10 ms
+
+/** Pauses inside s16le PCM (not at the edges), at least `minSeconds` long. */
+export function findInternalPauses(pcm: Buffer, minSeconds = 0.09): SilentRun[] {
+  const samples = Math.floor(pcm.length / 2);
+  const frames = Math.floor(samples / FRAME);
+  if (frames < 3) return [];
+  const rms: number[] = [];
+  for (let f = 0; f < frames; f++) {
+    let sum = 0;
+    for (let i = f * FRAME; i < (f + 1) * FRAME; i++) { const v = pcm.readInt16LE(i * 2) / 32768; sum += v * v; }
+    rms.push(Math.sqrt(sum / FRAME));
+  }
+  // Quiet = 32 dB under the clip's loud frames (robust to voice level).
+  const sorted = [...rms].sort((a, b) => a - b);
+  const loud = sorted[Math.floor(sorted.length * 0.9)] || 0;
+  if (loud <= 0) return [];
+  const threshold = Math.max(loud * Math.pow(10, -32 / 20), 0.0005);
+  const minFrames = Math.ceil(minSeconds / 0.01);
+  const runs: SilentRun[] = [];
+  let runStart = -1;
+  for (let f = 0; f <= frames; f++) {
+    const quiet = f < frames && rms[f] < threshold;
+    if (quiet && runStart < 0) runStart = f;
+    if (!quiet && runStart >= 0) {
+      // Internal only: speech on both sides.
+      if (runStart > 0 && f < frames && f - runStart >= minFrames) runs.push({ start: runStart * FRAME, end: f * FRAME });
+      runStart = -1;
+    }
+  }
+  return runs;
+}
+
+/**
+ * Lengthen the clip's pauses to match its text: the longest `sentenceBreaks`
+ * pauses become sentence pauses; the next `clauseBreaks` (if clearly pauses,
+ * not a gap inside a word) get at least the clause pause; all others are left
+ * alone. Silence is extended in the middle of each pause with room tone, so
+ * speech is never touched. Returns the new PCM and each pause length (s).
+ */
+export function stretchPauses(pcm: Buffer, sentenceBreaks: number, sentencePause: number, clausePause: number, seed = 1, clauseBreaks = 0): { pcm: Buffer; pauses: number[] } {
+  const runs = findInternalPauses(pcm);
+  if (!runs.length) return { pcm, pauses: [] };
+  const bySize = [...runs].sort((a, b) => (b.end - b.start) - (a.end - a.start));
+  const nSentence = Math.max(0, sentenceBreaks);
+  const sentenceRuns = new Set(bySize.slice(0, nSentence));
+  const clauseRuns = new Set(bySize.slice(nSentence, nSentence + Math.max(0, clauseBreaks))
+    .filter((r) => (r.end - r.start) / SAMPLE_RATE >= MIN_CLAUSE_RUN_SECONDS));
+  const parts: Buffer[] = [];
+  const pauses: number[] = [];
+  let at = 0;
+  runs.forEach((r, k) => {
+    const len = (r.end - r.start) / SAMPLE_RATE;
+    const target = sentenceRuns.has(r) ? sentencePause : clauseRuns.has(r) ? clausePause : 0;
+    const add = Math.max(0, target - len);
+    const mid = Math.round((r.start + r.end) / 2);
+    parts.push(pcm.subarray(at * 2, mid * 2));
+    if (add >= 0.02) parts.push(roomTone(add, seed * 131 + k));
+    at = mid;
+    pauses.push(Math.round((len + (add >= 0.02 ? add : 0)) * 1000) / 1000);
+  });
+  parts.push(pcm.subarray(at * 2));
+  return { pcm: Buffer.concat(parts), pauses };
 }
 
 export interface AssemblyResult {
@@ -259,11 +355,22 @@ export async function assembleNarration(pieces: AudioPiece[], opts: { seed: stri
     prepared.forEach((p, i) => {
       const level = levels.get(pieces[i].voice || 'narrator');
       const gain = level !== undefined && byVoice.size > 1 ? Math.max(-6, Math.min(6, reference - level)) : 0;
-      const pcm = applyGain(p.pcm, gain);
+      const stretched = stretchPauses(
+        applyGain(p.pcm, gain),
+        countSentenceBreaks(pieces[i].text || ''),
+        jitteredGap(GAP_SECONDS.sentence * scale, opts.seed, 10_000 + i),
+        CLAUSE_PAUSE_SECONDS * scale,
+        i + 1,
+        countClauseBreaks(pieces[i].text || ''),
+      );
+      const pcm = stretched.pcm;
+      const added = (pcm.length - p.pcm.length) / BYTES_PER_SECOND;
+      plannedGaps.push(...stretched.pauses);
       pieceStarts.push(cursor / BYTES_PER_SECOND);
       parts.push(pcm);
       cursor += pcm.length;
-      speech += pcm.length / BYTES_PER_SECOND;
+      speech += pcm.length / BYTES_PER_SECOND - added;
+      silence += added;
       if (i < prepared.length - 1) {
         const gap = jitteredGap(GAP_SECONDS[pieces[i].gapAfter] * scale, opts.seed, i);
         if (gap > 0) {

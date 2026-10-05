@@ -21,7 +21,7 @@ import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, 
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
 import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
-import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS } from '../server/audio-assembly';
+import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS, countSentenceBreaks, countClauseBreaks, stretchPauses, CLAUSE_PAUSE_SECONDS } from '../server/audio-assembly';
 import { buildVoicePieces, markParagraphs, normalizeSceneBreakLines } from '../server/tts';
 import { mergePace, paceWpm } from '../src/lib/tts-types';
 import {
@@ -827,6 +827,23 @@ t('buildVoicePieces: quote and its tag stay together; paragraph and scene gaps',
     ['she said.', 'scene'],
     ['Morning came.', 'none'],
   ]);
+});
+
+t('pauses inside a clip: sentence ends and commas stretched to match the text, word gaps untouched', () => {
+  assert.equal(countSentenceBreaks('He waited, listening. Nothing moved! "Who?" she said. Then Dr. Ames came.'), 4);
+  assert.equal(countSentenceBreaks('One sentence only.'), 0);
+  assert.equal(countClauseBreaks('She paused — then, at last: "Fine; go." Wait... no.'), 5);
+  // Synthetic 44.1 kHz PCM: tone / 0.12 s pause / tone / 0.22 s pause / tone / 0.05 s gap / tone.
+  const sr = 44100;
+  const tone = (sec: number) => { const b = Buffer.alloc(Math.round(sec * sr) * 2); for (let i = 0; i < b.length / 2; i++) b.writeInt16LE(Math.round(Math.sin(i / 10) * 12000), i * 2); return b; };
+  const gap = (sec: number) => Buffer.alloc(Math.round(sec * sr) * 2);
+  const pcm = Buffer.concat([tone(0.8), gap(0.12), tone(0.8), gap(0.22), tone(0.8), gap(0.05), tone(0.8)]);
+  const r = stretchPauses(pcm, 1, 0.6, CLAUSE_PAUSE_SECONDS, 1, 1);
+  assert.deepEqual(r.pauses.map((x) => Math.round(x * 100) / 100), [0.28, 0.6], 'comma floor, sentence pause; 0.05 s gap not a pause');
+  assert.ok(Math.abs((r.pcm.length - pcm.length) / 2 / sr - ((0.28 - 0.12) + (0.6 - 0.22))) < 0.03, 'only silence added');
+  const noComma = stretchPauses(pcm, 1, 0.6, CLAUSE_PAUSE_SECONDS, 1, 0);
+  assert.deepEqual(noComma.pauses.map((x) => Math.round(x * 100) / 100), [0.12, 0.6], 'a pause the text does not call for is left alone');
+  assert.ok(GAP_SECONDS.paragraph > GAP_SECONDS.speaker && GAP_SECONDS.speaker > GAP_SECONDS.sentence);
 });
 
 t('jitteredGap is deterministic and stays within ±10%', () => {

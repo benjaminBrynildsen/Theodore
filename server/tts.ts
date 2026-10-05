@@ -1544,7 +1544,7 @@ async function narrateAndSave(args: {
     return buf;
   });
   const assembled = await assembleNarration(
-    pieces.map((p, i) => ({ audio: audio[i], gapAfter: p.gapAfter, voice: p.voice })),
+    pieces.map((p, i) => ({ audio: audio[i], gapAfter: p.gapAfter, voice: p.voice, text: p.text })),
     { seed: args.chapterId.replace(/-v\d+$/, ''), leadIn: args.leadIn },
   );
   let mp3 = assembled.mp3;

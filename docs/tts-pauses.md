@@ -12,17 +12,22 @@ Pauses between paragraphs, speakers and scenes are no longer requested from the 
 2. **Synthesize** each piece (parallel, with retry). The model is asked for a natural audiobook pace (~150–160 wpm), not for pauses.
 3. **Trim** each clip's own edge silence (−50 dB), keeping a 0.04 s lead and 0.09 s tail, with 8 ms fades.
 4. **Match loudness** across voices (median per voice, capped ±6 dB).
-5. **Insert room tone** (very quiet pink noise, never digital zero) for each gap, minus the ~0.13 s the kept edges already give.
-6. **One loudness pass** for the whole chapter (`loudnorm I=-18 TP=-3 LRA=11`), encoded once to 128 kbps MP3.
-7. **Verify** with `silencedetect` that each planned gap ≥ 0.35 s is in the output at about its length, and **measure** pace: words per minute of speech, silence excluded. Both are logged; pace is returned to the client and shown as "NNN wpm" on the chapter and in version history.
+5. **Stretch pauses inside each clip** to the sentence and clause floors (see below).
+6. **Insert room tone** (very quiet pink noise, never digital zero) for each gap, minus the ~0.13 s the kept edges already give.
+7. **One loudness pass** for the whole chapter (`loudnorm I=-18 TP=-3 LRA=11`), encoded once to 128 kbps MP3.
+8. **Verify** with `silencedetect` that each planned gap ≥ 0.35 s is in the output at about its length, and **measure** pace: words per minute of speech, silence excluded. Both are logged; pace is returned to the client and shown as "NNN wpm" on the chapter and in version history.
 
 | Boundary | Gap (standard) |
 |---|---|
-| After the chapter title | 1.5 s |
-| Scene break (`***`, `* * *`, `---`, `#`, `◆`) | 2.5 s |
-| Paragraph | 0.75 s |
-| Speaker change in a quick exchange (short dialogue → dialogue) | 0.45 s |
-| Within a paragraph (quote ↔ tag) | none |
+| After the chapter title | 2.0 s |
+| Scene break (`***`, `* * *`, `---`, `#`, `◆`) | 3.0 s |
+| Paragraph | 1.1 s |
+| Speaker change in a quick exchange (short dialogue → dialogue) | 0.75 s |
+| Between sentences inside a clip | at least 0.6 s |
+| Comma / semicolon / colon / dash inside a sentence | at least 0.28 s |
+| Within a paragraph (quote ↔ tag) | none added |
+
+**Pauses inside a clip** (added 2026-10-05 — narration was rushed because a voice reads a paragraph's sentences back to back). Synthesising sentence by sentence would break intonation, so instead `stretchPauses` finds the clip's own pauses (10 ms frames 32 dB under the clip's loud level, at least 90 ms, speech on both sides) and lengthens them to fit the text: the longest *N* pauses, where *N* is the number of sentence ends in the piece's text, become sentence pauses; the next *M*, for the commas/semicolons/colons/dashes in the text, get the clause floor if they are at least 110 ms (shorter gaps are inside words and are left alone). Silence is added in the middle of each pause with room tone, so speech is never cut or shifted. Already-long pauses are never shortened.
 
 Every gap is varied ±10% with a jitter seeded by the chapter id, so the rhythm doesn't sound mechanical yet a regeneration of the same chapter lands its gaps in the same places. `PACE_GAP_SCALE` (relaxed 1.25×, standard, brisk 0.8×) is ready for a listener pace setting.
 
