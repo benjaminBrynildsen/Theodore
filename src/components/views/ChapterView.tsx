@@ -34,6 +34,8 @@ import { needsDialogueClarityPass as needsClarityPass } from '../../lib/dialogue
 import { cleanExtendMerge } from '../../lib/extend-merge';
 import { normalizeSceneBreaks } from '../../lib/clean-prose';
 import { analysisModel } from '../../lib/models';
+import { DEFAULT_DIALS, buildDialsBlock, formatWords, measureDialoguePct, normalizeDials, type ChapterDials } from '../../lib/chapter-dials';
+import { ChapterDialsPanel } from '../features/ChapterDialsPanel';
 import { ContinuityNotices } from '../features/ContinuityNotices';
 // Post-generation pipeline imported dynamically where needed
 import { cn, generateId } from '../../lib/utils';
@@ -159,7 +161,10 @@ export function ChapterView({ chapter }: Props) {
     long: { label: '3.5k', words: '3,000-4,000', maxTokens: 8000 },
   };
   const chunkProfile = chunkProfiles[chunkSize];
-  const [wordTarget, setWordTarget] = useState(2500);
+  // Length, dialogue share and pace for this chapter (the generate screen's sliders).
+  const [dials, setDials] = useState<ChapterDials>(DEFAULT_DIALS);
+  const wordTarget = dials.words;
+  const setWordTarget = (words: number) => setDials((d) => ({ ...d, words }));
   const [chapterFraming, setChapterFraming] = useState('');
   const wordTargetOptions = [1000, 1500, 2000, 2500, 3000, 3500, 4000, 5000];
   // ~1.4 tokens per word typical; use 3x for safety headroom so model never runs out of output budget
@@ -189,6 +194,21 @@ export function ChapterView({ chapter }: Props) {
     const saved = ((chapter.aiIntentMetadata as any)?.chapterFraming as string) || '';
     setChapterFraming(saved);
   }, [chapter.id, chapter.aiIntentMetadata]);
+
+  // Dials: this chapter's saved choice, else the last ones used in this book, else defaults.
+  useEffect(() => {
+    const saved = (chapter.aiIntentMetadata as Record<string, unknown> | undefined)?.chapterDials;
+    let lastUsed: unknown = null;
+    try { lastUsed = JSON.parse(localStorage.getItem(`theodore:last-dials:${chapter.projectId}`) || 'null'); } catch { /* storage blocked */ }
+    setDials(normalizeDials(saved || lastUsed));
+  }, [chapter.id, chapter.projectId, chapter.aiIntentMetadata]);
+
+  const rememberDials = () => {
+    const nextMeta = { ...((chapter.aiIntentMetadata || {}) as Record<string, unknown>), chapterDials: dials } as unknown as Chapter['aiIntentMetadata'];
+    updateChapter(chapter.id, { aiIntentMetadata: nextMeta });
+    api.updateChapter(chapter.id, { aiIntentMetadata: nextMeta }).catch(() => {});
+    try { localStorage.setItem(`theodore:last-dials:${chapter.projectId}`, JSON.stringify(dials)); } catch { /* storage blocked */ }
+  };
 
   // Save partial generation when page goes to background (phone lock, tab switch).
   // Skip the store update — debounced save would race with the immediate API call
@@ -295,9 +315,10 @@ export function ChapterView({ chapter }: Props) {
       ? `\n\n=== CURRENT DRAFT OF THIS CHAPTER (starting point) ===\n${opts.reference.trim()}\n=== END CURRENT DRAFT ===\nRewrite this chapter from the top as a complete, finished chapter. Keep its events, what it establishes, and anything that works, unless the author's direction says otherwise. Improve how it unfolds: transitions between scenes, clear attribution of every line of dialogue, and moments that were rushed or skipped. Do not copy it line for line.`
       : '';
     const wordBlock = `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Write every event in order on the page; never skip a beat or summarize what happened to save space — if the premise is crowded, give each beat less ornament, not less presence. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
+    if (!isChildrensBook) rememberDials();
     const prompt = isChildrensBook
       ? framingBlock + basePrompt + referenceBlock
-      : framingBlock + basePrompt + referenceBlock + wordBlock;
+      : framingBlock + basePrompt + referenceBlock + '\n\n' + buildDialsBlock(dials) + wordBlock;
 
     let accumulated = '';
     await generateStream(
@@ -1461,8 +1482,8 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 className="px-1.5 py-1 rounded-lg text-xs bg-white/60 border border-black/10 text-text-secondary cursor-pointer outline-none"
                 title="Word target"
               >
-                {wordTargetOptions.map((wt) => (
-                  <option key={wt} value={wt}>{wt >= 1000 ? `${wt / 1000}k` : wt} words</option>
+                {[...new Set([...wordTargetOptions, wordTarget])].sort((a, b) => a - b).map((wt) => (
+                  <option key={wt} value={wt}>{formatWords(wt)} words</option>
                 ))}
               </select>
               <button
@@ -1800,24 +1821,10 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 />
               </div>
 
-              {/* Word target selector */}
-              <div className="mb-5">
-                <p className="text-xs text-text-tertiary mb-2 text-center">Chapter length: <span className="font-semibold text-text-primary">{wordTarget.toLocaleString()} words</span></p>
-                <div className="mx-auto w-fit rounded-xl glass-pill p-1 flex flex-wrap gap-1 justify-center">
-                  {wordTargetOptions.map((wt) => (
-                    <button
-                      key={wt}
-                      onClick={() => setWordTarget(wt)}
-                      className={cn(
-                        'px-2.5 py-1.5 rounded-lg text-xs transition-all',
-                        wordTarget === wt ? 'bg-text-primary text-text-inverse shadow-sm' : 'text-text-secondary hover:bg-white/60',
-                      )}
-                    >
-                      {wt >= 1000 ? `${wt / 1000}k` : wt}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* Length, dialogue and pace sliders */}
+              {project?.subtype !== 'childrens-book' && (
+                <ChapterDialsPanel value={dials} onChange={setDials} />
+              )}
 
               {generationError && (
                 <div className="max-w-sm mx-auto mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center">
@@ -2478,8 +2485,8 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                   className="px-2 py-1.5 rounded-lg text-xs bg-white/60 border border-black/10 text-text-secondary cursor-pointer outline-none"
                   title="Word target"
                 >
-                  {wordTargetOptions.map((wt) => (
-                    <option key={wt} value={wt}>{wt >= 1000 ? `${wt / 1000}k` : wt} words</option>
+                  {[...new Set([...wordTargetOptions, wordTarget])].sort((a, b) => a - b).map((wt) => (
+                    <option key={wt} value={wt}>{formatWords(wt)} words</option>
                   ))}
                 </select>
                 <button
@@ -2600,6 +2607,12 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
         </div>
         <div className="flex items-center gap-3">
           <span>{wordCount.toLocaleString()} words</span>
+          {wordCount > 0 && (
+            <>
+              <span>·</span>
+              <span title="Share of words in spoken lines">{measureDialoguePct(chapter.prose || '')}% dialogue</span>
+            </>
+          )}
           <span>·</span>
           <span>~{Math.ceil(wordCount / 250)} min read</span>
         </div>

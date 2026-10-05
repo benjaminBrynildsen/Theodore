@@ -19,6 +19,7 @@ import { cleanExtendMerge } from '../src/lib/extend-merge';
 import { buildSynopsisPrompt, parseSynopsis, synopsisSourceKey } from '../src/lib/synopsis';
 import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, ensureSceneCoverage, evenSplit } from '../src/lib/scene-split';
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
+import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS } from '../server/audio-assembly';
 import { buildVoicePieces, markParagraphs, normalizeSceneBreakLines } from '../server/tts';
@@ -784,6 +785,19 @@ t('tracked edits: only marked paragraphs change; rejects leave the original; jun
   assert.equal(applySuggestions(paras, r.suggestions, onlyRewrite).slice(range[0], range[1]), 'Two, sharper.');
   assert.equal(parseTrackedEdits('no json here', paras), null);
   assert.deepEqual(parseTrackedEdits('{"summary":"Fine as is","changes":[]}', paras), { summary: 'Fine as is', suggestions: [] });
+});
+
+t('chapter dials: saved values clamped, defaults fill gaps, prompt reflects the choice', () => {
+  assert.deepEqual(normalizeDials(null), DEFAULT_DIALS);
+  assert.deepEqual(normalizeDials({ words: 99999, dialoguePct: 3, pace: 9 }), { words: 6000, dialoguePct: 10, pace: 5 });
+  assert.deepEqual(normalizeDials({ words: 2610, dialoguePct: 47 }), { words: 2500, dialoguePct: 45, pace: 3 });
+  assert.equal(formatWords(2750), '2.75k');
+  assert.equal(formatWords(3000), '3k');
+  assert.equal(formatWords(750), '750');
+  const heavy = buildDialsBlock({ words: 3000, dialoguePct: 60, pace: 5 });
+  assert.ok(heavy.includes('about 60%') && heavy.includes('55–65%') && heavy.includes('dialogue-heavy') && heavy.includes('Fast and intense'));
+  assert.ok(buildDialsBlock({ words: 2000, dialoguePct: 15, pace: 1 }).includes('Keep dialogue sparse'));
+  assert.equal(measureDialoguePct('He waited. "Go now," she said. "Fine."'), 43);
 });
 
 // ---------- Audio pacing (real silence) ----------
