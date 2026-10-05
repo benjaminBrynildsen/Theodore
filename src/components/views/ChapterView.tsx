@@ -2528,7 +2528,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
       {showRebuild && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-4" onClick={() => setShowRebuild(false)}>
           <div
-            className="w-full max-w-lg rounded-2xl bg-white shadow-xl p-5 space-y-3"
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-xl p-5 space-y-3"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-label="Rebuild chapter"
@@ -2558,7 +2558,12 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                 <span className="block text-text-tertiary">Keeps the events and rewrites how they unfold. Uncheck to write a fresh version from the outline.</span>
               </span>
             </label>
-            <p className="text-[11px] text-text-tertiary">The current version is saved in version history, so you can go back to it. Uses the word target in the toolbar ({wordTarget.toLocaleString()} words).</p>
+            {project?.subtype !== 'childrens-book' && (
+              <div className="-mx-2">
+                <ChapterDialsPanel value={dials} onChange={setDials} />
+              </div>
+            )}
+            <p className="text-[11px] text-text-tertiary">The current version is saved in version history, so you can go back to it.</p>
             <div className="flex justify-end gap-2 pt-1">
               <button onClick={() => setShowRebuild(false)} className="px-3 py-2 rounded-xl text-sm text-text-secondary hover:bg-black/5">Cancel</button>
               <button
