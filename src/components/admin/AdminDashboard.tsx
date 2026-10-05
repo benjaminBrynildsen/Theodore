@@ -331,6 +331,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     try { return localStorage.getItem('theodore:admin-hide-my-guest') === 'true'; } catch { return false; }
   });
   const [userDetail, setUserDetail] = useState<UserDetail | null>(null);
+  const [userSearch, setUserSearch] = useState('');
   const [dailyStats, setDailyStats] = useState<DailyStats | null>(null);
   const [traffic, setTraffic] = useState<TrafficStats | null>(null);
   const [journeys, setJourneys] = useState<JourneySession[]>([]);
@@ -358,10 +359,10 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
     setLoading(false);
   };
 
-  const loadUsers = async () => {
+  const loadUsers = async (q = userSearch) => {
     setLoading(true);
     try {
-      const data = await fetchJson<{ users: UserRow[]; total: number }>('/users?limit=100');
+      const data = await fetchJson<{ users: UserRow[]; total: number }>(`/users?limit=100${q.trim() ? `&q=${encodeURIComponent(q.trim())}` : ''}`);
       setUsersList(data);
     } catch { setError('Failed to load users.'); }
     setLoading(false);
@@ -988,7 +989,35 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         {/* ========== Users ========== */}
         {view === 'users' && usersList && (
           <div className="max-w-5xl mx-auto">
-            <div className="text-xs text-text-tertiary mb-3">{usersList.total} total users</div>
+            <form
+              onSubmit={(e) => { e.preventDefault(); loadUsers(); }}
+              className="flex flex-wrap items-center gap-2 mb-3"
+            >
+              <input
+                type="search"
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder="Search by email or name"
+                className="flex-1 min-w-[180px] px-3 py-2 rounded-xl bg-white/70 border border-black/10 text-sm outline-none focus:border-black/30"
+                aria-label="Search users"
+              />
+              <button type="submit" className="px-3 py-2 rounded-xl text-sm font-medium bg-text-primary text-text-inverse">Search</button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const me = await (await fetch('/api/auth/me', { credentials: 'include' })).json();
+                    if (me?.user?.id) loadUserDetail(me.user.id);
+                  } catch { setError('Could not load your account.'); }
+                }}
+                className="px-3 py-2 rounded-xl text-sm font-medium bg-white/70 border border-black/10"
+              >
+                My account
+              </button>
+            </form>
+            <div className="text-xs text-text-tertiary mb-3">
+              {userSearch.trim() ? `${usersList.total} matching “${userSearch.trim()}”` : `${usersList.total} total users · newest 100 shown`}
+            </div>
             <div className="space-y-1">
               {usersList.users.map((u) => {
                 // Show used/total instead of remaining/total — easier visual

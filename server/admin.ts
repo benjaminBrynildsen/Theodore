@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { db } from './db.js';
 import { users, projects, chapters, canonEntries, creditTransactions, audioGenerations, guestEvents, pushTokens, transactionalEmails, emailTemplates, foundingLeads, foundingDrops, foundingOrders, fulfillmentGrants } from './schema.js';
-import { sql, eq, desc, count, sum, gt, and, inArray, isNotNull, ne } from 'drizzle-orm';
+import { sql, eq, desc, count, sum, gt, and, inArray, isNotNull, ne, or, ilike } from 'drizzle-orm';
 import { getAuth } from './auth.js';
 import { sendPushToTokens } from './push.js';
 import { sendToUser, getTemplate, setTemplate, DEFAULT_TEMPLATES, substituteVars, type EmailKind, APP_URL, sendFoundingSeatLive } from './email.js';
@@ -412,6 +412,8 @@ export async function getUsers(req: Request, res: Response) {
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
     const offset = parseInt(req.query.offset as string) || 0;
     const sort = (req.query.sort as string) || 'recent';
+    // Email or name contains (case-insensitive); LIKE wildcards in the input are taken literally.
+    const search = String(req.query.q || '').trim().slice(0, 100).replace(/[\\%_]/g, (c) => `\\${c}`);
 
     let orderBy: any;
     switch (sort) {
@@ -438,6 +440,7 @@ export async function getUsers(req: Request, res: Response) {
         updatedAt: users.updatedAt,
       })
       .from(users)
+      .where(search ? or(ilike(users.email, `%${search}%`), ilike(users.name, `%${search}%`)) : undefined)
       .orderBy(orderBy)
       .limit(limit)
       .offset(offset);
@@ -496,7 +499,8 @@ export async function getUsers(req: Request, res: Response) {
       };
     });
 
-    const [{ value: total }] = await db.select({ value: count() }).from(users);
+    const [{ value: total }] = await db.select({ value: count() }).from(users)
+      .where(search ? or(ilike(users.email, `%${search}%`), ilike(users.name, `%${search}%`)) : undefined);
 
     res.json({ users: rowsWithPlatforms, total, limit, offset });
   } catch (e: any) {
