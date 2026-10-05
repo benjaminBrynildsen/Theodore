@@ -5,7 +5,8 @@ import { useCanonStore } from '../../store/canon';
 import { useSettingsStore } from '../../store/settings';
 import { generateText, generateStream } from '../../lib/generate';
 import { useGenerationStore } from '../../store/generation';
-import { buildSelectionEditPrompt } from '../../lib/prompt-builder';
+import { buildEditChatContext, buildSelectionEditPrompt } from '../../lib/prompt-builder';
+import { analysisModel } from '../../lib/models';
 import { generateId, cn } from '../../lib/utils';
 import { schedulePostEditPipeline } from '../../lib/post-generation-pipeline';
 import type { EditChatMessage, ProseSelection } from '../../types';
@@ -235,14 +236,21 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
       .slice(-8)
       .map((m: any) => `${String(m.role).toUpperCase()}: ${typeof m.content === 'string' ? m.content : ''}`)
       .join('\n\n');
-    const passage = currentSelection?.text || prose.slice(0, 1200);
+    const passage = currentSelection?.text || prose;
+    // The book's plan (thread map, character & object map, introductions) so
+    // the proposal fits the story, not just the passage.
+    const chapterNow = useStore.getState().chapters.find((c) => c.id === chapterId);
+    const storyContext = chapterNow
+      ? buildEditChatContext({ project: project!, chapter: { ...chapterNow, prose }, allChapters: getProjectChapters(project!.id), canonEntries: getProjectEntries(project!.id) })
+      : '';
     try {
       await generateStream(
         {
           action: 'chapter-edit-chat',
-          model: 'claude-haiku-4-5',
+          model: analysisModel(settings.ai?.preferredModel),
+          effort: 'low',
           temperature: settings.ai?.temperature ?? 0.8,
-          maxTokens: 120,
+          maxTokens: 200,
           projectId: project!.id,
           chapterId,
           systemPrompt: `You are Theodore, a sharp, collaborative story editor working with the author on ${currentSelection ? 'a selected passage' : 'this chapter'}. Be brief and warm — like a writing partner, not a tool.
@@ -251,8 +259,9 @@ RULES:
 - React to what they want, then propose ONE specific way you'd make the edit ("I'd [specific approach]").
 - End by asking if they want you to run it or adjust ("Want me to run it, or tweak the angle?").
 - Do NOT rewrite or output the edited passage yet — that happens only after they confirm.
+- Fit the proposal to the story plan you're given: keep the chapter's planned beats, never spill a secret a thread keeps open, and keep characters and objects where the maps put them. If the request would break the plan, say so briefly and suggest a version that doesn't.
 - NEVER list options or use bullet points. NEVER use paragraphs.`,
-          prompt: `Passage being edited:\n"${passage}"\n\nConversation so far:\n${priorConvo}\n\nRespond in 1-2 sentences: propose one approach and ask if they want it.`,
+          prompt: `${storyContext ? `STORY CONTEXT:\n${storyContext}\n\n` : ''}${currentSelection ? 'Passage being edited' : 'Chapter being edited'}:\n"${passage}"\n\nConversation so far:\n${priorConvo}\n\nRespond in 1-2 sentences: propose one approach and ask if they want it.`,
         },
         (text) => {
           acc += text;
@@ -316,16 +325,31 @@ RULES:
         chatHistory: messages.slice(-8),
       });
 
+      // A full-chapter reply replaces the chapter, so give it room for the
+      // whole chapter plus growth (~4 chars per token, up to 2x longer).
+      const maxTokens = target.selection
+        ? Math.min(8000, Math.max(2000, Math.ceil(target.selection.text.length / 4 * 2.5)))
+        : Math.min(24000, Math.max(4000, Math.ceil(prose.length / 4 * 2.2)));
       const result = await generateText({
         prompt,
         model: settings.ai?.preferredModel || 'claude-opus',
-        maxTokens: target.selection ? 2000 : 4000,
+        maxTokens,
         action: 'inline-edit',
         projectId: project.id,
         chapterId,
       });
 
       const responseText = (result.text || '').trim();
+
+      // Never drop a cut-off rewrite into the chapter: a reply that hit the
+      // length limit would silently lose the rest of the chapter.
+      if (responseText && result.stopReason === 'max_tokens') {
+        setUndoStack((prev) => prev.slice(0, -1));
+        appendMessage({ id: generateId(), role: 'assistant', content: 'That rewrite ran too long and got cut off, so I left the chapter as it was. Try the edit on a selected passage or a smaller change.', timestamp: new Date().toISOString() });
+        useGenerationStore.getState().end();
+        setPendingEdit(null);
+        return;
+      }
 
       if (responseText && target.selection) {
         const before = prose.slice(0, target.selection.startOffset);

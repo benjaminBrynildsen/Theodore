@@ -2340,6 +2340,7 @@ app.post('/api/generate', async (req, res) => {
       res.json({
         text: result.text,
         model: result.model,
+        stopReason: result.stopReason,
         usage: {
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
