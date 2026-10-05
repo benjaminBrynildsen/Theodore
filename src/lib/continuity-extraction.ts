@@ -13,9 +13,11 @@
 //   5. save each staleNoticeUpdates(...) patch onto the later chapters
 
 import type { Chapter } from '../types';
-import type { AnyCanonEntry } from '../types/canon';
+import type { AnyCanonEntry, CharacterEntry } from '../types/canon';
 import {
   CONTINUITY_VERSION,
+  characterStateFor,
+  currentLimit,
   buildPriorMemoryForCheck,
   diffChapterMemory,
   foldStoryState,
@@ -77,7 +79,17 @@ export function buildContinuityExtractionPrompt(args: {
   const openThreadsList = openThreadsBefore(allChapters, chapter)
     .map((t) => `- [${t.id}] ${t.character}: ${t.thread}`)
     .join('\n');
-  const priorMemory = buildPriorMemoryForCheck(foldStoryState(allChapters, chapter.id));
+  const priorState = foldStoryState(allChapters, chapter.id);
+  const priorMemory = buildPriorMemoryForCheck(priorState);
+  // Conditions set in canon count as established even before the page shows them.
+  const canonLimits = canon
+    .filter((e): e is CharacterEntry => e.type === 'character')
+    .map((e) => {
+      const limit = currentLimit(e, characterStateFor(priorState, e));
+      return limit ? `- ${e.name}: can't: ${limit}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
   const knownNames = canon
     .filter((e) => e.type === 'character' || e.type === 'artifact' || e.type === 'location')
     .map((e) => `${e.name} (${e.type})`)
@@ -97,12 +109,12 @@ Read the WHOLE chapter below and produce the sections that follow. Be concrete a
 3) OPEN_THREADS — any new unresolved promises, commitments, plans, secrets, or emotional threads a character introduces. Format: "CHARACTER: thread description". Only genuine open threads.
 4) RESOLVED_THREAD_IDS — given the existing open threads below, which ids did THIS chapter resolve? Only include ids from the existing list.
 5) CHARACTER_STATE — for each character who appears or changes, their state at the END of this chapter. One line each, pipe-separated, omit unknown fields:
-   - NAME | location: ... | with: ... | mood: ... | learned: new thing they now know; another | physical: injuries/visible changes | status: alive/dead/missing/captured | arc: where they are in their personal arc now | relationships: Name: how they stand with them now; Name: ... | called: other names or nicknames used for them in this chapter (e.g. Wesley; Store), omit if only their usual name
+   - NAME | location: ... | with: ... | mood: ... | learned: new thing they now know; another | physical: injuries/visible changes | status: alive/dead/missing/captured | arc: where they are in their personal arc now | relationships: Name: how they stand with them now; Name: ... | called: other names or nicknames used for them in this chapter (e.g. Wesley; Store), omit if only their usual name | capacity: only when an illness, injury, disability, age or state of mind limits them — concretely what they can't do right now (e.g. can't speak beyond a word or two; can't walk unaided; doesn't recognize people), or "none now" if an earlier limit has ended
 6) ARTIFACT_STATE — important objects that appear, change hands, move, or change condition:
    - OBJECT | holder: ... | location: ... | condition: ...
 7) FACTS — small concrete details this chapter ESTABLISHES that later chapters must keep consistent (appearance, ages, names of pets/places, vehicles, scars, habits, dates, relationships, how something works). Only details actually on the page, not guesses. Max 15.
    - SUBJECT: fact
-8) CONTRADICTIONS — places where THIS chapter conflicts with the established memory below (wrong eye colour, an object in the wrong hands, a character knowing something they couldn't, a dead character acting). Only real conflicts, not new developments shown happening on the page.
+8) CONTRADICTIONS — places where THIS chapter conflicts with the established memory below (wrong eye colour, an object in the wrong hands, a character knowing something they couldn't, a dead character acting, a character doing what their condition doesn't allow — e.g. long conversations from someone who can barely speak). Only real conflicts, not new developments shown happening on the page.
    - high|medium|low | "short exact quote from this chapter" | what conflicts | suggested fix
    Also flag time running backwards or impossibly fast against the STORY CLOCK, and a character using a SECRET they are listed as not knowing.
 9) STORY_CLOCK — when this chapter ENDS in story time, one line: day (e.g. "Day 3", "Tuesday", "the night of the festival" — continue the numbering from the memory below), time of day, and how much time the chapter covered.
@@ -116,6 +128,7 @@ Use these exact names when they refer to the same person, place, or object: ${kn
 
 ESTABLISHED MEMORY FROM EARLIER CHAPTERS:
 ${priorMemory || '(none yet)'}
+${canonLimits ? `\nCHARACTER LIMITS (from their profiles):\n${canonLimits}\n` : ''}
 
 EXISTING OPEN THREADS:
 ${openThreadsList || '(none)'}

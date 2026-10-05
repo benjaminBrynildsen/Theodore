@@ -30,6 +30,8 @@ export interface CharacterStateRecord {
   relationships?: string;
   /** Other names and nicknames used for them on the page ("Wesley", "Store"). */
   called?: string[];
+  /** What a condition stops them doing right now ("can't speak more than a few words"); "none" once it ends. */
+  capacity?: string;
 }
 
 export interface ArtifactStateRecord {
@@ -356,6 +358,7 @@ export function parseMemorySections(text: string, chapterNumber: number, canon: 
       status: fields.status,
       arc: fields.arc,
       relationships: fields.relationships,
+      capacity: fields.capacity,
       called: fields.called ? fields.called.split(/[;,]/).map((x) => x.replace(/\(.*?\)/g, '').trim().replace(/^["“']|["”']$/g, '').trim()).filter(Boolean).slice(0, 6) : undefined,
     });
   }
@@ -518,6 +521,8 @@ export function foldStoryState(allChapters: Chapter[], beforeChapterId?: string)
         status: s.status || prev?.status,
         arc: s.arc || prev?.arc,
         relationships: s.relationships || prev?.relationships,
+        // Latest word wins, including "none" when a condition has ended.
+        capacity: s.capacity || prev?.capacity,
         learned: dedupedLearned.slice(-10),
         lastSeenChapter: n,
       });
@@ -686,6 +691,7 @@ export function renderCharacterCard(c: CharacterEntry, opts: CardOptions = {}): 
   lines.push(def && ch.age === 'Early 30s' ? null : field('Age', ch.age));
   lines.push(field('Role', ch.role));
   lines.push(field('Occupation', ch.occupation));
+  lines.push(field('Condition & limits', ch.condition));
   lines.push(field('Appearance', ch.appearance?.physical));
   lines.push(field('Distinguishing features', ch.appearance?.distinguishingFeatures));
   lines.push(field('Style', ch.appearance?.style));
@@ -735,7 +741,8 @@ export function renderCharacterCard(c: CharacterEntry, opts: CardOptions = {}): 
 export function renderLightCharacter(c: CharacterEntry): string {
   const bits = [real(c.character?.pronouns), real(c.character?.role)].filter(Boolean).join(', ');
   const desc = real(c.description) || real(c.character?.appearance?.physical);
-  return `- ${c.name}${bits ? ` (${bits})` : ''}${desc ? `: ${desc}` : ''}`;
+  const limit = real(c.character?.condition);
+  return `- ${c.name}${bits ? ` (${bits})` : ''}${desc ? `: ${desc}` : ''}${limit ? ` | LIMITS: ${limit}` : ''}`;
 }
 
 export function renderWorldCard(e: AnyCanonEntry, state?: StoryStateAt): string {
@@ -830,6 +837,7 @@ export function buildStoryMemoryBlock(
       s.with && `with ${s.with}`,
       s.mood && `mood: ${s.mood}`,
       s.physical && `physical: ${s.physical}`,
+      s.capacity && !NO_LIMIT.test(s.capacity) && `can't: ${s.capacity}`,
       s.learned?.length ? `knows: ${s.learned.slice(-5).join('; ')}` : null,
       s.relationships && `relationships: ${s.relationships}`,
     ].filter(Boolean);
@@ -885,7 +893,7 @@ export function buildStoryMemoryBlock(
 export function buildPriorMemoryForCheck(state: StoryStateAt, maxFacts = 120): string {
   const lines: string[] = [];
   for (const s of state.characters.values()) {
-    const parts = [s.status, s.location && `at ${s.location}`, s.physical && `physical: ${s.physical}`, s.learned?.length ? `knows: ${s.learned.join('; ')}` : null].filter(Boolean);
+    const parts = [s.status, s.location && `at ${s.location}`, s.physical && `physical: ${s.physical}`, s.capacity && !NO_LIMIT.test(s.capacity) && `can't: ${s.capacity}`, s.learned?.length ? `knows: ${s.learned.join('; ')}` : null].filter(Boolean);
     if (parts.length) lines.push(`- ${s.name}: ${parts.join(' | ')}`);
   }
   for (const a of state.artifacts.values()) {
@@ -901,6 +909,46 @@ export function buildPriorMemoryForCheck(state: StoryStateAt, maxFacts = 120): s
     lines.push(`- SECRET: ${k.secret} | known by: ${k.knownBy.join(', ') || 'no one'}${k.hiddenFrom.length ? ` | NOT known by: ${k.hiddenFrom.join(', ')}` : ''}`);
   }
   return lines.join('\n');
+}
+
+// ---------- Condition & limits ----------
+
+const NO_LIMIT = /^(none|no longer|n\/a|recovered|fully|normal|unlimited)\b/i;
+
+/**
+ * What a character can't do right now: the page's latest word on it (which
+ * can lift it — "none now"), else the condition set in canon. Null if none.
+ */
+export function currentLimit(entry: CharacterEntry | undefined, folded: FoldedCharacterState | undefined): string | null {
+  const fromPage = folded?.capacity?.trim();
+  if (fromPage) return NO_LIMIT.test(fromPage) ? null : fromPage;
+  const fromCanon = real(entry?.character?.condition);
+  return fromCanon || null;
+}
+
+/**
+ * Hard limits for the characters in play — always included, even when full
+ * canon cards are off, because writing past them breaks the story (a patient
+ * who can barely speak holding a long conversation).
+ */
+export function buildLimitsBlock(sel: CanonSelection, state: StoryStateAt): string {
+  const lines: string[] = [];
+  const seen = new Set<string>();
+  for (const c of [...sel.primaryChars, ...sel.secondaryChars]) {
+    const folded = state.characters.get(entityKey(c.name, c.id));
+    const limit = currentLimit(c, folded);
+    seen.add(norm(c.name));
+    if (limit) lines.push(`- ${c.name}: ${limit}`);
+  }
+  for (const s of state.characters.values()) {
+    if (seen.has(norm(s.name)) || !sel.relevantNames.has(norm(s.name))) continue;
+    const limit = currentLimit(undefined, s);
+    if (limit) lines.push(`- ${s.name}: ${limit}`);
+  }
+  if (!lines.length) return '';
+  return `=== WHAT CHARACTERS CAN AND CAN'T DO (hard limits — never write past them) ===
+${lines.join('\n')}
+Keep every line, action and thought within these limits: someone who can barely speak gets a word or a gesture, not a conversation; someone bedridden doesn't cross the room. Let the scene work around the limit (others fill the silence, read their face, speak for them). If a limit changes in this chapter, show it happening and why.`;
 }
 
 // ---------- Canon + memory prompt block ----------
@@ -952,6 +1000,8 @@ export function buildCanonAndMemory(
     if (canon) parts.push(canon);
   }
   const sel = selectRelevantCanon(entries, chapter, allChapters, state);
+  const limits = buildLimitsBlock(sel, state);
+  if (limits) parts.push(limits);
   const memory = buildStoryMemoryBlock(allChapters, chapter, sel, state);
   if (memory) parts.push(memory);
   return parts.join('\n\n');

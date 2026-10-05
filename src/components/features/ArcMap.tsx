@@ -196,6 +196,7 @@ export function ArcMap({ project, chapters }: Props) {
       return [
         ['Wants', c.want, false], ['Needs', c.need, false], ['Flaw', c.flaw, false],
         ['Starts', c.startState, false], ['Ends', c.endState, true],
+        ...(c.limits ? [['Limits', c.limits, false]] : []),
       ] as Array<[string, string, boolean]>;
     }
     const a = plan.artifacts.find((x) => x.id === id);
@@ -367,6 +368,19 @@ export function ArcMap({ project, chapters }: Props) {
           <p className="text-text-tertiary">Nothing planned for this chapter.</p>
         )}
       </div>
+
+      {!!plan.cast?.length && (
+        <div className="rounded-xl bg-white/70 border border-black/5 p-3 text-xs space-y-1.5">
+          <div className="font-semibold text-text-primary">Supporting cast</div>
+          {plan.cast.map((m) => (
+            <p key={m.name}>
+              <span className="font-medium">{m.name}</span>
+              <span className="text-text-secondary"> — {m.who}</span>
+              {m.limits && <span className="block text-amber-900/80">Limits: {m.limits}</span>}
+            </p>
+          ))}
+        </div>
+      )}
 
       {!!warnings.length && (
         <div className="space-y-1">

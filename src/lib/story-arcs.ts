@@ -47,6 +47,16 @@ export interface CharacterArc {
   introducedIn: number;
   /** What the introduction should establish about them, from the plan. */
   introduction?: string;
+  /** Condition & limits: what an illness, injury, disability or age stops them doing. */
+  limits?: string;
+}
+
+/** A recurring character without a full arc: who they are and what limits them. */
+export interface CastMember {
+  name: string;
+  /** Who they are to the story, with a concrete detail or two. */
+  who: string;
+  limits?: string;
 }
 
 export interface ArtifactBeat {
@@ -76,6 +86,8 @@ export interface ArcPlan {
   chapterCount: number;
   characters: CharacterArc[];
   artifacts: ArtifactJourney[];
+  /** Everyone else who recurs or matters to a thread. */
+  cast?: CastMember[];
 }
 
 export const ARC_BEAT_LABEL: Record<ArcBeatType, string> = {
@@ -115,6 +127,7 @@ function characterLine(e: CharacterEntry): string {
     c?.personality?.flaws?.length ? `flaws: ${c.personality.flaws.slice(0, 3).join(', ')}` : '',
     c?.arc?.startingState ? `starts: ${c.arc.startingState}` : '',
     c?.arc?.endingState ? `ends: ${c.arc.endingState}` : '',
+    c?.condition ? `limits: ${c.condition}` : '',
   ].map(str).filter(Boolean);
   return `- ${e.name}${parts.length ? `: ${parts.join(' | ')}` : ''}`;
 }
@@ -178,17 +191,19 @@ DESIGN RULES:
    - shape: "positive" (grows out of the flaw), "negative" (falls further into it), or "flat" (holds firm and changes others).
    - beats, in order: one "setup" early (the flaw on display), "test" beats where the flaw costs them, at least one "setback", a "turn" near the middle (a crack in the false belief), a "crisis" late (the lowest point, the hardest choice), and one "change" at or near the climax (they act from the need, not the flaw). Flat arcs: "setup", "test" beats and a final "change" that notes how they changed others.
    - Change is gradual. Space the beats out; no character changes in a single chapter.
+   - limits: if an illness, injury, disability, age, language barrier or state of mind limits what they can do, say concretely what they can and can't do (speak, move, understand, remember) and when that changes. Think it through: why is someone in a hospital, a care home or a wheelchair, and what does that mean for a scene with them? "" if nothing limits them.
    - introduce: the chapter where the reader properly MEETS them — usually the first chapter they're in. For the protagonist that is normally Ch 1; if Ch 1 is a cold open or flash-forward ("24 hours earlier" follows), it can be Ch 2. Its note says what the introduction should establish (who they are, what they do, what's missing in their life).
 2. ARTIFACT JOURNEYS (${objectCount}): objects that matter to the plot — a key, a letter, a weapon, a device, an heirloom. Use the canon objects first; add any the outline clearly needs. For each:
    - description: the concrete physical details that make it recognizable.
    - significance: what it really means or does.
    - beats, in order: one "introduce" (it appears on the page, early enough to be remembered — never conveniently right when it's needed), any "handoff" (changes hands; give the new holder), "use", a "reveal" if its true meaning comes out later, and one "payoff" where it matters most. "lost" if it is destroyed or gone.
    - Every object that is introduced pays off. Plant it at least two chapters before its payoff.
-${written.length ? `3. Chapters marked [WRITTEN] already happened. Keep beats that are already on the page in those chapters; plan future beats freely.\n` : ''}
+3. SUPPORTING CAST: every other named character who appears in two or more chapters or matters to a thread, built with the same care as the leads but briefly: who they are to the story with one or two concrete details (age, look, what they do), and limits as above. Leave out anyone already given an arc.
+${written.length ? `4. Chapters marked [WRITTEN] already happened. Keep beats that are already on the page in those chapters; plan future beats freely.\n` : ''}
 Beat notes are one short sentence saying what happens on the page.
 
 Return ONLY JSON, no markdown:
-{"characters":[{"name":"Name","role":"protagonist|antagonist|supporting","shape":"positive|negative|flat","want":"...","need":"...","flaw":"...","start":"...","end":"...","introduce":{"chapter":1,"note":"..."},"beats":[{"chapter":1,"type":"setup","note":"..."},{"chapter":4,"type":"test","note":"..."}]}],"artifacts":[{"name":"Object","description":"...","significance":"...","beats":[{"chapter":2,"type":"introduce","note":"...","holder":"Name"},{"chapter":9,"type":"payoff","note":"..."}]}]}`;
+{"characters":[{"name":"Name","role":"protagonist|antagonist|supporting","shape":"positive|negative|flat","want":"...","need":"...","flaw":"...","start":"...","end":"...","limits":"","introduce":{"chapter":1,"note":"..."},"beats":[{"chapter":1,"type":"setup","note":"..."},{"chapter":4,"type":"test","note":"..."}]}],"artifacts":[{"name":"Object","description":"...","significance":"...","beats":[{"chapter":2,"type":"introduce","note":"...","holder":"Name"},{"chapter":9,"type":"payoff","note":"..."}]}],"cast":[{"name":"Name","who":"...","limits":""}]}`;
 }
 
 // ---------- Parsing + validation ----------
@@ -205,6 +220,19 @@ function slug(s: string): string {
 
 const ARC_ORDER: Record<ArcBeatType, number> = { setup: 0, test: 1, setback: 2, turn: 3, crisis: 4, change: 5 };
 const ARTIFACT_ORDER: Record<ArtifactBeatType, number> = { introduce: 0, handoff: 1, use: 2, reveal: 3, payoff: 4, lost: 5 };
+
+/** A real limit, not a model's way of saying there isn't one. */
+function hasLimit(v: unknown): boolean {
+  const t = str(v);
+  return !!t && !/^(none|n\/a|no limits?|nothing|-)\.?$/i.test(t);
+}
+
+export function normalizeCastMember(raw: RawJson): CastMember | null {
+  const name = str(raw?.name);
+  const who = str(raw?.who ?? raw?.description);
+  if (!name || !who) return null;
+  return { name, who, ...(hasLimit(raw.limits) ? { limits: str(raw.limits) } : {}) };
+}
 
 export function normalizeCharacterArc(raw: RawJson, n: number): CharacterArc | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -247,6 +275,7 @@ export function normalizeCharacterArc(raw: RawJson, n: number): CharacterArc | n
     // No later than their first beat; a cold open can push it past Ch.1.
     introducedIn: Math.min(clampChapter(raw.introduce?.chapter ?? raw.introducedIn, n) ?? beats[0].chapter, beats[0].chapter),
     ...(str(raw.introduce?.note) ? { introduction: str(raw.introduce?.note) } : {}),
+    ...(hasLimit(raw.limits) ? { limits: str(raw.limits) } : {}),
   };
 }
 
@@ -309,7 +338,13 @@ export function parseArcPlan(text: string, chapterCount: number, now = new Date(
     .map((a: RawJson) => normalizeArtifactJourney(a, n))
     .filter((a: ArtifactJourney | null): a is ArtifactJourney => !!a));
   if (!characters.length && !artifacts.length) return null;
-  return { version: 1, generatedAt: now, chapterCount: n, characters, artifacts };
+  const arcNames = new Set(characters.map((c) => c.name.toLowerCase()));
+  const cast: CastMember[] = [];
+  for (const raw of Array.isArray(parsed?.cast) ? parsed.cast : []) {
+    const m = normalizeCastMember(raw);
+    if (m && !arcNames.has(m.name.toLowerCase()) && !cast.some((x) => x.name.toLowerCase() === m.name.toLowerCase())) cast.push(m);
+  }
+  return { version: 1, generatedAt: now, chapterCount: n, characters, artifacts, ...(cast.length ? { cast: cast.slice(0, 20) } : {}) };
 }
 
 // ---------- Where things stand at a chapter ----------

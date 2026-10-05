@@ -9,7 +9,7 @@ import {
 } from '../src/lib/story-memory';
 import { applyContinuityExtraction, buildContinuityExtractionPrompt } from '../src/lib/continuity-extraction';
 import { junkNameReason, heuristicCleanup, parseCleanupResponse, combineProposals, referenceRemap, remapReferences, buildCleanupPrompt } from '../src/lib/canon-cleanup';
-import { parseNewCanon } from '../src/lib/story-memory';
+import { parseNewCanon, buildLimitsBlock, currentLimit, foldStoryState, selectRelevantCanon, parseMemorySections, buildCanonAndMemory } from '../src/lib/story-memory';
 import { buildRenamePairs, replaceNames, countMentions, renameDeep } from '../src/lib/rename';
 import { stripDialogueSpeakerTags, isSceneBreakLine } from '../src/lib/clean-prose';
 import { analyzeAttribution, needsDialogueClarityPass } from '../src/lib/dialogue-clarity';
@@ -713,6 +713,48 @@ t('chapter edits see the thread map, the arc map and the whole chapter', () => {
   assert.ok(sel.includes('The frost closet'), 'selection edits get the plan too');
   const chat = buildEditChatContext({ project, chapter, allChapters: [chapter], canonEntries: [] });
   assert.ok(chat.includes('The frost closet') && chat.includes('Wes notices the cold'));
+});
+
+t('condition & limits: canon sets it, the page can update or lift it, always reaches the writer', () => {
+  const nana = baseChar('n', 'Ruth Hale', { role: 'supporting', condition: 'Advanced stroke: speaks a word or two at a time; bedridden' });
+  const wes = baseChar('w', 'Wes Carter', { role: 'protagonist' });
+  const canon = [nana, wes] as any[];
+  const mk = (id: string, number: number, meta: any = {}) => ({ id, projectId: 'p', number, title: `C${number}`, prose: 'Wes visited Ruth Hale.', premise: { characters: ['Wes Carter', 'Ruth Hale'] }, aiIntentMetadata: meta } as any);
+  const ch1 = mk('c1', 1);
+  // No memory yet: the canon condition applies.
+  const block = buildLimitsBlock(selectRelevantCanon(canon, ch1, [ch1]), foldStoryState([ch1], 'c1'));
+  assert.ok(block.includes("WHAT CHARACTERS CAN AND CAN'T DO") && block.includes('Ruth Hale: Advanced stroke'));
+  assert.ok(!block.includes('Wes Carter:'));
+  // Included even when full canon cards are off.
+  assert.ok(buildCanonAndMemory(canon, ch1, [ch1], false).includes('Ruth Hale: Advanced stroke'));
+  // The page updates it, then lifts it.
+  const parsed = parseMemorySections('CHARACTER_STATE:\n- Ruth Hale | location: hospital | capacity: can only squeeze a hand; no speech\n', 1, canon);
+  assert.equal(parsed.characterState[0].capacity, 'can only squeeze a hand; no speech');
+  const c1 = mk('c1', 1, { characterState: parsed.characterState });
+  const c2 = mk('c2', 2, { characterState: [{ name: 'Ruth Hale', canonId: 'n', capacity: 'none now — recovered her speech' }] });
+  const c3 = mk('c3', 3);
+  assert.equal(currentLimit(nana as any, foldStoryState([c1, c2, c3], 'c2').characters.get('id:n')), 'can only squeeze a hand; no speech');
+  assert.equal(currentLimit(nana as any, foldStoryState([c1, c2, c3], 'c3').characters.get('id:n')), null);
+});
+
+t('arc map: limits on arcs, a supporting cast with limits, no duplicates of arc characters', () => {
+  const plan = parseArcPlan(JSON.stringify({
+    characters: [{ name: 'Wes', role: 'protagonist', limits: 'none', beats: [{ chapter: 1, type: 'setup' }, { chapter: 4, type: 'change' }] }],
+    artifacts: [],
+    cast: [
+      { name: 'Ruth Hale', who: "Wes's grandmother, 84, in hospice", limits: 'barely speaks; bedridden' },
+      { name: 'Wes', who: 'dup' },
+      { name: 'Dr. Ames', who: 'night doctor, brisk', limits: 'N/A' },
+      { name: '', who: 'nameless' },
+    ],
+  }), 6, 'now')!;
+  assert.equal(plan.characters[0].limits, undefined, '"none" is not a limit');
+  assert.deepEqual(plan.cast, [
+    { name: 'Ruth Hale', who: "Wes's grandmother, 84, in hospice", limits: 'barely speaks; bedridden' },
+    { name: 'Dr. Ames', who: 'night doctor, brisk' },
+  ]);
+  const prompt = buildArcPlanPrompt({ title: 'T', chapters: [{ id: 'a', number: 1, title: 'A', premise: {} } as any, { id: 'b', number: 2, title: 'B', premise: {} } as any], canon: [baseChar('n', 'Ruth', { condition: 'bedridden' })] as any });
+  assert.ok(prompt.includes('limits: bedridden') && prompt.includes('SUPPORTING CAST') && prompt.includes('"cast"'));
 });
 
 // ---------- Audio pacing (real silence) ----------
