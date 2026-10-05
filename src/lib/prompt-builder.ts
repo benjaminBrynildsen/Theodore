@@ -13,6 +13,38 @@ import { buildThreadGuidanceBlock } from './story-threads';
 import { buildArcGuidanceBlock } from './story-arcs';
 import { buildIntroductionBlock, introductionsForChapter } from './introductions';
 
+// ========== Story plan (thread map + character & object map) ==========
+
+/**
+ * What the book's plans ask of this chapter: thread beats (open, hint,
+ * reveal, keep hidden), main characters to introduce, and character arc
+ * beats / object journeys. Shared by chapter writing and editing so an edit
+ * can't undo a planned beat or spill a secret the plan keeps open.
+ */
+export function buildStoryPlanBlocks(project: Project, chapter: Chapter, allChapters: Chapter[], canonEntries: AnyCanonEntry[]): string[] {
+  return [
+    buildThreadGuidanceBlock(project.threadPlan, chapter.number),
+    buildIntroductionBlock(introductionsForChapter({ chapter, allChapters, canon: canonEntries, plan: project.arcPlan })),
+    buildArcGuidanceBlock(project.arcPlan, chapter.number),
+  ].filter(Boolean);
+}
+
+const EDIT_PLAN_RULE = 'The edit must keep this chapter doing what the plans above ask: keep every planned beat that is already on the page, never reveal or resolve anything a thread is meant to keep open, and keep characters and objects where the maps put them. If the instruction conflicts with the plan, follow the instruction only as far as the plan allows.';
+
+/**
+ * Compact context for the edit chat's proposal turn: the chapter's purpose and
+ * the story plan, so the proposal fits the book, not just the passage.
+ */
+export function buildEditChatContext(args: { project: Project; chapter: Chapter; allChapters: Chapter[]; canonEntries: AnyCanonEntry[] }): string {
+  const { project, chapter, allChapters, canonEntries } = args;
+  const lines: string[] = [`Book: "${project.title}". Chapter ${chapter.number}: "${chapter.title}".`];
+  if (chapter.premise?.purpose) lines.push(`Chapter purpose: ${chapter.premise.purpose}`);
+  if (chapter.premise?.emotionalBeat) lines.push(`Emotional beat: ${chapter.premise.emotionalBeat}`);
+  const plan = buildStoryPlanBlocks(project, chapter, allChapters, canonEntries);
+  if (plan.length) lines.push('', ...plan);
+  return lines.join('\n');
+}
+
 // ========== Selection-Based Edit Prompt (Vibe Editor) ==========
 
 export interface SelectionEditContext {
@@ -56,6 +88,13 @@ export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
   // Character/object state + established facts — edits must not contradict them
   if (memoryBlock) sections.push('\n' + memoryBlock);
 
+  // Thread map + character & object map for this chapter
+  const planBlocks = buildStoryPlanBlocks(project, chapter, allChapters, canonEntries || []);
+  if (planBlocks.length) {
+    for (const b of planBlocks) sections.push('\n' + b);
+    sections.push(EDIT_PLAN_RULE);
+  }
+
   // Recent chat history
   if (chatHistory.length > 0) {
     sections.push(`\n=== RECENT CONVERSATION ===`);
@@ -86,13 +125,14 @@ export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
     sections.push(`\nRewrite ONLY the selected text according to the user's instruction. Return ONLY the replacement text — no explanations, no markdown, no quotes, no "here's the rewrite". Just the new prose that will replace the selection. Keep the same approximate length unless the user asks to expand or shorten. Maintain voice, tense, and POV consistency with the surrounding text.`);
   } else {
     // Full prose mode — edit the entire chapter
+    // The whole chapter: the reply replaces it, so anything not shown would be lost.
     sections.push(`\n=== CURRENT CHAPTER PROSE ===`);
-    sections.push(fullProse.slice(0, 6000));
+    sections.push(fullProse);
 
     sections.push(`\n=== USER INSTRUCTION ===`);
     sections.push(instruction);
 
-    sections.push(`\nApply the user's instruction to the entire chapter. Return ONLY the updated full prose — no explanations, no markdown code blocks, no titles. Just the prose text.`);
+    sections.push(`\nApply the user's instruction to the entire chapter. Return ONLY the updated full prose, from the first line to the last — every part of the chapter, including the parts the instruction doesn't touch, which stay as they are. No explanations, no markdown code blocks, no titles. Just the prose text.`);
   }
 
   return sections.join('\n');
@@ -460,22 +500,10 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
     sections.push('\n' + continuityBlock);
   }
 
-  // Thread map: what this chapter opens, hints, advances, reveals, closes, and must keep open
-  const threadGuidance = buildThreadGuidanceBlock(project.threadPlan, chapter.number);
-  if (threadGuidance) {
-    sections.push('\n' + threadGuidance);
-  }
-
-  // Main characters the reader properly meets in this chapter
-  const introBlock = buildIntroductionBlock(introductionsForChapter({ chapter, allChapters, canon: canonEntries, plan: project.arcPlan }));
-  if (introBlock) {
-    sections.push('\n' + introBlock);
-  }
-
-  // Arc map: character arc beats and object journeys for this chapter
-  const arcGuidance = buildArcGuidanceBlock(project.arcPlan, chapter.number);
-  if (arcGuidance) {
-    sections.push('\n' + arcGuidance);
+  // Thread map (opens, hints, reveals, keeps open), main characters to
+  // introduce, and character arc beats / object journeys for this chapter
+  for (const b of buildStoryPlanBlocks(project, chapter, allChapters, canonEntries)) {
+    sections.push('\n' + b);
   }
 
   // Chapter-specific instructions
@@ -628,6 +656,13 @@ export function buildSceneEditPrompt(
 
   // Cross-chapter continuity
   if (continuityBlock) sections.push('\n' + continuityBlock);
+
+  // Thread map + character & object map for this chapter
+  const planBlocks = buildStoryPlanBlocks(project, chapter, allChapters, canonEntries);
+  if (planBlocks.length) {
+    for (const b of planBlocks) sections.push('\n' + b);
+    sections.push(EDIT_PLAN_RULE);
+  }
 
   // Current scene
   sections.push(`\n=== CURRENT SCENE ===`);

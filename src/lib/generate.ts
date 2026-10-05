@@ -20,6 +20,8 @@ interface GenerateOptions {
 interface GenerateResult {
   text: string;
   model: string;
+  /** Why the model stopped ('max_tokens' means the reply was cut off). */
+  stopReason?: string;
   usage: {
     inputTokens: number;
     outputTokens: number;

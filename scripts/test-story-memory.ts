@@ -18,7 +18,7 @@ import { introductionsForChapter, buildIntroductionBlock } from '../src/lib/intr
 import { cleanExtendMerge } from '../src/lib/extend-merge';
 import { buildSynopsisPrompt, parseSynopsis, synopsisSourceKey } from '../src/lib/synopsis';
 import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, ensureSceneCoverage, evenSplit } from '../src/lib/scene-split';
-import { buildGenerationPrompt } from '../src/lib/prompt-builder';
+import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS } from '../server/audio-assembly';
 import { buildVoicePieces, markParagraphs, normalizeSceneBreakLines } from '../server/tts';
 import { mergePace, paceWpm } from '../src/lib/tts-types';
@@ -689,6 +689,30 @@ t('synopsis: principles in the prompt, ending kept separate, staleness tracked',
   const changed = [{ ...chs[0] }, { ...chs[1], premise: { purpose: 'Wes tests the rod at the lake.' } }];
   assert.notEqual(synopsisSourceKey(project, changed), key, 'premise change makes it stale');
   assert.equal(synopsisSourceKey(project, [...chs].reverse()), key, 'order-independent');
+});
+
+t('chapter edits see the thread map, the arc map and the whole chapter', () => {
+  const threadPlan = parseThreadPlan(JSON.stringify({ threads: [
+    { title: 'The frost closet', tier: 'major', question: 'What is behind the closet?', resolution: 'A buried freezer',
+      beats: [{ chapter: 1, type: 'open', note: 'Wes finds frost' }, { chapter: 5, type: 'reveal', note: 'freezer found' }, { chapter: 6, type: 'close' }] },
+  ] }), 6, 'now');
+  const arcPlan = parseArcPlan(JSON.stringify({ characters: [
+    { name: 'Wes', role: 'protagonist', want: 'close the sale', beats: [{ chapter: 1, type: 'establish', note: 'tired realtor' }, { chapter: 6, type: 'resolve' }] },
+  ], artifacts: [] }), 6, 'now');
+  assert.ok(threadPlan && arcPlan);
+  const project: any = { id: 'p', title: 'Closing', type: 'book', subtype: 'novel', narrativeControls: {}, threadPlan, arcPlan };
+  const prose = 'Wes checked the fridge. '.repeat(600) + 'THE LAST LINE.';
+  const chapter: any = { id: 'c1', projectId: 'p', number: 1, title: 'Closing Walkthrough', prose, premise: { purpose: 'Wes notices the cold' } };
+  const settings: any = { writingStyle: {}, ai: {} };
+  const full = buildSelectionEditPrompt({ project, chapter, allChapters: [chapter], canonEntries: [], settings, instruction: 'more internal thought', selectedText: null, fullProse: prose, chatHistory: [] });
+  assert.ok(full.includes('The frost closet'), 'thread map in edit prompt');
+  assert.ok(full.includes('tired realtor'), 'arc map in edit prompt');
+  assert.ok(full.includes('never reveal or resolve anything a thread is meant to keep open'));
+  assert.ok(full.includes('THE LAST LINE.'), 'whole chapter sent, not the first 6000 chars');
+  const sel = buildSelectionEditPrompt({ project, chapter, allChapters: [chapter], canonEntries: [], settings, instruction: 'x', selectedText: 'Wes checked the fridge.', fullProse: prose, chatHistory: [] });
+  assert.ok(sel.includes('The frost closet'), 'selection edits get the plan too');
+  const chat = buildEditChatContext({ project, chapter, allChapters: [chapter], canonEntries: [] });
+  assert.ok(chat.includes('The frost closet') && chat.includes('Wes notices the cold'));
 });
 
 // ---------- Audio pacing (real silence) ----------

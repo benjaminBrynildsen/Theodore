@@ -76,6 +76,8 @@ interface GenerateRequest {
 interface GenerateResult {
   text: string;
   model: string;
+  /** Anthropic stop_reason ('max_tokens' = cut off). */
+  stopReason?: string;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
@@ -203,6 +205,7 @@ async function callAnthropic(req: GenerateRequest): Promise<GenerateResult> {
   return {
     text,
     model: servedModel,
+    stopReason: data.stop_reason || undefined,
     inputTokens,
     outputTokens,
     totalTokens: inputTokens + outputTokens,
