@@ -24,6 +24,7 @@ import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } fro
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS, countSentenceBreaks, countClauseBreaks, stretchPauses, CLAUSE_PAUSE_SECONDS } from '../server/audio-assembly';
 import { buildVoicePieces, markParagraphs, normalizeSceneBreakLines } from '../server/tts';
+import { ProseLocks, PROSE_LOCK_ACTIONS } from '../server/generation-lock';
 import { mergePace, paceWpm } from '../src/lib/tts-types';
 import {
   parseThreadPlan, threadsForChapter, buildThreadGuidanceBlock, analyzeThreadPlan, threadStatus, buildThreadPlanPrompt, retimeThread,
@@ -772,6 +773,32 @@ t('rebuild notes: split into items, numbered brief, per-note check', () => {
   assert.deepEqual(check.results.map((r) => r.status), ['done', 'partly', 'missing']);
   assert.deepEqual(outstandingNotes(check), ['Danny leaves angrier', 'Add the call']);
   assert.equal(parseNotesCheck('nope', ['a']), null);
+});
+
+t('chapter-writing lock: retry of the same chapter supersedes, other chapters wait, stale locks never strand', () => {
+  let now = 0;
+  const locks = new ProseLocks(5 * 60_000, () => now);
+  const a = locks.acquire('u', 'ch6');
+  assert.ok(a.ok && !a.superseded);
+  // Phone slept; the author taps Generate again on the same chapter.
+  const b = locks.acquire('u', 'ch6');
+  assert.ok(b.ok && b.superseded);
+  assert.ok(a.ok && a.lock.abort.signal.aborted, 'abandoned run is cancelled');
+  // A different chapter waits while ch6 is being written.
+  const c = locks.acquire('u', 'ch7');
+  assert.ok(!c.ok && c.busyChapterId === 'ch6');
+  // The superseded run finishing late can't free its successor's lock.
+  if (a.ok) locks.release('u', a.lock);
+  assert.ok(!locks.acquire('u', 'ch7').ok);
+  // After the TTL a lock no longer blocks, and its run is left alone.
+  now += 5 * 60_000 + 1;
+  const d = locks.acquire('u', 'ch7');
+  assert.ok(d.ok && !d.superseded);
+  assert.ok(b.ok && !b.lock.abort.signal.aborted);
+  if (d.ok) locks.release('u', d.lock);
+  assert.equal(locks.size, 0);
+  // Only chapter writing is locked; edits and analysis never are.
+  assert.ok(PROSE_LOCK_ACTIONS.has('generate-chapter') && !PROSE_LOCK_ACTIONS.has('inline-edit') && !PROSE_LOCK_ACTIONS.has('dialogue-clarity-pass'));
 });
 
 t('tracked edits: only marked paragraphs change; rejects leave the original; junk is dropped', () => {
