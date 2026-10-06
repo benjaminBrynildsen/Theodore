@@ -71,6 +71,8 @@ interface GenerateRequest {
   action: string; // 'generate-chapter' | 'auto-fill' | 'validate' | 'recap' | etc.
   /** Optional: 'low' for quick conversational replies. Only lowering is allowed. */
   effort?: 'low';
+  /** Cancels the upstream request (client gone, or superseded by a newer run). */
+  signal?: AbortSignal;
 }
 
 interface GenerateResult {
@@ -185,6 +187,7 @@ async function callAnthropic(req: GenerateRequest): Promise<GenerateResult> {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
+    signal: req.signal,
   });
 
   if (!response.ok) {
@@ -223,6 +226,10 @@ async function streamAnthropic(req: GenerateRequest, sink: TextSink): Promise<{ 
   const { headers, body } = anthropicRequest(req, model, true);
 
   const controller = new AbortController();
+  if (req.signal) {
+    if (req.signal.aborted) controller.abort(req.signal.reason);
+    else req.signal.addEventListener('abort', () => controller.abort(req.signal!.reason), { once: true });
+  }
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers,
@@ -347,6 +354,10 @@ async function streamOpenAI(req: GenerateRequest, sink: TextSink): Promise<{ inp
   const maxTokens = req.maxTokens || 4096;
 
   const controller = new AbortController();
+  if (req.signal) {
+    if (req.signal.aborted) controller.abort(req.signal.reason);
+    else req.signal.addEventListener('abort', () => controller.abort(req.signal!.reason), { once: true });
+  }
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {

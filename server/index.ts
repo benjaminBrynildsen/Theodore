@@ -29,6 +29,7 @@ import { generate, generateStream, tokensToCredits } from './ai.js';
 import { generateImage, generateImageOpenAI, generateImageGrok, buildCharacterPortraitPrompt, buildLocationIllustrationPrompt, buildSceneIllustrationPrompt, buildBookCoverPrompt, buildChildrensPagePrompt, buildChildrensHeroPrompt } from './image-gen.js';
 import { applyCoverWatermark } from './watermark.js';
 import { generateChapterAudio, generateVoicePreview, ELEVENLABS_VOICES, OPENAI_VOICES, FISH_AUDIO_VOICES, GROK_VOICES, getVoicesWithPreviews, getFishVoicesWithPreviews, getGrokVoicesWithPreviews, getGrokPreviewBuffer, estimateTTSCredits } from './tts.js';
+import { PROSE_LOCK_ACTIONS, ProseLocks } from './generation-lock.js';
 import { getOverview, getUsers, getUserDetail, getActivity, getDailyStats, deleteUser, adjustUserCredits, clearChapterScenes, requireAdmin, listPushTokens, sendAdminPush, cleanupDisk, verifyUploads, backfillBrokenImages, userCoverHealth, setPendingNotice, listIosLaunchRecipients, resetIosLaunchForUser, sendBulkEmail, listEmailHistory, getEmailTemplate, saveEmailTemplate, listEmailTemplates, createEmailTemplate, deleteEmailTemplate, sendTestEmail, gradeCopy, conceptToHeadlines, attributeChapterEndpoint, dumpProjectCanon, dumpProjectChapters, getReferrals, getConversionStats, getGoFunnel, getPromptsFunnel, getEngagementFunnel, getNoAudioCohort, getPlaybackFunnel, getNoCreditsCohort, getAudioGenBounce, getChapterTruncation, getGoFunnelByDevice, markDevSessions, getUtmFunnel, backfillAttribution, getFoundingOverview, createFoundingDrop, setFoundingDropLive, closeFoundingDrop, listFulfillment, markFulfillment } from './admin.js';
 import { readReferrer, writeReferrer, clearReferrer, refResolvesToRealUser } from './referrer.js';
 import { readAttribution, clearAttribution, attributionColumns, attributionMiddleware, stampAttributionFromIpAsync } from './attribution.js';
@@ -187,24 +188,11 @@ function respondInternalError(res: express.Response, scope: string, error: unkno
 type RateLimitEntry = { count: number; resetAt: number };
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
-// Concurrent-generation locks. Stored as Maps with start timestamps so a
-// stuck request (model hang, network failure, missed finally cleanup) can't
-// permanently block a user. Entries older than GENERATION_LOCK_TTL_MS are
-// considered stale and replaced.
-const GENERATION_LOCK_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const activeGenerationUsers = new Map<string, number>();
+// Chapter writing (generate/extend/scene) is locked per user — see
+// generation-lock.ts. Edits and background analysis are never locked.
+const proseLocks = new ProseLocks();
+const BUSY_MESSAGE = 'Another chapter is still being written on this account. Try again when it finishes (a few minutes at most).';
 const activeGuestIps = new Map<string, number>();
-
-/** True if the user already has a fresh (non-stale) generation in flight. */
-function hasFreshLock(map: Map<string, number>, key: string): boolean {
-  const startedAt = map.get(key);
-  if (startedAt == null) return false;
-  if (Date.now() - startedAt > GENERATION_LOCK_TTL_MS) {
-    map.delete(key);
-    return false;
-  }
-  return true;
-}
 
 function pruneRateLimitStore(now: number): void {
   if (rateLimitStore.size < 2000) return;
@@ -2301,18 +2289,22 @@ app.post('/api/generate', async (req, res) => {
     // these at once (continuity extraction, scene split, entity refine) while
     // the dialogue polish may still hold the lock; locking them made all but
     // one fail with 429 and silently dropped continuity memory.
-    const skipLock = typeof action === 'string' && LOCK_EXEMPT_ACTIONS.has(action);
-    if (!skipLock && hasFreshLock(activeGenerationUsers, user.id)) {
-      return res.status(429).json({ error: 'Generation already in progress for this account.' });
-    }
-
-    if (!skipLock) activeGenerationUsers.set(user.id, Date.now());
-    if (!skipLock) res.on('close', () => { activeGenerationUsers.delete(user.id); });
+    const locked = typeof action === 'string' && PROSE_LOCK_ACTIONS.has(action);
+    const acquired = locked ? proseLocks.acquire(user.id, chapterId ? String(chapterId) : undefined) : null;
+    if (acquired && !acquired.ok) return res.status(429).json({ error: BUSY_MESSAGE });
+    const lock = acquired?.ok ? acquired.lock : null;
+    if (acquired?.ok && acquired.superseded) console.log(`[Generate] ${user.id} retried ${chapterId}; superseded the earlier run`);
+    // Client gone before we answered: stop the upstream call and free the lock.
+    res.on('close', () => {
+      if (lock && !res.writableFinished) lock.abort.abort(new Error('Client disconnected'));
+      if (lock) proseLocks.release(user.id, lock);
+    });
     try {
       const result = await generate({
         prompt, systemPrompt, model, maxTokens, temperature,
         userId: user.id, projectId, chapterId, action,
         effort: req.body?.effort === 'low' ? 'low' : undefined,
+        signal: lock?.abort.signal,
       });
 
       const effectiveCredits = isFreeChat ? 0 : result.creditsUsed;
@@ -2350,7 +2342,7 @@ app.post('/api/generate', async (req, res) => {
         },
       });
     } finally {
-      if (!skipLock) activeGenerationUsers.delete(user.id);
+      if (lock) proseLocks.release(user.id, lock);
     }
   } catch (e: any) {
     console.error('Generate error:', e.message);
@@ -2436,13 +2428,16 @@ app.post('/api/generate/stream', async (req, res) => {
     if (!isFreeChatStream && user.creditsRemaining <= 0) {
       return res.status(402).json({ error: 'Insufficient credits', creditsRemaining: 0 });
     }
-    const skipLockStream = typeof action === 'string' && LOCK_EXEMPT_ACTIONS.has(action);
-    if (!skipLockStream && hasFreshLock(activeGenerationUsers, user.id)) {
-      return res.status(429).json({ error: 'Generation already in progress for this account.' });
-    }
-
-    if (!skipLockStream) activeGenerationUsers.set(user.id, Date.now());
-    if (!skipLockStream) res.on('close', () => { activeGenerationUsers.delete(user.id); });
+    const lockedStream = typeof action === 'string' && PROSE_LOCK_ACTIONS.has(action);
+    const acquiredStream = lockedStream ? proseLocks.acquire(user.id, chapterId ? String(chapterId) : undefined) : null;
+    if (acquiredStream && !acquiredStream.ok) return res.status(429).json({ error: BUSY_MESSAGE });
+    const streamLock = acquiredStream?.ok ? acquiredStream.lock : null;
+    if (acquiredStream?.ok && acquiredStream.superseded) console.log(`[Generate] ${user.id} retried ${chapterId}; superseded the earlier run`);
+    // Client gone (closed tab, lost connection): stop the upstream stream and free the lock.
+    res.on('close', () => {
+      if (streamLock && !res.writableFinished) streamLock.abort.abort(new Error('Client disconnected'));
+      if (streamLock) proseLocks.release(user.id, streamLock);
+    });
     try {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -2452,7 +2447,7 @@ app.post('/api/generate/stream', async (req, res) => {
       startSseHeartbeat(res);
 
       const result = await generateStream(
-        { prompt, systemPrompt, model, maxTokens, temperature, userId: user.id, projectId, chapterId, action, effort: req.body?.effort === 'low' ? 'low' as const : undefined },
+        { prompt, systemPrompt, model, maxTokens, temperature, userId: user.id, projectId, chapterId, action, effort: req.body?.effort === 'low' ? 'low' as const : undefined, signal: streamLock?.abort.signal },
         res,
       );
 
@@ -2491,7 +2486,7 @@ app.post('/api/generate/stream', async (req, res) => {
 
       res.end();
     } finally {
-      if (!skipLockStream) activeGenerationUsers.delete(user.id);
+      if (streamLock) proseLocks.release(user.id, streamLock);
     }
   } catch (e: any) {
     console.error('Stream error:', e.message);
