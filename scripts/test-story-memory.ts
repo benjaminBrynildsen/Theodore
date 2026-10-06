@@ -20,6 +20,7 @@ import { buildSynopsisPrompt, parseSynopsis, synopsisSourceKey } from '../src/li
 import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, ensureSceneCoverage, evenSplit } from '../src/lib/scene-split';
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
 import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
+import { parseStoryChanges, applyStoryChanges, buildStoryContext, buildStoryChangesPrompt, storyBasis } from '../src/lib/story-chat';
 import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS, countSentenceBreaks, countClauseBreaks, stretchPauses, CLAUSE_PAUSE_SECONDS } from '../server/audio-assembly';
@@ -799,6 +800,45 @@ t('chapter-writing lock: retry of the same chapter supersedes, other chapters wa
   assert.equal(locks.size, 0);
   // Only chapter writing is locked; edits and analysis never are.
   assert.ok(PROSE_LOCK_ACTIONS.has('generate-chapter') && !PROSE_LOCK_ACTIONS.has('inline-edit') && !PROSE_LOCK_ACTIONS.has('dialogue-clarity-pass'));
+});
+
+t('story chat: proposals checked against the book, applied only when accepted, written chapters flagged', () => {
+  const threadPlan = parseThreadPlan(JSON.stringify({ threads: [
+    { title: 'Who took the rod', tier: 'major', question: 'Who?', resolution: 'Danny', beats: [{ chapter: 1, type: 'open' }, { chapter: 3, type: 'hint', note: 'Danny lies' }, { chapter: 5, type: 'close' }] },
+    { title: 'Stray dog', tier: 'hook', question: 'Whose dog?', beats: [{ chapter: 2, type: 'open' }, { chapter: 4, type: 'close' }] },
+  ] }), 6, 'now')!;
+  const arcPlan = parseArcPlan(JSON.stringify({ characters: [{ name: 'Ray', role: 'supporting', beats: [{ chapter: 1, type: 'setup' }, { chapter: 5, type: 'change' }] }], artifacts: [] }), 6, 'now')!;
+  const project: any = { id: 'p', title: 'Late Shift', threadPlan, arcPlan, narrativeControls: {} };
+  const mk = (n: number, written: boolean): any => ({ id: `c${n}`, number: n, title: `T${n}`, prose: written ? 'Words.' : '', premise: { purpose: `Purpose ${n}`, changes: '', characters: [], emotionalBeat: '', setupPayoff: [], constraints: [] } });
+  const chapters = [mk(1, true), mk(2, true), mk(3, true), mk(4, false), mk(5, false), mk(6, false)];
+  const [rod, dog] = threadPlan.threads;
+  const ray = arcPlan.characters[0];
+  const reply = JSON.stringify({ summary: 'Ray becomes the thief', changes: [
+    { kind: 'thread', op: 'update', id: rod.id, why: 'Ray, not Danny', thread: { title: 'Who took the rod', tier: 'major', question: 'Who?', resolution: 'Ray', beats: [{ chapter: 1, type: 'open' }, { chapter: 3, type: 'hint', note: 'Danny lies' }, { chapter: 4, type: 'hint', note: 'Ray flinches' }, { chapter: 5, type: 'close' }] } },
+    { kind: 'thread', op: 'remove', id: dog.id, why: 'Clutter' },
+    { kind: 'thread', op: 'remove', id: 'th-nope' },
+    { kind: 'character', op: 'update', id: ray.id, arc: { name: 'Ray', role: 'antagonist', shape: 'negative', limits: 'none', beats: [{ chapter: 1, type: 'setup' }, { chapter: 2, type: 'test', note: 'Ray steals' }, { chapter: 5, type: 'change' }] } },
+    { kind: 'chapter', op: 'update', chapter: 4, premise: { purpose: 'Ray is nearly caught', emotionalBeat: 'dread' } },
+    { kind: 'chapter', op: 'update', chapter: 9, premise: { purpose: 'out of range' } },
+    { kind: 'chapter', op: 'update', chapter: 5, premise: { purpose: 'Purpose 5' } },
+  ] });
+  const set = parseStoryChanges(reply, project, chapters)!;
+  assert.deepEqual(set.changes.map((c) => `${c.kind}:${c.op}`), ['thread:update', 'thread:remove', 'character:update', 'chapter:update']);
+  assert.deepEqual(set.changes[0].chapters, [4, 5], 'only the chapters whose beats changed (new hint, close now names Ray)');
+  assert.equal(set.basis, storyBasis(project, chapters));
+  // Accept everything but the dog removal.
+  const keep = new Set(set.changes.filter((c) => !(c.kind === 'thread' && c.op === 'remove')).map((c) => c.id));
+  const out = applyStoryChanges(project, chapters, set.changes, keep, 'later');
+  assert.equal(out.threadPlan!.threads.length, 2);
+  assert.equal(out.threadPlan!.threads.find((t) => t.id === rod.id)!.resolution, 'Ray');
+  assert.equal(out.arcPlan!.characters[0].role, 'antagonist');
+  assert.deepEqual(out.premiseUpdates.map((u) => [u.chapterId, u.premise.purpose, u.premise.emotionalBeat, u.premise.changes]), [['c4', 'Ray is nearly caught', 'dread', '']]);
+  assert.deepEqual(out.writtenChaptersAffected, [2], 'Ray now steals in written Ch 2');
+  // Prompts carry ids and the conversation.
+  const ctx = buildStoryContext({ project, chapters, canon: [] });
+  assert.ok(ctx.includes(`[${rod.id}]`) && ctx.includes('[WRITTEN]') && ctx.includes('[PLANNED]'));
+  assert.ok(buildStoryChangesPrompt(ctx, [{ role: 'user', content: 'Make Ray the thief', at: '' }], { threadPlan, arcPlan }).includes('Make Ray the thief'));
+  assert.equal(parseStoryChanges('no json', project, chapters), null);
 });
 
 t('tracked edits: only marked paragraphs change; rejects leave the original; junk is dropped', () => {
