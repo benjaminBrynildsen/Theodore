@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Loader2, MessageSquare, RotateCcw, Send, Sparkles, X } from 'lucide-react';
+import { Check, Loader2, Lock, MessageSquare, RotateCcw, Send, Sparkles, Unlock, X } from 'lucide-react';
 import { useStore } from '../../store';
 import { useCanonStore } from '../../store/canon';
 import { useCreditsStore } from '../../store/credits';
-import { generateStream, generateText } from '../../lib/generate';
+import { generateStream } from '../../lib/generate';
 import { editingModel } from '../../lib/models';
 import { cn } from '../../lib/utils';
 import {
-  STORY_CHAT_SYSTEM, applyStoryChanges, buildStoryChangesPrompt, buildStoryChatPrompt, buildStoryContext,
-  parseStoryChanges, storyBasis, type StoryChange, type StoryChangeSet, type StoryChatMessage,
+  applyStoryChanges, buildStoryChangesPrompt, buildStoryChatPrompt, buildStoryChatSystem, buildStoryContext,
+  countStreamedChanges, parseStoryChanges, storyBasis, type StoryChange, type StoryChangeSet, type StoryChatMessage,
 } from '../../lib/story-chat';
 import type { Chapter, Project } from '../../types';
 
@@ -40,6 +40,15 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
   const [draft, setDraft] = useState<StoryChangeSet | null>(null);
   const [rejected, setRejected] = useState<Set<string>>(new Set());
   const [open, setOpen] = useState<string | null>(null);
+  const [drafted, setDrafted] = useState(0);
+  // Written chapters are canon unless the author unlocks them (remembered per book).
+  const [canonLocked, setCanonLocked] = useState(() => {
+    try { return localStorage.getItem(`theodore:story-chat-unlocked:${project.id}`) !== '1'; } catch { return true; }
+  });
+  const toggleCanon = () => setCanonLocked((v) => {
+    try { localStorage.setItem(`theodore:story-chat-unlocked:${project.id}`, v ? '1' : '0'); } catch { /* storage blocked */ }
+    return !v;
+  });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,7 +79,7 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
       await generateStream(
         {
           prompt: buildStoryChatPrompt(context(), next),
-          systemPrompt: STORY_CHAT_SYSTEM,
+          systemPrompt: buildStoryChatSystem({ canonLocked }),
           model: editingModel(),
           effort: 'low',
           maxTokens: 500,
@@ -94,25 +103,54 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
     }
   };
 
-  const draftChanges = async () => {
+  /** Draft proposals from the conversation, streamed so long drafts show progress. `more` drafts what a cut-off reply left out. */
+  const draftChanges = async (more?: StoryChangeSet) => {
     if (phase !== 'idle') return;
     setPhase('drafting');
+    setDrafted(0);
+    let acc = '';
+    let error: string | null = null;
     try {
-      const result = await generateText({
-        prompt: buildStoryChangesPrompt(context(), messages, { threadPlan: project.threadPlan, arcPlan: project.arcPlan }),
-        model: editingModel(),
-        maxTokens: 8000,
-        action: 'story-changes',
-        projectId: project.id,
-      });
-      const set = parseStoryChanges(result.text || '', project, chapters);
-      if (!set) say('assistant', "The draft came back in a shape I couldn't read, so nothing changed. Want me to try again?");
-      else if (!set.changes.length) say('assistant', set.summary || "I couldn't find anything concrete to change yet — tell me more about the direction.");
-      else {
-        setRejected(new Set());
-        setDraft(set);
-        say('assistant', `${set.changes.length} proposed change${set.changes.length === 1 ? '' : 's'} — review them below and untick any you don't want.`);
+      await generateStream(
+        {
+          prompt: buildStoryChangesPrompt(context(), messages, { threadPlan: project.threadPlan, arcPlan: project.arcPlan }, {
+            canonLocked,
+            alreadyDrafted: more?.changes.map((c) => `${c.kind} ${c.label}`),
+          }),
+          model: editingModel(),
+          maxTokens: 20000,
+          action: 'story-changes',
+          projectId: project.id,
+        },
+        (chunk) => {
+          acc += chunk;
+          setDrafted(countStreamedChanges(acc));
+        },
+        undefined,
+        (e) => { error = e; },
+      );
+      if (error && !acc) { failed(error); return; }
+      const set = parseStoryChanges(acc, project, chapters, { canonLocked });
+      if (!set) {
+        say('assistant', "The draft came back in a shape I couldn't read, so nothing changed. Want me to try again?");
+        return;
       }
+      // Drafting the rest: add to the proposals already on the table.
+      const merged: StoryChangeSet = more
+        ? { ...set, summary: more.summary || set.summary, setAside: [...more.setAside, ...set.setAside], changes: [...more.changes, ...set.changes.filter((c) => !more.changes.some((m) => m.kind === c.kind && (m.targetId ? m.targetId === c.targetId : m.label === c.label)))].map((c, i) => ({ ...c, id: `sc${i}` })) }
+        : set;
+      if (!merged.changes.length) {
+        say('assistant', merged.setAside.length
+          ? `Everything I drafted would have changed written chapters, so I set it aside: ${merged.setAside.join('; ')}. Want to look for a version that reinterprets them instead?`
+          : merged.summary || "I couldn't find anything concrete to change yet — tell me more about the direction.");
+        return;
+      }
+      setRejected(new Set());
+      setDraft(merged);
+      const count = merged.changes.length;
+      say('assistant', set.truncated
+        ? `${count} change${count === 1 ? '' : 's'} came through before the draft ran long. Review them below, or tap "Draft the rest" for the others.`
+        : `${count} proposed change${count === 1 ? '' : 's'} — review them below and untick any you don't want.`);
     } catch (e) {
       failed(e instanceof Error ? e.message : 'Drafting failed');
     } finally {
@@ -137,9 +175,12 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
     }
     for (const u of result.premiseUpdates) updateChapter(u.chapterId, { premise: u.premise });
     const rebuild = result.writtenChaptersAffected;
-    say('assistant', `Applied ${accepted.size} of ${draft.changes.length} changes.${rebuild.length
-      ? ` Chapter${rebuild.length === 1 ? '' : 's'} ${rebuild.join(', ')} ${rebuild.length === 1 ? 'is' : 'are'} already written — open ${rebuild.length === 1 ? 'it' : 'them'} and use Rebuild so the prose matches the new plan.`
-      : ' New chapters will be written to the new plan.'}`);
+    const reread = result.reinterpretedChapters;
+    say('assistant', `Applied ${accepted.size} of ${draft.changes.length} changes.${canonLocked
+      ? `${reread.length ? ` Written chapter${reread.length === 1 ? '' : 's'} ${reread.join(', ')} stay${reread.length === 1 ? 's' : ''} exactly as written — the map now reads ${reread.length === 1 ? 'it' : 'them'} in the new light.` : ''} New chapters will be written to the new plan.`
+      : rebuild.length
+        ? ` Chapter${rebuild.length === 1 ? '' : 's'} ${rebuild.join(', ')} ${rebuild.length === 1 ? 'is' : 'are'} already written — open ${rebuild.length === 1 ? 'it' : 'them'} and use Rebuild so the prose matches the new plan.`
+        : ' New chapters will be written to the new plan.'}`);
     setDraft(null);
   };
 
@@ -151,6 +192,16 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
       <div className="flex items-center gap-2 mb-3">
         <MessageSquare size={15} className="text-text-tertiary" />
         <h3 className="flex-1 text-sm font-semibold">Story chat</h3>
+        <button
+          onClick={toggleCanon}
+          disabled={phase !== 'idle'}
+          className={cn('inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs', canonLocked ? 'bg-black/5 text-text-secondary' : 'bg-amber-100 text-amber-900')}
+          title={canonLocked
+            ? 'Written chapters are canon: changes give them new meaning but never change what happens in them. Tap to allow changes.'
+            : 'Written chapters can change (they will need rebuilding). Tap to keep them as canon.'}
+        >
+          {canonLocked ? <Lock size={11} /> : <Unlock size={11} />} {canonLocked ? 'Written = canon' : 'Written can change'}
+        </button>
         {messages.length > 0 && phase === 'idle' && (
           <button
             onClick={() => { setMessages([]); setDraft(null); }}
@@ -195,7 +246,7 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
         ))}
         {phase !== 'idle' && !(phase === 'replying' && messages[messages.length - 1]?.role === 'assistant') && (
           <div className="flex items-center gap-2 text-xs text-text-secondary px-1 py-1">
-            <Loader2 size={13} className="animate-spin" /> {phase === 'drafting' ? 'Drafting changes…' : 'Thinking it through…'}
+            <Loader2 size={13} className="animate-spin" /> {phase === 'drafting' ? (drafted ? `Drafting changes… ${drafted} so far` : 'Drafting changes…') : 'Thinking it through…'}
           </div>
         )}
 
@@ -231,6 +282,9 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
                           <span className="font-semibold text-text-secondary">{OP_LABEL[c.op]} {KIND_LABEL[c.kind].toLowerCase()}</span> · {c.label}
                           {c.chapters.length > 0 && <span> · Ch {c.chapters.join(', ')}</span>}
                         </div>
+                        {!!c.reinterprets?.length && canonLocked && (
+                          <div className="text-[11px] text-indigo-700 mt-0.5">Reinterprets Ch {c.reinterprets.join(', ')} — the prose stays as written</div>
+                        )}
                         {c.why && <p className="text-[12px] text-text-primary mt-0.5">{c.why}</p>}
                         {c.before && (
                           <p className={cn('mt-1 text-[12px] leading-relaxed text-red-800/80 line-through decoration-red-300', !isOpen && 'line-clamp-2')}>{c.before}</p>
@@ -245,6 +299,18 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
                 );
               })}
             </div>
+            {(draft.setAside.length > 0 || draft.truncated) && (
+              <div className="px-3 py-2 border-t border-black/5 text-[11px] text-text-secondary space-y-1">
+                {draft.setAside.length > 0 && (
+                  <p><span className="font-semibold">Set aside to keep written chapters as they are:</span> {draft.setAside.join('; ')}.</p>
+                )}
+                {draft.truncated && (
+                  <button onClick={() => void draftChanges(draft)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-black/5 font-medium text-text-primary">
+                    <Sparkles size={11} /> Draft the rest
+                  </button>
+                )}
+              </div>
+            )}
             <div className="p-3 flex gap-2 border-t border-black/5">
               <button onClick={apply} disabled={!keep} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40">
                 Apply {keep} change{keep === 1 ? '' : 's'}
@@ -259,7 +325,7 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
 
       {hasReply && !draft && phase === 'idle' && (
         <button
-          onClick={draftChanges}
+          onClick={() => void draftChanges()}
           className="mt-3 w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[13px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
         >
           <Sparkles size={14} /> Draft these changes

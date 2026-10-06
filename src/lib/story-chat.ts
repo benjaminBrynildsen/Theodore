@@ -29,6 +29,8 @@ export interface StoryChange {
   id: string;
   kind: StoryChangeKind;
   op: StoryChangeOp;
+  /** Written chapters whose part in this plan is reinterpreted (their prose stays as it is). */
+  reinterprets?: number[];
   /** What it is: thread title, character or object name, or "Ch 7: Title". */
   label: string;
   why?: string;
@@ -49,6 +51,15 @@ export interface StoryChangeSet {
   changes: StoryChange[];
   /** Fingerprint of the plans the proposals were drafted against. */
   basis: string;
+  /** The reply was cut off; `changes` holds the ones that arrived complete. */
+  truncated: boolean;
+  /** Proposals set aside because they would change written chapters. */
+  setAside: string[];
+}
+
+export interface StoryChatOptions {
+  /** Written chapters are canon: the plan may give them new meaning, never new events. */
+  canonLocked: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untrusted model JSON, coerced field by field
@@ -129,13 +140,21 @@ export function storyBasis(project: Project, chapters: Chapter[]): string {
 
 // ---------- Prompts ----------
 
-export const STORY_CHAT_SYSTEM = `You are Theodore, the author's story editor for the whole book — a sharp, warm collaborator, like a good developmental editor.
+const CANON_RULE = `WRITTEN CHAPTERS ARE CANON. Never change what happens in a chapter marked [WRITTEN]. A new direction works the way a plot twist does: it gives moments already on the page a new meaning. Point to the written details that can be re-read in the new light (what was planted, misdirected or left ambiguous), and land the new meaning in chapters not written yet. The twist must be fair: consistent with every written scene, so a reader who rereads finds it was there all along.`;
+
+export function buildStoryChatSystem(opts: StoryChatOptions): string {
+  return `You are Theodore, the author's story editor for the whole book — a sharp, warm collaborator, like a good developmental editor.
 RULES:
 - Answer in 2-5 sentences of plain prose. No lists, no headings.
 - Build on what the book already has: name the specific threads, characters, objects and chapters you'd change, and how.
-- Say plainly when an idea creates a problem (a reveal that comes too early, a thread left hanging, a written chapter that would contradict it) and suggest a fix.
+- Say plainly when an idea creates a problem (a reveal that comes too early, a thread left hanging, a written chapter that contradicts it) and suggest a fix.
 - If the direction is unclear, ask one focused question instead of guessing.
-- Don't draft the changes yet — end by offering to draft them ("Want me to draft those changes?") once the direction is clear.`;
+- Don't draft the changes yet — end by offering to draft them ("Want me to draft those changes?") once the direction is clear.
+${opts.canonLocked ? `- ${CANON_RULE} If the direction can only work by changing a written chapter, say so and offer the closest version that doesn't.` : '- Written chapters can be changed if the direction needs it; say which ones would need rebuilding.'}`;
+}
+
+/** Default (canon locked) system prompt. */
+export const STORY_CHAT_SYSTEM = buildStoryChatSystem({ canonLocked: true });
 
 function conversation(messages: StoryChatMessage[]): string {
   return messages.slice(-12).map((m) => `${m.role === 'user' ? 'AUTHOR' : 'THEODORE'}: ${m.content}`).join('\n\n');
@@ -145,7 +164,12 @@ export function buildStoryChatPrompt(context: string, messages: StoryChatMessage
   return `${context}\n\nCONVERSATION:\n${conversation(messages)}\n\nReply to the author's last message.`;
 }
 
-export function buildStoryChangesPrompt(context: string, messages: StoryChatMessage[], plans: { threadPlan?: ThreadPlan | null; arcPlan?: ArcPlan | null }): string {
+export function buildStoryChangesPrompt(
+  context: string,
+  messages: StoryChatMessage[],
+  plans: { threadPlan?: ThreadPlan | null; arcPlan?: ArcPlan | null },
+  opts: StoryChatOptions & { alreadyDrafted?: string[] } = { canonLocked: true },
+): string {
   const currentJson = JSON.stringify({
     threads: (plans.threadPlan?.threads || []).map((t) => ({ id: t.id, title: t.title, tier: t.tier, kind: t.kind, question: t.question, resolution: t.resolution, characters: t.characters, beats: t.beats })),
     characters: (plans.arcPlan?.characters || []).map((a) => ({ id: a.id, name: a.name, role: a.role, shape: a.shape, want: a.want, need: a.need, flaw: a.flaw, start: a.startState, end: a.endState, limits: a.limits || '', introduce: { chapter: a.introducedIn, note: a.introduction || '' }, beats: a.beats })),
@@ -159,16 +183,25 @@ ${currentJson}
 CONVERSATION:
 ${conversation(messages)}
 
-Draft the changes the author and you agreed on in this conversation — only those, nothing extra. Each change is one of:
-- {"kind":"thread","op":"update","id":"<existing id>","why":"...","thread":{title, tier: major|subplot|hook|series, kind: plot|mystery|twist|relationship|secret|threat|goal|promise, question, resolution, characters:[...], beats:[{chapter, type: open|hint|advance|reveal|close, note}]}}
-- {"kind":"thread","op":"add","why":"...","thread":{...same shape}}
+Draft the changes the author and you agreed on in this conversation — only those, nothing extra.${opts.alreadyDrafted?.length ? ` These were already drafted; do NOT repeat them, draft only what is left: ${opts.alreadyDrafted.join('; ')}.` : ''}
+${opts.canonLocked ? `\n${CANON_RULE}\nSo: never change the outline of a [WRITTEN] chapter, and never remove or move a beat that sits in a [WRITTEN] chapter. You MAY re-describe a written-chapter beat (new type or note) to give it its new meaning, or add a "hint" beat in a written chapter that points to something already on the page. New events go in chapters not written yet.\n` : ''}
+Each change is one of:
+- {"kind":"thread","op":"add","why":"...","thread":{title, tier: major|subplot|hook|series, kind: plot|mystery|twist|relationship|secret|threat|goal|promise, question, resolution, characters:[...], beats:[{chapter, type: open|hint|advance|reveal|close, note}]}}
+- {"kind":"thread","op":"update","id":"<existing id>","why":"...","patch":{...}}
 - {"kind":"thread","op":"remove","id":"<existing id>","why":"..."}
-- {"kind":"character","op":"update"|"add","id":"<existing id, for update>","why":"...","arc":{name, role: protagonist|antagonist|supporting, shape: positive|negative|flat, want, need, flaw, start, end, limits, introduce:{chapter, note}, beats:[{chapter, type: setup|test|setback|turn|crisis|change, note}]}}
+- {"kind":"character","op":"add","why":"...","arc":{name, role: protagonist|antagonist|supporting, shape: positive|negative|flat, want, need, flaw, start, end, limits, introduce:{chapter, note}, beats:[{chapter, type: setup|test|setback|turn|crisis|change, note}]}}
+- {"kind":"character","op":"update","id":"<existing id>","why":"...","patch":{...}}
 - {"kind":"character","op":"remove","id":"<existing id>","why":"..."}
-- {"kind":"object","op":"update"|"add","id":"<existing id, for update>","why":"...","object":{name, description, significance, beats:[{chapter, type: introduce|handoff|use|reveal|payoff|lost, note, holder}]}}
+- {"kind":"object","op":"add","why":"...","object":{name, description, significance, beats:[{chapter, type: introduce|handoff|use|reveal|payoff|lost, note, holder}]}}
+- {"kind":"object","op":"update","id":"<existing id>","why":"...","patch":{...}}
 - {"kind":"object","op":"remove","id":"<existing id>","why":"..."}
-- {"kind":"chapter","op":"update","chapter":<number>,"why":"...","premise":{"purpose":"...","changes":"...","emotionalBeat":"..."}} — the chapter's outline; include only the fields you change.
-For an update, give the item's COMPLETE new version (every beat, not just the changed ones). Keep beats that already happened in WRITTEN chapters unless the author asked to change them. "why" is one short sentence.
+- {"kind":"chapter","op":"update","chapter":<number>,"why":"...","premise":{"purpose":"...","changes":"...","emotionalBeat":"..."}} — a chapter's outline; include only the fields you change.
+A "patch" holds ONLY what changes — keep it short:
+- any top-level field to replace (title, tier, kind, question, resolution, characters, role, shape, want, need, flaw, start, end, limits, introduce, description, significance)
+- "addBeats":[{chapter, type, note}] — new beats
+- "editBeats":[{chapter, type, newType?, note}] — re-describe the existing beat at that chapter/type
+- "removeBeats":[{chapter, type}]
+"why" is one short sentence.
 
 Return ONLY JSON, no markdown:
 {"summary":"one sentence on what these changes do","changes":[...]}`;
@@ -180,13 +213,74 @@ function slug(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'x';
 }
 
-function extractJson(text: string): RawJson | null {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const raw = fenced?.[1] || text;
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end <= start) return null;
-  try { return JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
+/** Common model JSON slips: raw line breaks inside strings, trailing commas. */
+export function repairJson(json: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const ch of json) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      else if (ch === '\n') { out += '\\n'; continue; }
+      else if (ch === '\r') continue;
+      else if (ch === '\t') { out += '\\t'; continue; }
+    } else if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out.replace(/,(\s*[}\]])/g, '$1');
+}
+
+function tryParse(json: string): RawJson | null {
+  try { return JSON.parse(json); } catch { /* fall through */ }
+  try { return JSON.parse(repairJson(json)); } catch { return null; }
+}
+
+/**
+ * Read a (possibly still streaming or cut-off) reply: the summary and every
+ * change object that arrived complete. `complete` is false when the changes
+ * list never closed — the reply was cut off.
+ */
+export function readChangeStream(text: string): { summary: string; items: RawJson[]; complete: boolean } | null {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)(?:```|$)/i);
+  const raw = fenced?.[1] ?? text;
+  const summary = (raw.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/)?.[1] || '').replace(/\\"/g, '"').replace(/\\n/g, ' ').trim();
+  const key = raw.search(/"changes"\s*:\s*\[/);
+  if (key < 0) return raw.trim() ? { summary, items: [], complete: /"changes"\s*:\s*\[\s*\]/.test(raw) } : null;
+  let i = raw.indexOf('[', key) + 1;
+  const items: RawJson[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') { if (depth === 0) start = i; depth++; }
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        const obj = tryParse(raw.slice(start, i + 1));
+        if (obj) items.push(obj);
+        start = -1;
+      }
+    } else if (ch === ']' && depth === 0) {
+      return { summary, items, complete: true };
+    }
+  }
+  return { summary, items, complete: false };
+}
+
+/** How many complete changes have arrived so far (for progress while streaming). */
+export function countStreamedChanges(text: string): number {
+  return readChangeStream(text)?.items.length ?? 0;
 }
 
 const beatChapters = (beats: Array<{ chapter: number }> | undefined) => (beats || []).map((b) => b.chapter);
@@ -202,93 +296,154 @@ function changedChapters(before: Array<{ chapter: number; type: string; note: st
   return [...out].sort((m, n) => m - n);
 }
 
+// Existing plan items in the shape the model writes, so a patch can be merged in.
+function rawThread(t: StoryThread): RawJson {
+  return { title: t.title, tier: t.tier, kind: t.kind, question: t.question, resolution: t.resolution, characters: t.characters, beats: t.beats.map((b) => ({ ...b })) };
+}
+function rawArc(a: CharacterArc): RawJson {
+  return { name: a.name, role: a.role, shape: a.shape, want: a.want, need: a.need, flaw: a.flaw, start: a.startState, end: a.endState, limits: a.limits || '', introduce: { chapter: a.introducedIn, note: a.introduction || '' }, beats: a.beats.map((b) => ({ ...b })) };
+}
+function rawArtifact(a: ArtifactJourney): RawJson {
+  return { name: a.name, description: a.description, significance: a.significance, beats: a.beats.map((b) => ({ ...b })) };
+}
+
+const PATCH_FIELDS = ['title', 'tier', 'kind', 'question', 'resolution', 'characters', 'name', 'role', 'shape', 'want', 'need', 'flaw', 'start', 'end', 'limits', 'introduce', 'description', 'significance'];
+
+type RawBeat = { chapter: number; type: string; note?: string; holder?: string };
+
+/** Existing item + patch (or a full replacement) → raw item for the normalizer. */
+export function mergePatch(existing: RawJson, change: RawJson, fullKey: 'thread' | 'arc' | 'object'): RawJson {
+  const full = change?.[fullKey];
+  if (full && typeof full === 'object' && !change.patch) return full;
+  const patch = change?.patch && typeof change.patch === 'object' ? change.patch : (full || {});
+  const out: RawJson = { ...existing };
+  for (const k of PATCH_FIELDS) if (k in patch && patch[k] !== undefined && patch[k] !== null) out[k] = patch[k];
+  let beats: RawBeat[] = Array.isArray(patch.beats) ? patch.beats.map((b: RawBeat) => ({ ...b })) : (existing.beats || []).map((b: RawBeat) => ({ ...b }));
+  const same = (b: RawBeat, r: RawBeat) => Number(b.chapter) === Number(r?.chapter) && (!r?.type || b.type === r.type);
+  for (const r of Array.isArray(patch.removeBeats) ? patch.removeBeats : []) beats = beats.filter((b) => !same(b, r));
+  for (const e of Array.isArray(patch.editBeats) ? patch.editBeats : []) {
+    const hit = beats.find((b) => same(b, e));
+    if (!hit) continue;
+    if (e.newType) hit.type = String(e.newType);
+    if (typeof e.note === 'string') hit.note = e.note;
+    if (typeof e.holder === 'string') hit.holder = e.holder;
+  }
+  for (const b of Array.isArray(patch.addBeats) ? patch.addBeats : []) if (b && b.chapter) beats.push({ ...b });
+  out.beats = beats;
+  return out;
+}
+
+/**
+ * Canon lock: every beat that sat in a written chapter is kept in that
+ * chapter (a re-description of it is fine; removing or moving it is not).
+ */
+function keepWrittenBeats(before: RawBeat[], after: RawBeat[], written: Set<number>): RawBeat[] {
+  const out = [...after];
+  for (const c of written) {
+    const was = before.filter((b) => Number(b.chapter) === c);
+    const now = out.filter((b) => Number(b.chapter) === c);
+    if (now.length >= was.length) continue; // kept, or re-described in place
+    const types = new Set(now.map((b) => b.type));
+    for (const b of was) {
+      if (out.filter((x) => Number(x.chapter) === c).length >= was.length) break;
+      if (!types.has(b.type)) out.push({ ...b });
+    }
+  }
+  return out;
+}
+
+/** Written chapters where the plan's reading of them changed. */
+function reinterpreted(before: RawBeat[] = [], after: RawBeat[] = [], written: Set<number>): number[] {
+  return changedChapters(before as never, after as never).filter((c) => written.has(c));
+}
+
 /**
  * The model's proposals, checked against the book: unknown ids, chapters out
- * of range and no-op updates are dropped. Returns null if unreadable.
+ * of range and no-op updates are dropped; with the canon lock, written
+ * chapters keep their events (outline edits are set aside, their beats are
+ * kept). Works on a cut-off reply, keeping the changes that arrived whole.
  */
-export function parseStoryChanges(text: string, project: Project, chapters: Chapter[]): StoryChangeSet | null {
-  const parsed = extractJson(text);
-  if (!parsed || !Array.isArray(parsed.changes)) return null;
+export function parseStoryChanges(text: string, project: Project, chapters: Chapter[], opts: StoryChatOptions = { canonLocked: true }): StoryChangeSet | null {
+  const read = readChangeStream(text);
+  if (!read) return null;
+  if (!read.items.length && !read.complete) return null;
   const n = Math.max(1, chapters.length);
   const threads = project.threadPlan?.threads || [];
   const arcs = project.arcPlan?.characters || [];
   const objects = project.arcPlan?.artifacts || [];
   const byNumber = new Map(sortChapters(chapters).map((c) => [c.number, c]));
+  const written = new Set(chapters.filter((c) => c.prose?.trim()).map((c) => c.number));
+  const lock = opts.canonLocked ? written : new Set<number>();
   const out: StoryChange[] = [];
+  const setAside: string[] = [];
   const seenTargets = new Set<string>();
 
-  parsed.changes.forEach((c: RawJson, i: number) => {
+  read.items.forEach((c: RawJson, i: number) => {
     const op: StoryChangeOp = ['add', 'update', 'remove'].includes(c?.op) ? c.op : 'update';
     const why = String(c?.why ?? '').trim() || undefined;
     const id = `sc${i}`;
-    if (c?.kind === 'thread') {
-      const existing = threads.find((t) => t.id === c.id);
+
+    if (c?.kind === 'thread' || c?.kind === 'character' || c?.kind === 'object') {
+      const kind = c.kind as 'thread' | 'character' | 'object';
+      const pool: Array<StoryThread | CharacterArc | ArtifactJourney> = kind === 'thread' ? threads : kind === 'character' ? arcs : objects;
+      const existing = pool.find((x) => x.id === c.id);
       if (op !== 'add' && !existing) return;
       if (existing && seenTargets.has(existing.id)) return;
+      const name = (x: StoryThread | CharacterArc | ArtifactJourney) => ('title' in x ? x.title : x.name);
+      const describe = (x: StoryThread | CharacterArc | ArtifactJourney) =>
+        kind === 'thread' ? describeThread(x as StoryThread) : kind === 'character' ? describeArc(x as CharacterArc) : describeArtifact(x as ArtifactJourney);
+      const toRaw = (x: StoryThread | CharacterArc | ArtifactJourney) =>
+        kind === 'thread' ? rawThread(x as StoryThread) : kind === 'character' ? rawArc(x as CharacterArc) : rawArtifact(x as ArtifactJourney);
+      const normalize = (r: RawJson, index: number) =>
+        kind === 'thread' ? normalizeThread(r, n, index) : kind === 'character' ? normalizeCharacterArc(r, n) : normalizeArtifactJourney(r, n);
+      const field = kind === 'thread' ? 'thread' : kind === 'character' ? 'arc' : 'artifact';
+
       if (op === 'remove') {
+        const inWritten = existing!.beats.filter((b) => lock.has(b.chapter)).map((b) => b.chapter);
+        if (inWritten.length && kind !== 'thread') {
+          setAside.push(`Removing ${name(existing!)} (already on the page in Ch ${[...new Set(inWritten)].join(', ')})`);
+          return;
+        }
         seenTargets.add(existing!.id);
-        out.push({ id, kind: 'thread', op, label: existing!.title, why, before: describeThread(existing!), targetId: existing!.id, chapters: beatChapters(existing!.beats) });
+        out.push({ id, kind, op, label: name(existing!), why, before: describe(existing!), targetId: existing!.id, chapters: beatChapters(existing!.beats), ...(inWritten.length ? { reinterprets: [...new Set(inWritten)] } : {}) });
         return;
       }
-      const t = normalizeThread(c.thread, n, threads.length + i);
-      if (!t) return;
+
+      const fullKey = kind === 'thread' ? 'thread' : kind === 'character' ? 'arc' : 'object';
+      let rawNext = existing ? mergePatch(toRaw(existing), c, fullKey) : c[fullKey];
+      if (!rawNext) return;
+      if (existing && lock.size) rawNext = { ...rawNext, beats: keepWrittenBeats(toRaw(existing).beats, rawNext.beats || [], lock) };
+      const normalized = normalize(rawNext, threads.length + i);
+      if (!normalized) return;
       if (existing) {
-        const next = { ...t, id: existing.id };
-        if (describeThread(next) === describeThread(existing)) return;
+        const next = { ...normalized, id: existing.id };
+        if (describe(next) === describe(existing)) return;
         seenTargets.add(existing.id);
-        out.push({ id, kind: 'thread', op, label: existing.title, why, before: describeThread(existing), after: describeThread(next), thread: next, targetId: existing.id, chapters: changedChapters(existing.beats, next.beats) });
+        const again = reinterpreted(existing.beats as RawBeat[], next.beats as RawBeat[], lock);
+        out.push({
+          id, kind, op: 'update', label: name(existing), why, before: describe(existing), after: describe(next),
+          [field]: next, targetId: existing.id, chapters: changedChapters(existing.beats as never, next.beats as never),
+          ...(again.length ? { reinterprets: again } : {}),
+        });
       } else {
-        const next = { ...t, id: `th-chat-${Date.now().toString(36)}-${i}-${slug(t.title)}` };
-        out.push({ id, kind: 'thread', op: 'add', label: next.title, why, after: describeThread(next), thread: next, chapters: beatChapters(next.beats) });
+        const next = kind === 'thread'
+          ? { ...normalized, id: `th-chat-${Date.now().toString(36)}-${i}-${slug(name(normalized))}` }
+          : normalized;
+        if (kind !== 'thread' && pool.some((x) => x.id === next.id)) return;
+        const again = next.beats.map((b) => b.chapter).filter((ch) => lock.has(ch));
+        out.push({ id, kind, op: 'add', label: name(next), why, after: describe(next), [field]: next, chapters: beatChapters(next.beats), ...(again.length ? { reinterprets: [...new Set(again)] } : {}) });
       }
       return;
     }
-    if (c?.kind === 'character') {
-      const existing = arcs.find((a) => a.id === c.id);
-      if (op !== 'add' && !existing) return;
-      if (existing && seenTargets.has(existing.id)) return;
-      if (op === 'remove') {
-        seenTargets.add(existing!.id);
-        out.push({ id, kind: 'character', op, label: existing!.name, why, before: describeArc(existing!), targetId: existing!.id, chapters: beatChapters(existing!.beats) });
-        return;
-      }
-      const a = normalizeCharacterArc(c.arc, n);
-      if (!a) return;
-      if (existing) {
-        const next = { ...a, id: existing.id };
-        if (describeArc(next) === describeArc(existing)) return;
-        seenTargets.add(existing.id);
-        out.push({ id, kind: 'character', op, label: existing.name, why, before: describeArc(existing), after: describeArc(next), arc: next, targetId: existing.id, chapters: changedChapters(existing.beats, next.beats) });
-      } else if (!arcs.some((x) => x.id === a.id)) {
-        out.push({ id, kind: 'character', op: 'add', label: a.name, why, after: describeArc(a), arc: a, chapters: beatChapters(a.beats) });
-      }
-      return;
-    }
-    if (c?.kind === 'object') {
-      const existing = objects.find((a) => a.id === c.id);
-      if (op !== 'add' && !existing) return;
-      if (existing && seenTargets.has(existing.id)) return;
-      if (op === 'remove') {
-        seenTargets.add(existing!.id);
-        out.push({ id, kind: 'object', op, label: existing!.name, why, before: describeArtifact(existing!), targetId: existing!.id, chapters: beatChapters(existing!.beats) });
-        return;
-      }
-      const a = normalizeArtifactJourney(c.object, n);
-      if (!a) return;
-      if (existing) {
-        const next = { ...a, id: existing.id };
-        if (describeArtifact(next) === describeArtifact(existing)) return;
-        seenTargets.add(existing.id);
-        out.push({ id, kind: 'object', op, label: existing.name, why, before: describeArtifact(existing), after: describeArtifact(next), artifact: next, targetId: existing.id, chapters: changedChapters(existing.beats, next.beats) });
-      } else if (!objects.some((x) => x.id === a.id)) {
-        out.push({ id, kind: 'object', op: 'add', label: a.name, why, after: describeArtifact(a), artifact: a, chapters: beatChapters(a.beats) });
-      }
-      return;
-    }
+
     if (c?.kind === 'chapter') {
       const num = Math.round(Number(c?.chapter));
       const ch = byNumber.get(num);
       if (!ch || seenTargets.has(`ch-${num}`)) return;
+      if (lock.has(num)) {
+        setAside.push(`Outline change to Ch ${num} (already written)`);
+        return;
+      }
       const premise: StoryChange['premise'] = {};
       for (const k of ['purpose', 'changes', 'emotionalBeat'] as const) {
         const v = String(c?.premise?.[k] ?? '').trim();
@@ -304,7 +459,7 @@ export function parseStoryChanges(text: string, project: Project, chapters: Chap
     }
   });
 
-  return { summary: String(parsed.summary ?? '').trim(), changes: out, basis: storyBasis(project, chapters) };
+  return { summary: read.summary, changes: out, basis: storyBasis(project, chapters), truncated: !read.complete, setAside };
 }
 
 // ---------- Applying ----------
@@ -313,13 +468,15 @@ export interface AppliedStoryChanges {
   threadPlan?: ThreadPlan;
   arcPlan?: ArcPlan;
   premiseUpdates: Array<{ chapterId: string; premise: PremiseCard }>;
-  /** Written chapters whose plan changed — their prose may need a rebuild. */
+  /** Written chapters whose plan changed — their prose may need a rebuild (when not canon-locked). */
   writtenChaptersAffected: number[];
+  /** Written chapters the new plan reads in a new light (prose unchanged). */
+  reinterpretedChapters: number[];
 }
 
 export function applyStoryChanges(project: Project, chapters: Chapter[], changes: StoryChange[], accepted: Set<string>, now = new Date().toISOString()): AppliedStoryChanges {
   const take = changes.filter((c) => accepted.has(c.id));
-  const out: AppliedStoryChanges = { premiseUpdates: [], writtenChaptersAffected: [] };
+  const out: AppliedStoryChanges = { premiseUpdates: [], writtenChaptersAffected: [], reinterpretedChapters: [] };
   const n = Math.max(1, chapters.length);
 
   const threadChanges = take.filter((c) => c.kind === 'thread');
@@ -361,5 +518,6 @@ export function applyStoryChanges(project: Project, chapters: Chapter[], changes
 
   const written = new Set(chapters.filter((c) => c.prose?.trim()).map((c) => c.number));
   out.writtenChaptersAffected = [...new Set(take.flatMap((c) => c.chapters))].filter((num) => written.has(num)).sort((a, b) => a - b);
+  out.reinterpretedChapters = [...new Set(take.flatMap((c) => c.reinterprets || []))].sort((a, b) => a - b);
   return out;
 }
