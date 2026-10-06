@@ -97,13 +97,18 @@ export function ContinuityNotices({ chapter }: Props) {
       )}
 
       <div className="flex justify-end">
+        {/* Swapped as a whole (key) and without a fade: iOS Safari could leave the
+            old label painted under the new one when text and opacity changed together. */}
         <button
+          key={checking ? 'checking' : 'idle'}
           onClick={recheck}
           disabled={checking}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold bg-text-primary text-text-inverse hover:shadow-md transition-all disabled:opacity-60"
+          className={checking
+            ? 'flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold bg-stone-600 text-text-inverse cursor-wait'
+            : 'flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold bg-text-primary text-text-inverse hover:shadow-md'}
         >
           {checking ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-          {checking ? 'Re-checking…' : 'Re-check continuity'}
+          <span>{checking ? 'Re-checking…' : 'Re-check continuity'}</span>
         </button>
       </div>
     </div>
