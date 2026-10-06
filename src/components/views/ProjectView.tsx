@@ -1,6 +1,6 @@
 import { authorNamesToAvoid } from '../../lib/author-names';
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch, BookText } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch, BookText, MessageSquare } from 'lucide-react';
 import { ArcMap } from '../features/ArcMap';
 import { SynopsisPanel } from '../features/SynopsisPanel';
 import { StoryMemoryCatchUp } from '../features/StoryMemoryCatchUp';
@@ -15,6 +15,7 @@ import { AuthView } from './AuthView';
 import { IllustrateButton } from '../features/IllustrateButton';
 import { ChildrensBookReader } from '../features/ChildrensBookReader';
 import { ThreadMap } from '../features/ThreadMap';
+import { StoryChat } from '../features/StoryChat';
 import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../../lib/scaffold';
 import { generateStream } from '../../lib/generate';
 import { generateImageApi } from '../../lib/image-gen';
@@ -46,6 +47,7 @@ export function ProjectView() {
   const [showArcLabels, setShowArcLabels] = useState(false);
   const [showThreadsOverride, setShowThreadsOverride] = useState<boolean | null>(null);
   const [showArcsOverride, setShowArcsOverride] = useState<boolean | null>(null);
+  const [showStoryChat, setShowStoryChat] = useState(false);
   const [showSynopsis, setShowSynopsis] = useState(false);
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
@@ -713,6 +715,20 @@ export function ProjectView() {
           <div className="flex items-center gap-2">
           {!isChildrensBook && chapters.length >= 2 && (
             <button
+              onClick={() => setShowStoryChat((v) => !v)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                showStoryChat
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'glass-pill text-text-tertiary hover:bg-white/60'
+              )}
+            >
+              <MessageSquare size={13} />
+              Story chat
+            </button>
+          )}
+          {!isChildrensBook && chapters.length >= 2 && (
+            <button
               onClick={() => setShowThreadsOverride(!showThreads)}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
@@ -755,6 +771,13 @@ export function ProjectView() {
           )}
           </div>
         </div>
+
+        {/* Story chat — talk through the book's direction, approve drafted plan changes */}
+        {!isChildrensBook && showStoryChat && chapters.length >= 2 && (
+          <div className="mb-6">
+            <StoryChat project={project} chapters={chapters} onClose={() => setShowStoryChat(false)} />
+          </div>
+        )}
 
         {/* Thread map — plot lines, subplots, hooks and twists across the book */}
         {!isChildrensBook && showThreads && chapters.length >= 2 && (
