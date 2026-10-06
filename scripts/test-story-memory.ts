@@ -20,7 +20,7 @@ import { buildSynopsisPrompt, parseSynopsis, synopsisSourceKey } from '../src/li
 import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, ensureSceneCoverage, evenSplit } from '../src/lib/scene-split';
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
 import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
-import { parseStoryChanges, applyStoryChanges, buildStoryContext, buildStoryChangesPrompt, storyBasis } from '../src/lib/story-chat';
+import { parseStoryChanges, applyStoryChanges, buildStoryContext, buildStoryChangesPrompt, storyBasis, readChangeStream, countStreamedChanges, buildStoryChatSystem } from '../src/lib/story-chat';
 import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS, countSentenceBreaks, countClauseBreaks, stretchPauses, CLAUSE_PAUSE_SECONDS } from '../server/audio-assembly';
@@ -839,6 +839,63 @@ t('story chat: proposals checked against the book, applied only when accepted, w
   assert.ok(ctx.includes(`[${rod.id}]`) && ctx.includes('[WRITTEN]') && ctx.includes('[PLANNED]'));
   assert.ok(buildStoryChangesPrompt(ctx, [{ role: 'user', content: 'Make Ray the thief', at: '' }], { threadPlan, arcPlan }).includes('Make Ray the thief'));
   assert.equal(parseStoryChanges('no json', project, chapters), null);
+});
+
+t('story chat drafts: patches, cut-off replies, sloppy JSON, and written chapters kept as canon', () => {
+  const threadPlan = parseThreadPlan(JSON.stringify({ threads: [
+    { title: 'The matchbook', tier: 'major', kind: 'mystery', question: 'Who wrote it?', resolution: 'Gil', beats: [{ chapter: 1, type: 'open', note: 'matchbook found' }, { chapter: 2, type: 'advance', note: 'Gil handwriting' }, { chapter: 6, type: 'close', note: 'Gil confesses' }] },
+  ] }), 6, 'now')!;
+  const project: any = { id: 'p', title: 'Late Shift', threadPlan, arcPlan: null, narrativeControls: {} };
+  const mk = (n: number, written: boolean): any => ({ id: `c${n}`, number: n, title: `T${n}`, prose: written ? 'Words.' : '', premise: { purpose: `P${n}`, changes: '', characters: [], emotionalBeat: '', setupPayoff: [], constraints: [] } });
+  const chapters = [mk(1, true), mk(2, true), mk(3, false), mk(4, false), mk(5, false), mk(6, false)];
+  const th = threadPlan.threads[0];
+
+  // A twist as a short patch: re-read Ch2 (written), remove its beat (not allowed), add a reveal in Ch5, re-resolve.
+  const patch = { kind: 'thread', op: 'update', id: th.id, why: 'Bea forged it', patch: {
+    resolution: 'Bea forged it',
+    editBeats: [{ chapter: 2, type: 'advance', newType: 'hint', note: 'the handwriting is a forgery (in hindsight)' }],
+    removeBeats: [{ chapter: 1, type: 'open' }],
+    addBeats: [{ chapter: 5, type: 'reveal', note: 'Ray spots the forgery' }],
+  } };
+  const outline = { kind: 'chapter', op: 'update', chapter: 2, premise: { purpose: 'Rewrite Ch2' } };
+  const future = { kind: 'chapter', op: 'update', chapter: 5, premise: { purpose: 'Ray spots the forgery' } };
+  const reply = '{"summary":"Bea is the handler","changes":[' + JSON.stringify(patch) + ',' + JSON.stringify(outline) + ',' + JSON.stringify(future) + ']}';
+  const locked = parseStoryChanges(reply, project, chapters, { canonLocked: true })!;
+  assert.deepEqual(locked.changes.map((c) => c.kind), ['thread', 'chapter']);
+  const t2 = locked.changes[0].thread!;
+  assert.equal(t2.resolution, 'Bea forged it');
+  assert.ok(t2.beats.some((b) => b.chapter === 1 && b.type === 'open'), 'written-chapter beat kept');
+  assert.ok(t2.beats.some((b) => b.chapter === 2 && b.type === 'hint' && b.note.includes('forgery')), 're-described in place');
+  assert.ok(t2.beats.some((b) => b.chapter === 5 && b.type === 'reveal'));
+  assert.deepEqual(locked.changes[0].reinterprets, [2]);
+  assert.deepEqual(locked.setAside, ['Outline change to Ch 2 (already written)']);
+  assert.equal(locked.truncated, false);
+  const applied = applyStoryChanges(project, chapters, locked.changes, new Set(locked.changes.map((c) => c.id)));
+  assert.deepEqual(applied.reinterpretedChapters, [2]);
+
+  // Unlocked: the written beat can go and the written outline can change.
+  const open = parseStoryChanges(reply, project, chapters, { canonLocked: false })!;
+  assert.deepEqual(open.changes.map((c) => c.kind), ['thread', 'chapter', 'chapter']);
+  assert.ok(!open.changes[0].thread!.beats.some((b) => b.chapter === 1 && b.note === 'matchbook found'));
+
+  // Cut off mid-way: the complete changes survive and it says so.
+  const cut = reply.slice(0, reply.indexOf(JSON.stringify(future)) + 20);
+  const partial = parseStoryChanges(cut, project, chapters, { canonLocked: false })!;
+  assert.equal(partial.truncated, true);
+  assert.equal(partial.changes.length, 2);
+  assert.equal(countStreamedChanges(cut), 2);
+
+  // Raw line breaks and trailing commas are tolerated.
+  const sloppy = '```json\n{"summary":"s","changes":[{"kind":"chapter","op":"update","chapter":4,"why":"line one\nline two","premise":{"purpose":"New P4",},},]}\n```';
+  const fixed = parseStoryChanges(sloppy, project, chapters)!;
+  assert.equal(fixed.changes[0].premise!.purpose, 'New P4');
+  assert.equal(readChangeStream('{"summary":"nothing","changes":[]}')!.complete, true);
+
+  // Prompts carry the canon rule only when locked.
+  assert.ok(buildStoryChatSystem({ canonLocked: true }).includes('WRITTEN CHAPTERS ARE CANON'));
+  assert.ok(!buildStoryChatSystem({ canonLocked: false }).includes('WRITTEN CHAPTERS ARE CANON'));
+  const p = buildStoryChangesPrompt('ctx', [], { threadPlan }, { canonLocked: true, alreadyDrafted: ['thread The matchbook'] });
+  assert.ok(p.includes('"addBeats"') && p.includes('do NOT repeat them') && p.includes('WRITTEN CHAPTERS ARE CANON'));
 });
 
 t('tracked edits: only marked paragraphs change; rejects leave the original; junk is dropped', () => {
