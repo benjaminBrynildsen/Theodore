@@ -17,6 +17,7 @@ import {
   type CleanupProposal,
 } from './canon-cleanup';
 import type { AnyCanonEntry, CharacterEntry } from '../types/canon';
+import { recordProjectAuthorship } from './authorship-log';
 
 export async function reviewCanon(projectId: string): Promise<CleanupProposal[]> {
   const entries = useCanonStore.getState().getProjectEntries(projectId);
@@ -49,6 +50,10 @@ export async function reviewCanon(projectId: string): Promise<CleanupProposal[]>
 }
 
 export function applyCleanup(projectId: string, proposals: CleanupProposal[]): void {
+  if (proposals.length) {
+    const n = (k: CleanupProposal['kind']) => proposals.filter((p) => p.kind === k).length;
+    recordProjectAuthorship(projectId, { kind: 'author-canon-cleanup', note: `${n('merge')} merged, ${n('delete')} removed, ${n('retype')} recategorised` });
+  }
   const canon = useCanonStore.getState();
   const byId = new Map(canon.getProjectEntries(projectId).map((e) => [e.id, e]));
   const retyped: Record<string, string> = {};

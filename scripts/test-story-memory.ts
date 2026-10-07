@@ -21,7 +21,7 @@ import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, 
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
 import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
 import { parseStoryChanges, applyStoryChanges, buildStoryContext, buildStoryChangesPrompt, storyBasis, readChangeStream, countStreamedChanges, buildStoryChatSystem } from '../src/lib/story-chat';
-import { appendEvent, changedChars, revisedShare, chapterAuthorship, buildAuthorshipReport, renderAuthorshipHtml } from '../src/lib/authorship';
+import { appendEvent, changedChars, revisedShare, chapterAuthorship, buildAuthorshipReport, renderAuthorshipHtml, describeEvent, changedFieldLabels } from '../src/lib/authorship';
 import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS, countSentenceBreaks, countClauseBreaks, stretchPauses, CLAUSE_PAUSE_SECONDS } from '../server/audio-assembly';
@@ -937,7 +937,39 @@ t('authorship record: grouped typing, revised share, per-chapter counts, private
   const html = renderAuthorshipHtml(report);
   assert.ok(html.includes('Closing &lt;Walkthrough&gt;') && html.includes('&quot;more&quot; scared &amp; &lt;tense&gt;'));
   assert.ok(!html.includes('<tense>'));
-  assert.ok(html.includes('written before tracking began'));
+  assert.ok(html.includes('Written before detailed tracking began'));
+  assert.equal(c.revisionRounds, 3, '1 AI edit + 2 typing sessions');
+});
+
+t('authorship record: first person, book-level development, export without dates', () => {
+  assert.equal(describeEvent({ at: 'x', kind: 'ai-draft', model: 'claude-opus', words: 2500 }), 'I had the AI draft this chapter from my outline and settings (Claude Opus) — 2,500 words.');
+  assert.equal(describeEvent({ at: 'x', kind: 'author-review', accepted: 4, offered: 6 }), 'I reviewed 6 suggested changes and kept 4.');
+  assert.equal(describeEvent({ at: 'x', kind: 'author-canon-edit', subject: 'Ruth Hale', fields: ['condition & limits', 'appearance'] }), 'I developed “Ruth Hale” — condition & limits, appearance.');
+  // Canon edits to the same entry within a session are one step with all fields.
+  let log = appendEvent([], { at: '2026-10-07T10:00:00Z', kind: 'author-canon-edit', subject: 'Ruth Hale', entity: 'character', fields: ['age'] });
+  log = appendEvent(log, { at: '2026-10-07T10:03:00Z', kind: 'author-canon-edit', subject: 'Ruth Hale', entity: 'character', fields: ['condition & limits', 'age'] });
+  log = appendEvent(log, { at: '2026-10-07T10:04:00Z', kind: 'author-canon-edit', subject: 'Wes', entity: 'character', fields: ['occupation'] });
+  assert.equal(log.length, 2);
+  assert.deepEqual(log[0].fields, ['age', 'condition & limits']);
+  assert.deepEqual(changedFieldLabels({ type: 'character', name: 'Ruth', character: { age: '80', condition: '' } } as any, { character: { age: '80', condition: 'bedridden' }, description: 'Grandmother' }), ['condition & limits', 'description']);
+
+  const project: any = { title: 'Late Shift', authorship: [
+    { at: '2026-10-07T09:00:00Z', kind: 'ai-plan-threads', model: 'claude-opus', note: '15 plot lines across 14 chapters' },
+    { at: '2026-10-07T09:10:00Z', kind: 'author-plan-edit', subject: 'thread map', note: 'removed a plot line' },
+    { at: '2026-10-07T09:20:00Z', kind: 'author-canon-create', subject: 'New Character', entity: 'character', ref: 'e-bea' },
+    { at: '2026-10-07T09:21:00Z', kind: 'author-rename', subject: 'Bea', entity: 'character', ref: 'e-bea', note: '“New Character” to “Bea”' },
+    ...log,
+  ] };
+  const r = buildAuthorshipReport({ project, chapters: [] });
+  assert.deepEqual(r.development.plans.map((e) => e.kind), ['ai-plan-threads', 'author-plan-edit']);
+  assert.deepEqual(r.development.entities.map((d) => [d.name, d.events.length]), [['Bea', 2], ['Ruth Hale', 1], ['Wes', 1]], 'a renamed entry stays one history under its new name');
+  const withDates = renderAuthorshipHtml(r, { dates: true, steps: true });
+  const noDates = renderAuthorshipHtml(r, { dates: false, steps: true });
+  const summary = renderAuthorshipHtml(r, { dates: false, steps: false });
+  assert.ok(withDates.includes('<time>') && !noDates.includes('<time>') && !noDates.includes('generated'));
+  assert.ok(noDates.includes('I had the AI draft the thread map (Claude Opus): “15 plot lines across 14 chapters”'));
+  assert.ok(noDates.includes('I renamed “New Character” to “Bea” everywhere in the book.'));
+  assert.ok(!summary.includes('<ol class="log">'));
 });
 
 t('tracked edits: only marked paragraphs change; rejects leave the original; junk is dropped', () => {

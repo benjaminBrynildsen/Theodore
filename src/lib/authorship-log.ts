@@ -14,6 +14,14 @@ export function recordAuthorship(chapterId: string, ev: Omit<AuthorshipEvent, 'a
   useStore.getState().updateChapter(chapterId, { aiIntentMetadata: { ...meta, authorship } as unknown as Chapter['aiIntentMetadata'] });
 }
 
+/** Book-level event: characters, objects, places and the maps. */
+export function recordProjectAuthorship(projectId: string, ev: Omit<AuthorshipEvent, 'at'> & { at?: string }): void {
+  const project = useStore.getState().projects.find((p) => p.id === projectId);
+  if (!project) return;
+  const authorship = appendEvent(project.authorship || undefined, { at: new Date().toISOString(), ...ev }, 1000);
+  useStore.getState().updateProject(projectId, { authorship });
+}
+
 const typing = new Map<string, { chars: number; timer: ReturnType<typeof setTimeout> }>();
 
 /** Note text the author typed, dictated or changed by hand; flushed after a pause. */

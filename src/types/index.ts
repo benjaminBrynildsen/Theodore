@@ -23,6 +23,8 @@ export interface Project {
   arcPlan?: import('../lib/story-arcs').ArcPlan | null; // character arcs + artifact journeys
   synopsis?: import('../lib/synopsis').Synopsis | null; // one-page synopsis
   /** Story chat conversation and applied plan decisions (private). */
+  /** Private book-level authorship log: characters, objects, places and maps as the author developed them. */
+  authorship?: import('../lib/authorship').AuthorshipEvent[] | null;
   storyChat?: { messages: import('../lib/story-chat').StoryChatMessage[]; decisions?: import('../lib/authorship').StoryChatDecision[] } | null;
   chapterCount?: number; // populated from list-projects response (not stored)
   wordCount?: number; // populated from list-projects response (not stored)

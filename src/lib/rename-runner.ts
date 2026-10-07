@@ -8,6 +8,7 @@ import { proseContentHash, proseSignature, stripProductionTags } from './story-m
 import { buildRenamePairs, countMentions, renameDeep, replaceNames, type RenamePair } from './rename';
 import type { AnyCanonEntry, CharacterEntry } from '../types/canon';
 import type { Chapter } from '../types';
+import { recordProjectAuthorship } from './authorship-log';
 
 // Past drafts stay as written; memory hashes are recomputed below.
 const SKIP_META = new Set(['versionHistory', 'continuitySourceHash', 'continuitySourceSig', 'continuitySourceLength']);
@@ -40,6 +41,8 @@ export function previewRename(entry: AnyCanonEntry, oldName: string, newName: st
 
 export function applyRename(entry: AnyCanonEntry, pairs: RenamePair[]): number {
   if (!pairs.length) return 0;
+  const main = pairs[0];
+  recordProjectAuthorship(entry.projectId, { kind: 'author-rename', subject: main.to, entity: entry.type, ref: entry.id, note: `“${main.from}” to “${main.to}”` });
   const store = useStore.getState();
   const canon = useCanonStore.getState();
   let changedChapters = 0;

@@ -16,6 +16,7 @@ import { threadMapPct } from './thread-planner';
 import { resolveCanonEntry } from './story-memory';
 import { junkNameReason } from './canon-cleanup';
 import type { CharacterEntry } from '../types/canon';
+import { recordProjectAuthorship } from './authorship-log';
 
 export interface ArcMapProgress {
   phase: 'reading' | 'mapping' | 'saving';
@@ -189,6 +190,7 @@ export function buildArcMap(projectId: string, opts: { resumeJobId?: string } = 
       const plan = parseArcPlan(text, chapters.length);
       if (!plan) throw new Error('The character & object map came back incomplete. Try again.');
       useStore.getState().updateProject(projectId, { arcPlan: plan });
+      recordProjectAuthorship(projectId, { kind: 'ai-plan-arcs', model: analysisModel(useSettingsStore.getState().settings.ai?.preferredModel), note: `${plan.characters.length} character arcs, ${plan.artifacts.length} objects` });
       addPlannedObjectsToCanon(projectId, plan);
       syncPlannedCastToCanon(projectId, plan);
       if (ownsBar) useGenerationStore.getState().setPhase('done');
