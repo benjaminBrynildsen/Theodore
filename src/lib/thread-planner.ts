@@ -15,6 +15,7 @@ import { useAuthStore } from '../store/auth';
 import { analysisModel } from './models';
 import { getStructureById } from './story-structures';
 import { buildThreadPlanPrompt, parseThreadPlan, type ThreadPlan } from './story-threads';
+import { recordProjectAuthorship } from './authorship-log';
 
 export interface ThreadMapProgress {
   phase: 'reading' | 'mapping' | 'saving';
@@ -148,6 +149,7 @@ export function buildThreadMap(projectId: string, opts: { resumeJobId?: string }
       const plan = parseThreadPlan(text, chapters.length);
       if (!plan) throw new Error('The thread map came back incomplete. Try again.');
       useStore.getState().updateProject(projectId, { threadPlan: plan });
+      recordProjectAuthorship(projectId, { kind: 'ai-plan-threads', model: analysisModel(useSettingsStore.getState().settings.ai?.preferredModel), note: `${plan.threads.length} plot lines across ${plan.chapterCount} chapters` });
       if (ownsBar) useGenerationStore.getState().setPhase('done');
       return plan;
     } catch (e) {

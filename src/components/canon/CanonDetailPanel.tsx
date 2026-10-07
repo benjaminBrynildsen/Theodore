@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { X, User, MapPin, Cog, Gem, Scale, Milestone, Plus, Trash2, Heart, Brain, Sword, Eye, BookOpen, Clock, Sparkles, Loader2, Shield, AlertTriangle, GitBranch, PenLine } from 'lucide-react';
+import { recordProjectAuthorship } from '../../lib/authorship-log';
+import { changedFieldLabels } from '../../lib/authorship';
 import { useCanonStore } from '../../store/canon';
 import { cn } from '../../lib/utils';
 import { autoFillCharacter, autoFillLocation, autoFillSystem, autoFillArtifact } from '../../lib/ai-autofill';
@@ -682,7 +684,13 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
   };
   const Icon = typeIcons[entry.type] || BookOpen;
 
-  const handleUpdate = (updates: any) => {
+  // Edits made here are the author's own development of the entry (authorship record).
+  const handleUpdate = (updates: any, source: 'author' | 'ai' = 'author') => {
+    const current = getEntry(entry.id) || entry;
+    if (source === 'author') {
+      const fields = changedFieldLabels(current as unknown as Record<string, unknown>, updates);
+      if (fields.length) recordProjectAuthorship(current.projectId, { kind: 'author-canon-edit', subject: updates.name || current.name, entity: current.type, ref: current.id, fields });
+    }
     updateEntry(entry.id, updates);
   };
 
@@ -754,17 +762,18 @@ export function CanonDetailPanel({ entry, onClose }: Props) {
       });
       if (!filled) return;
       const { __description, ...data } = filled as Record<string, unknown>;
+      recordProjectAuthorship(current.projectId, { kind: 'ai-canon-fill', subject: current.name, entity: current.type, ref: current.id, model: settings.ai?.preferredModel || 'claude-opus' });
       handleUpdate({
         [current.type]: data,
         ...(typeof __description === 'string' ? { description: __description } : {}),
-      });
+      }, 'ai');
     } catch (e: any) {
       console.warn('[AutoFill] AI fill failed:', e);
       setAutoFillError(e?.message === 'INSUFFICIENT_CREDITS' ? 'Not enough credits to auto-fill.' : 'Auto-fill failed — try again.');
-      if (current.type === 'character') handleUpdate({ character: autoFillCharacter(current as CharacterEntry) });
-      else if (current.type === 'location') handleUpdate({ location: autoFillLocation(current as LocationEntry) });
-      else if (current.type === 'system') handleUpdate({ system: autoFillSystem(current as SystemEntry) });
-      else if (current.type === 'artifact') handleUpdate({ artifact: autoFillArtifact(current as ArtifactEntry) });
+      if (current.type === 'character') handleUpdate({ character: autoFillCharacter(current as CharacterEntry) }, 'ai');
+      else if (current.type === 'location') handleUpdate({ location: autoFillLocation(current as LocationEntry) }, 'ai');
+      else if (current.type === 'system') handleUpdate({ system: autoFillSystem(current as SystemEntry) }, 'ai');
+      else if (current.type === 'artifact') handleUpdate({ artifact: autoFillArtifact(current as ArtifactEntry) }, 'ai');
     } finally {
       setIsAutoFilling(false);
     }

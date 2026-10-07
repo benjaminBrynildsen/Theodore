@@ -14,6 +14,7 @@ import {
 } from '../../lib/story-threads';
 import { cn } from '../../lib/utils';
 import type { Chapter, Project } from '../../types';
+import { recordProjectAuthorship } from '../../lib/authorship-log';
 
 // Fixed categorical order (validated all-pairs against the app surface #f2f2f7):
 // slot 1 blue = major, slot 2 orange = subplot, slot 3 aqua = hook,
@@ -138,6 +139,7 @@ export function ThreadMap({ project, chapters }: Props) {
   const saveThreads = (threads: StoryThread[]) => {
     if (!plan) return;
     updateProject(project.id, { threadPlan: { ...plan, threads } });
+    recordProjectAuthorship(project.id, { kind: 'author-plan-edit', subject: 'thread map', note: threads.length < plan.threads.length ? 'removed a plot line' : 'moved where plot lines open and close' });
   };
 
   const spoiler = (t: StoryThread, text: string) =>

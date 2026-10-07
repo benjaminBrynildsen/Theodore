@@ -15,6 +15,7 @@ import { generateText } from '../../lib/generate';
 import { generateId } from '../../lib/utils';
 import type { CanonType } from '../../types/canon';
 import type { Scene } from '../../types';
+import { recordProjectAuthorship } from '../../lib/authorship-log';
 
 const canonSections: { type: CanonType; label: string; icon: React.ElementType }[] = [
   { type: 'character', label: 'Characters', icon: Users },
@@ -46,6 +47,7 @@ function ProjectSidebar({ projectId }: { projectId: string }) {
     };
     const entry = creators[type](projectId, `New ${type.charAt(0).toUpperCase() + type.slice(1)}`);
     addEntry(entry);
+    recordProjectAuthorship(projectId, { kind: 'author-canon-create', subject: entry.name, entity: type, ref: entry.id });
     setActiveEntry(entry.id);
     setExpandedType(type);
   };

@@ -14,6 +14,7 @@ import {
 } from '../../lib/story-arcs';
 import { cn } from '../../lib/utils';
 import type { Chapter, Project } from '../../types';
+import { recordProjectAuthorship } from '../../lib/authorship-log';
 
 // Same validated categorical palette as the thread map: blue for characters,
 // orange for objects. Every row is labelled and the chapter panel repeats the
@@ -131,6 +132,8 @@ export function ArcMap({ project, chapters }: Props) {
 
   const remove = (id: string) => {
     if (!plan) return;
+    const gone = plan.characters.find((c) => c.id === id)?.name || plan.artifacts.find((a) => a.id === id)?.name;
+    recordProjectAuthorship(project.id, { kind: 'author-plan-edit', subject: 'character & object map', note: gone ? `removed ${gone}` : undefined });
     updateProject(project.id, {
       arcPlan: { ...plan, characters: plan.characters.filter((c) => c.id !== id), artifacts: plan.artifacts.filter((a) => a.id !== id) },
     });
