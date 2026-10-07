@@ -25,6 +25,8 @@ export interface Project {
   /** Story chat conversation and applied plan decisions (private). */
   /** Private book-level authorship log: characters, objects, places and maps as the author developed them. */
   authorship?: import('../lib/authorship').AuthorshipEvent[] | null;
+  /** Facts & Secrets: the author's facts, world facts and secrets. */
+  factBook?: import('../lib/fact-book').FactBook | null;
   storyChat?: { messages: import('../lib/story-chat').StoryChatMessage[]; decisions?: import('../lib/authorship').StoryChatDecision[] } | null;
   chapterCount?: number; // populated from list-projects response (not stored)
   wordCount?: number; // populated from list-projects response (not stored)

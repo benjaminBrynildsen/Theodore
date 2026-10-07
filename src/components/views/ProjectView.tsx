@@ -1,6 +1,6 @@
 import { authorNamesToAvoid } from '../../lib/author-names';
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch, BookText, MessageSquare, FileCheck2 } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch, BookText, MessageSquare, FileCheck2, ScrollText } from 'lucide-react';
 import { ArcMap } from '../features/ArcMap';
 import { SynopsisPanel } from '../features/SynopsisPanel';
 import { StoryMemoryCatchUp } from '../features/StoryMemoryCatchUp';
@@ -17,6 +17,7 @@ import { ChildrensBookReader } from '../features/ChildrensBookReader';
 import { ThreadMap } from '../features/ThreadMap';
 import { StoryChat } from '../features/StoryChat';
 import { AuthorshipRecord } from '../features/AuthorshipRecord';
+import { FactsSecrets } from '../features/FactsSecrets';
 import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../../lib/scaffold';
 import { generateStream } from '../../lib/generate';
 import { generateImageApi } from '../../lib/image-gen';
@@ -50,6 +51,7 @@ export function ProjectView() {
   const [showArcsOverride, setShowArcsOverride] = useState<boolean | null>(null);
   const [showStoryChat, setShowStoryChat] = useState(false);
   const [showAuthorship, setShowAuthorship] = useState(false);
+  const [showFacts, setShowFacts] = useState(false);
   const [showSynopsis, setShowSynopsis] = useState(false);
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
@@ -771,6 +773,20 @@ export function ProjectView() {
               Characters & objects
             </button>
           )}
+          {!isChildrensBook && chapters.length >= 1 && (
+            <button
+              onClick={() => setShowFacts((v) => !v)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                showFacts
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'glass-pill text-text-tertiary hover:bg-white/60'
+              )}
+            >
+              <ScrollText size={13} />
+              Facts & Secrets
+            </button>
+          )}
           {chapters.length >= 2 && structure && !structure.isProcess && (
             <button
               onClick={() => setShowArcLabels(!showArcLabels)}
@@ -795,6 +811,13 @@ export function ProjectView() {
           </div>
         )}
 
+        {/* Facts & Secrets — what's true in the book and who knows what */}
+        {!isChildrensBook && showFacts && (
+          <div className="mb-6">
+            <FactsSecrets project={project} chapters={chapters} onClose={() => setShowFacts(false)} />
+          </div>
+        )}
+
         {/* Authorship record — private log of who did what, exportable */}
         {!isChildrensBook && showAuthorship && (
           <div className="mb-6">
@@ -809,7 +832,7 @@ export function ProjectView() {
           </div>
         )}
 
-        {!isChildrensBook && <StoryMemoryCatchUp projectId={project.id} chapters={chapters} />}
+        {!isChildrensBook && !showFacts && <StoryMemoryCatchUp projectId={project.id} chapters={chapters} />}
 
         {/* Arc map — character arcs and object journeys across the book */}
         {!isChildrensBook && showArcs && chapters.length >= 2 && (

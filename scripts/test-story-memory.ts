@@ -21,6 +21,7 @@ import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, 
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
 import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
 import { parseStoryChanges, applyStoryChanges, buildStoryContext, buildStoryChangesPrompt, storyBasis, readChangeStream, countStreamedChanges, buildStoryChatSystem } from '../src/lib/story-chat';
+import { applyFactBook, factRows, addFact, editFact, deleteFact, setSecret, markSeen, groupBySubject } from '../src/lib/fact-book';
 import { appendEvent, changedChars, revisedShare, chapterAuthorship, buildAuthorshipReport, renderAuthorshipHtml, describeEvent, changedFieldLabels } from '../src/lib/authorship';
 import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
@@ -1074,6 +1075,54 @@ t('pace: words per minute of speech, merged across scenes', () => {
   assert.deepEqual(merged, { words: 310, speechSeconds: 120, silenceSeconds: 22 });
   assert.equal(paceWpm(merged), 155);
   assert.equal(paceWpm(undefined), 0);
+});
+
+t('facts & secrets: author corrections, deletions, world facts and secrets bind the prompt', () => {
+  const ch = (n: number, meta: any) => ({ id: 'fb' + n, number: n, title: 'T' + n, prose: 'x', aiIntentMetadata: meta }) as any;
+  const facts = Array.from({ length: 90 }, (_, i) => ({ subject: 'Town', fact: `Detail number ${i}`, chapter: 1 }));
+  const c1 = ch(1, { facts: [{ subject: 'Mara', fact: 'Mara is 34', chapter: 1 }, { subject: 'Mara', fact: 'Drives a red truck', chapter: 1 }, ...facts],
+    knowledge: [{ secret: 'Eli\'s father is alive', knownBy: ['Mara'], hiddenFrom: ['Eli'], chapter: 1 }] });
+  const c2 = ch(2, {});
+  const c3 = ch(3, { knowledge: [{ secret: 'Eli\'s father is alive', knownBy: ['Eli'], hiddenFrom: [], chapter: 3 }] });
+  const all = [c1, c2, c3];
+
+  let book = markSeen(null, []);
+  const rows = factRows(foldStoryState(all), book);
+  const age = rows.find((r) => r.fact === 'Mara is 34')!;
+  const truck = rows.find((r) => r.fact === 'Drives a red truck')!;
+  assert.equal(age.isNew, true);
+  book = editFact(book, age, 'Mara', 'Mara is 36');
+  book = deleteFact(book, truck);
+  book = addFact(book, { kind: 'world', subject: '', fact: 'Magic costs the user a memory' });
+  book = addFact(book, { kind: 'story', subject: 'The lake house', fact: 'Sits on the north shore' });
+  const secret = foldStoryState([c1]).knowledge[0];
+  book = setSecret(book, secret, { secret: "Eli's father is alive", knownBy: ['Mara', 'Jonah'], hiddenFrom: ['Eli'] });
+
+  const after = factRows(foldStoryState(all), book);
+  assert.ok(!after.some((r) => r.fact === 'Mara is 34' || r.fact === 'Drives a red truck'), 'corrected and deleted page facts are gone');
+  assert.ok(after.some((r) => r.fact === 'Mara is 36' && r.source === 'author' && r.chapter === 1));
+  assert.equal(groupBySubject(after.filter((r) => r.kind === 'story'))[0].subject, 'Mara');
+
+  // Writing chapter 2: correction, world fact, author fact and secret all apply; nothing ages out.
+  const block = buildCanonAndMemory([], c2, all, false, book);
+  assert.ok(block.includes('Mara is 36') && !block.includes('Mara is 34') && !block.includes('red truck'));
+  assert.ok(block.includes('WORLD FACTS') && block.includes('Magic costs the user a memory'));
+  assert.ok(block.includes('Sits on the north shore'));
+  assert.ok(block.includes('Detail number 0') && block.includes('Detail number 89'), 'early facts no longer drop off');
+  assert.ok(/known by: Mara, Jonah \| NOT known by: Eli/.test(block), 'author secret wins');
+
+  // A later chapter where Eli learns it wins over the author's earlier edit.
+  const st = applyFactBook(foldStoryState(all), book);
+  assert.deepEqual(st.knowledge.find((k) => /father/.test(k.secret))!.knownBy, ['Mara', 'Eli']);
+
+  // Writing chapter 1: the chapter-1 correction doesn't leak backwards.
+  assert.ok(!buildCanonAndMemory([], c1, all, false, book).includes('Mara is 36'));
+
+  // Deleting a secret removes it.
+  book = setSecret(book, secret, null);
+  assert.ok(!/father/.test(buildCanonAndMemory([], c2, all, false, book)));
+  // Extraction checks against the book too.
+  assert.ok(buildContinuityExtractionPrompt({ projectTitle: 'B', chapter: c2, allChapters: all, canon: [], factBook: book }).includes('Magic costs the user a memory'));
 });
 
 console.log(`\n${passed} passed`);

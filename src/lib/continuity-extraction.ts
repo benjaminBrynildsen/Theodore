@@ -14,6 +14,7 @@
 
 import type { Chapter } from '../types';
 import type { AnyCanonEntry, CharacterEntry } from '../types/canon';
+import { applyFactBook } from './fact-book';
 import {
   CONTINUITY_VERSION,
   characterStateFor,
@@ -74,12 +75,14 @@ export function buildContinuityExtractionPrompt(args: {
   chapter: Chapter;
   allChapters: Chapter[];
   canon: AnyCanonEntry[];
+  /** The project's Facts & Secrets book. */
+  factBook?: unknown;
 }): string {
   const { projectTitle, chapter, allChapters, canon } = args;
   const openThreadsList = openThreadsBefore(allChapters, chapter)
     .map((t) => `- [${t.id}] ${t.character}: ${t.thread}`)
     .join('\n');
-  const priorState = foldStoryState(allChapters, chapter.id);
+  const priorState = applyFactBook(foldStoryState(allChapters, chapter.id), args.factBook, chapter.number || Infinity);
   const priorMemory = buildPriorMemoryForCheck(priorState);
   // Conditions set in canon count as established even before the page shows them.
   const canonLimits = canon

@@ -63,7 +63,7 @@ export interface SelectionEditContext {
 export function buildSelectionEditPrompt(ctx: SelectionEditContext): string {
   const { project, chapter, allChapters, canonEntries, settings, instruction, selectedText, fullProse, chatHistory } = ctx;
   const sections: string[] = [];
-  const memoryBlock = buildCanonAndMemory(canonEntries || [], chapter, allChapters, false);
+  const memoryBlock = buildCanonAndMemory(canonEntries || [], chapter, allChapters, false, project.factBook);
   const continuity = buildContinuityContext(project, allChapters, chapter.id);
   const continuityBlock = formatContinuityBlock(continuity);
 
@@ -339,8 +339,8 @@ function buildToneInstructions(project: Project): string {
  * Canon cards + state/fact memory for prompts built outside buildGenerationPrompt
  * (e.g. the creation-time Chapter 1), so every chapter sees the same profiles.
  */
-export function buildCanonReferenceBlock(entries: AnyCanonEntry[], chapter: Chapter, allChapters: Chapter[]): string {
-  return buildCanonAndMemory(entries, chapter, allChapters, true);
+export function buildCanonReferenceBlock(entries: AnyCanonEntry[], chapter: Chapter, allChapters: Chapter[], factBook?: unknown): string {
+  return buildCanonAndMemory(entries, chapter, allChapters, true, factBook);
 }
 
 // ========== Chapter Outline Context ==========
@@ -487,7 +487,7 @@ export function buildGenerationPrompt(ctx: PromptContext): string {
   sections.push(`\n${modeInstructions[writingMode]}`);
 
   // Canon context (characters, locations, world rules) + state/fact memory
-  const canonAndMemory = buildCanonAndMemory(canonEntries, chapter, allChapters, !!settings.ai.includeCanonInPrompt);
+  const canonAndMemory = buildCanonAndMemory(canonEntries, chapter, allChapters, !!settings.ai.includeCanonInPrompt, project.factBook);
   if (canonAndMemory) {
     sections.push('\n' + canonAndMemory);
   }
@@ -648,7 +648,7 @@ export function buildSceneEditPrompt(
   sections.push(buildToneInstructions(project));
 
   // Canon context (smart-filtered) + state/fact memory
-  const canonAndMemory = buildCanonAndMemory(canonEntries, chapter, allChapters, !!settings.ai.includeCanonInPrompt);
+  const canonAndMemory = buildCanonAndMemory(canonEntries, chapter, allChapters, !!settings.ai.includeCanonInPrompt, project.factBook);
   if (canonAndMemory) sections.push('\n' + canonAndMemory);
 
   // Chapter context
