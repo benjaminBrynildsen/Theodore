@@ -11,7 +11,7 @@
 //
 // Pure functions only, ported to the mobile app with story-memory.ts.
 
-import type { KnowledgeRecord, StoryFact, StoryStateAt } from './story-memory';
+import type { KnowledgeRecord, MeetingState, StoryFact, StoryStateAt, TimelineRecord } from './story-memory';
 
 export interface BookFact {
   id: string;
@@ -40,16 +40,50 @@ export interface BookSecret {
   at: string;
 }
 
+/** The author's version of a timeline item (age, deadline, healing, date). */
+export interface BookTimeline {
+  id: string;
+  kind: TimelineRecord['kind'];
+  subject: string;
+  detail?: string;
+  when?: string;
+  status?: string;
+  /** Chapter of the page item this replaces; a later chapter's change wins again. */
+  chapter?: number;
+  replaces?: Pick<TimelineRecord, 'kind' | 'subject' | 'detail'>;
+  deleted?: boolean;
+  at: string;
+}
+
+/** The author's say on whether two characters have met, and how. */
+export interface BookMeeting {
+  id: string;
+  a: string;
+  b: string;
+  how?: string;
+  aCalls?: string;
+  bCalls?: string;
+  /** Chapter they first met; none means before the story starts. */
+  firstChapter?: number;
+  /** Latest page chapter this replaces; a later chapter's change wins again. */
+  chapter?: number;
+  /** They have NOT met (removes a pair the reader got wrong). */
+  deleted?: boolean;
+  at: string;
+}
+
 export interface FactBook {
   facts: BookFact[];
   secrets: BookSecret[];
+  timeline: BookTimeline[];
+  meetings: BookMeeting[];
   /** Keys of page facts the author deleted or replaced. */
   hidden: string[];
   /** Keys of page facts the author has seen (the rest show as New). */
   seen: string[];
 }
 
-export const EMPTY_FACT_BOOK: FactBook = { facts: [], secrets: [], hidden: [], seen: [] };
+export const EMPTY_FACT_BOOK: FactBook = { facts: [], secrets: [], timeline: [], meetings: [], hidden: [], seen: [] };
 
 function norm(s: string | undefined | null): string {
   return (s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
@@ -64,6 +98,8 @@ export function asFactBook(value: unknown): FactBook {
   return {
     facts: Array.isArray(v.facts) ? v.facts.filter((f) => f && f.subject && f.fact) : [],
     secrets: Array.isArray(v.secrets) ? v.secrets.filter((s) => s && s.secret) : [],
+    timeline: Array.isArray(v.timeline) ? v.timeline.filter((t) => t && t.kind && t.subject) : [],
+    meetings: Array.isArray(v.meetings) ? v.meetings.filter((m) => m && m.a && m.b) : [],
     hidden: Array.isArray(v.hidden) ? v.hidden : [],
     seen: Array.isArray(v.seen) ? v.seen : [],
   };
@@ -83,6 +119,20 @@ function overlap(a: string, b: string): number {
   return hit / Math.min(ta.size, tb.size);
 }
 
+/** Same pair, either order. */
+export function meetingKey(a: string, b: string): string {
+  return [norm(a), norm(b)].sort().join(' & ');
+}
+
+/** Two timeline items are about the same thing (same person's age, same injury, same deadline). */
+export function timelineMatch(x: Pick<TimelineRecord, 'kind' | 'subject' | 'detail' | 'canonId'>, y: Pick<TimelineRecord, 'kind' | 'subject' | 'detail' | 'canonId'>): boolean {
+  if (x.kind !== y.kind) return false;
+  const samePerson = (!!x.canonId && x.canonId === y.canonId) || norm(x.subject) === norm(y.subject);
+  if (x.kind === 'age') return samePerson;
+  if (x.kind === 'healing') return samePerson && (!x.detail || !y.detail || overlap(x.detail, y.detail) >= 0.5);
+  return norm(x.subject) === norm(y.subject) || overlap(x.subject, y.subject) >= 0.6;
+}
+
 /** A secret matches a page record when the wording mostly overlaps. */
 function sameSecret(a: string, b: string): boolean {
   return norm(a) === norm(b) || overlap(a, b) >= 0.6;
@@ -96,7 +146,9 @@ function sameSecret(a: string, b: string): boolean {
  */
 export function applyFactBook(state: StoryStateAt, bookValue: unknown, chapterNumber = Infinity): StoryStateAt {
   const book = asFactBook(bookValue);
-  if (!book.facts.length && !book.secrets.length && !book.hidden.length) return { ...state, worldFacts: state.worldFacts || [] };
+  if (!book.facts.length && !book.secrets.length && !book.hidden.length && !book.timeline.length && !book.meetings.length) {
+    return { ...state, worldFacts: state.worldFacts || [] };
+  }
   const hidden = new Set(book.hidden);
   const applies = (chapter?: number) => !chapter || chapter < chapterNumber;
 
@@ -121,10 +173,32 @@ export function applyFactBook(state: StoryStateAt, bookValue: unknown, chapterNu
     if (!s.deleted) knowledge.push({ secret: s.secret, knownBy: [...s.knownBy], hiddenFrom: [...s.hiddenFrom], chapter: s.chapter || 0 });
   }
 
+  let timeline: TimelineRecord[] = (state.timeline || []).map((t) => ({ ...t }));
+  for (const o of book.timeline) {
+    if (!applies(o.chapter)) continue;
+    const match = timeline.find((t) => timelineMatch(t, o.replaces || o) || timelineMatch(t, o));
+    if (match && o.chapter && match.chapter > o.chapter) continue;
+    if (match) timeline = timeline.filter((t) => t !== match);
+    if (!o.deleted) timeline.push({ kind: o.kind, subject: o.subject, canonId: match && timelineMatch(match, o) ? match.canonId : undefined, detail: o.detail, when: o.when, status: o.status, chapter: o.chapter || 0 });
+  }
+
+  let meetings: MeetingState[] = (state.meetings || []).map((m) => ({ ...m }));
+  for (const o of book.meetings) {
+    if (o.firstChapter && o.firstChapter >= chapterNumber) continue;
+    const key = meetingKey(o.a, o.b);
+    const match = meetings.find((m) => m.key === key);
+    if (match && o.chapter && match.chapter > o.chapter) continue;
+    if (match) meetings = meetings.filter((m) => m !== match);
+    if (o.deleted) continue;
+    meetings.push({ key, a: o.a, b: o.b, how: o.how, aCalls: o.aCalls, bCalls: o.bCalls, chapter: o.chapter || o.firstChapter || 0, firstChapter: o.firstChapter || 0 });
+  }
+
   return {
     ...state,
     facts,
     knowledge,
+    timeline,
+    meetings,
     worldFacts: book.facts.filter((f) => f.kind === 'world'),
   };
 }
@@ -237,5 +311,55 @@ export function setSecret(
   return {
     ...book,
     secrets: [...rest, { id: prior?.id || newId(), secret, knownBy: clean(next.knownBy), hiddenFrom: clean(next.hiddenFrom), chapter, replaces, at }],
+  };
+}
+
+export function setTimeline(
+  bookValue: unknown,
+  original: TimelineRecord | null,
+  next: Pick<BookTimeline, 'kind' | 'subject' | 'detail' | 'when' | 'status'> | null,
+): FactBook {
+  const book = asFactBook(bookValue);
+  const at = new Date().toISOString();
+  const prior = original ? book.timeline.find((t) => timelineMatch(t.replaces || t, original) || timelineMatch(t, original)) : undefined;
+  const rest = prior ? book.timeline.filter((t) => t !== prior) : book.timeline;
+  const base = {
+    id: prior?.id || newId(),
+    chapter: prior?.chapter ?? (original?.chapter || undefined),
+    replaces: prior?.replaces || (original ? { kind: original.kind, subject: original.subject, detail: original.detail } : undefined),
+    at,
+  };
+  if (!next) {
+    if (!original) return book;
+    return { ...book, timeline: [...rest, { ...base, kind: original.kind, subject: original.subject, detail: original.detail, deleted: true }] };
+  }
+  const subject = next.subject.trim();
+  if (!subject) return book;
+  const clean = (v?: string) => v?.trim() || undefined;
+  return { ...book, timeline: [...rest, { ...base, kind: next.kind, subject, detail: clean(next.detail), when: clean(next.when), status: clean(next.status)?.toLowerCase() }] };
+}
+
+export function setMeeting(
+  bookValue: unknown,
+  original: MeetingState | null,
+  next: Pick<BookMeeting, 'a' | 'b' | 'how' | 'aCalls' | 'bCalls' | 'firstChapter'> | null,
+): FactBook {
+  const book = asFactBook(bookValue);
+  const at = new Date().toISOString();
+  const key = original ? original.key : next ? meetingKey(next.a, next.b) : '';
+  const prior = book.meetings.find((m) => meetingKey(m.a, m.b) === key);
+  const rest = book.meetings.filter((m) => m !== prior);
+  const base = { id: prior?.id || newId(), chapter: prior?.chapter ?? (original?.chapter || undefined), at };
+  if (!next) {
+    if (!original) return book;
+    return { ...book, meetings: [...rest, { ...base, a: original.a, b: original.b, deleted: true }] };
+  }
+  const a = next.a.trim();
+  const b = next.b.trim();
+  if (!a || !b || norm(a) === norm(b)) return book;
+  const clean = (v?: string) => v?.trim() || undefined;
+  return {
+    ...book,
+    meetings: [...rest, { ...base, a, b, how: clean(next.how), aCalls: clean(next.aCalls), bCalls: clean(next.bCalls), firstChapter: next.firstChapter ?? original?.firstChapter }],
   };
 }

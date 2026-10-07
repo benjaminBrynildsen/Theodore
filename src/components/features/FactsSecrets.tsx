@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Pencil, Plus, ScrollText, Trash2, X } from 'lucide-react';
 import { useStore } from '../../store';
-import { foldStoryState, type KnowledgeRecord } from '../../lib/story-memory';
+import { foldStoryState, memoryMeta, type KnowledgeRecord, type MeetingState, type TimelineRecord } from '../../lib/story-memory';
 import {
-  addFact, applyFactBook, deleteFact, editFact, factRows, groupBySubject, markSeen, setSecret,
+  addFact, applyFactBook, deleteFact, editFact, factRows, groupBySubject, markSeen, setMeeting, setSecret, setTimeline,
   type FactBook, type FactRow,
 } from '../../lib/fact-book';
 import { recordProjectAuthorship } from '../../lib/authorship-log';
@@ -11,7 +11,7 @@ import { cn } from '../../lib/utils';
 import { StoryMemoryCatchUp } from './StoryMemoryCatchUp';
 import type { Chapter, Project } from '../../types';
 
-type Tab = 'facts' | 'secrets' | 'standing';
+type Tab = 'facts' | 'secrets' | 'timeline' | 'meetings' | 'standing';
 
 const input = 'w-full rounded-lg border border-black/10 bg-white/80 px-2.5 py-1.5 text-[13px] outline-none focus:border-black/30';
 const names = (s: string) => s.split(',').map((n) => n.trim()).filter(Boolean);
@@ -64,19 +64,30 @@ export function FactsSecrets({ project, chapters, onClose }: { project: Project;
       <StoryMemoryCatchUp
         projectId={project.id}
         chapters={chapters}
-        message={(n) => `${n} written chapter${n === 1 ? " hasn't" : "s haven't"} been read for facts and secrets yet. Read ${n === 1 ? 'it' : 'them'} to fill this in (a small credit cost per chapter).`}
+        message={(n) => `${n} written chapter${n === 1 ? " hasn't" : "s haven't"} been read for everything this tracks yet (facts, secrets, timeline, who's met whom). Read ${n === 1 ? 'it' : 'them'} to fill this in (a small credit cost per chapter).`}
       />
 
-      <div className="flex gap-1 rounded-xl bg-black/5 p-1 text-[12px] font-medium">
-        {([['facts', `Facts · ${rows.length}`], ['secrets', `Secrets · ${state.knowledge.length}`], ['standing', 'Where things stand']] as const).map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k)} className={cn('flex-1 rounded-lg py-1.5 transition-all', tab === k ? 'bg-white shadow-sm text-text-primary' : 'text-text-tertiary')}>
+      <div className="flex gap-1 rounded-xl bg-black/5 p-1 text-[12px] font-medium overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {([
+          ['facts', `Facts · ${rows.length}`],
+          ['secrets', `Secrets · ${state.knowledge.length}`],
+          ['timeline', 'Timeline'],
+          ['meetings', `Who's met · ${state.meetings.length}`],
+          ['standing', 'Right now'],
+        ] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setTab(k)} className={cn('flex-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 transition-all', tab === k ? 'bg-white shadow-sm text-text-primary' : 'text-text-tertiary')}>
             {label}
           </button>
         ))}
       </div>
 
       {tab !== 'standing' && (
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={tab === 'facts' ? 'Search facts…' : 'Search secrets or names…'} className={input} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={tab === 'facts' ? 'Search facts…' : tab === 'timeline' ? 'Search the timeline…' : 'Search names…'}
+          className={input}
+        />
       )}
 
       {tab === 'facts' && (
@@ -127,6 +138,22 @@ export function FactsSecrets({ project, chapters, onClose }: { project: Project;
           {!state.knowledge.length && <p className="text-[12px] text-text-tertiary">No secrets tracked yet.</p>}
           <SecretLine record={null} onSave={(next) => save(setSecret(book, null, next), `Added the secret “${next.secret}”`)} />
         </div>
+      )}
+
+      {tab === 'timeline' && (
+        <Timeline
+          chapters={chapters}
+          items={state.timeline.filter((t) => match(t.subject, t.detail, t.when))}
+          onSave={(original, next) => save(setTimeline(book, original, next), next ? `Set ${next.kind === 'age' ? `${next.subject}'s age` : `the ${next.kind} “${next.subject}”`}` : `Removed the ${original?.kind} “${original?.subject}”`)}
+        />
+      )}
+
+      {tab === 'meetings' && (
+        <Meetings
+          meetings={state.meetings.filter((m) => match(m.a, m.b, m.how))}
+          complete={state.meetingsComplete}
+          onSave={(original, next) => save(setMeeting(book, original, next), next ? `Set how ${next.a} and ${next.b} know each other` : `Marked that ${original?.a} and ${original?.b} haven't met`)}
+        />
       )}
 
       {tab === 'standing' && <Standing state={state} />}
@@ -275,6 +302,185 @@ function Standing({ state }: { state: ReturnType<typeof foldStoryState> }) {
           ))}
         </Section>
       )}
+    </div>
+  );
+}
+
+const KIND_LABEL: Record<TimelineRecord['kind'], string> = { age: 'Ages', deadline: 'Deadlines', healing: 'Injuries & healing', date: 'Key dates' };
+const KIND_HINT: Record<TimelineRecord['kind'], string> = {
+  age: 'How old people are. Ages only change as story time passes.',
+  deadline: 'What has to happen by when, counted against the story clock.',
+  healing: 'Injuries and how long they take to heal.',
+  date: 'Events in the past or future that the story keeps referring to.',
+};
+
+function Timeline({ chapters, items, onSave }: {
+  chapters: Chapter[];
+  items: TimelineRecord[];
+  onSave: (original: TimelineRecord | null, next: { kind: TimelineRecord['kind']; subject: string; detail?: string; when?: string; status?: string } | null) => void;
+}) {
+  const clocks = [...chapters]
+    .sort((a, b) => a.number - b.number)
+    .map((c) => ({ n: c.number, clock: memoryMeta(c).storyClock }))
+    .filter((c) => c.clock);
+  return (
+    <div className="space-y-3">
+      <Section title="Story calendar" hint="When each chapter ends in story time.">
+        {clocks.length ? clocks.map(({ n, clock }) => (
+          <div key={n} className="text-[13px] leading-snug py-0.5">
+            <span className="text-[11px] text-text-tertiary tabular-nums mr-1.5">Ch {n}</span>
+            {[clock!.day, clock!.time].filter(Boolean).join(', ') || 'time not stated'}
+            {(clock!.season || clock!.weather) && <span className="text-text-secondary"> · {[clock!.season, clock!.weather].filter(Boolean).join(', ')}</span>}
+            {clock!.elapsed && <span className="text-text-tertiary"> (covered {clock!.elapsed})</span>}
+          </div>
+        )) : <p className="text-[12px] text-text-tertiary">Fills in as chapters are read.</p>}
+      </Section>
+      {(['age', 'deadline', 'healing', 'date'] as const).map((kind) => (
+        <Section key={kind} title={KIND_LABEL[kind]} hint={KIND_HINT[kind]}>
+          {items.filter((t) => t.kind === kind).map((t) => (
+            <TimelineLine key={`${t.kind}:${t.subject}:${t.detail}`} kind={kind} item={t} onSave={(next) => onSave(t, next)} onDelete={() => onSave(t, null)} />
+          ))}
+          <TimelineLine kind={kind} item={null} onSave={(next) => onSave(null, next)} />
+        </Section>
+      ))}
+    </div>
+  );
+}
+
+const FIELDS: Record<TimelineRecord['kind'], { subject: string; detail?: string; when?: string; status?: string[] }> = {
+  age: { subject: 'Who', detail: 'Age (e.g. 34)' },
+  deadline: { subject: 'What has to happen', when: 'Due (e.g. Day 10)', status: ['open', 'met', 'missed'] },
+  healing: { subject: 'Who', detail: 'Injury', when: 'Since / how long to heal', status: ['healing', 'healed'] },
+  date: { subject: 'Event', when: 'When (e.g. ten years ago)' },
+};
+
+function TimelineLine({ kind, item, onSave, onDelete }: {
+  kind: TimelineRecord['kind'];
+  item: TimelineRecord | null;
+  onSave: (next: { kind: TimelineRecord['kind']; subject: string; detail?: string; when?: string; status?: string }) => void;
+  onDelete?: () => void;
+}) {
+  const f = FIELDS[kind];
+  const [editing, setEditing] = useState(false);
+  const [subject, setSubject] = useState(item?.subject || '');
+  const [detail, setDetail] = useState(item?.detail || '');
+  const [when, setWhen] = useState(item?.when || '');
+  const [status, setStatus] = useState(item?.status || f.status?.[0] || '');
+  const reset = () => { setSubject(item?.subject || ''); setDetail(item?.detail || ''); setWhen(item?.when || ''); setStatus(item?.status || f.status?.[0] || ''); setEditing(false); };
+
+  if (!editing) {
+    if (!item) return <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1 mt-1 px-2 py-1 rounded-lg bg-black/5 text-[12px] font-medium"><Plus size={12} /> Add</button>;
+    const settled = item.status && /met|missed|healed/.test(item.status);
+    return (
+      <div className="group flex items-start gap-2 text-[13px] leading-snug py-0.5">
+        <span className={cn('flex-1', settled && 'text-text-tertiary')}>
+          <span className="font-medium">{item.subject}</span>
+          {item.detail && item.detail !== item.subject && <span>{kind === 'age' ? ` — ${item.detail}` : `: ${item.detail}`}</span>}
+          {item.when && <span className="text-text-secondary"> — {kind === 'deadline' ? `due ${item.when}` : item.when}</span>}
+          {item.status && <span className={cn('ml-1.5 text-[10px] px-1 py-px rounded uppercase', item.status === 'missed' ? 'bg-red-100 text-red-800' : 'bg-black/5 text-text-secondary')}>{item.status}</span>}
+          {item.chapter ? <span className="ml-1.5 text-[10px] text-text-tertiary tabular-nums">Ch {item.chapter}</span> : <span className="ml-1.5 text-[10px] text-text-tertiary">· yours</span>}
+        </span>
+        <button onClick={() => setEditing(true)} className="p-1 rounded text-text-tertiary hover:text-text-primary" aria-label="Edit"><Pencil size={12} /></button>
+        <button onClick={onDelete} className="p-1 rounded text-text-tertiary hover:text-red-600" aria-label="Delete"><Trash2 size={12} /></button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1.5 py-1">
+      <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={f.subject} className={input} autoFocus />
+      {f.detail && <input value={detail} onChange={(e) => setDetail(e.target.value)} placeholder={f.detail} className={input} />}
+      {f.when && <input value={when} onChange={(e) => setWhen(e.target.value)} placeholder={f.when} className={input} />}
+      {f.status && (
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className={input} aria-label="Status">
+          {f.status.map((x) => <option key={x} value={x}>{x}</option>)}
+        </select>
+      )}
+      <div className="flex gap-1.5">
+        <button
+          onClick={() => { if (!subject.trim()) return; onSave({ kind, subject, detail, when, status: f.status ? status : undefined }); if (item) setEditing(false); else reset(); }}
+          disabled={!subject.trim()}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-text-primary text-text-inverse text-[12px] font-medium disabled:opacity-40"
+        >
+          <Check size={12} /> Save
+        </button>
+        <button onClick={reset} className="px-2.5 py-1 rounded-lg bg-black/5 text-[12px]">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+type MeetingInput = { a: string; b: string; how?: string; aCalls?: string; bCalls?: string };
+
+function Meetings({ meetings, complete, onSave }: {
+  meetings: MeetingState[];
+  complete: boolean;
+  onSave: (original: MeetingState | null, next: MeetingInput | null) => void;
+}) {
+  const sorted = [...meetings].sort((x, y) => x.firstChapter - y.firstChapter || x.a.localeCompare(y.a));
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-text-tertiary leading-snug">
+        {complete
+          ? "Anyone not paired here hasn't met on the page. Unless their profiles say they already know each other, the writer treats a meeting between them as a first meeting, and pairs here never meet “for the first time” again."
+          : 'Pairs here have met and never meet “for the first time” again. Read the remaining chapters so Theodore also knows who has never met.'}
+      </p>
+      {sorted.map((m) => <MeetingLine key={m.key} meeting={m} onSave={(next) => onSave(m, next)} onDelete={() => onSave(m, null)} />)}
+      {!meetings.length && <p className="text-[12px] text-text-tertiary">No meetings recorded yet.</p>}
+      <MeetingLine meeting={null} onSave={(next) => onSave(null, next)} />
+    </div>
+  );
+}
+
+function MeetingLine({ meeting, onSave, onDelete }: { meeting: MeetingState | null; onSave: (next: MeetingInput) => void; onDelete?: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [a, setA] = useState(meeting?.a || '');
+  const [b, setB] = useState(meeting?.b || '');
+  const [how, setHow] = useState(meeting?.how || '');
+  const [aCalls, setACalls] = useState(meeting?.aCalls || '');
+  const [bCalls, setBCalls] = useState(meeting?.bCalls || '');
+  const reset = () => { setA(meeting?.a || ''); setB(meeting?.b || ''); setHow(meeting?.how || ''); setACalls(meeting?.aCalls || ''); setBCalls(meeting?.bCalls || ''); setEditing(false); };
+
+  if (!editing) {
+    if (!meeting) return <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-black/5 text-[12px] font-medium"><Plus size={12} /> Add two people who've met</button>;
+    return (
+      <div className="rounded-xl bg-white/60 border border-black/5 px-3 py-2.5 text-[13px]">
+        <div className="flex items-start gap-2">
+          <span className="flex-1 leading-snug">
+            <span className="font-medium">{meeting.a} & {meeting.b}</span>
+            <span className="ml-1.5 text-[10px] text-text-tertiary">{meeting.firstChapter ? `met Ch ${meeting.firstChapter}` : 'knew each other before the story'}</span>
+          </span>
+          <button onClick={() => setEditing(true)} className="p-1 rounded text-text-tertiary hover:text-text-primary" aria-label="Edit"><Pencil size={12} /></button>
+          <button onClick={onDelete} className="p-1 rounded text-text-tertiary hover:text-red-600" aria-label="They haven't met" title="They haven't met"><Trash2 size={12} /></button>
+        </div>
+        {meeting.how && <div className="text-[12px] text-text-secondary mt-0.5">{meeting.how}</div>}
+        {(meeting.aCalls || meeting.bCalls) && (
+          <div className="text-[12px] text-text-secondary">
+            {[meeting.aCalls && `${meeting.a} calls ${meeting.b} “${meeting.aCalls}”`, meeting.bCalls && `${meeting.b} calls ${meeting.a} “${meeting.bCalls}”`].filter(Boolean).join(' · ')}
+          </div>
+        )}
+      </div>
+    );
+  }
+  const ok = a.trim() && b.trim() && a.trim().toLowerCase() !== b.trim().toLowerCase();
+  return (
+    <div className="rounded-xl bg-white/80 border border-black/10 p-3 space-y-1.5">
+      <div className="flex gap-1.5">
+        <input value={a} onChange={(e) => setA(e.target.value)} placeholder="Name" className={input} disabled={!!meeting} autoFocus={!meeting} />
+        <input value={b} onChange={(e) => setB(e.target.value)} placeholder="Name" className={input} disabled={!!meeting} />
+      </div>
+      <input value={how} onChange={(e) => setHow(e.target.value)} placeholder="How they know each other" className={input} autoFocus={!!meeting} />
+      <input value={aCalls} onChange={(e) => setACalls(e.target.value)} placeholder={`What ${a.trim() || 'the first'} calls ${b.trim() || 'the second'}`} className={input} />
+      <input value={bCalls} onChange={(e) => setBCalls(e.target.value)} placeholder={`What ${b.trim() || 'the second'} calls ${a.trim() || 'the first'}`} className={input} />
+      <div className="flex gap-1.5">
+        <button
+          onClick={() => { if (!ok) return; onSave({ a, b, how, aCalls, bCalls }); if (meeting) setEditing(false); else reset(); }}
+          disabled={!ok}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-text-primary text-text-inverse text-[12px] font-medium disabled:opacity-40"
+        >
+          <Check size={12} /> Save
+        </button>
+        <button onClick={reset} className="px-2.5 py-1 rounded-lg bg-black/5 text-[12px]">Cancel</button>
+      </div>
     </div>
   );
 }

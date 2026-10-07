@@ -13,7 +13,7 @@
 import type { Chapter } from '../types';
 import type { AnyCanonEntry, CharacterEntry, ArtifactEntry } from '../types/canon';
 import { junkNameReason } from './canon-cleanup';
-import { applyFactBook, type BookFact } from './fact-book';
+import { applyFactBook, meetingKey, timelineMatch, type BookFact } from './fact-book';
 
 // ---------- Types ----------
 
@@ -57,6 +57,38 @@ export interface StoryClockRecord {
   day?: string;     // "Day 3", "Tuesday, March 4", "the night of the festival"
   time?: string;    // "late evening"
   elapsed?: string; // how much time this chapter covered / skipped
+  season?: string;  // "late autumn"
+  weather?: string; // "heavy rain" at the chapter's end
+}
+
+/** Time-bound details: ages, deadlines, healing, and key dated events. */
+export interface TimelineRecord {
+  kind: 'age' | 'deadline' | 'healing' | 'date';
+  /** Who or what it's about: a name (age, healing) or the deadline / event itself. */
+  subject: string;
+  canonId?: string;
+  /** Age, injury, or what's due. */
+  detail?: string;
+  /** Story time: when it's due, when it happened, how long healing takes. */
+  when?: string;
+  /** deadline: open | met | missed. healing: healing | healed. */
+  status?: string;
+  chapter: number;
+}
+
+/** Two characters who have met, how they know each other, and what they call each other. */
+export interface MeetingRecord {
+  a: string;
+  b: string;
+  aId?: string;
+  bId?: string;
+  /** This chapter is the first time they meet. */
+  first?: boolean;
+  how?: string;
+  /** What a calls b, and b calls a. */
+  aCalls?: string;
+  bCalls?: string;
+  chapter: number;
 }
 
 /** A secret or key fact and who does / doesn't know it. */
@@ -91,6 +123,8 @@ export interface ChapterMemoryMeta {
   facts?: StoryFact[];
   storyClock?: StoryClockRecord;
   knowledge?: KnowledgeRecord[];
+  timeline?: TimelineRecord[];
+  meetings?: MeetingRecord[];
   continuityIssues?: ContinuityIssue[];
   continuitySourceHash?: string;
   continuitySourceSig?: number[];
@@ -122,6 +156,17 @@ export interface StoryStateAt {
   knowledge: KnowledgeRecord[];
   /** The author's world facts (Facts & Secrets); true throughout the book. */
   worldFacts?: BookFact[];
+  /** Ages, deadlines, healing and dated events, latest word on each. */
+  timeline: TimelineRecord[];
+  /** Every pair of characters who have met, with when they first met. */
+  meetings: MeetingState[];
+  /** Every chapter before this point was read with meeting tracking, so an unlisted pair has never met. */
+  meetingsComplete: boolean;
+}
+
+export interface MeetingState extends MeetingRecord {
+  key: string;
+  firstChapter: number;
 }
 
 // ---------- Small helpers ----------
@@ -179,8 +224,8 @@ export function signatureSimilarity(a: number[] | undefined, b: number[] | undef
   return same / a.length;
 }
 
-/** Current extraction format: 2 adds the story clock and who-knows-what. */
-export const CONTINUITY_VERSION = 2;
+/** Current extraction format: 2 adds the story clock and who-knows-what; 3 adds the timeline and who's met whom. */
+export const CONTINUITY_VERSION = 3;
 
 /** Written chapter whose memory predates the current extraction format. */
 export function memoryOutdated(chapter: Chapter): boolean {
@@ -326,7 +371,7 @@ function pipeFields(line: string): { head: string; fields: Record<string, string
   return { head, fields };
 }
 
-export const MEMORY_HEADERS = ['CHARACTER_STATE', 'ARTIFACT_STATE', 'FACTS', 'CONTRADICTIONS', 'STORY_CLOCK', 'KNOWLEDGE', 'NEW_CANON'];
+export const MEMORY_HEADERS = ['CHARACTER_STATE', 'ARTIFACT_STATE', 'FACTS', 'CONTRADICTIONS', 'STORY_CLOCK', 'KNOWLEDGE', 'TIMELINE', 'MEETINGS', 'NEW_CANON'];
 const ALL_HEADERS = ['SHORT_SUMMARY', 'RICH_SUMMARY', 'OPEN_THREADS', 'RESOLVED_THREAD_IDS', ...MEMORY_HEADERS];
 
 export interface ParsedMemory {
@@ -336,6 +381,8 @@ export interface ParsedMemory {
   continuityIssues: ContinuityIssue[];
   storyClock?: StoryClockRecord;
   knowledge: KnowledgeRecord[];
+  timeline: TimelineRecord[];
+  meetings: MeetingRecord[];
 }
 
 function nameList(v: string | undefined): string[] {
@@ -410,6 +457,8 @@ export function parseMemorySections(text: string, chapterNumber: number, canon: 
     const line = clockText.split('\n').map((l) => l.replace(/^\s*[-•*]\s*/, '').trim()).find(Boolean) || '';
     const { fields } = pipeFields(`clock | ${line}`);
     const clock: StoryClockRecord = { day: fields.day, time: fields.time, elapsed: fields.elapsed };
+    if (fields.season) clock.season = fields.season;
+    if (fields.weather) clock.weather = fields.weather;
     if (clock.day || clock.time || clock.elapsed) storyClock = clock;
   }
 
@@ -423,8 +472,68 @@ export function parseMemorySections(text: string, chapterNumber: number, canon: 
     knowledge.push({ secret: head, knownBy, hiddenFrom, chapter: chapterNumber });
   }
 
-  return { characterState, artifactState, facts, continuityIssues, storyClock, knowledge };
+  const timeline: TimelineRecord[] = [];
+  for (const line of bulletLines(section(text, 'TIMELINE', others('TIMELINE')))) {
+    const parts = line.split('|').map((p) => p.trim());
+    const kind = parts[0]?.toLowerCase().replace(/s$/, '');
+    if (kind !== 'age' && kind !== 'deadline' && kind !== 'healing' && kind !== 'date') continue;
+    const subject = parts[1];
+    if (!subject) continue;
+    const { fields } = pipeFields(['x', ...parts.slice(2)].join(' | '));
+    const bare = parts.slice(2).find((p) => !/^[a-z_ ]+:/i.test(p));
+    const entry = kind === 'age' || kind === 'healing' ? resolveCanonEntry(subject, canon, ['character']) : null;
+    const rec: TimelineRecord = {
+      kind,
+      subject: entry?.name || subject,
+      canonId: entry?.id,
+      detail: fields.age || fields.injury || fields.detail || fields.what || bare,
+      when: fields.due || fields.when || fields.since || fields.expect || fields.heals,
+      status: fields.status?.toLowerCase(),
+      chapter: chapterNumber,
+    };
+    if (kind === 'healing' && fields.expect && fields.since) rec.when = `since ${fields.since}; heals in ${fields.expect}`;
+    if (!rec.detail && !rec.when) continue;
+    timeline.push(rec);
+  }
+
+  const meetings: MeetingRecord[] = [];
+  for (const line of bulletLines(section(text, 'MEETINGS', others('MEETINGS')))) {
+    const parts = line.split('|').map((p) => p.trim());
+    const pair = parts[0]?.split(/\s*(?:\+|&|\band\b)\s*/i).map((x) => x.trim()).filter(Boolean);
+    if (!pair || pair.length !== 2 || norm(pair[0]) === norm(pair[1])) continue;
+    const [ea, eb] = pair.map((n) => resolveCanonEntry(n, canon, ['character']));
+    const rec: MeetingRecord = { a: ea?.name || pair[0], b: eb?.name || pair[1], aId: ea?.id, bId: eb?.id, chapter: chapterNumber };
+    for (const p of parts.slice(1)) {
+      const calls = p.match(/^(.+?)\s+calls\s+(.+?):\s*(.+)$/i);
+      if (calls) {
+        const value = calls[3].trim().replace(/^["“']|["”']$/g, '');
+        if (/^(n\/a|none|nothing|-)$/i.test(value)) continue;
+        if (norm(calls[1]) === norm(pair[0]) || norm(calls[1]) === norm(rec.a)) rec.aCalls = value;
+        else if (norm(calls[1]) === norm(pair[1]) || norm(calls[1]) === norm(rec.b)) rec.bCalls = value;
+        continue;
+      }
+      const m = p.match(/^(first|how):\s*(.+)$/i);
+      if (!m) continue;
+      if (/^first$/i.test(m[1])) rec.first = /^(yes|true|y)\b/i.test(m[2].trim());
+      else rec.how = m[2].trim();
+    }
+    meetings.push(rec);
+  }
+
+  return { characterState, artifactState, facts, continuityIssues, storyClock, knowledge, timeline, meetings };
 }
+
+/** Latest word wins per item; fields a later chapter leaves out carry over. */
+export function mergeTimeline(prior: TimelineRecord[], next: TimelineRecord[]): TimelineRecord[] {
+  const out = prior.map((t) => ({ ...t }));
+  for (const t of next) {
+    const i = out.findIndex((o) => timelineMatch(o, t));
+    if (i < 0) out.push({ ...t });
+    else out[i] = { ...out[i], ...Object.fromEntries(Object.entries(t).filter(([, v]) => v !== undefined && v !== '')) } as TimelineRecord;
+  }
+  return out;
+}
+
 
 export interface NewCanonCandidate {
   type: 'character' | 'location' | 'artifact';
@@ -495,6 +604,9 @@ export function foldStoryState(allChapters: Chapter[], beforeChapterId?: string)
   let asOfChapter: number | null = null;
   let clock: StoryStateAt['clock'];
   let knowledge: KnowledgeRecord[] = [];
+  let timeline: TimelineRecord[] = [];
+  const meetings = new Map<string, MeetingState>();
+  let meetingsComplete = true;
 
   for (const ch of prior) {
     const meta = memoryMeta(ch);
@@ -502,6 +614,25 @@ export function foldStoryState(allChapters: Chapter[], beforeChapterId?: string)
     if (meta.characterState || meta.artifactState || meta.facts) asOfChapter = n;
     if (meta.storyClock) clock = { ...meta.storyClock, chapter: n };
     if (meta.knowledge?.length) knowledge = mergeKnowledge(knowledge, meta.knowledge);
+    if (meta.timeline?.length) timeline = mergeTimeline(timeline, meta.timeline);
+    if (ch.prose?.trim() && (meta.continuityVersion || 1) < 3) meetingsComplete = false;
+    for (const m of meta.meetings || []) {
+      const key = meetingKey(m.a, m.b);
+      const prev = meetings.get(key);
+      // Keep a/b in the order first recorded so "calls" stays attached to the right person.
+      const flipped = !!prev && norm(prev.a) !== norm(m.a);
+      const aCalls = flipped ? m.bCalls : m.aCalls;
+      const bCalls = flipped ? m.aCalls : m.bCalls;
+      meetings.set(key, {
+        ...(prev || m),
+        key,
+        how: m.how || prev?.how,
+        aCalls: aCalls || prev?.aCalls,
+        bCalls: bCalls || prev?.bCalls,
+        chapter: n,
+        firstChapter: prev ? Math.min(prev.firstChapter, n) : n,
+      });
+    }
 
     for (const s of meta.characterState || []) {
       const key = entityKey(s.name, s.canonId);
@@ -555,7 +686,7 @@ export function foldStoryState(allChapters: Chapter[], beforeChapterId?: string)
     }
   }
 
-  return { asOfChapter, characters, artifacts, facts, clock, knowledge };
+  return { asOfChapter, characters, artifacts, facts, clock, knowledge, timeline, meetings: [...meetings.values()], meetingsComplete };
 }
 
 // ---------- Canon selection ----------
@@ -868,6 +999,7 @@ export function buildStoryMemoryBlock(
     sections.push(
       `=== STORY CLOCK ===\n` +
       `Ch.${c.chapter} ended${when ? `: ${when}` : ''}${c.elapsed ? ` (that chapter covered ${c.elapsed})` : ''}.\n` +
+      (c.season || c.weather ? `${[c.season && `Season: ${c.season}`, c.weather && `weather at the end: ${c.weather}`].filter(Boolean).join('; ')}. Keep the season unless enough time passes to change it.\n` : '') +
       'Time only moves forward from here. When time passes between scenes, say how much; keep travel, healing and deadlines realistic.',
     );
   }
@@ -876,6 +1008,25 @@ export function buildStoryMemoryBlock(
     sections.push(
       `=== WORLD FACTS (true throughout this book — never contradict) ===\n` +
       state.worldFacts.map((f) => `- ${f.subject && !/^world$/i.test(f.subject) ? `${f.subject}: ` : ''}${f.fact}`).join('\n'),
+    );
+  }
+
+  const timeline = buildTimelineLines(state, (name, id) => isRelevant(name, id, sel, ids));
+  if (timeline.length) {
+    sections.push(
+      `=== TIMELINE — keep ages, deadlines and healing consistent with the story clock ===\n${timeline.join('\n')}\n` +
+      'Ages change only when enough story time passes. Deadlines count down from the story clock; a missed one has consequences. Injuries heal at a realistic pace unless shown otherwise.',
+    );
+  }
+
+  const inChapter = (name: string, id?: string) => isRelevant(name, id, sel, ids);
+  const pairs = state.meetings.filter((m) => inChapter(m.a, m.aId) || inChapter(m.b, m.bId));
+  if (pairs.length || (state.meetingsComplete && state.meetings.length)) {
+    sections.push(
+      `=== WHO HAS MET WHOM ===\n${pairs.slice(-80).map(meetingLine).join('\n') || '(none of this chapter\'s characters have met anyone on the page yet)'}\n` +
+      (state.meetingsComplete
+        ? 'Characters in this chapter who are not paired above have NEVER met on the page. Unless their profiles or relationships say they already know each other, a meeting between them now is a first meeting: they don\'t know each other\'s face or name unless told. Pairs above never meet "for the first time" again.'
+        : 'Pairs above have already met: never write them meeting for the first time again, and keep what they call each other.'),
     );
   }
 
@@ -922,10 +1073,40 @@ export function buildPriorMemoryForCheck(state: StoryStateAt, maxFacts = 400): s
     const c = state.clock;
     lines.push(`- STORY CLOCK: Ch.${c.chapter} ended ${[c.day, c.time].filter(Boolean).join(', ') || '(unknown)'}`);
   }
+  for (const t of buildTimelineLines(state)) lines.push(`- TIMELINE: ${t.replace(/^- /, '')}`);
+  for (const m of state.meetings.slice(-150)) lines.push(`- MET: ${meetingLine(m).replace(/^- /, '')}`);
   for (const k of state.knowledge.slice(-200)) {
     lines.push(`- SECRET: ${k.secret} | known by: ${k.knownBy.join(', ') || 'no one'}${k.hiddenFrom.length ? ` | NOT known by: ${k.hiddenFrom.join(', ')}` : ''}`);
   }
   return lines.join('\n');
+}
+
+/** "- Mara & Jonah — met Ch.1 (siblings); Mara calls Jonah "Jo"" */
+export function meetingLine(m: MeetingState): string {
+  const calls = [m.aCalls && `${m.a} calls ${m.b} "${m.aCalls}"`, m.bCalls && `${m.b} calls ${m.a} "${m.bCalls}"`].filter(Boolean).join('; ');
+  return `- ${m.a} & ${m.b} — met${m.firstChapter ? ` Ch.${m.firstChapter}` : ' before the story'}${m.how ? ` (${m.how})` : ''}${calls ? `; ${calls}` : ''}`;
+}
+
+/** Ages, open deadlines, ongoing healing and key dates as prompt lines; `keep` limits ages and healing to who's in the chapter. */
+export function buildTimelineLines(state: StoryStateAt, keep?: (name: string, id?: string) => boolean): string[] {
+  const out: string[] = [];
+  for (const t of state.timeline) {
+    if (t.kind === 'age') {
+      if (keep && !keep(t.subject, t.canonId)) continue;
+      out.push(`- ${t.subject} is ${t.detail || '?'}${/\d/.test(t.detail || '') && !/old|year/i.test(t.detail || '') ? ' years old' : ''}${t.when ? ` (${t.when})` : ''} [as of Ch.${t.chapter}]`);
+    } else if (t.kind === 'deadline') {
+      const status = t.status && t.status !== 'open' ? ` — ${t.status.toUpperCase()}` : '';
+      if (status && keep) continue; // settled deadlines only matter to the checker
+      out.push(`- DEADLINE: ${t.subject}${t.detail && t.detail !== t.subject ? ` (${t.detail})` : ''}${t.when ? ` — due ${t.when}` : ''}${status} [set Ch.${t.chapter}]`);
+    } else if (t.kind === 'healing') {
+      if (/healed|recovered|none/i.test(t.status || '') && keep) continue;
+      if (keep && !keep(t.subject, t.canonId)) continue;
+      out.push(`- ${t.subject}: ${t.detail || 'injury'}${t.when ? ` — ${t.when}` : ''}${t.status ? ` (${t.status})` : ''} [Ch.${t.chapter}]`);
+    } else {
+      out.push(`- ${t.subject}${t.detail ? `: ${t.detail}` : ''}${t.when ? ` — ${t.when}` : ''}`);
+    }
+  }
+  return out.slice(-120);
 }
 
 // ---------- Condition & limits ----------

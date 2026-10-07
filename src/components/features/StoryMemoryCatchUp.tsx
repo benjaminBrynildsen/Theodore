@@ -5,7 +5,7 @@ import type { Chapter } from '../../types';
 
 /**
  * Offers to re-read written chapters whose memory was extracted before the
- * story clock and who-knows-what were tracked, so the next chapters get both.
+ * newest memory (timeline, who's met whom) was tracked, so the next chapters get it.
  */
 export function StoryMemoryCatchUp({ projectId, chapters, message }: { projectId: string; chapters: Chapter[]; message?: (count: number) => string }) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -32,7 +32,7 @@ export function StoryMemoryCatchUp({ projectId, chapters, message }: { projectId
       <p className="flex-1 min-w-[12rem] leading-relaxed">
         {progress
           ? `Re-reading chapter ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
-          : message ? message(outdated) : `Theodore can now track the story's calendar and who knows each secret. Re-read ${outdated} written chapter${outdated === 1 ? '' : 's'} so the next ones use it (a small credit cost per chapter).`}
+          : message ? message(outdated) : `Theodore now tracks more for continuity: the story's timeline (ages, seasons, deadlines, healing) and who has met whom. Re-read ${outdated} written chapter${outdated === 1 ? '' : 's'} so the next ones use it (a small credit cost per chapter).`}
       </p>
       <button
         onClick={run}
