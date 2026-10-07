@@ -42,7 +42,7 @@ import {
 
 export const EXTRACTION_REQUEST = {
   action: 'extract-continuity',
-  maxTokens: 3500,
+  maxTokens: 5000,
   temperature: 0.2,
 } as const;
 
@@ -123,12 +123,19 @@ Read the WHOLE chapter below and produce the sections that follow. Be concrete a
    - SUBJECT: fact
 8) CONTRADICTIONS — places where THIS chapter conflicts with the established memory below (wrong eye colour, an object in the wrong hands, a character knowing something they couldn't, a dead character acting, a character doing what their condition doesn't allow — e.g. long conversations from someone who can barely speak). Only real conflicts, not new developments shown happening on the page.
    - high|medium|low | "short exact quote from this chapter" | what conflicts | suggested fix
-   Also flag time running backwards or impossibly fast against the STORY CLOCK, and a character using a SECRET they are listed as not knowing.
-9) STORY_CLOCK — when this chapter ENDS in story time, one line: day (e.g. "Day 3", "Tuesday", "the night of the festival" — continue the numbering from the memory below), time of day, and how much time the chapter covered.
-   day: ... | time: ... | elapsed: ...
+   Also flag time running backwards or impossibly fast against the STORY CLOCK, a character using a SECRET they are listed as not knowing, two characters listed as MET meeting "for the first time" again or one using a name they were never told, the season or weather jumping without time passing, an age that doesn't fit the TIMELINE, a wound healed too fast, and a deadline forgotten or passed without consequence.
+9) STORY_CLOCK — when this chapter ENDS in story time, one line: day (e.g. "Day 3", "Tuesday", "the night of the festival" — continue the numbering from the memory below), time of day, how much time the chapter covered, the season, and the weather at the end (omit season/weather if the page never shows them and the memory has none).
+   day: ... | time: ... | elapsed: ... | season: ... | weather: ...
 10) KNOWLEDGE — secrets, hidden identities, plans, lies and key discoveries in play, with who knows them at the END of this chapter. Include ones from the memory below whose holders changed here (someone learned or was told). Max 10.
    - SECRET | known by: Name; Name | hidden from: Name; Name
-11) NEW_CANON — named characters, places and objects that appear in THIS chapter, matter to the story (likely to come back), and are NOT in the known names below. Use the full proper name exactly as the prose gives it. Never list common words, sentence fragments, real-world brands or groups mentioned in passing, or a nickname of someone already known. Max 6.
+11) TIMELINE — time-bound details this chapter states or changes. Only what's on the page (or a change to one in the memory below). Max 10.
+   - age | NAME | age: 34 (a stated age, or one the page makes clear)
+   - deadline | what must happen | due: story time (e.g. "Day 10", "before the wedding") | status: open, met or missed
+   - healing | NAME | injury: what it is | since: story time it happened | expect: how long it takes, or "healed"
+   - date | key event in the past or future | when: story time or date (e.g. "the fire, ten years ago")
+12) MEETINGS — every pair of named characters who talk or deal with each other on the page in THIS chapter. Use the MET list in the memory below to decide "first". Max 15.
+   - NAME + NAME | first: yes if this chapter is the first time they've ever met, else no | how: how they know each other (siblings, coworkers, met at the bar) | NAME calls NAME: what the first calls the second, if shown | NAME calls NAME: the reverse, if shown
+13) NEW_CANON — named characters, places and objects that appear in THIS chapter, matter to the story (likely to come back), and are NOT in the known names below. Use the full proper name exactly as the prose gives it. Never list common words, sentence fragments, real-world brands or groups mentioned in passing, or a nickname of someone already known. Max 6.
    - character|location|artifact | Full Name | one-line description
 
 Use these exact names when they refer to the same person, place, or object: ${knownNames || '(none yet)'}
@@ -160,9 +167,13 @@ FACTS:
 CONTRADICTIONS:
 - medium | "quote" | problem | fix
 STORY_CLOCK:
-day: ... | time: ... | elapsed: ...
+day: ... | time: ... | elapsed: ... | season: ... | weather: ...
 KNOWLEDGE:
 - SECRET | known by: ... | hidden from: ...
+TIMELINE:
+- age | NAME | age: ...
+MEETINGS:
+- NAME + NAME | first: no | how: ... | NAME calls NAME: ...
 NEW_CANON:
 - character | Full Name | description
 
@@ -272,6 +283,8 @@ export function applyContinuityExtraction(
     facts: memory.facts,
     storyClock: memory.storyClock,
     knowledge: memory.knowledge,
+    timeline: memory.timeline,
+    meetings: memory.meetings,
     continuityIssues,
     continuitySourceHash: proseContentHash(sourceProse),
     continuitySourceSig: proseSignature(sourceProse),
@@ -298,6 +311,8 @@ export function applyContinuityExtraction(
       artifacts: memory.artifactState.length,
       facts: memory.facts.length,
       secrets: memory.knowledge.length,
+      timeline: memory.timeline.length,
+      meetings: memory.meetings.length,
       contradictions: continuityIssues.length,
     },
   };

@@ -21,7 +21,7 @@ import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, 
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
 import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
 import { parseStoryChanges, applyStoryChanges, buildStoryContext, buildStoryChangesPrompt, storyBasis, readChangeStream, countStreamedChanges, buildStoryChatSystem } from '../src/lib/story-chat';
-import { applyFactBook, factRows, addFact, editFact, deleteFact, setSecret, markSeen, groupBySubject } from '../src/lib/fact-book';
+import { applyFactBook, factRows, addFact, editFact, deleteFact, setSecret, markSeen, groupBySubject, setTimeline, setMeeting } from '../src/lib/fact-book';
 import { appendEvent, changedChars, revisedShare, chapterAuthorship, buildAuthorshipReport, renderAuthorshipHtml, describeEvent, changedFieldLabels } from '../src/lib/authorship';
 import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
@@ -426,7 +426,7 @@ ${knowledge}`;
   const a1 = applyContinuityExtraction(resp('day: Day 1 | time: late evening | elapsed: one afternoon', '- Ezra stole the key | known by: Ezra | hidden from: Maya Chen; Theo\n- The vault exists | known by: no one'), c1.prose, c1, [maya])!;
   assert.deepEqual(a1.metaPatch.storyClock, { day: 'Day 1', time: 'late evening', elapsed: 'one afternoon' });
   assert.equal((a1.metaPatch.knowledge as any[]).length, 1, 'a secret no one knows or is kept from is dropped');
-  assert.equal(a1.metaPatch.continuityVersion, 2);
+  assert.equal(a1.metaPatch.continuityVersion, 3);
   c1.aiIntentMetadata = a1.metaPatch;
   assert.equal(memoryOutdated(c1), false);
   assert.equal(memoryOutdated({ ...c1, aiIntentMetadata: { summary: 'x' } }), true, 'old extraction is outdated');
@@ -1123,6 +1123,75 @@ t('facts & secrets: author corrections, deletions, world facts and secrets bind 
   assert.ok(!/father/.test(buildCanonAndMemory([], c2, all, false, book)));
   // Extraction checks against the book too.
   assert.ok(buildContinuityExtractionPrompt({ projectTitle: 'B', chapter: c2, allChapters: all, canon: [], factBook: book }).includes('Magic costs the user a memory'));
+});
+
+t('timeline + who has met whom: parsed, folded, overridden, and in the prompt', () => {
+  const mara = { id: 'm1', type: 'character', name: 'Mara Quinn', character: { aliases: ['Mara'] } } as any;
+  const parsed = parseMemorySections([
+    'STORY_CLOCK:', 'day: Day 3 | time: night | elapsed: one day | season: late autumn | weather: sleet',
+    'TIMELINE:',
+    '- age | Mara | age: 34',
+    '- deadline | Pay back the Carvers | due: Day 10 | status: open',
+    '- healing | Jonah | injury: broken wrist | since: Day 2 | expect: six weeks',
+    '- date | The mill fire | when: ten years ago',
+    '- nonsense | ignored',
+    'MEETINGS:',
+    '- Mara + Jonah | first: no | how: siblings | Mara calls Jonah: Jo | Jonah calls Mara: Mare',
+    '- Mara + Eli | first: yes | how: met at the bar | Eli calls Mara: "ma\'am"',
+    '- Mara + Mara | first: no',
+    'NEW_CANON:',
+  ].join('\n'), 3, [mara]);
+  assert.equal(parsed.storyClock?.season, 'late autumn');
+  assert.equal(parsed.timeline.length, 4);
+  assert.deepEqual(parsed.timeline[0], { kind: 'age', subject: 'Mara Quinn', canonId: 'm1', detail: '34', when: undefined, status: undefined, chapter: 3 });
+  assert.equal(parsed.timeline[2].when, 'since Day 2; heals in six weeks');
+  assert.equal(parsed.meetings.length, 2);
+  assert.deepEqual([parsed.meetings[0].a, parsed.meetings[0].aCalls, parsed.meetings[0].bCalls], ['Mara Quinn', 'Jo', 'Mare']);
+  assert.equal(parsed.meetings[1].first, true);
+  assert.equal(parsed.meetings[1].bCalls, "ma'am");
+
+  const ch = (n: number, meta: any) => ({ id: 'tl' + n, number: n, title: 'T', prose: 'x', aiIntentMetadata: { continuityVersion: 3, ...meta } }) as any;
+  const c3 = ch(3, { storyClock: parsed.storyClock, timeline: parsed.timeline, meetings: parsed.meetings });
+  const c4 = ch(4, {
+    timeline: [{ kind: 'deadline', subject: 'Pay back the Carvers', status: 'met', chapter: 4 }],
+    meetings: [{ a: 'Jonah', b: 'Mara Quinn', how: 'siblings, estranged', aCalls: 'Mare', chapter: 4 }],
+  });
+  const c5 = ch(5, {});
+  const all = [c3, c4, c5];
+  const st = foldStoryState(all, 'tl5');
+  assert.equal(st.timeline.find((x) => x.kind === 'deadline')!.status, 'met', 'later chapter settles the deadline');
+  const sib = st.meetings.find((m) => m.how?.startsWith('siblings'))!;
+  assert.equal(sib.firstChapter, 3);
+  assert.equal(sib.a, 'Mara Quinn', 'order kept from first record');
+  assert.equal(sib.bCalls, 'Mare', 'flipped record lands on the right person');
+  assert.equal(sib.aCalls, 'Jo');
+  assert.equal(st.meetingsComplete, true);
+  assert.equal(foldStoryState([{ ...c3, aiIntentMetadata: { meetings: parsed.meetings } }, c5], 'tl5').meetingsComplete, false, 'an old-format chapter means unknown pairs');
+
+  const sel = { primaryChars: [mara], secondaryChars: [], locations: [], artifacts: [], others: [], relevantNames: new Set(['mara quinn', 'mara', 'eli', 'jonah']) } as any;
+  const block = buildStoryMemoryBlock(all, c5, sel, st);
+  assert.ok(block.includes('Season: late autumn'));
+  assert.ok(block.includes('Mara Quinn is 34 years old'));
+  assert.ok(!block.includes('DEADLINE: Pay back'), 'met deadline left out of the writer prompt');
+  assert.ok(block.includes('Jonah: broken wrist'));
+  assert.ok(block.includes('The mill fire'));
+  assert.ok(block.includes('WHO HAS MET WHOM') && block.includes('have NEVER met'));
+  assert.ok(buildPriorMemoryForCheck(st).includes('MET: Mara Quinn & Eli'));
+
+  // Author overrides: correct an age, add a meeting, unpair a wrong one.
+  let book: any = setTimeline(null, st.timeline[0], { kind: 'age', subject: 'Mara Quinn', detail: '36' });
+  book = setMeeting(book, null, { a: 'Eli', b: 'Jonah', how: 'army buddies' });
+  book = setMeeting(book, st.meetings.find((m) => m.b === 'Eli')!, null);
+  const applied = applyFactBook(foldStoryState(all, 'tl5'), book, 5);
+  assert.equal(applied.timeline.find((x) => x.kind === 'age')!.detail, '36');
+  assert.ok(applied.meetings.some((m) => m.how === 'army buddies' && m.firstChapter === 0));
+  assert.ok(!applied.meetings.some((m) => m.key === 'eli & mara quinn'));
+  assert.ok(buildPriorMemoryForCheck(applied).includes('MET: Eli & Jonah — met before the story (army buddies)'));
+  assert.ok(buildCanonAndMemory([mara], { ...c5, premise: { characters: ['Mara'] } }, all, false, book).includes('Mara Quinn is 36'));
+  // A later chapter's change to the age wins again.
+  const c6 = ch(6, { timeline: [{ kind: 'age', subject: 'Mara Quinn', canonId: 'm1', detail: '37', chapter: 6 }] });
+  const c7 = ch(7, {});
+  assert.equal(applyFactBook(foldStoryState([...all, c6, c7], 'tl7'), book, 7).timeline.find((x) => x.kind === 'age')!.detail, '37');
 });
 
 console.log(`\n${passed} passed`);
