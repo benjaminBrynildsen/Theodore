@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Mic, MicOff, Pause, Play, Sparkles, Loader2, Trash2 } from 'lucide-react';
 import { useStore } from '../../store';
 import { cn } from '../../lib/utils';
+import { noteAuthorTyping } from '../../lib/authorship-log';
 
 export function DictationMode({ chapterId }: { chapterId: string }) {
   const { updateChapter, chapters } = useStore();
@@ -119,6 +120,7 @@ export function DictationMode({ chapterId }: { chapterId: string }) {
       status: 'human-edited',
       updatedAt: new Date().toISOString(),
     });
+    noteAuthorTyping(chapterId, chapter.prose || '', newProse);
     setRawText('');
     setRefinedText('');
   };

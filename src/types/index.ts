@@ -22,6 +22,8 @@ export interface Project {
   threadPlan?: import('../lib/story-threads').ThreadPlan | null; // book thread map
   arcPlan?: import('../lib/story-arcs').ArcPlan | null; // character arcs + artifact journeys
   synopsis?: import('../lib/synopsis').Synopsis | null; // one-page synopsis
+  /** Story chat conversation and applied plan decisions (private). */
+  storyChat?: { messages: import('../lib/story-chat').StoryChatMessage[]; decisions?: import('../lib/authorship').StoryChatDecision[] } | null;
   chapterCount?: number; // populated from list-projects response (not stored)
   wordCount?: number; // populated from list-projects response (not stored)
   createdAt: string;

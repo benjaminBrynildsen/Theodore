@@ -9,6 +9,7 @@ import { generateText } from '../../lib/generate';
 import { generateId } from '../../lib/utils';
 import { cn } from '../../lib/utils';
 import { editingModel } from '../../lib/models';
+import { recordAuthorship } from '../../lib/authorship-log';
 import type { EditChatMessage, Scene } from '../../types';
 
 interface Props {
@@ -98,6 +99,8 @@ export function EditChatPanel({ chapterId, scene }: Props) {
           status: 'edited',
         });
         syncScenesToProse(chapterId);
+        recordAuthorship(chapterId, { kind: 'author-direction', note: `Edit to scene "${scene.title}": ${userMsg.content}` });
+        recordAuthorship(chapterId, { kind: 'ai-edit', model: editingModel(), words: updatedProse.split(/\s+/).length, note: `Rewrote scene "${scene.title}"` });
       }
 
       const assistantMsg: EditChatMessage = {

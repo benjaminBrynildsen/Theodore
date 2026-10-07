@@ -34,8 +34,9 @@ import { needsDialogueClarityPass as needsClarityPass } from '../../lib/dialogue
 import { cleanExtendMerge } from '../../lib/extend-merge';
 import { normalizeSceneBreaks } from '../../lib/clean-prose';
 import { analysisModel } from '../../lib/models';
-import { DEFAULT_DIALS, buildDialsBlock, formatWords, measureDialoguePct, normalizeDials, type ChapterDials } from '../../lib/chapter-dials';
+import { DEFAULT_DIALS, PACE_LABELS, buildDialsBlock, formatWords, measureDialoguePct, normalizeDials, type ChapterDials } from '../../lib/chapter-dials';
 import { ChapterDialsPanel } from '../features/ChapterDialsPanel';
+import { noteAuthorTyping, recordAuthorship } from '../../lib/authorship-log';
 import { RebuildNotesCheck } from '../features/RebuildNotesCheck';
 import { buildNotesCheckPrompt, buildRevisionBlock, parseNotesCheck, splitNotes, type RebuildCheck } from '../../lib/rebuild-notes';
 import { ContinuityNotices } from '../features/ContinuityNotices';
@@ -336,6 +337,10 @@ export function ChapterView({ chapter }: Props) {
       : '';
     const wordBlock = `\n\nWrite this chapter targeting EXACTLY ${wordTarget} words (minimum ${Math.round(wordTarget * 0.9)} words). This must be a COMPLETE, FINISHED chapter — do not cut short or summarize. Cover the full chapter premise with proper pacing, dialogue, description, and interiority. Write every event in order on the page; never skip a beat or summarize what happened to save space — if the premise is crowded, give each beat less ornament, not less presence. Do not stop early. Do not write a partial chapter. Do NOT include a chapter title or heading at the start — begin directly with the prose. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — develop every beat fully.' : ''}`;
     if (!isChildrensBook) rememberDials();
+    // Authorship record: what the author asked for, before the AI writes.
+    if (rebuildNotes.length) recordAuthorship(chapter.id, { kind: 'author-direction', note: `Rebuild notes: ${rebuildNotes.join(' / ')}` });
+    if (direction) recordAuthorship(chapter.id, { kind: 'author-direction', note: `Chapter framing: ${direction}` });
+    if (!isChildrensBook) recordAuthorship(chapter.id, { kind: 'author-direction', note: `Settings: ${dials.words.toLocaleString()} words · ${dials.dialoguePct}% dialogue · ${PACE_LABELS[dials.pace]} pace` });
     const prompt = isChildrensBook
       ? framingBlock + basePrompt + referenceBlock + revisionBlock + notesReminder
       : framingBlock + basePrompt + referenceBlock + revisionBlock + '\n\n' + buildDialsBlock(dials) + wordBlock + notesReminder;
@@ -402,6 +407,11 @@ export function ChapterView({ chapter }: Props) {
           },
         };
         updateChapter(chapter.id, generationPayload);
+        recordAuthorship(chapter.id, {
+          kind: opts.instructions !== undefined || opts.reference !== undefined ? 'ai-rebuild' : 'ai-draft',
+          model: settings.ai?.preferredModel || 'claude-opus',
+          words: initialWordCount,
+        });
         api.updateChapter(chapter.id, { prose: initialProse, status: 'draft-generated' }).catch((e) =>
           console.error('[Generation] Immediate prose save failed:', e),
         );
@@ -625,6 +635,11 @@ export function ChapterView({ chapter }: Props) {
                 targetWords: String(wordTarget),
               },
             } as any,
+          });
+          recordAuthorship(chapter.id, {
+            kind: 'ai-extend',
+            model: settings.ai?.preferredModel || 'claude-opus',
+            words: trimmed ? trimmed.trim().split(/\s+/).length : 0,
           });
           // Immediately save extended prose to server
           api.updateChapter(chapter.id, { prose: extendedProse, status: 'human-edited' }).catch((e) =>
@@ -2008,11 +2023,14 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                   <textarea
                     ref={editorRef}
                     value={chapter.prose}
-                    onChange={(e) => updateChapter(chapter.id, {
-                      prose: e.target.value,
-                      status: e.target.value.trim() ? 'human-edited' : 'premise-only',
-                      updatedAt: new Date().toISOString(),
-                    })}
+                    onChange={(e) => {
+                      noteAuthorTyping(chapter.id, chapter.prose || '', e.target.value);
+                      updateChapter(chapter.id, {
+                        prose: e.target.value,
+                        status: e.target.value.trim() ? 'human-edited' : 'premise-only',
+                        updatedAt: new Date().toISOString(),
+                      });
+                    }}
                     placeholder="Begin your chapter here..."
                     className={cn(
                       'w-full bg-transparent border-none outline-none resize-none',
@@ -2494,6 +2512,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                       ref={directEditRef}
                       value={chapter.prose}
                       onChange={(e) => {
+                        noteAuthorTyping(chapter.id, chapter.prose || '', e.target.value);
                         updateChapter(chapter.id, { prose: e.target.value, status: 'human-edited', updatedAt: new Date().toISOString() });
                         e.target.style.height = 'auto';
                         e.target.style.height = Math.max(e.target.scrollHeight, 200) + 'px';
@@ -2639,6 +2658,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
           currentProse={chapter.prose}
           onRestore={(prose) => {
             updateChapter(chapter.id, { prose, status: 'human-edited', updatedAt: new Date().toISOString() });
+            recordAuthorship(chapter.id, { kind: 'author-restore' });
             setShowHistory(false);
           }}
         />

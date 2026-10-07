@@ -7,6 +7,7 @@ import { generateText, generateStream } from '../../lib/generate';
 import { useGenerationStore } from '../../store/generation';
 import { buildEditChatContext, buildSelectionEditPrompt } from '../../lib/prompt-builder';
 import { editingModel } from '../../lib/models';
+import { recordAuthorship } from '../../lib/authorship-log';
 import { generateId, cn } from '../../lib/utils';
 import { schedulePostEditPipeline } from '../../lib/post-generation-pipeline';
 import type { EditChatMessage, ProseSelection } from '../../types';
@@ -222,6 +223,7 @@ export function InlineEditChat({ chapterId, prose, selection, onClearSelection, 
       timestamp: new Date().toISOString(),
     };
     appendMessage(restoredMsg);
+    recordAuthorship(chapterId, { kind: 'author-restore', note: `Undid: ${last.label}` });
   };
 
   // Short affirmations that mean "apply the edit we just discussed".
@@ -310,6 +312,7 @@ RULES:
       ? `"${target.selection.text.slice(0, 40)}${target.selection.text.length > 40 ? '…' : ''}"`
       : 'full chapter';
     useGenerationStore.getState().start({ kind: 'inline-edit', label: editLabel, subtitle: 'Rewriting…', indeterminate: true });
+    recordAuthorship(chapterId, { kind: 'author-direction', note: `${target.selection ? 'Edit to a selected passage' : 'Edit to the chapter'}: ${target.instruction}` });
 
     try {
       const allChapters = getProjectChapters(project.id);
@@ -360,6 +363,7 @@ RULES:
         const after = prose.slice(target.selection.endOffset);
         const newProse = before + responseText + after;
         onProseUpdate(newProse, target.selection.startOffset, target.selection.startOffset + responseText.length);
+        recordAuthorship(chapterId, { kind: 'ai-edit', model: editingModel(), words: responseText.trim().split(/\s+/).length, note: 'Rewrote a selected passage' });
         onClearSelection();
         const diff = responseText.length - target.selection.text.length;
         const diffLabel = diff > 0 ? `(+${diff} chars)` : diff < 0 ? `(${diff} chars)` : '(same length)';
@@ -422,6 +426,8 @@ RULES:
     const next = applySuggestions(review.paragraphs, review.suggestions, accepted);
     const range = firstChangeRange(review.paragraphs, review.suggestions, accepted);
     onProseUpdate(next, range?.[0] ?? 0, range?.[1] ?? 0);
+    recordAuthorship(chapterId, { kind: 'ai-edit', model: editingModel(), note: 'Tracked changes applied' });
+    recordAuthorship(chapterId, { kind: 'author-review', accepted: accepted.size, offered: review.suggestions.length });
     schedulePostEditPipeline(chapterId);
     appendMessage({ id: generateId(), role: 'assistant', content: `Applied ${accepted.size} of ${review.suggestions.length} changes.`, timestamp: new Date().toISOString() });
     setReview(null);
@@ -574,6 +580,7 @@ RULES:
             suggestions={review.suggestions}
             onApply={applyReview}
             onDiscard={() => {
+              recordAuthorship(chapterId, { kind: 'author-review', accepted: 0, offered: review.suggestions.length });
               setReview(null);
               appendMessage({ id: generateId(), role: 'assistant', content: 'Discarded those suggestions.', timestamp: new Date().toISOString() });
             }}

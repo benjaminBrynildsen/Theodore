@@ -11,6 +11,9 @@ type ChapterSnapshotType = 'ai-generated' | 'human-edit' | 'auto-save';
 
 // Debounce helper for saving
 const debounceTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+const pendingChapterPatches: Record<string, Partial<Chapter>> = {};
+const pendingProjectPatches: Record<string, Partial<Project>> = {};
+
 function debounceSave(key: string, fn: () => Promise<void>, ms = 500) {
   if (debounceTimers[key]) clearTimeout(debounceTimers[key]);
   debounceTimers[key] = setTimeout(() => { fn().catch(console.error); }, ms);
@@ -305,8 +308,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     set((s) => ({
       projects: s.projects.map((p) => p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p),
     }));
+    // Pending changes merge, so a quick second update (e.g. saving the story
+    // chat right after applying plan changes) never drops the first.
+    pendingProjectPatches[id] = { ...pendingProjectPatches[id], ...updates };
     debounceSave(`project-${id}`, async () => {
-      await api.updateProject(id, updates);
+      const payload = pendingProjectPatches[id] || updates;
+      delete pendingProjectPatches[id];
+      await api.updateProject(id, payload);
     });
   },
 
@@ -399,8 +407,12 @@ export const useStore = create<AppState>()(persist((set, get) => ({
         .then(({ scheduleContinuityRefresh }) => scheduleContinuityRefresh(id))
         .catch(() => {});
     }
+    // Pending changes merge, so a newer save never drops fields an earlier
+    // one was carrying (e.g. an authorship log entry, then a prose edit).
+    pendingChapterPatches[id] = { ...pendingChapterPatches[id], ...mergedUpdates };
     debounceSave(`chapter-${id}`, async () => {
-      let payload: Partial<Chapter> = mergedUpdates;
+      let payload: Partial<Chapter> = pendingChapterPatches[id] || mergedUpdates;
+      delete pendingChapterPatches[id];
       if (typeof updates.prose === 'string' && current) {
         const updated = get().chapters.find((c) => c.id === id);
         const scan = (updated?.aiIntentMetadata as any)?.metadataScan;
