@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { ChevronLeft, Sparkles, Type, Maximize2, Minimize2, History, BookMarked, Mic, Scan, Search, Loader2, Heart, Expand, PenLine, MessageSquare, Activity, Tags, Volume2, Wand2, Headphones, Play, RotateCcw, X } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
@@ -139,6 +139,8 @@ export function ChapterView({ chapter }: Props) {
   const proseDisplayRef = useRef<HTMLDivElement>(null);
   const [directEditSceneId, setDirectEditSceneId] = useState<string | null>(null);
   const [directEditOffset, setDirectEditOffset] = useState(0);
+  // Edit text: the whole chapter becomes typeable until the author taps Done.
+  const [typing, setTyping] = useState(false);
   const directEditRef = useRef<HTMLTextAreaElement>(null);
 
   const { getActiveProject, getProjectChapters, chapters: allChapters } = useStore();
@@ -1154,7 +1156,11 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
   // Clear direct edit when switching modes
   useEffect(() => {
     setDirectEditSceneId(null);
+    if (inlineEditOpen || editMode) setTyping(false);
   }, [inlineEditOpen, editMode]);
+
+  // Leave Edit text when moving to another chapter or when the AI starts writing.
+  useEffect(() => { setTyping(false); }, [chapter.id]);
 
   // Render prose with entity name highlights (for artifact tab clicks)
   const renderEntityHighlightedProse = useCallback((text: string, entityName: string, className?: string) => {
@@ -1421,6 +1427,16 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
     }
   }, [directEditSceneId, directEditOffset]);
 
+  // Edit text: size every prose box to its content so nothing scrolls inside a box.
+  useLayoutEffect(() => {
+    if (!typing) return;
+    scrollContainerRef.current?.querySelectorAll<HTMLTextAreaElement>('textarea[data-prose-edit]').forEach((el) => {
+      if (el.style.height) return;
+      el.style.height = Math.max(el.scrollHeight, 200) + 'px';
+    });
+  }, [typing, scenes.length]);
+  useEffect(() => { if (generating || extending) setTyping(false); }, [generating, extending]);
+
   useEffect(() => {
     if (!isFocusMode) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1559,10 +1575,36 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
             </div>
           )}
 
+          {/* Edit text — type straight into the chapter */}
+          {chapter.prose?.trim() && !editMode && (
+            <button
+              onClick={() => {
+                if (typing) { setTyping(false); return; }
+                if (inlineEditOpen) setInlineEditOpen(false);
+                setDirectEditSceneId(null);
+                setTyping(true);
+              }}
+              disabled={!typing && (generating || extending)}
+              aria-pressed={typing}
+              className={cn(
+                'flex px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all items-center gap-1',
+                typing
+                  ? 'bg-text-primary text-text-inverse'
+                  : generating || extending
+                    ? 'bg-black/5 text-text-tertiary cursor-not-allowed'
+                    : 'bg-white/60 border border-black/10 text-text-secondary hover:bg-white/80',
+              )}
+              title={typing ? 'Done editing' : 'Edit text — type directly into the chapter'}
+            >
+              <PenLine size={13} />
+              <span>{typing ? 'Done' : 'Edit text'}</span>
+            </button>
+          )}
+
           {/* Rebuild chapter — rewrite from the top with optional direction */}
           {chapter.prose?.trim() && (
             <button
-              onClick={() => setShowRebuild(true)}
+              onClick={() => { setTyping(false); setShowRebuild(true); }}
               disabled={generating || extending}
               className={cn(
                 'flex px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all items-center gap-1',
@@ -2427,11 +2469,13 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                               </div>
                             )}
                             {scene.prose ? (
-                              directEditSceneId === scene.id ? (
+                              typing || directEditSceneId === scene.id ? (
                                 <textarea
-                                  ref={directEditRef}
+                                  ref={directEditSceneId === scene.id ? directEditRef : undefined}
+                                  data-prose-edit
                                   value={scene.prose}
                                   onChange={(e) => {
+                                    noteAuthorTyping(chapter.id, scene.prose || '', e.target.value);
                                     updateScene(chapter.id, scene.id, { prose: e.target.value, status: 'edited' });
                                     syncScenesToProse(chapter.id);
                                     e.target.style.height = 'auto';
@@ -2440,6 +2484,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                                   onBlur={() => setDirectEditSceneId(null)}
                                   className={cn(
                                     'w-full bg-transparent border-none outline-none resize-none',
+                                    typing && 'rounded-lg ring-1 ring-black/10 bg-white/50 px-2 -mx-2',
                                     'font-serif leading-[2] text-text-primary',
                                     'focus:ring-0',
                                     isFocusMode ? 'text-xl' : 'text-lg'
@@ -2500,16 +2545,17 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                         );
                       })}
                     </div>
-                  ) : highlightName ? (
+                  ) : highlightName && !typing ? (
                     <div className={cn(
                       'font-serif leading-[2] text-text-primary whitespace-pre-wrap',
                       isFocusMode ? 'text-xl' : 'text-lg'
                     )} style={{ minHeight: '500px' }}>
                       {renderEntityHighlightedProse(chapter.prose, highlightName)}
                     </div>
-                  ) : directEditSceneId === '__flat__' ? (
+                  ) : typing || directEditSceneId === '__flat__' ? (
                     <textarea
                       ref={directEditRef}
+                      data-prose-edit
                       value={chapter.prose}
                       onChange={(e) => {
                         noteAuthorTyping(chapter.id, chapter.prose || '', e.target.value);
@@ -2520,6 +2566,7 @@ Return ONLY a JSON array of strings, e.g. ["gentle rain", "distant thunder"]. No
                       onBlur={() => setDirectEditSceneId(null)}
                       className={cn(
                         'w-full bg-transparent border-none outline-none resize-none',
+                        typing && 'rounded-lg ring-1 ring-black/10 bg-white/50 px-2 -mx-2',
                         'font-serif leading-[2] text-text-primary',
                         'focus:ring-0',
                         isFocusMode ? 'text-xl' : 'text-lg'
