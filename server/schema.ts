@@ -171,6 +171,8 @@ export const projects = pgTable('projects', {
   storyChat: jsonb('story_chat').$type<Record<string, any>>(),
   // Private book-level authorship log (canon + map development).
   authorship: jsonb('authorship').$type<any[]>(),
+  // Facts & Secrets: the author's facts, world facts and secrets over page memory.
+  factBook: jsonb('fact_book').$type<Record<string, any>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

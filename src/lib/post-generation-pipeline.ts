@@ -375,7 +375,7 @@ async function extractContinuity(chapterId: string): Promise<void> {
 
   console.info('[PostGen] Running continuity extraction for ch', chapter.number);
   const result = await generateText({
-    prompt: buildContinuityExtractionPrompt({ projectTitle: project.title, chapter, allChapters, canon }),
+    prompt: buildContinuityExtractionPrompt({ projectTitle: project.title, chapter, allChapters, canon, factBook: project.factBook }),
     model: analysisModel(settings.ai.preferredModel),
     ...EXTRACTION_REQUEST,
     projectId: project.id,

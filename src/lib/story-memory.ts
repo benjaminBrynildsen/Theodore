@@ -13,6 +13,7 @@
 import type { Chapter } from '../types';
 import type { AnyCanonEntry, CharacterEntry, ArtifactEntry } from '../types/canon';
 import { junkNameReason } from './canon-cleanup';
+import { applyFactBook, type BookFact } from './fact-book';
 
 // ---------- Types ----------
 
@@ -47,6 +48,8 @@ export interface StoryFact {
   canonId?: string;
   fact: string;
   chapter: number;
+  /** Added or corrected by the author in Facts & Secrets. */
+  byAuthor?: boolean;
 }
 
 /** When the chapter ends in story time. */
@@ -117,6 +120,8 @@ export interface StoryStateAt {
   clock?: StoryClockRecord & { chapter: number };
   /** Every tracked secret with who knows it, as of the last folded chapter. */
   knowledge: KnowledgeRecord[];
+  /** The author's world facts (Facts & Secrets); true throughout the book. */
+  worldFacts?: BookFact[];
 }
 
 // ---------- Small helpers ----------
@@ -817,9 +822,10 @@ export function buildStoryMemoryBlock(
   chapter: Chapter,
   sel: CanonSelection,
   state: StoryStateAt = foldStoryState(allChapters, chapter.id),
-  opts: { maxFacts?: number } = {},
+  opts: { maxFacts?: number; canonNames?: Set<string> } = {},
 ): string {
-  const maxFacts = opts.maxFacts ?? 60;
+  // Every relevant fact counts; the cap only guards against a runaway list.
+  const maxFacts = opts.maxFacts ?? 400;
   const ids = new Set([...sel.primaryChars, ...sel.secondaryChars, ...sel.locations, ...sel.artifacts, ...sel.others].map((e) => e.id));
   const sections: string[] = [];
 
@@ -866,8 +872,15 @@ export function buildStoryMemoryBlock(
     );
   }
 
+  if (state.worldFacts?.length) {
+    sections.push(
+      `=== WORLD FACTS (true throughout this book — never contradict) ===\n` +
+      state.worldFacts.map((f) => `- ${f.subject && !/^world$/i.test(f.subject) ? `${f.subject}: ` : ''}${f.fact}`).join('\n'),
+    );
+  }
+
   if (state.knowledge.length) {
-    const lines = state.knowledge.slice(-25).map((k) =>
+    const lines = state.knowledge.slice(-200).map((k) =>
       `- ${k.secret} | known by: ${k.knownBy.join(', ') || 'no one yet'}${k.hiddenFrom.length ? ` | NOT known by: ${k.hiddenFrom.join(', ')}` : ''}`,
     );
     sections.push(
@@ -876,13 +889,16 @@ export function buildStoryMemoryBlock(
     );
   }
 
-  const relevantFacts = state.facts.filter((f) => isRelevant(f.subject, f.canonId, sel, ids));
+  // Facts about who and what is in this chapter, the author's own, and general
+  // facts not about any one canon entry ("the town", "the war") all go in.
+  const general = (f: StoryFact) => !!opts.canonNames && !f.canonId && !opts.canonNames.has(norm(f.subject));
+  const relevantFacts = state.facts.filter((f) => f.byAuthor || general(f) || isRelevant(f.subject, f.canonId, sel, ids));
   const factPool = relevantFacts.length ? relevantFacts : state.facts;
   const facts = factPool.slice(-maxFacts);
   if (facts.length) {
     sections.push(
       `=== ESTABLISHED FACTS (already on the page — never contradict; reuse these exact details) ===\n` +
-      facts.map((f) => `- ${f.subject}: ${f.fact} [Ch.${f.chapter}]`).join('\n'),
+      facts.map((f) => `- ${f.subject}: ${f.fact}${f.chapter ? ` [Ch.${f.chapter}]` : ''}`).join('\n'),
     );
   }
 
@@ -890,7 +906,7 @@ export function buildStoryMemoryBlock(
 }
 
 /** Everything the extractor needs to check a chapter against what came before it. */
-export function buildPriorMemoryForCheck(state: StoryStateAt, maxFacts = 120): string {
+export function buildPriorMemoryForCheck(state: StoryStateAt, maxFacts = 400): string {
   const lines: string[] = [];
   for (const s of state.characters.values()) {
     const parts = [s.status, s.location && `at ${s.location}`, s.physical && `physical: ${s.physical}`, s.capacity && !NO_LIMIT.test(s.capacity) && `can't: ${s.capacity}`, s.learned?.length ? `knows: ${s.learned.join('; ')}` : null].filter(Boolean);
@@ -900,12 +916,13 @@ export function buildPriorMemoryForCheck(state: StoryStateAt, maxFacts = 120): s
     const parts = [a.holder && `held by ${a.holder}`, a.location && `at ${a.location}`, a.condition].filter(Boolean);
     if (parts.length) lines.push(`- ${a.name}: ${parts.join(' | ')}`);
   }
-  for (const f of state.facts.slice(-maxFacts)) lines.push(`- ${f.subject}: ${f.fact} [Ch.${f.chapter}]`);
+  for (const f of state.worldFacts || []) lines.push(`- WORLD: ${f.subject && !/^world$/i.test(f.subject) ? `${f.subject}: ` : ''}${f.fact}`);
+  for (const f of state.facts.slice(-maxFacts)) lines.push(`- ${f.subject}: ${f.fact}${f.chapter ? ` [Ch.${f.chapter}]` : ''}`);
   if (state.clock) {
     const c = state.clock;
     lines.push(`- STORY CLOCK: Ch.${c.chapter} ended ${[c.day, c.time].filter(Boolean).join(', ') || '(unknown)'}`);
   }
-  for (const k of state.knowledge.slice(-40)) {
+  for (const k of state.knowledge.slice(-200)) {
     lines.push(`- SECRET: ${k.secret} | known by: ${k.knownBy.join(', ') || 'no one'}${k.hiddenFrom.length ? ` | NOT known by: ${k.hiddenFrom.join(', ')}` : ''}`);
   }
   return lines.join('\n');
@@ -992,8 +1009,10 @@ export function buildCanonAndMemory(
   chapter: Chapter,
   allChapters: Chapter[],
   includeCanon: boolean,
+  /** The project's Facts & Secrets book. */
+  factBook?: unknown,
 ): string {
-  const state = foldStoryState(allChapters, chapter.id);
+  const state = applyFactBook(foldStoryState(allChapters, chapter.id), factBook, chapter.number || Infinity);
   const parts: string[] = [];
   if (includeCanon && entries.length > 0) {
     const canon = buildCanonContext(entries, chapter, allChapters, state);
@@ -1002,7 +1021,8 @@ export function buildCanonAndMemory(
   const sel = selectRelevantCanon(entries, chapter, allChapters, state);
   const limits = buildLimitsBlock(sel, state);
   if (limits) parts.push(limits);
-  const memory = buildStoryMemoryBlock(allChapters, chapter, sel, state);
+  const canonNames = new Set(entries.flatMap((e) => [e.name, ...(e.type === 'character' ? (e as CharacterEntry).character?.aliases || [] : [])]).map(norm));
+  const memory = buildStoryMemoryBlock(allChapters, chapter, sel, state, { canonNames });
   if (memory) parts.push(memory);
   return parts.join('\n\n');
 }

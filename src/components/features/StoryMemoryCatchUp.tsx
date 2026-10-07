@@ -7,7 +7,7 @@ import type { Chapter } from '../../types';
  * Offers to re-read written chapters whose memory was extracted before the
  * story clock and who-knows-what were tracked, so the next chapters get both.
  */
-export function StoryMemoryCatchUp({ projectId, chapters }: { projectId: string; chapters: Chapter[] }) {
+export function StoryMemoryCatchUp({ projectId, chapters, message }: { projectId: string; chapters: Chapter[]; message?: (count: number) => string }) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const outdated = chapters.filter(memoryOutdated).length;
@@ -27,12 +27,12 @@ export function StoryMemoryCatchUp({ projectId, chapters }: { projectId: string;
   };
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl glass px-4 py-3 text-xs text-text-secondary">
+    <div className="mb-4 last:mb-0 flex flex-wrap items-center gap-3 rounded-2xl glass px-4 py-3 text-xs text-text-secondary">
       <Brain size={15} className="text-text-tertiary flex-shrink-0" />
       <p className="flex-1 min-w-[12rem] leading-relaxed">
         {progress
           ? `Re-reading chapter ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…`
-          : `Theodore can now track the story's calendar and who knows each secret. Re-read ${outdated} written chapter${outdated === 1 ? '' : 's'} so the next ones use it (a small credit cost per chapter).`}
+          : message ? message(outdated) : `Theodore can now track the story's calendar and who knows each secret. Re-read ${outdated} written chapter${outdated === 1 ? '' : 's'} so the next ones use it (a small credit cost per chapter).`}
       </p>
       <button
         onClick={run}

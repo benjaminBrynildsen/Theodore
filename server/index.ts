@@ -331,6 +331,7 @@ function buildProjectUpdate(bodyRaw: unknown) {
   if ('synopsis' in body) updates.synopsis = body.synopsis ? asObject(body.synopsis) : null;
   if ('storyChat' in body) updates.storyChat = body.storyChat ? asObject(body.storyChat) : null;
   if ('authorship' in body) updates.authorship = Array.isArray(body.authorship) ? body.authorship.slice(-1000) : null;
+  if ('factBook' in body) updates.factBook = body.factBook ? asObject(body.factBook) : null;
 
   return updates;
 }
@@ -5817,6 +5818,7 @@ async function ensureAdditiveSchema() {
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS synopsis jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS story_chat jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS authorship jsonb`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS fact_book jsonb`,
     `DO $$ BEGIN
        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'projects_slug_unique') THEN
          BEGIN

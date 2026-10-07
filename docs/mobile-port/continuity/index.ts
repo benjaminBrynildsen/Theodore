@@ -5,4 +5,5 @@
 export * from './story-memory';
 export * from './continuity-extraction';
 export * from './continuity-context';
+export * from './fact-book';
 export type { Chapter, Project, PremiseCard, AnyCanonEntry, CharacterEntry, ArtifactEntry } from './types';
