@@ -167,6 +167,8 @@ export const projects = pgTable('projects', {
   arcPlan: jsonb('arc_plan').$type<Record<string, any>>(),
   // One-page synopsis (logline, body, ending) and the story fingerprint it was written from.
   synopsis: jsonb('synopsis').$type<Record<string, any>>(),
+  // Story chat conversation + applied plan decisions (private; part of the authorship record).
+  storyChat: jsonb('story_chat').$type<Record<string, any>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

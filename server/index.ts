@@ -329,6 +329,7 @@ function buildProjectUpdate(bodyRaw: unknown) {
   if ('threadPlan' in body) updates.threadPlan = body.threadPlan ? asObject(body.threadPlan) : null;
   if ('arcPlan' in body) updates.arcPlan = body.arcPlan ? asObject(body.arcPlan) : null;
   if ('synopsis' in body) updates.synopsis = body.synopsis ? asObject(body.synopsis) : null;
+  if ('storyChat' in body) updates.storyChat = body.storyChat ? asObject(body.storyChat) : null;
 
   return updates;
 }
@@ -5813,6 +5814,7 @@ async function ensureAdditiveSchema() {
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS thread_plan jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS arc_plan jsonb`,
     `ALTER TABLE projects ADD COLUMN IF NOT EXISTS synopsis jsonb`,
+    `ALTER TABLE projects ADD COLUMN IF NOT EXISTS story_chat jsonb`,
     `DO $$ BEGIN
        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'projects_slug_unique') THEN
          BEGIN

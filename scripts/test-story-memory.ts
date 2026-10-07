@@ -21,6 +21,7 @@ import { splitAtSceneBreaks, sanitizeAssignments, groupParagraphs, coversProse, 
 import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext } from '../src/lib/prompt-builder';
 import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
 import { parseStoryChanges, applyStoryChanges, buildStoryContext, buildStoryChangesPrompt, storyBasis, readChangeStream, countStreamedChanges, buildStoryChatSystem } from '../src/lib/story-chat';
+import { appendEvent, changedChars, revisedShare, chapterAuthorship, buildAuthorshipReport, renderAuthorshipHtml } from '../src/lib/authorship';
 import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS, countSentenceBreaks, countClauseBreaks, stretchPauses, CLAUSE_PAUSE_SECONDS } from '../server/audio-assembly';
@@ -896,6 +897,47 @@ t('story chat drafts: patches, cut-off replies, sloppy JSON, and written chapter
   assert.ok(!buildStoryChatSystem({ canonLocked: false }).includes('WRITTEN CHAPTERS ARE CANON'));
   const p = buildStoryChangesPrompt('ctx', [], { threadPlan }, { canonLocked: true, alreadyDrafted: ['thread The matchbook'] });
   assert.ok(p.includes('"addBeats"') && p.includes('do NOT repeat them') && p.includes('WRITTEN CHAPTERS ARE CANON'));
+});
+
+t('authorship record: grouped typing, revised share, per-chapter counts, private export escapes text', () => {
+  // Typing within 15 minutes is one session; a later burst is a new one.
+  let log = appendEvent([], { at: '2026-10-07T10:00:00Z', kind: 'author-edit', chars: 40 });
+  log = appendEvent(log, { at: '2026-10-07T10:05:00Z', kind: 'author-edit', chars: 60 });
+  log = appendEvent(log, { at: '2026-10-07T11:00:00Z', kind: 'author-edit', chars: 5 });
+  assert.equal(log.length, 2);
+  assert.deepEqual([log[0].chars, log[0].since, log[0].at], [100, '2026-10-07T10:00:00Z', '2026-10-07T10:05:00Z']);
+  assert.equal(changedChars('The cat sat.', 'The dog sat.'), 3);
+  assert.equal(changedChars('same', 'same'), 0);
+  // The rewritten sentence is 18 of the final text's 28 sentence characters.
+  assert.equal(revisedShare('He waited. She left.', 'He waited. She ran home fast.'), 64);
+  assert.equal(revisedShare(undefined, 'x'), null);
+
+  const chapter: any = {
+    id: 'c1', number: 1, title: 'Closing <Walkthrough>', prose: 'He waited. She ran home fast.',
+    aiIntentMetadata: {
+      versionHistory: [{ type: 'ai-generated', prose: 'He waited. She left.' }],
+      authorship: [
+        { at: '2026-10-07T09:00:00Z', kind: 'author-direction', note: 'Settings: 2,500 words' },
+        { at: '2026-10-07T09:01:00Z', kind: 'ai-draft', model: 'claude-opus', words: 2500 },
+        { at: '2026-10-07T09:30:00Z', kind: 'author-direction', note: 'Make Wes "more" scared & <tense>' },
+        { at: '2026-10-07T09:31:00Z', kind: 'ai-edit', model: 'claude-fable' },
+        { at: '2026-10-07T09:32:00Z', kind: 'author-review', accepted: 3, offered: 5 },
+        ...log,
+      ],
+    },
+  };
+  const c = chapterAuthorship(chapter);
+  assert.deepEqual([c.aiDrafts, c.aiEdits, c.directions.length, c.suggestionsAccepted, c.suggestionsOffered, c.typedSessions, c.typedChars, c.revisedPct],
+    [1, 1, 2, 3, 5, 2, 105, 64]);
+  assert.deepEqual(c.models, ['Claude Opus', 'Claude Fable']);
+  const report = buildAuthorshipReport({ project: { title: 'Late Shift', storyChat: { messages: [{ role: 'user' }, { role: 'assistant' }], decisions: [] } } as any, chapters: [chapter, { id: 'c2', number: 2, title: 'Old', prose: 'Words here.' } as any], now: '2026-10-07T12:00:00Z' });
+  assert.equal(report.trackingSince, '2026-10-07T09:00:00Z');
+  assert.equal(report.storyChat.authorMessages, 1);
+  assert.equal(report.chapters[1].events.length, 0);
+  const html = renderAuthorshipHtml(report);
+  assert.ok(html.includes('Closing &lt;Walkthrough&gt;') && html.includes('&quot;more&quot; scared &amp; &lt;tense&gt;'));
+  assert.ok(!html.includes('<tense>'));
+  assert.ok(html.includes('written before tracking began'));
 });
 
 t('tracked edits: only marked paragraphs change; rejects leave the original; junk is dropped', () => {

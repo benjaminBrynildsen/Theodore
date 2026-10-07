@@ -11,6 +11,7 @@ import {
   countStreamedChanges, parseStoryChanges, storyBasis, type StoryChange, type StoryChangeSet, type StoryChatMessage,
 } from '../../lib/story-chat';
 import type { Chapter, Project } from '../../types';
+import type { StoryChatDecision } from '../../lib/authorship';
 
 const KIND_LABEL: Record<StoryChange['kind'], string> = { thread: 'Thread', character: 'Character', object: 'Object', chapter: 'Outline' };
 const OP_LABEL: Record<StoryChange['op'], string> = { add: 'New', update: 'Change', remove: 'Remove' };
@@ -34,7 +35,10 @@ function loadMessages(projectId: string): StoryChatMessage[] {
 export function StoryChat({ project, chapters, onClose }: { project: Project; chapters: Chapter[]; onClose: () => void }) {
   const updateProject = useStore((s) => s.updateProject);
   const updateChapter = useStore((s) => s.updateChapter);
-  const [messages, setMessages] = useState<StoryChatMessage[]>(() => loadMessages(project.id));
+  // Saved on the book (your account); a conversation kept on this device before that moves over.
+  const [messages, setMessages] = useState<StoryChatMessage[]>(() =>
+    project.storyChat?.messages?.length ? project.storyChat.messages : loadMessages(project.id));
+  const [decisions, setDecisions] = useState<StoryChatDecision[]>(() => project.storyChat?.decisions || []);
   const [input, setInput] = useState('');
   const [phase, setPhase] = useState<'idle' | 'replying' | 'drafting'>('idle');
   const [draft, setDraft] = useState<StoryChangeSet | null>(null);
@@ -54,6 +58,17 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
   useEffect(() => {
     try { localStorage.setItem(storageKey(project.id), JSON.stringify(messages.slice(-40))); } catch { /* storage blocked */ }
   }, [messages, project.id]);
+  // Save to the book once a reply has finished (not on every streamed word).
+  const savedRef = useRef('');
+  useEffect(() => {
+    if (phase !== 'idle') return;
+    const next = { messages: messages.slice(-200), decisions: decisions.slice(-100) };
+    const key = JSON.stringify(next);
+    if (key === savedRef.current) return;
+    if (!savedRef.current && !messages.length && !decisions.length && !project.storyChat) { savedRef.current = key; return; }
+    savedRef.current = key;
+    updateProject(project.id, { storyChat: next });
+  }, [messages, decisions, phase, project.id, project.storyChat, updateProject]);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, phase, draft]);
@@ -167,6 +182,13 @@ export function StoryChat({ project, chapters, onClose }: { project: Project; ch
     }
     const accepted = new Set(draft.changes.filter((c) => !rejected.has(c.id)).map((c) => c.id));
     const result = applyStoryChanges(project, chapters, draft.changes, accepted);
+    setDecisions((prev) => [...prev, {
+      at: new Date().toISOString(),
+      summary: draft.summary,
+      applied: accepted.size,
+      offered: draft.changes.length,
+      labels: draft.changes.filter((c) => accepted.has(c.id)).map((c) => `${c.op} ${c.kind}: ${c.label}`),
+    }]);
     if (result.threadPlan || result.arcPlan) {
       updateProject(project.id, {
         ...(result.threadPlan ? { threadPlan: result.threadPlan } : {}),
