@@ -22,6 +22,8 @@ import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../
 import { generateStream } from '../../lib/generate';
 import { generateImageApi } from '../../lib/image-gen';
 import { cn, generateId } from '../../lib/utils';
+import { insertionMap, planRenumber, reorderMap, type ChapterMap } from '../../lib/chapter-renumber';
+import { recordProjectAuthorship } from '../../lib/authorship-log';
 import { triggerListen, playExistingAudio } from '../../lib/chapter-listen';
 import { useAudioStore } from '../../store/audio';
 import { useAuthStore } from '../../store/auth';
@@ -40,6 +42,8 @@ export function ProjectView() {
   const { getProjectEntries } = useCanonStore();
   const { settings } = useSettingsStore();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [showInsert, setShowInsert] = useState(false);
+  const [insertAt, setInsertAt] = useState(1);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [reorderWarning, setReorderWarning] = useState<string | null>(null);
   const [showScaffold, setShowScaffold] = useState(false);
@@ -179,14 +183,32 @@ export function ProjectView() {
     return <ChapterView chapter={activeChapter} />;
   }
 
-  const addNewChapter = () => {
+  // Renumber chapters and move every reference to them (memory, maps, facts) along.
+  const applyRenumber = (f: ChapterMap, chapterCount: number) => {
+    const plan = planRenumber(chapters, project, f, chapterCount);
+    for (const { id, updates } of plan.chapters) updateChapter(id, updates);
+    if (Object.keys(plan.project).length) updateProject(project.id, plan.project);
+  };
+
+  /** Add a chapter at `position` (1 = a new first chapter); later chapters move back one. */
+  const addNewChapter = (position = chapters.length + 1) => {
     const now = new Date().toISOString();
+    const inserting = position <= chapters.length;
+    if (inserting) {
+      applyRenumber(insertionMap(position), chapters.length + 1);
+      recordProjectAuthorship(project.id, {
+        kind: 'author-plan-edit',
+        subject: 'chapter order',
+        note: `Added a new ${isChildrensBook ? 'page' : 'chapter'} ${position}${position === 1 ? ' at the start of the book' : ''}`,
+      });
+    }
+    const id = generateId();
     addChapter({
-      id: generateId(),
+      id,
       projectId: project.id,
-      number: chapters.length + 1,
-      title: isChildrensBook ? `Page ${chapters.length + 1}` : `Chapter ${chapters.length + 1}`,
-      timelinePosition: chapters.length + 1,
+      number: position,
+      title: isChildrensBook ? `Page ${position}` : `Chapter ${position}`,
+      timelinePosition: position,
       status: 'premise-only',
       premise: { purpose: '', changes: '', characters: [], emotionalBeat: '', setupPayoff: [], constraints: [] },
       prose: '',
@@ -195,6 +217,7 @@ export function ProjectView() {
       createdAt: now,
       updatedAt: now,
     });
+    if (inserting) setActiveChapter(id);
   };
 
   // Regenerate the project's character hero-shot. Server stores the URL on
@@ -982,7 +1005,7 @@ export function ProjectView() {
             {/* Add Page card */}
             <div className="animate-scale-in" style={{ animationDelay: `${chapters.length * 30}ms` }}>
               <button
-                onClick={addNewChapter}
+                onClick={() => addNewChapter()}
                 className="w-full h-full min-h-[180px] flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-purple-200 text-purple-400 hover:text-purple-600 hover:border-purple-400 hover:bg-purple-50/50 transition-all duration-200"
               >
                 <Plus size={24} strokeWidth={1.5} />
@@ -1027,9 +1050,7 @@ export function ProjectView() {
                       const reordered = [...chapters];
                       const [moved] = reordered.splice(dragIdx, 1);
                       reordered.splice(dragOverIdx, 0, moved);
-                      reordered.forEach((ch, i) => {
-                        updateChapter(ch.id, { number: i + 1, timelinePosition: i + 1 });
-                      });
+                      applyRenumber(reorderMap(chapters, reordered.map((c) => c.id)), chapters.length);
                       if (moved.prose) {
                         setReorderWarning(`Moved "${moved.title}" — check continuity for referenced characters and events.`);
                         setTimeout(() => setReorderWarning(null), 5000);
@@ -1135,14 +1156,58 @@ export function ProjectView() {
               );
             })}
 
-            {/* Add Chapter */}
-            <button
-              onClick={addNewChapter}
-              className="w-full flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-black/10 text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all duration-200 text-sm"
-            >
-              <Plus size={16} />
-              Add Chapter
-            </button>
+            {/* Add Chapter — at the end, or inserted anywhere (a prequel as the new chapter 1) */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => addNewChapter()}
+                className="flex-1 flex items-center justify-center gap-2 p-4 rounded-2xl border border-dashed border-black/10 text-text-tertiary hover:text-text-primary hover:bg-white/40 transition-all duration-200 text-sm"
+              >
+                <Plus size={16} />
+                Add {isChildrensBook ? 'Page' : 'Chapter'}
+              </button>
+              {chapters.length > 0 && (
+                <button
+                  onClick={() => { setInsertAt(1); setShowInsert((v) => !v); }}
+                  aria-expanded={showInsert}
+                  className={cn(
+                    'px-4 rounded-2xl border border-dashed text-sm transition-all duration-200',
+                    showInsert ? 'border-black/20 bg-white/60 text-text-primary' : 'border-black/10 text-text-tertiary hover:text-text-primary hover:bg-white/40',
+                  )}
+                >
+                  Insert…
+                </button>
+              )}
+            </div>
+            {showInsert && chapters.length > 0 && (
+              <div className="rounded-2xl glass p-4 space-y-3 animate-fade-in">
+                <label className="block text-sm font-medium" htmlFor="insert-at">Where should the new {isChildrensBook ? 'page' : 'chapter'} go?</label>
+                <select
+                  id="insert-at"
+                  value={insertAt}
+                  onChange={(e) => setInsertAt(Number(e.target.value))}
+                  className="w-full rounded-xl border border-black/10 bg-white/80 px-3 py-2 text-sm outline-none"
+                >
+                  <option value={1}>At the start — a new {isChildrensBook ? 'page' : 'chapter'} 1 (prequel, prologue)</option>
+                  {chapters.slice(0, -1).map((c) => (
+                    <option key={c.id} value={c.number + 1}>After {c.number}: {c.title}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-text-tertiary leading-relaxed">
+                  {insertAt <= chapters.length
+                    ? `${isChildrensBook ? 'Pages' : 'Chapters'} ${insertAt}–${chapters.length} become ${insertAt + 1}–${chapters.length + 1}. Their thread map and character map beats, story memory and facts move with them, and the new ${isChildrensBook ? 'page' : 'chapter'} is written to lead into what comes after it.`
+                    : ''}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setShowInsert(false); addNewChapter(insertAt); }}
+                    className="flex-1 py-2 rounded-xl bg-text-primary text-text-inverse text-sm font-semibold"
+                  >
+                    Insert {isChildrensBook ? 'page' : 'chapter'} {insertAt}
+                  </button>
+                  <button onClick={() => setShowInsert(false)} className="px-4 py-2 rounded-xl bg-black/5 text-sm">Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

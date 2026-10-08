@@ -26,6 +26,7 @@ import {
   buildPriorMemoryForCheck,
   diffChapterMemory,
   foldStoryState,
+  laterChapterCanon,
   memoryMeta,
   parseMemorySections,
   parseNewCanon,
@@ -97,6 +98,8 @@ export function buildContinuityExtractionPrompt(args: {
     })
     .filter(Boolean)
     .join('\n');
+  const later = laterChapterCanon(chapter, allChapters, args.factBook);
+  const laterMemory = [...later.facts, ...later.notMet, ...later.dated].join('\n');
   const knownNames = canon
     .filter((e) => e.type === 'character' || e.type === 'artifact' || e.type === 'location')
     .map((e) => `${e.name} (${e.type})`)
@@ -142,7 +145,7 @@ Use these exact names when they refer to the same person, place, or object: ${kn
 
 ESTABLISHED MEMORY FROM EARLIER CHAPTERS:
 ${priorMemory || '(none yet)'}
-${canonLimits ? `\nCHARACTER LIMITS (from their profiles):\n${canonLimits}\n` : ''}
+${canonLimits ? `\nCHARACTER LIMITS (from their profiles):\n${canonLimits}\n` : ''}${laterMemory ? `\nESTABLISHED IN LATER CHAPTERS (already written — this chapter comes before them. Flag only a direct conflict with what they say was true at or before this point, e.g. a pair meeting before they first meet or a past event shown differently; later developments are not conflicts):\n${laterMemory}\n` : ''}
 
 EXISTING OPEN THREADS:
 ${openThreadsList || '(none)'}
