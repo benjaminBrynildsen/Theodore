@@ -1205,7 +1205,59 @@ export function buildCanonAndMemory(
   const canonNames = new Set(entries.flatMap((e) => [e.name, ...(e.type === 'character' ? (e as CharacterEntry).character?.aliases || [] : [])]).map(norm));
   const memory = buildStoryMemoryBlock(allChapters, chapter, sel, state, { canonNames });
   if (memory) parts.push(memory);
+  const later = buildLaterChaptersBlock(chapter, allChapters, factBook);
+  if (later) parts.push(later);
   return parts.join('\n\n');
+}
+
+/** Facts, first meetings, ages and dates that chapters after this one establish. */
+export function laterChapterCanon(chapter: Chapter, allChapters: Chapter[], factBook?: unknown): { facts: string[]; notMet: string[]; dated: string[] } {
+  const n = chapter.number || 0;
+  if (!allChapters.some((c) => c.id !== chapter.id && (c.number || 0) > n && c.prose?.trim())) return { facts: [], notMet: [], dated: [] };
+  const full = applyFactBook(foldStoryState(allChapters.filter((c) => c.id !== chapter.id)), factBook, Infinity);
+  return {
+    facts: full.facts.filter((f) => (f.chapter || 0) > n).slice(0, 100).map((f) => `- ${f.subject}: ${f.fact} [Ch.${f.chapter}]`),
+    notMet: full.meetings.filter((m) => m.firstChapter > n).map((m) => `- ${m.a} & ${m.b} first meet in Ch.${m.firstChapter}${m.how ? ` (${m.how})` : ''}`),
+    dated: full.timeline.filter((t) => (t.kind === 'age' || t.kind === 'date') && t.chapter > n)
+      .map((t) => (t.kind === 'age' ? `- ${t.subject} is ${t.detail} as of Ch.${t.chapter}` : `- ${t.subject}${t.when ? ` — ${t.when}` : ''}`)),
+  };
+}
+
+/**
+ * For a chapter that comes before chapters already written (a prequel, an
+ * inserted chapter, a rebuild of an early chapter): what the later chapters
+ * establish is canon, so this one leads into them without contradicting them.
+ */
+export function buildLaterChaptersBlock(chapter: Chapter, allChapters: Chapter[], factBook?: unknown): string {
+  const n = chapter.number || 0;
+  const later = allChapters
+    .filter((c) => c.id !== chapter.id && (c.number || 0) > n && c.prose?.trim())
+    .sort((a, b) => (a.number || 0) - (b.number || 0));
+  if (!later.length) return '';
+  const clip = (t: string, max: number) => (t.length > max ? `${t.slice(0, max).replace(/\s+\S*$/, '')}…` : t);
+
+  const summaries = later.slice(0, 10).map((c) => {
+    const m = memoryMeta(c);
+    const text = m.richSummary || m.summary || c.premise?.purpose || '';
+    return text ? `- Ch.${c.number} "${c.title}": ${clip(text.trim(), 450)}` : `- Ch.${c.number} "${c.title}" (written)`;
+  });
+
+  const { facts, notMet, dated } = laterChapterCanon(chapter, allChapters, factBook);
+
+  const next = later[0];
+  const opening = clip(stripProductionTags(next.prose || '').trim(), 1500);
+
+  return [
+    '=== LATER CHAPTERS ARE ALREADY WRITTEN — they are canon ===',
+    `This chapter comes BEFORE ${later.length === 1 ? 'a chapter' : `${later.length} chapters`} that already exist. Nothing here may contradict them: the events, injuries, relationships, what each character knows, and how past events are described there (unless the author's notes for this chapter deliberately change something). If they refer back to something this chapter shows, show it exactly the way they describe it. Keep their surprises for them: don't reveal here what they reveal later.`,
+    `What happens after this chapter:\n${summaries.join('\n')}`,
+    facts.length ? `Details the later chapters establish (keep every one consistent):\n${facts.join('\n')}` : '',
+    dated.length ? `Ages and dates from later chapters (work backwards from these):\n${dated.join('\n')}` : '',
+    notMet.length ? `These characters have NOT met yet in this chapter — they first meet later:\n${notMet.join('\n')}` : '',
+    next.number === n + 1 && opening
+      ? `Ch.${next.number} opens like this — end this chapter so it leads into it naturally:\n---\n${opening}\n---`
+      : '',
+  ].filter(Boolean).join('\n\n');
 }
 
 // ---------- Staleness ----------

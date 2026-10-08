@@ -22,6 +22,8 @@ import { buildGenerationPrompt, buildSelectionEditPrompt, buildEditChatContext }
 import { normalizeDials, buildDialsBlock, formatWords, measureDialoguePct, DEFAULT_DIALS } from '../src/lib/chapter-dials';
 import { parseStoryChanges, applyStoryChanges, buildStoryContext, buildStoryChangesPrompt, storyBasis, readChangeStream, countStreamedChanges, buildStoryChatSystem } from '../src/lib/story-chat';
 import { applyFactBook, factRows, addFact, editFact, deleteFact, setSecret, markSeen, groupBySubject, setTimeline, setMeeting } from '../src/lib/fact-book';
+import { insertionMap, reorderMap, planRenumber, renumberTitle } from '../src/lib/chapter-renumber';
+import { buildLaterChaptersBlock } from '../src/lib/story-memory';
 import { appendEvent, changedChars, revisedShare, chapterAuthorship, buildAuthorshipReport, renderAuthorshipHtml, describeEvent, changedFieldLabels } from '../src/lib/authorship';
 import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
@@ -1192,6 +1194,59 @@ t('timeline + who has met whom: parsed, folded, overridden, and in the prompt', 
   const c6 = ch(6, { timeline: [{ kind: 'age', subject: 'Mara Quinn', canonId: 'm1', detail: '37', chapter: 6 }] });
   const c7 = ch(7, {});
   assert.equal(applyFactBook(foldStoryState([...all, c6, c7], 'tl7'), book, 7).timeline.find((x) => x.kind === 'age')!.detail, '37');
+});
+
+t('inserting a chapter moves numbers, memory, maps and facts with each chapter', () => {
+  const ch = (n: number, title: string, meta: any = {}) => ({ id: 'r' + n, projectId: 'p', number: n, title, prose: 'x', aiIntentMetadata: meta }) as any;
+  const chapters = [
+    ch(1, 'Chapter 1', { facts: [{ subject: 'June', fact: 'Drove the red car', chapter: 1 }], openedThreads: [{ id: 't', character: 'June', thread: 'the crash', introducedInChapter: 1 }] }),
+    ch(2, 'The Funeral', { meetings: [{ a: 'Mara', b: 'Eli', chapter: 2 }], knowledge: [{ secret: 'x', knownBy: ['a'], hiddenFrom: [], chapter: 2 }], continuityStale: { fromChapter: 1, changes: [], at: '' } }),
+  ];
+  const project = {
+    threadPlan: { version: 1, generatedAt: '', chapterCount: 2, threads: [{ id: 'a', title: 'Crash', question: '', resolution: '', tier: 'major', kind: 'mystery', opensIn: 1, closesIn: 2, characters: [], beats: [{ chapter: 1, type: 'open', note: 'o' }, { chapter: 2, type: 'close', note: 'c' }] }] },
+    arcPlan: { version: 1, generatedAt: '', chapterCount: 2, characters: [{ id: 'c', name: 'June', introducedIn: 1, beats: [{ chapter: 2, type: 'turn', note: '' }] }], artifacts: [{ id: 'k', name: 'Key', introducedIn: 2, payoffIn: 2, beats: [] }] },
+    factBook: { facts: [{ id: 'f', kind: 'story', subject: 'June', fact: 'x', chapter: 2, at: '' }], secrets: [], timeline: [], meetings: [{ id: 'm', a: 'A', b: 'B', firstChapter: 1, chapter: 2, at: '' }], hidden: [], seen: [] },
+  };
+  const plan = planRenumber(chapters, project, insertionMap(1), 3);
+  const u = Object.fromEntries(plan.chapters.map((c) => [c.id, c.updates])) as any;
+  assert.equal(u.r1.number, 2);
+  assert.equal(u.r1.title, 'Chapter 2', 'default title follows the number');
+  assert.equal(u.r2.title, undefined, 'a real title is kept');
+  assert.equal(u.r1.aiIntentMetadata.facts[0].chapter, 2);
+  assert.equal(u.r1.aiIntentMetadata.openedThreads[0].introducedInChapter, 2);
+  assert.equal(u.r2.aiIntentMetadata.meetings[0].chapter, 3);
+  assert.equal(u.r2.aiIntentMetadata.continuityStale.fromChapter, 2);
+  const th = plan.project.threadPlan!.threads[0];
+  assert.deepEqual([th.opensIn, th.closesIn, th.beats.map((b) => b.chapter), plan.project.threadPlan!.chapterCount], [2, 3, [2, 3], 3]);
+  const arc = plan.project.arcPlan!;
+  assert.deepEqual([arc.characters[0].introducedIn, arc.characters[0].beats[0].chapter, arc.artifacts[0].payoffIn], [2, 3, 3]);
+  assert.deepEqual([plan.project.factBook!.facts[0].chapter, plan.project.factBook!.meetings[0].firstChapter, plan.project.factBook!.meetings[0].chapter], [3, 2, 3]);
+
+  // Insert in the middle: only later chapters move.
+  const mid = planRenumber(chapters, {}, insertionMap(2), 3);
+  assert.deepEqual(mid.chapters.map((c) => [c.id, c.updates.number]), [['r2', 3]]);
+  // Reorder: beats follow their chapter.
+  const swap = planRenumber(chapters, project, reorderMap(chapters, ['r2', 'r1']), 2);
+  assert.deepEqual(swap.project.threadPlan!.threads[0].beats.map((b) => [b.chapter, b.type]), [[1, 'close'], [2, 'open']]);
+  assert.equal(renumberTitle('Page 4', 4, 5), 'Page 5');
+  assert.equal(renumberTitle('Chapter 4', 3, 5), 'Chapter 4', 'only renumbers its own default title');
+});
+
+t('a prequel is written against the chapters that already follow it', () => {
+  const ch = (n: number, meta: any, prose = 'x') => ({ id: 'q' + n, number: n, title: 'T' + n, prose, aiIntentMetadata: { continuityVersion: 3, ...meta } }) as any;
+  const pre = ch(1, {}, '');
+  const c2 = ch(2, { richSummary: 'Mara wakes in hospital after the crash.', facts: [{ subject: 'June', fact: 'Died in the crash on Route 9', chapter: 2 }], meetings: [{ a: 'Mara', b: 'Eli', chapter: 2 }], timeline: [{ kind: 'age', subject: 'Mara', detail: '17', chapter: 2 }] }, 'The hospital light was the first thing Mara saw.');
+  const c3 = ch(3, { summary: 'Eli visits.' });
+  const block = buildLaterChaptersBlock(pre, [pre, c2, c3]);
+  assert.ok(block.includes('LATER CHAPTERS ARE ALREADY WRITTEN'));
+  assert.ok(block.includes('Mara wakes in hospital') && block.includes('Eli visits.'));
+  assert.ok(block.includes('June: Died in the crash on Route 9 [Ch.2]'));
+  assert.ok(block.includes('Mara & Eli first meet in Ch.2'));
+  assert.ok(block.includes('Mara is 17 as of Ch.2'));
+  assert.ok(block.includes('The hospital light was the first thing Mara saw.'), 'next chapter opening for the handoff');
+  assert.equal(buildLaterChaptersBlock(c3, [pre, c2, c3]), '', 'nothing after the last chapter');
+  assert.ok(buildCanonAndMemory([], pre, [pre, c2, c3], false).includes('LATER CHAPTERS ARE ALREADY WRITTEN'));
+  assert.ok(buildContinuityExtractionPrompt({ projectTitle: 'B', chapter: { ...pre, prose: 'p' }, allChapters: [pre, c2, c3], canon: [] }).includes('ESTABLISHED IN LATER CHAPTERS'));
 });
 
 console.log(`\n${passed} passed`);
