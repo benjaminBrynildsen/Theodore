@@ -619,3 +619,29 @@ export const pushTokens = pgTable('push_tokens', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
   lastSeenAt: timestamp('last_seen_at').defaultNow().notNull(),
 });
+
+// ========== Listening Notes ==========
+// Notes the listener types while an audiobook plays, pinned to the chapter
+// and the stretch of audio before they tapped. Private to the user who wrote
+// them; never fed into generation unless they choose to use them.
+export const listenNotes = pgTable('listen_notes', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  projectId: text('project_id').notNull(),
+  chapterId: text('chapter_id').notNull(),
+  chapterNumber: integer('chapter_number'),
+  chapterTitle: text('chapter_title'),
+  /** Seconds into the chapter audio when the note button was tapped. */
+  audioTime: real('audio_time').notNull().default(0),
+  /** Start of the stretch the note is about (audioTime minus the lookback). */
+  startTime: real('start_time').notNull().default(0),
+  /** The text heard over that stretch (estimated from the audio position). */
+  passage: text('passage'),
+  passageStart: integer('passage_start'),
+  passageEnd: integer('passage_end'),
+  note: text('note').notNull().default(''),
+  /** open | used | dismissed */
+  status: text('status').notNull().default('open'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});

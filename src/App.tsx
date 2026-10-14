@@ -21,6 +21,7 @@ import { AudioPlayerBar } from './components/layout/AudioPlayerBar';
 import { GenerationProgressBar } from './components/layout/GenerationProgressBar';
 import { AudiobookPanel } from './components/features/AudiobookPanel';
 import { MobilePlayerBar, MobilePlayerFullscreen } from './components/features/MobilePlayer';
+import { ListenNoteCapture } from './components/features/ListenNoteCapture';
 import { MobileStudioPanel } from './components/layout/MobileStudioPanel';
 import { useAudioStore } from './store/audio';
 import * as pixel from './lib/pixel';
@@ -661,6 +662,7 @@ export default function App() {
           {mobilePlayerExpanded && (
             <MobilePlayerFullscreen onCollapse={() => setMobilePlayerExpanded(false)} />
           )}
+          <ListenNoteCapture />
           {showReadingMode && (
             <Suspense fallback={<ViewLoader label="Loading reading mode..." />}>
               <ReadingMode onClose={() => setShowReadingMode(false)} />
@@ -788,6 +790,7 @@ export default function App() {
       {mobilePlayerExpanded && (
         <MobilePlayerFullscreen onCollapse={() => setMobilePlayerExpanded(false)} />
       )}
+      <ListenNoteCapture />
       <Suspense fallback={null}>
         <UpgradeModal />
         <BoostModal />

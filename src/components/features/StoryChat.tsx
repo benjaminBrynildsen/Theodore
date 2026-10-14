@@ -32,14 +32,16 @@ function loadMessages(projectId: string): StoryChatMessage[] {
  * changes to the thread map, character & object map and chapter outlines.
  * Nothing changes until the author applies the changes they keep.
  */
-export function StoryChat({ project, chapters, onClose }: { project: Project; chapters: Chapter[]; onClose: () => void }) {
+export function StoryChat({ project, chapters, onClose, prefill }: { project: Project; chapters: Chapter[]; onClose: () => void; prefill?: { text: string; key: number } | null }) {
   const updateProject = useStore((s) => s.updateProject);
   const updateChapter = useStore((s) => s.updateChapter);
   // Saved on the book (your account); a conversation kept on this device before that moves over.
   const [messages, setMessages] = useState<StoryChatMessage[]>(() =>
     project.storyChat?.messages?.length ? project.storyChat.messages : loadMessages(project.id));
   const [decisions, setDecisions] = useState<StoryChatDecision[]>(() => project.storyChat?.decisions || []);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(prefill?.text || '');
+  // A message handed over from elsewhere (e.g. listening notes) lands in the box, ready to send.
+  useEffect(() => { if (prefill?.text) setInput(prefill.text); }, [prefill?.key, prefill?.text]);
   const [phase, setPhase] = useState<'idle' | 'replying' | 'drafting'>('idle');
   const [draft, setDraft] = useState<StoryChangeSet | null>(null);
   const [rejected, setRejected] = useState<Set<string>>(new Set());

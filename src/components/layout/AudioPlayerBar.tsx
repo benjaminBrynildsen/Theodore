@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Loader2, X, Volume2, VolumeX, Headphones } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
+import { ListenNoteButton } from '../features/ListenNoteCapture';
 import { useAuthStore } from '../../store/auth';
 import { useCanonStore } from '../../store/canon';
 import { useGenerationStore } from '../../store/generation';
@@ -1058,6 +1059,9 @@ export function AudioPlayerBar() {
               <SkipForward size={16} />
             </button>
           </div>
+
+          {/* Note at this moment */}
+          <ListenNoteButton dark className="ml-1 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-xs" />
 
           {/* Volume control */}
           <div className="hidden sm:flex items-center gap-2 ml-2">
