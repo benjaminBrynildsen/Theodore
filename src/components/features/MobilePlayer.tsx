@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { ListenNoteButton } from './ListenNoteCapture';
 import { Play, Pause, SkipBack, SkipForward, ChevronDown, Volume2, VolumeX, RotateCcw, RotateCw, Loader2, Sparkles, List, X, Check } from 'lucide-react';
 import { useStore } from '../../store';
 import { useAudioStore } from '../../store/audio';
@@ -151,6 +152,9 @@ export function MobilePlayerBar({ onExpand }: { onExpand: () => void }) {
             {currentChapter ? project.title : activeChapter ? `${activeChapter.title || ''}` : project.title}
           </div>
         </div>
+
+        {/* Note at this moment */}
+        {currentChapterId && <ListenNoteButton nested label={false} className="w-9 h-9 flex-shrink-0" />}
 
         {/* Play/pause */}
         <div
@@ -353,6 +357,11 @@ export function MobilePlayerFullscreen({ onCollapse }: { onCollapse: () => void 
             <RotateCw size={26} />
             <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold pointer-events-none">15</span>
           </button>
+        </div>
+
+        {/* Note — pinned to the last 30 seconds, for later */}
+        <div className="flex justify-center mb-5">
+          <ListenNoteButton dark className="px-6 py-3 bg-white/10 hover:bg-white/20 text-[15px]" />
         </div>
 
         {/* Meta row: chapter chip + volume */}

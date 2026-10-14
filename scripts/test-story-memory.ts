@@ -24,6 +24,7 @@ import { parseStoryChanges, applyStoryChanges, buildStoryContext, buildStoryChan
 import { applyFactBook, factRows, addFact, editFact, deleteFact, setSecret, markSeen, groupBySubject, setTimeline, setMeeting } from '../src/lib/fact-book';
 import { insertionMap, reorderMap, planRenumber, renumberTitle } from '../src/lib/chapter-renumber';
 import { buildLaterChaptersBlock } from '../src/lib/story-memory';
+import { passageAt, notesAsMessage, formatClock } from '../src/lib/listen-notes';
 import { appendEvent, changedChars, revisedShare, chapterAuthorship, buildAuthorshipReport, renderAuthorshipHtml, describeEvent, changedFieldLabels } from '../src/lib/authorship';
 import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
@@ -1247,6 +1248,25 @@ t('a prequel is written against the chapters that already follow it', () => {
   assert.equal(buildLaterChaptersBlock(c3, [pre, c2, c3]), '', 'nothing after the last chapter');
   assert.ok(buildCanonAndMemory([], pre, [pre, c2, c3], false).includes('LATER CHAPTERS ARE ALREADY WRITTEN'));
   assert.ok(buildContinuityExtractionPrompt({ projectTitle: 'B', chapter: { ...pre, prose: 'p' }, allChapters: [pre, c2, c3], canon: [] }).includes('ESTABLISHED IN LATER CHAPTERS'));
+});
+
+t('listening notes: the passage heard over the last stretch, widened to whole sentences', () => {
+  const prose = 'One. Two two. Three three three. Four four four four. Five five five five five.';
+  // 100 s of audio; 40–60 s is the middle of the chapter.
+  const p = passageAt(prose, 40, 60, 100)!;
+  assert.equal(p.text, 'Four four four four.');
+  assert.equal(prose.slice(p.start, p.end).trim(), p.text);
+  assert.equal(passageAt(prose, 0, 5, 100)!.text, 'One.');
+  assert.ok(passageAt(prose, 90, 130, 100)!.text.startsWith('Five'), 'past the end clamps');
+  assert.equal(passageAt('', 0, 10, 100), null);
+  assert.equal(passageAt(prose, 0, 10, 0), null, 'unknown duration');
+  assert.ok(!passageAt('[whisper] Quiet now. Loud later.', 0, 1, 100)!.text.includes('[whisper]'), 'production tags left out');
+  const quoted = passageAt('He said, "Go home." She stayed. Then rain.', 45, 60, 100)!;
+  assert.equal(passageAt('He said, "Go home." She stayed. Then rain.', 25, 30, 100)!.text, 'He said, "Go home."', 'a quote ends the sentence');
+  assert.equal(quoted.text, 'She stayed.');
+  assert.equal(formatClock(125), '2:05');
+  const msg = notesAsMessage([{ id: 'a', projectId: 'p', chapterId: 'c', chapterNumber: 3, chapterTitle: 'Rain', audioTime: 95, startTime: 65, passage: 'She stayed.', passageStart: 0, passageEnd: 1, note: 'June would leave here', status: 'open', createdAt: '' }]);
+  assert.ok(msg.includes('Ch 3 (“Rain”) at 1:05–1:35: June would leave here') && msg.includes('While listening to: “She stayed.”') && msg.endsWith('work these in?'));
 });
 
 console.log(`\n${passed} passed`);

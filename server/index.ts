@@ -49,6 +49,7 @@ import { receiveJourneyEvents, receiveBeacon, getJourneys, getJourneyDetail, get
 import { ensureGuestSessionId, upsertGuestBackup, estimatePayloadBytes, MAX_PAYLOAD_BYTES, hashIp, claimGuestBackupForUser } from './guest-session.js';
 import { verifyAppleIdentityToken } from './apple-auth.js';
 import { attachActiveCharacterRoutes } from './active-character.js';
+import { attachListenNoteRoutes } from './listen-notes.js';
 import { parseBookText } from './book-parser.js';
 import { pixelHandler, listRecipients, createRecipient, updateRecipient, deleteRecipient, recipientTimeline, sendEmail as sendOutreachEmail, outreachStats, listTemplates, createTemplate, updateTemplate, deleteTemplate, templateStats } from './outreach.js';
 import { transactionalPixelHandler } from './transactional-pixel.js';
@@ -2043,6 +2044,9 @@ app.delete('/api/canon/:id', async (req, res) => {
 
 // ========== Active Character (Open Beats, STT, Grok reaction stream) ==========
 attachActiveCharacterRoutes(app, requireAuth);
+
+// ========== Listening notes (typed while an audiobook plays) ==========
+attachListenNoteRoutes(app, requireAuth);
 
 // ========== Credit Transactions ==========
 app.get('/api/users/:userId/transactions', async (req, res) => {
@@ -5891,6 +5895,24 @@ async function ensureAdditiveSchema() {
        last_seen_at timestamp NOT NULL DEFAULT NOW()
      )`,
     `CREATE INDEX IF NOT EXISTS push_tokens_user_idx ON push_tokens(user_id)`,
+    `CREATE TABLE IF NOT EXISTS listen_notes (
+       id text PRIMARY KEY,
+       user_id text NOT NULL,
+       project_id text NOT NULL,
+       chapter_id text NOT NULL,
+       chapter_number integer,
+       chapter_title text,
+       audio_time real NOT NULL DEFAULT 0,
+       start_time real NOT NULL DEFAULT 0,
+       passage text,
+       passage_start integer,
+       passage_end integer,
+       note text NOT NULL DEFAULT '',
+       status text NOT NULL DEFAULT 'open',
+       created_at timestamp NOT NULL DEFAULT NOW(),
+       updated_at timestamp NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS listen_notes_user_project_idx ON listen_notes(user_id, project_id)`,
   ];
   for (const sql of statements) {
     try {

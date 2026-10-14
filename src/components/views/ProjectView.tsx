@@ -1,6 +1,6 @@
 import { authorNamesToAvoid } from '../../lib/author-names';
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch, BookText, MessageSquare, FileCheck2, ScrollText } from 'lucide-react';
+import { Plus, FileText, Lock, AlertTriangle, Edit3, GripVertical, AlertCircle, Sparkles, Loader2, LayoutGrid, Info, ImageIcon, Palette, Users, X, ChevronDown, ChevronUp, Headphones, Play, Share2, RotateCcw, GitBranch, BookText, MessageSquare, FileCheck2, ScrollText, NotebookPen } from 'lucide-react';
 import { ArcMap } from '../features/ArcMap';
 import { SynopsisPanel } from '../features/SynopsisPanel';
 import { StoryMemoryCatchUp } from '../features/StoryMemoryCatchUp';
@@ -18,6 +18,7 @@ import { ThreadMap } from '../features/ThreadMap';
 import { StoryChat } from '../features/StoryChat';
 import { AuthorshipRecord } from '../features/AuthorshipRecord';
 import { FactsSecrets } from '../features/FactsSecrets';
+import { ListenNotesPanel } from '../features/ListenNotesPanel';
 import { CHAPTER_PRESETS, buildScaffoldPrompt, parseScaffoldResponse } from '../../lib/scaffold';
 import { generateStream } from '../../lib/generate';
 import { generateImageApi } from '../../lib/image-gen';
@@ -56,6 +57,8 @@ export function ProjectView() {
   const [showStoryChat, setShowStoryChat] = useState(false);
   const [showAuthorship, setShowAuthorship] = useState(false);
   const [showFacts, setShowFacts] = useState(false);
+  const [showNotes, setShowNotes] = useState(false);
+  const [storyChatPrefill, setStoryChatPrefill] = useState<{ text: string; key: number } | null>(null);
   const [showSynopsis, setShowSynopsis] = useState(false);
   const [expandedBeatName, setExpandedBeatName] = useState<string | null>(null);
   const [showStyleGuide, setShowStyleGuide] = useState(false);
@@ -796,6 +799,20 @@ export function ProjectView() {
               Characters & objects
             </button>
           )}
+          {chapters.length >= 1 && (
+            <button
+              onClick={() => setShowNotes((v) => !v)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                showNotes
+                  ? 'bg-rose-100 text-rose-800'
+                  : 'glass-pill text-text-tertiary hover:bg-white/60'
+              )}
+            >
+              <NotebookPen size={13} />
+              Notes
+            </button>
+          )}
           {!isChildrensBook && chapters.length >= 1 && (
             <button
               onClick={() => setShowFacts((v) => !v)}
@@ -830,7 +847,24 @@ export function ProjectView() {
         {/* Story chat — talk through the book's direction, approve drafted plan changes */}
         {!isChildrensBook && showStoryChat && chapters.length >= 2 && (
           <div className="mb-6">
-            <StoryChat project={project} chapters={chapters} onClose={() => setShowStoryChat(false)} />
+            <StoryChat project={project} chapters={chapters} prefill={storyChatPrefill} onClose={() => setShowStoryChat(false)} />
+          </div>
+        )}
+
+        {/* Listening notes — typed while the audiobook plays, kept for later */}
+        {showNotes && (
+          <div className="mb-6">
+            <ListenNotesPanel
+              project={project}
+              chapters={chapters}
+              onClose={() => setShowNotes(false)}
+              onDiscuss={isChildrensBook || chapters.length < 2 ? undefined : (text) => {
+                setStoryChatPrefill({ text, key: Date.now() });
+                setShowStoryChat(true);
+                setShowNotes(false);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
           </div>
         )}
 
