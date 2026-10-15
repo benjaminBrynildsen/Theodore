@@ -34,7 +34,7 @@ import { needsDialogueClarityPass as needsClarityPass } from '../../lib/dialogue
 import { cleanExtendMerge } from '../../lib/extend-merge';
 import { normalizeSceneBreaks } from '../../lib/clean-prose';
 import { analysisModel } from '../../lib/models';
-import { DEFAULT_DIALS, PACE_LABELS, buildDialsBlock, formatWords, measureDialoguePct, normalizeDials, type ChapterDials } from '../../lib/chapter-dials';
+import { DEFAULT_DIALS, PACE_LABELS, buildDialsBlock, buildNaturalSpeechBlock, formatWords, measureDialoguePct, normalizeDials, type ChapterDials } from '../../lib/chapter-dials';
 import { ChapterDialsPanel } from '../features/ChapterDialsPanel';
 import { noteAuthorTyping, recordAuthorship } from '../../lib/authorship-log';
 import { RebuildNotesCheck } from '../features/RebuildNotesCheck';
@@ -590,7 +590,7 @@ export function ChapterView({ chapter }: Props) {
       generationType: 'full-chapter' as GenerationType,
       previousChapterProse: prevChapter?.prose,
       continuation: !!draftTail,
-    }) + currentDraftBlock + (isChildrensBookType
+    }) + currentDraftBlock + (dials.natural && !isChildrensBookType ? `\n\n=== DIALOGUE ===\n${buildNaturalSpeechBlock()}` : '') + (isChildrensBookType
       ? `\n\nAdd ${effectiveWordTarget} more words (2-3 sentences) that continue this picture-book page. Keep the same simple vocabulary, cadence, and tone. Do not add a chapter heading. Do not write more than is natural for a single spread.`
       : `\n\nContinue the CURRENT DRAFT above. Pick up exactly where the final sentence ends; if the draft stops mid-sentence or mid-word, begin by writing that unfinished sentence out in full, then continue. DO NOT output any chapter heading, title, scene label, or restart sentence. DO NOT repeat any content from the current draft. Add approximately ${wordTarget} more words. Dialogue clarity rule: whenever the speaker changes, explicitly identify who is speaking (name, clear action beat, or dialogue tag). Avoid back-to-back unattributed quote-only paragraphs when speakers alternate.${wordTarget >= 3000 ? ' Take your time with scenes — include dialogue, description, and interiority.' : ''}`);
 

@@ -1005,14 +1005,18 @@ t('tracked edits: only marked paragraphs change; rejects leave the original; jun
 
 t('chapter dials: saved values clamped, defaults fill gaps, prompt reflects the choice', () => {
   assert.deepEqual(normalizeDials(null), DEFAULT_DIALS);
-  assert.deepEqual(normalizeDials({ words: 99999, dialoguePct: 3, pace: 9 }), { words: 6000, dialoguePct: 10, pace: 5 });
-  assert.deepEqual(normalizeDials({ words: 2610, dialoguePct: 47 }), { words: 2500, dialoguePct: 45, pace: 3 });
+  assert.deepEqual(normalizeDials({ words: 99999, dialoguePct: 3, pace: 9 }), { words: 6000, dialoguePct: 10, pace: 5, natural: false });
+  assert.deepEqual(normalizeDials({ words: 2610, dialoguePct: 47, natural: true }), { words: 2500, dialoguePct: 45, pace: 3, natural: true });
+  assert.equal(normalizeDials({ natural: 'yes' }).natural, false, 'only a real boolean turns it on');
   assert.equal(formatWords(2750), '2.75k');
   assert.equal(formatWords(3000), '3k');
   assert.equal(formatWords(750), '750');
-  const heavy = buildDialsBlock({ words: 3000, dialoguePct: 60, pace: 5 });
+  const heavy = buildDialsBlock({ words: 3000, dialoguePct: 60, pace: 5, natural: false });
+  assert.ok(!heavy.includes('Natural speech'));
+  const natural = buildDialsBlock({ words: 3000, dialoguePct: 40, pace: 3, natural: true });
+  assert.ok(natural.includes('Natural speech (on)') && natural.includes('Andddd') && natural.includes('em dash'));
   assert.ok(heavy.includes('about 60%') && heavy.includes('55–65%') && heavy.includes('dialogue-heavy') && heavy.includes('Fast and intense'));
-  assert.ok(buildDialsBlock({ words: 2000, dialoguePct: 15, pace: 1 }).includes('Keep dialogue sparse'));
+  assert.ok(buildDialsBlock({ words: 2000, dialoguePct: 15, pace: 1, natural: false }).includes('Keep dialogue sparse'));
   assert.equal(measureDialoguePct('He waited. "Go now," she said. "Fine."'), 43);
 });
 
