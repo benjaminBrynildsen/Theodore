@@ -29,7 +29,8 @@ import { appendEvent, changedChars, revisedShare, chapterAuthorship, buildAuthor
 import { splitNotes, buildRevisionBlock, parseNotesCheck, outstandingNotes } from '../src/lib/rebuild-notes';
 import { splitParagraphs, parseTrackedEdits, applySuggestions, firstChangeRange } from '../src/lib/tracked-edits';
 import { splitNarration, jitteredGap, speakingWpm, countWords, GAP_SECONDS, countSentenceBreaks, countClauseBreaks, stretchPauses, CLAUSE_PAUSE_SECONDS } from '../server/audio-assembly';
-import { buildVoicePieces, markParagraphs, normalizeSceneBreakLines } from '../server/tts';
+import { buildVoicePieces, markParagraphs, normalizeSceneBreakLines, parseGrokVoiceList, mergeGrokVoices, GROK_VOICES, GROK_FLAGSHIP_VOICES as SERVER_FLAGSHIP } from '../server/tts';
+import { GROK_FLAGSHIP_VOICES, withServerGrokVoices } from '../src/lib/grok-voices';
 import { ProseLocks, PROSE_LOCK_ACTIONS } from '../server/generation-lock';
 import { mergePace, paceWpm } from '../src/lib/tts-types';
 import {
@@ -1271,6 +1272,25 @@ t('listening notes: the passage heard over the last stretch, widened to whole se
   assert.equal(formatClock(125), '2:05');
   const msg = notesAsMessage([{ id: 'a', projectId: 'p', chapterId: 'c', chapterNumber: 3, chapterTitle: 'Rain', audioTime: 95, startTime: 65, passage: 'She stayed.', passageStart: 0, passageEnd: 1, note: 'June would leave here', status: 'open', createdAt: '' }]);
   assert.ok(msg.includes('Ch 3 (“Rain”) at 1:05–1:35: June would leave here') && msg.includes('While listening to: “She stayed.”') && msg.endsWith('work these in?'));
+});
+
+t('grok voices: flagship roster on both sides, live list parsed and merged', () => {
+  const ids = (l: Array<{ id: string }>) => l.map((v) => v.id);
+  assert.equal(GROK_FLAGSHIP_VOICES.length, 23);
+  assert.deepEqual(ids(SERVER_FLAGSHIP), ids(GROK_FLAGSHIP_VOICES), 'server and app lists match');
+  assert.ok(ids(GROK_VOICES).includes('grok:orion') && ids(GROK_VOICES).includes('grok:leo'));
+  assert.equal(new Set(ids(GROK_VOICES)).size, GROK_VOICES.length, 'no duplicates');
+  // Shapes xAI might send.
+  assert.deepEqual(parseGrokVoiceList({ voices: [{ voice_id: 'Orion', name: 'Orion' }, { voice_id: 'nova', name: 'Nova', gender: 'Female' }, { voice_id: 'bad id!' }] }).map((v) => v.voiceId), ['orion', 'nova']);
+  assert.deepEqual(parseGrokVoiceList(['eve', 'zed']).map((v) => v.voiceId), ['eve', 'zed']);
+  assert.deepEqual(parseGrokVoiceList({ data: [{ id: 'kai' }] }).map((v) => v.voiceId), ['kai']);
+  assert.deepEqual(parseGrokVoiceList(null), []);
+  const merged = mergeGrokVoices(GROK_VOICES, parseGrokVoiceList({ voices: [{ voice_id: 'orion' }, { voice_id: 'nova', name: 'Nova', gender: 'female', description: 'Bright' }, { voice_id: 'kai' }] }));
+  assert.equal(merged.length, GROK_VOICES.length + 2);
+  assert.deepEqual(merged.slice(-2).map((v) => [v.id, v.name, v.gender, v.desc]), [['grok:nova', 'Nova', 'female', 'Bright'], ['grok:kai', 'Kai', 'neutral', 'New voice']]);
+  const local = [{ id: 'grok:leo', name: 'Leo' }];
+  assert.deepEqual(ids(withServerGrokVoices(local, [{ id: 'grok:leo', name: 'Leo' }, { id: 'grok:nova', name: 'Nova' }, { id: 'fish:x', name: 'X' }], (x) => x)), ['grok:leo', 'grok:nova']);
+  assert.equal(withServerGrokVoices(local, undefined, (x) => x), local);
 });
 
 console.log(`\n${passed} passed`);

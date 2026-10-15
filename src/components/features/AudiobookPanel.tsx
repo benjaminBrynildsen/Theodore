@@ -1,4 +1,5 @@
 import { generateRemainingScenes } from '../../lib/scene-audio';
+import { GROK_FLAGSHIP_VOICES, withServerGrokVoices } from '../../lib/grok-voices';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Headphones, Play, Pause, Download, Loader2, Volume2, VolumeX, User, Wand2, RotateCcw, ChevronDown, ChevronUp, Clock, Trash2, Layers, Music, Sparkles, Zap, Tags, Mic } from 'lucide-react';
@@ -82,7 +83,9 @@ const GROK_VOICES = [
   { id: 'grok:78a495fdbb39', name: 'James', desc: 'English · youthful', gender: 'male' },
   { id: 'grok:f8cf5c2c78d4', name: 'Grace', desc: 'English · young & bright', gender: 'female' },
   { id: 'grok:79f3a8b96d43', name: 'Claire', desc: 'English · poised', gender: 'female' },
-] as const;
+  // xAI's flagship voices (multilingual; gender not published)
+  ...GROK_FLAGSHIP_VOICES,
+];
 
 const FISH_AUDIO_VOICES = [
   { id: 'fish:933563129e564b19a115bedd57b7406a', name: 'Sarah', desc: 'Soft & intimate', gender: 'female' },
@@ -132,6 +135,8 @@ export function AudiobookPanel() {
 
   // Fetch voices from server (includes user's ElevenLabs library if available)
   const [serverVoices, setServerVoices] = useState<typeof ELEVENLABS_VOICES>([]);
+  // Grok voices as the server reports them (includes any xAI added after this build).
+  const [serverGrokVoices, setServerGrokVoices] = useState<Array<{ id: string; name: string; desc?: string; gender?: string }>>([]);
   const preloadedAudioRef = useRef<Record<string, HTMLAudioElement>>({});
   useEffect(() => {
     fetch('/api/tts/free-sample', { credentials: 'include' })
@@ -188,6 +193,8 @@ export function AudiobookPanel() {
       }
       // Grok voice previews — already include the `grok:` prefix in `id`.
       // previewUrl points at /voice-previews/<voiceId>.mp3 served by our backend.
+      const reportedGrok = (data as { grokVoices?: Array<{ id: string; name: string; desc?: string; gender?: string }> }).grokVoices;
+      if (Array.isArray(reportedGrok)) setServerGrokVoices(reportedGrok);
       if ((data as any).grokVoices) {
         for (const v of (data as any).grokVoices as Array<{ id: string; previewUrl?: string }>) {
           if (v.previewUrl) {
@@ -658,7 +665,7 @@ export function AudiobookPanel() {
         tone: 'neutral',
       }))
     : ttsProvider === 'grok'
-    ? GROK_VOICES.map(v => ({
+    ? withServerGrokVoices<{ id: string; name: string; desc: string; gender: string }>([...GROK_VOICES], serverGrokVoices, (x) => x).map(v => ({
         id: v.id,
         name: v.name,
         desc: `${v.desc} · Budget`,
