@@ -43,7 +43,7 @@ function Dial({ label, value, display, min, max, step, ends, onChange }: {
 
 /** Length, dialogue share and pace for the chapter about to be written. */
 export function ChapterDialsPanel({ value, onChange }: { value: ChapterDials; onChange: (d: ChapterDials) => void }) {
-  const isDefault = value.words === DEFAULT_DIALS.words && value.dialoguePct === DEFAULT_DIALS.dialoguePct && value.pace === DEFAULT_DIALS.pace;
+  const isDefault = value.words === DEFAULT_DIALS.words && value.dialoguePct === DEFAULT_DIALS.dialoguePct && value.pace === DEFAULT_DIALS.pace && value.natural === DEFAULT_DIALS.natural;
   return (
     <div className="max-w-xl mx-auto mb-5 px-2">
       <style>{`
@@ -87,12 +87,31 @@ export function ChapterDialsPanel({ value, onChange }: { value: ChapterDials; on
           ends={['Slow & reflective', 'Fast & intense']}
           onChange={(pace) => onChange({ ...value, pace })}
         />
+        <label className="flex items-start gap-3 cursor-pointer select-none">
+          <span className="flex-1">
+            <span className="block text-[11px] font-semibold uppercase tracking-wide text-text-tertiary">Natural speech</span>
+            <span className="block text-[12px] text-text-secondary leading-snug mt-0.5">
+              Dialogue that sounds spoken: “Andddd I'm ignoring it,” trailing off, the odd interruption. Used sparingly.
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={value.natural}
+            onChange={(e) => onChange({ ...value, natural: e.target.checked })}
+            className="sr-only peer"
+          />
+          <span
+            aria-hidden
+            className="relative mt-1 w-11 h-6 flex-shrink-0 rounded-full bg-black/15 transition-colors peer-checked:bg-text-primary peer-focus-visible:ring-2 peer-focus-visible:ring-black/20 after:absolute after:top-0.5 after:left-0.5 after:w-5 after:h-5 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-5"
+          />
+        </label>
         {!isDefault && (
           <button
             onClick={() => onChange(DEFAULT_DIALS)}
             className="inline-flex items-center gap-1 text-[11px] text-text-tertiary hover:text-text-primary"
           >
-            <RotateCcw size={11} /> Reset to defaults ({DEFAULT_DIALS.words.toLocaleString()} words · {DEFAULT_DIALS.dialoguePct}% dialogue · {PACE_LABELS[DEFAULT_DIALS.pace]})
+            <RotateCcw size={11} /> Reset to defaults ({DEFAULT_DIALS.words.toLocaleString()} words · {DEFAULT_DIALS.dialoguePct}% dialogue · {PACE_LABELS[DEFAULT_DIALS.pace]} · natural speech off)
           </button>
         )}
       </div>
