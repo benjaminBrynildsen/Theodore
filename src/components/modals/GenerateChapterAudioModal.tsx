@@ -8,6 +8,7 @@
 // the assignment algorithm.
 
 import { useEffect, useMemo, useState } from 'react';
+import { GROK_FLAGSHIP_VOICES } from '../../lib/grok-voices';
 import { X, Mic, Users, Sparkles, Check, Lock, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAudioStore } from '../../store/audio';
 import { useCanonStore } from '../../store/canon';
@@ -39,6 +40,8 @@ interface Props {
 // grouped by accent.
 const NARRATOR_OPTIONS = [
   { id: 'grok:leo', name: 'Leo', desc: 'Authoritative · default' },
+  // Orion: xAI's voice for narration & audiobooks, so it's in the top four.
+  ...GROK_FLAGSHIP_VOICES.filter((v) => v.id === 'grok:orion').map(({ id, name, desc }) => ({ id, name, desc })),
   { id: 'grok:hl46cxygefcf', name: 'Benny', desc: 'New voice' },
   { id: 'grok:sal', name: 'Sal', desc: 'Smooth & grounded' },
   { id: 'grok:rex', name: 'Rex', desc: 'Confident & clear' },
@@ -56,7 +59,9 @@ const NARRATOR_OPTIONS = [
   { id: 'grok:78a495fdbb39', name: 'James', desc: 'English · youthful' },
   { id: 'grok:f8cf5c2c78d4', name: 'Grace', desc: 'English · young' },
   { id: 'grok:79f3a8b96d43', name: 'Claire', desc: 'English · poised' },
-] as const;
+  // xAI's flagship voices (multilingual)
+  ...GROK_FLAGSHIP_VOICES.filter((v) => v.id !== 'grok:orion').map(({ id, name, desc }) => ({ id, name, desc })),
+];
 
 export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfirm }: Props) {
   const audioStore = useAudioStore();
@@ -285,9 +290,9 @@ export function GenerateChapterAudioModal({ isOpen, projectId, onCancel, onConfi
                     className="mt-2 w-full flex items-center justify-center gap-1 text-[12px] font-medium text-text-secondary hover:text-text-primary py-2 rounded-lg hover:bg-black/[0.02] transition-colors"
                   >
                     {narratorExpanded ? (
-                      <>Hide accents <ChevronUp size={12} /></>
+                      <>Show fewer <ChevronUp size={12} /></>
                     ) : (
-                      <>See {NARRATOR_OPTIONS.length - 4} more accents <ChevronDown size={12} /></>
+                      <>See {NARRATOR_OPTIONS.length - 4} more voices <ChevronDown size={12} /></>
                     )}
                   </button>
                 )}

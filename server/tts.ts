@@ -216,9 +216,40 @@ export interface GrokVoiceInfo {
   voiceId: string;   // Bare ID xAI expects (no prefix)
   name: string;
   desc: string;
-  gender: 'male' | 'female';
+  /** 'neutral' where xAI doesn't say; those voices can narrate but aren't auto-cast by gender. */
+  gender: 'male' | 'female' | 'neutral';
   accent: string;
 }
+
+// xAI's flagship voices. xAI publishes tone and use case but not gender, so
+// these are 'neutral' until someone listens and labels them.
+const flagship = (voiceId: string, name: string, desc: string): GrokVoiceInfo =>
+  ({ id: `grok:${voiceId}`, voiceId, name, desc, gender: 'neutral', accent: 'multilingual' });
+export const GROK_FLAGSHIP_VOICES: GrokVoiceInfo[] = [
+  flagship('orion', 'Orion', 'Rich, cinematic & resonant · audiobooks'),
+  flagship('perseus', 'Perseus', 'Strong, confident & trustworthy · narration'),
+  flagship('altair', 'Altair', 'Elegant, refined & premium · narration'),
+  flagship('zagan', 'Zagan', 'Powerful & dramatic · characters & narration'),
+  flagship('carina', 'Carina', 'Soft, empathetic & soothing'),
+  flagship('luna', 'Luna', 'Gentle, patient & nurturing'),
+  flagship('atlas', 'Atlas', 'Confident, commanding & reassuring'),
+  flagship('castor', 'Castor', 'Charismatic, down-to-earth & easygoing'),
+  flagship('sirius', 'Sirius', 'Quick-witted, clever & playful'),
+  flagship('iris', 'Iris', 'Friendly, upbeat & charming'),
+  flagship('helix', 'Helix', 'Bold, dynamic & high-energy'),
+  flagship('zenith', 'Zenith', 'Sharp, focused & driven'),
+  flagship('celeste', 'Celeste', 'Flagship voice'),
+  flagship('aurora', 'Aurora', 'Flagship voice'),
+  flagship('liora', 'Liora', 'Flagship voice'),
+  flagship('helios', 'Helios', 'Flagship voice'),
+  flagship('kepler', 'Kepler', 'Flagship voice'),
+  flagship('rigel', 'Rigel', 'Flagship voice'),
+  flagship('cosmo', 'Cosmo', 'Flagship voice'),
+  flagship('ursa', 'Ursa', 'Flagship voice'),
+  flagship('lumen', 'Lumen', 'Flagship voice'),
+  flagship('lux', 'Lux', 'Flagship voice'),
+  flagship('naksh', 'Naksh', 'Flagship voice'),
+];
 
 // xAI Grok voices, English-speaking subset. Originals (eve/ara/rex/sal/leo)
 // are multilingual; the rest come from xAI's expanded library
@@ -245,8 +276,12 @@ export const GROK_VOICES: GrokVoiceInfo[] = [
   { id: 'grok:78a495fdbb39', voiceId: '78a495fdbb39', name: 'James', desc: 'English · youthful', gender: 'male', accent: 'en' },
   { id: 'grok:f8cf5c2c78d4', voiceId: 'f8cf5c2c78d4', name: 'Grace', desc: 'English · young & bright', gender: 'female', accent: 'en' },
   { id: 'grok:79f3a8b96d43', voiceId: '79f3a8b96d43', name: 'Claire', desc: 'English · poised', gender: 'female', accent: 'en' },
+  // Flagship voices (July 2026: 21 new + Aurora and Liora later). All multilingual.
+  // IDs from xAI's built-in roster; tone notes from xAI's voice docs where given.
+  ...GROK_FLAGSHIP_VOICES,
 ];
 
+// Grows when xAI's live voice list (see refreshGrokVoices) has voices this file doesn't know yet.
 const GROK_VALID_VOICES = new Set(GROK_VOICES.map(v => v.voiceId));
 
 // voice_id → BCP-47 language code. Sending the voice's actual locale
@@ -362,6 +397,8 @@ export async function callGrokTTS(text: string, voiceId: string): Promise<Buffer
   const safeText = tagged.length > GROK_MAX_CHARS_PER_REQUEST
     ? tagged.slice(0, GROK_MAX_CHARS_PER_REQUEST)
     : tagged;
+  // A voice only xAI's live list knows (added after this table) is valid once that list is loaded.
+  if (!grokVoicesCache && !GROK_VALID_VOICES.has(voiceId.replace(/^grok:/i, '').toLowerCase())) await refreshGrokVoices();
   const coerced = coerceVoiceForProvider(voiceId, 'grok');
   if (coerced.coerced) ttsLog(`[grok] coerced voice "${coerced.original}" → "${coerced.voice}" (mismatched provider)`);
 
@@ -470,23 +507,87 @@ async function getOrGenerateGrokPreview(voice: GrokVoiceInfo): Promise<Buffer | 
  * cached yet — first /api/tts/voices call after deploy warms the cache.
  */
 export async function getGrokVoicesWithPreviews(): Promise<(GrokVoiceInfo & { previewUrl?: string })[]> {
-  // Kick off generation for any missing previews. Fire-and-forget — we don't
-  // block the voices-list response on the full warm-up (17 voices × ~1s each
-  // would be too slow). Clients fall back to /api/tts/preview for any voice
-  // whose static file isn't ready yet.
-  for (const v of GROK_VOICES) {
-    const filePath = path.join(GROK_PREVIEW_DIR, `${v.voiceId}.mp3`);
-    if (!grokPreviewMemoryCache.has(v.voiceId) && !fs.existsSync(filePath)) {
-      // intentionally not awaited
-      getOrGenerateGrokPreview(v).catch(() => {});
-    }
+  const voices = await refreshGrokVoices();
+  // Generate missing previews in the background, one at a time so a batch of
+  // new voices doesn't trip xAI's rate limit. Clients fall back to
+  // /api/tts/preview for any voice whose static file isn't ready yet.
+  const missing = voices.filter((v) => !grokPreviewMemoryCache.has(v.voiceId) && !fs.existsSync(path.join(GROK_PREVIEW_DIR, `${v.voiceId}.mp3`)));
+  if (missing.length && !grokPreviewWarmup) {
+    grokPreviewWarmup = (async () => {
+      for (const v of missing) await getOrGenerateGrokPreview(v).catch(() => null);
+    })().finally(() => { grokPreviewWarmup = null; });
   }
 
-  return GROK_VOICES.map(v => {
+  return voices.map(v => {
     const filePath = path.join(GROK_PREVIEW_DIR, `${v.voiceId}.mp3`);
     const ready = grokPreviewMemoryCache.has(v.voiceId) || fs.existsSync(filePath);
     return ready ? { ...v, previewUrl: `/voice-previews/${v.voiceId}.mp3` } : { ...v };
   });
+}
+
+let grokPreviewWarmup: Promise<void> | null = null;
+
+// ========== Live xAI voice list ==========
+// xAI adds voices over time (GET /v1/tts/voices). Anything there that the
+// table above doesn't know yet is offered too, as a narrator voice with a
+// neutral gender, so new voices show up without a code change. Cached; on
+// any failure the table above is used as-is.
+const GROK_VOICES_URL = 'https://api.x.ai/v1/tts/voices';
+const GROK_VOICES_TTL_MS = 6 * 60 * 60 * 1000;
+let grokVoicesCache: { at: number; voices: GrokVoiceInfo[] } | null = null;
+
+/** Voice entries from xAI's list response, whatever its exact shape. */
+export function parseGrokVoiceList(payload: unknown): Array<{ voiceId: string; name?: string; desc?: string; gender?: string }> {
+  const p = payload as Record<string, unknown> | unknown[] | null;
+  const list = Array.isArray(p) ? p : Array.isArray((p as Record<string, unknown>)?.voices) ? (p as Record<string, unknown>).voices as unknown[] : Array.isArray((p as Record<string, unknown>)?.data) ? (p as Record<string, unknown>).data as unknown[] : [];
+  const out: Array<{ voiceId: string; name?: string; desc?: string; gender?: string }> = [];
+  for (const item of list) {
+    if (typeof item === 'string') { if (/^[a-z0-9_-]{2,64}$/i.test(item)) out.push({ voiceId: item.toLowerCase() }); continue; }
+    if (!item || typeof item !== 'object') continue;
+    const o = item as Record<string, unknown>;
+    const raw = String(o.voice_id ?? o.voiceId ?? o.id ?? '').trim();
+    if (!/^[a-z0-9_-]{2,64}$/i.test(raw)) continue;
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 80) : undefined);
+    out.push({ voiceId: raw.toLowerCase(), name: str(o.name ?? o.display_name), desc: str(o.description ?? o.tone), gender: str(o.gender)?.toLowerCase() });
+  }
+  return out;
+}
+
+/** The curated table plus any voices xAI now lists that it doesn't have. */
+export function mergeGrokVoices(curated: GrokVoiceInfo[], live: ReturnType<typeof parseGrokVoiceList>): GrokVoiceInfo[] {
+  const known = new Set(curated.map((v) => v.voiceId.toLowerCase()));
+  const extra: GrokVoiceInfo[] = [];
+  for (const l of live) {
+    if (known.has(l.voiceId)) continue;
+    known.add(l.voiceId);
+    const name = l.name || l.voiceId.charAt(0).toUpperCase() + l.voiceId.slice(1);
+    const gender = l.gender === 'male' || l.gender === 'female' ? l.gender : 'neutral';
+    extra.push({ id: `grok:${l.voiceId}`, voiceId: l.voiceId, name, desc: l.desc || 'New voice', gender, accent: 'multilingual' });
+  }
+  return [...curated, ...extra];
+}
+
+export async function refreshGrokVoices(): Promise<GrokVoiceInfo[]> {
+  if (grokVoicesCache && Date.now() - grokVoicesCache.at < GROK_VOICES_TTL_MS) return grokVoicesCache.voices;
+  const apiKey = process.env.XAI_API_KEY;
+  let voices = GROK_VOICES;
+  if (apiKey) {
+    try {
+      const res = await fetch(GROK_VOICES_URL, { headers: { Authorization: `Bearer ${apiKey}` }, signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        voices = mergeGrokVoices(GROK_VOICES, parseGrokVoiceList(await res.json()));
+        const added = voices.length - GROK_VOICES.length;
+        if (added > 0) ttsLog(`[grok] ${added} voice(s) from xAI's list not in the table: ${voices.slice(GROK_VOICES.length).map((v) => v.voiceId).join(', ')}`);
+      } else {
+        ttsLog(`[grok] voice list ${res.status}; using the built-in table`);
+      }
+    } catch (e) {
+      ttsLog(`[grok] voice list unavailable (${(e as Error).message}); using the built-in table`);
+    }
+  }
+  for (const v of voices) GROK_VALID_VOICES.add(v.voiceId);
+  grokVoicesCache = { at: Date.now(), voices };
+  return voices;
 }
 
 /** Serve a cached preview buffer for the express static handler. */

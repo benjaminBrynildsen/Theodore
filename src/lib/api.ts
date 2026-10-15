@@ -92,7 +92,7 @@ export const api = {
   ttsVoices: () => request<{
     voices: Array<{ id: string; name: string; desc: string; gender: string; tone: string; previewUrl?: string }>;
     fishVoices?: Array<{ id: string; name: string; desc: string; gender: string; tone: string; previewUrl?: string }>;
-    grokVoices?: Array<{ id: string; voiceId: string; name: string; desc: string; gender: 'male' | 'female'; accent: string; previewUrl?: string }>;
+    grokVoices?: Array<{ id: string; voiceId: string; name: string; desc: string; gender: 'male' | 'female' | 'neutral'; accent: string; previewUrl?: string }>;
   }>('/tts/voices'),
   ttsGenerate: async (data: {
     chapterId: string;

@@ -18,6 +18,7 @@
 // flag as the primary signal; web will adopt it once outlines emit it.
 
 import type { CharacterEntry } from '../types/canon';
+import { GROK_FLAGSHIP_VOICES } from './grok-voices';
 
 export const NARRATOR_VOICE = 'grok:leo';
 // Pool head is intentionally the multilingual originals so Phase-1 projects
@@ -158,6 +159,7 @@ const GROK_VOICE_META: Record<string, { name: string; desc: string }> = {
   'grok:78a495fdbb39': { name: 'James', desc: 'English · youthful' },
   'grok:f8cf5c2c78d4': { name: 'Grace', desc: 'English · young & bright' },
   'grok:79f3a8b96d43': { name: 'Claire', desc: 'English · poised' },
+  ...Object.fromEntries(GROK_FLAGSHIP_VOICES.map((v) => [v.id, { name: v.name, desc: v.desc }])),
 };
 
 export function getVoiceLabel(voiceId: string): string {
